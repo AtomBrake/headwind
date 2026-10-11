@@ -295,6 +295,7 @@ def migrate_db():
         ('nutritionCarbGoal',    'INTEGER'),
         ('nutritionFatGoal',     'INTEGER'),
         ('nutritionSugarGoal',   'INTEGER'),
+        ('nutritionAlcoholWeekGoal', 'REAL'),
         ('nutritionWaterGoalMl', 'INTEGER DEFAULT 2500'),
         ('nutritionBmrKcal',     'INTEGER'),
         ('units',                "TEXT DEFAULT 'imperial'"),
@@ -403,6 +404,7 @@ def migrate_db():
         ('nutriScoreGrade', 'TEXT'),
         ('fibre',           'REAL'),
         ('sugar',           'REAL'),
+        ('alcoholUnits',    'REAL'),
     ]:
         if col not in food_log_cols:
             db.execute(f'ALTER TABLE FoodLog ADD COLUMN {col} {defn}')
@@ -653,7 +655,7 @@ def migrate_db():
 
     # A brand-new DB gets these tables from the CREATE statements above, which predate some later columns, and the column checks
     # earlier in this function ran before the tables existed. Add anything still missing now that every table is there.
-    for table, col, defn in (('CustomFood', 'fibre100g', 'REAL'), ('SavedMealItem', 'fibre', 'REAL'), ('FoodCache', 'fibre100g', 'REAL')):
+    for table, col, defn in (('CustomFood', 'fibre100g', 'REAL'), ('SavedMealItem', 'fibre', 'REAL'), ('FoodCache', 'fibre100g', 'REAL'), ('FoodCache', 'abv', 'REAL')):
         have = {r[1] for r in db.execute(f'PRAGMA table_info({table})').fetchall()}
         if have and col not in have:
             db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {defn}')

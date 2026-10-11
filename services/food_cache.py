@@ -46,8 +46,8 @@ def store(products):
             for p in rows:
                 c.execute('''
                     INSERT INTO FoodCache (key, barcode, name, brand, searchText, kcal100g, protein100g, carbs100g,
-                                           fat100g, sugars100g, fibre100g, servingG, imageUrl, nutriScoreGrade, fetchedAt)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, datetime('now'))
+                                           fat100g, sugars100g, fibre100g, servingG, imageUrl, nutriScoreGrade, abv, fetchedAt)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, datetime('now'))
                     ON CONFLICT(key) DO UPDATE SET
                         name=excluded.name, brand=excluded.brand, searchText=excluded.searchText,
                         kcal100g=excluded.kcal100g, protein100g=excluded.protein100g, carbs100g=excluded.carbs100g,
@@ -55,10 +55,11 @@ def store(products):
                         fibre100g=COALESCE(excluded.fibre100g, fibre100g), servingG=excluded.servingG,
                         imageUrl=COALESCE(excluded.imageUrl, imageUrl),
                         nutriScoreGrade=COALESCE(excluded.nutriScoreGrade, nutriScoreGrade),
+                        abv=COALESCE(excluded.abv, abv),
                         fetchedAt=datetime('now')
                 ''', [_key(p), p.get('barcode') or None, p['name'], p.get('brand') or '', _search_text(p),
                       p['kcal_per_100g'], p.get('protein_per_100g'), p.get('carbs_per_100g'), p.get('fat_per_100g'),
-                      p.get('_sugars_per_100g'), p.get('fibre_per_100g'), p.get('serving_g'), p.get('image_url'), p.get('nutri_score_grade')])
+                      p.get('_sugars_per_100g'), p.get('fibre_per_100g'), p.get('serving_g'), p.get('image_url'), p.get('nutri_score_grade'), p.get('abv')])
     except Exception:
         pass
 
@@ -69,7 +70,7 @@ def _row_to_product(r):
         'kcal_per_100g': r['kcal100g'], 'protein_per_100g': r['protein100g'],
         'carbs_per_100g': r['carbs100g'], 'fat_per_100g': r['fat100g'],
         'serving_g': r['servingG'], 'image_url': r['imageUrl'], 'nutri_score_grade': r['nutriScoreGrade'],
-        '_sugars_per_100g': r['sugars100g'], 'fibre_per_100g': r['fibre100g'], 'cached': True,
+        '_sugars_per_100g': r['sugars100g'], 'fibre_per_100g': r['fibre100g'], 'abv': r['abv'], 'cached': True,
     }
 
 

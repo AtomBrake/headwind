@@ -46,7 +46,7 @@ def _parse_serving_g(s):
 def _get_goals():
     row = query_db('''
         SELECT nutritionCalGoal, nutritionProteinGoal, nutritionCarbGoal,
-               nutritionFatGoal, nutritionWaterGoalMl, nutritionBmrKcal, nutritionSugarGoal
+               nutritionFatGoal, nutritionWaterGoalMl, nutritionBmrKcal, nutritionSugarGoal, nutritionAlcoholWeekGoal
         FROM Settings WHERE id=1
     ''', one=True)
     if not row:
@@ -57,6 +57,7 @@ def _get_goals():
         'carbs':   row['nutritionCarbGoal'],
         'fat':     row['nutritionFatGoal'],
         'fibre':   30,                                     # UK recommendation
+        'alcohol_week': row['nutritionAlcoholWeekGoal'] or 14,          # UK guideline: no more than 14 units a week, spread over 3+ days
         'sugar':   row['nutritionSugarGoal'] or 50,         # a limit, not a target: 50 g of total sugars unless you set your own
         'water':   row['nutritionWaterGoalMl'],
         'bmr':     row['nutritionBmrKcal'],
@@ -269,7 +270,7 @@ def save_goals():
     db.execute('''
         UPDATE Settings SET
             nutritionCalGoal=?, nutritionProteinGoal=?, nutritionCarbGoal=?,
-            nutritionFatGoal=?, nutritionWaterGoalMl=?, nutritionBmrKcal=?, nutritionSugarGoal=?
+            nutritionFatGoal=?, nutritionWaterGoalMl=?, nutritionBmrKcal=?, nutritionSugarGoal=?, nutritionAlcoholWeekGoal=?
         WHERE id=1
     ''', [
         d.get('cal')     or None,
@@ -279,6 +280,7 @@ def save_goals():
         d.get('water')   or None,
         d.get('bmr')     or None,
         d.get('sugar')   or None,
+        d.get('alcohol_week') or None,
     ])
     db.commit()
     _mqtt_nutrition()   # goals are HA sensors too
@@ -408,6 +410,7 @@ def _off_product_to_dict(p):
         'image_url':         p.get('image_front_small_url') or p.get('image_front_url') or p.get('image_url'),
         'nutri_score_grade': p.get('nutriscore_grade'),
         '_sugars_per_100g':  n.get('sugars_100g'),
+        'abv':               n.get('alcohol_100g') or n.get('alcohol'),          # % alcohol by volume, for drinks that declare it
     }
 
 
@@ -844,7 +847,7 @@ def log_food():
     d = request.get_json(silent=True) or {}
     if not _valid_date(d.get('date')) or not str(d.get('name') or '').strip():
         return jsonify({'error': 'a valid date (YYYY-MM-DD) and food name are required'}), 400
-    bad = _bad_numbers(d, ('calories', 'protein', 'carbs', 'fat', 'fibre', 'sugar', 'serving_g', 'quantity'))
+    bad = _bad_numbers(d, ('calories', 'protein', 'carbs', 'fat', 'fibre', 'sugar', 'alcohol_units', 'abv', 'serving_g', 'quantity'))
     if bad:
         return jsonify({'error': f'{bad} must be a number between 0 and 100000'}), 400
     rider_id = _default_rider_id()
@@ -858,6 +861,8 @@ def log_food():
         d['fibre'] = _saved_fibre(d.get('barcode'), d.get('name'), d.get('serving_g'), d.get('calories'))
     if d.get('sugar') is None:
         d['sugar'] = _saved_sugar(d.get('barcode'), d.get('name'), d.get('serving_g'), d.get('calories'))
+    if d.get('alcohol_units') is None and d.get('abv') and d.get('serving_g'):
+        d['alcohol_units'] = round(float(d['serving_g']) * float(d['abv']) / 1000, 2)       # grams of a drink ~ ml; 1 UK unit = 10 ml of pure alcohol
     db = get_db()
     values = [
         d['date'], d.get('barcode'), d['name'],
@@ -865,13 +870,13 @@ def log_food():
         d.get('serving_g'), d.get('quantity', 1),
         d.get('meal_type', 'uncategorised'),
         d.get('source', 'manual'),
-        d.get('brand'), d.get('image_url'), d.get('nutri_score_grade'), d.get('fibre'), d.get('sugar'),
+        d.get('brand'), d.get('image_url'), d.get('nutri_score_grade'), d.get('fibre'), d.get('sugar'), d.get('alcohol_units'),
     ]
     if d.get('id'):
         db.execute('''
             UPDATE FoodLog SET
                 logDate=?, barcode=?, foodName=?, calories=?, protein=?, carbs=?, fat=?,
-                servingG=?, quantity=?, mealType=?, source=?, brand=?, imageUrl=?, nutriScoreGrade=?, fibre=?, sugar=?
+                servingG=?, quantity=?, mealType=?, source=?, brand=?, imageUrl=?, nutriScoreGrade=?, fibre=?, sugar=?, alcoholUnits=?
             WHERE id=?
         ''', values + [d['id']])
         entry_id = d['id']
@@ -879,8 +884,8 @@ def log_food():
         db.execute('''
             INSERT INTO FoodLog
                 (logDate, barcode, foodName, calories, protein, carbs, fat,
-                 servingG, quantity, mealType, source, brand, imageUrl, nutriScoreGrade, fibre, sugar, riderId)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 servingG, quantity, mealType, source, brand, imageUrl, nutriScoreGrade, fibre, sugar, alcoholUnits, riderId)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', values + [rider_id])
         entry_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
     if cid:
@@ -1105,13 +1110,28 @@ def delete_water(entry_id):
     return jsonify({'ok': True})
 
 
+# ── Alcohol units ─────────────────────────────────────────────────────
+
+def _alcohol_summary(rider_id, date_str, week_goal):
+    """Units on `date_str`, in the 7 days ending that day, and how many of those 7 days had a drink (the UK guideline is no more than 14 units a week, spread over 3+ days)."""
+    from datetime import date as _d, timedelta as _td
+    try:
+        end = _d.fromisoformat(date_str)
+    except ValueError:
+        return {'today': 0, 'week': 0, 'goal': week_goal, 'days': 0}
+    start = (end - _td(days=6)).isoformat()
+    rows = query_db('SELECT logDate, COALESCE(SUM(alcoholUnits), 0) u FROM FoodLog WHERE riderId=? AND logDate BETWEEN ? AND ? GROUP BY logDate', [rider_id, start, date_str])
+    per = {r['logDate']: r['u'] for r in rows}
+    return {'today': round(per.get(date_str, 0), 1), 'week': round(sum(per.values()), 1), 'goal': week_goal, 'days': sum(1 for u in per.values() if u > 0)}
+
+
 # ── Day summary ───────────────────────────────────────────────────────
 
 @bp.route('/api/day/<date_str>')
 def day_log(date_str):
     rider_id = _default_rider_id()
     entries = query_db('''
-        SELECT id, foodName, calories, protein, carbs, fat, fibre, sugar, servingG, quantity,
+        SELECT id, foodName, calories, protein, carbs, fat, fibre, sugar, alcoholUnits, servingG, quantity,
                barcode, mealType, source, brand, imageUrl, nutriScoreGrade
         FROM FoodLog WHERE riderId=? AND logDate=? ORDER BY createdAt ASC
     ''', [rider_id, date_str])
@@ -1159,7 +1179,9 @@ def day_log(date_str):
         burned      = None
         burn_source = None
 
+    alcohol = _alcohol_summary(rider_id, date_str, goals.get('alcohol_week') or 14)
     return jsonify({
+        'alcohol':       alcohol,
         'entries':       _annotate_food_rows(entries),
         'water_ml':      water_ml,
         'last_water_id': last_water,
@@ -1534,12 +1556,12 @@ def copy_day():
     for e in entries:
         db.execute('''
             INSERT INTO FoodLog
-                (riderId, logDate, barcode, foodName, calories, protein, carbs, fat, fibre, sugar,
+                (riderId, logDate, barcode, foodName, calories, protein, carbs, fat, fibre, sugar, alcoholUnits,
                  servingG, quantity, mealType, source, brand, imageUrl, nutriScoreGrade)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'copied', ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'copied', ?, ?, ?)
         ''', [
             rider_id, to_date, e['barcode'], e['foodName'],
-            e['calories'], e['protein'], e['carbs'], e['fat'], e['fibre'], e['sugar'],
+            e['calories'], e['protein'], e['carbs'], e['fat'], e['fibre'], e['sugar'], e['alcoholUnits'],
             e['servingG'], e['quantity'],
             e['mealType'] if e['mealType'] else 'uncategorised',
             e['brand'], e['imageUrl'], e['nutriScoreGrade'],

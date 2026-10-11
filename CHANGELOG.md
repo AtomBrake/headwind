@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.0-beta] - 2026-10-11
+
+Upgrading is automatic (`FoodLog.alcoholUnits`, `FoodCache.abv`, `Settings.nutritionAlcoholWeekGoal`). Android 0.21.0-beta goes with this.
+
+### Added
+- **Alcohol units.** A *Drink* button on the Nutrition page opens presets (pint of lager, ale or cider, half, bottle, can, small / medium / large wine, prosecco, single and double spirit) or a size (ml) and strength (% ABV) with a count; it works out units (one UK unit is 10 ml of pure alcohol) and the calories from the alcohol, and logs them. Scanned or searched drinks that declare a strength in the food database get their units from it (the strength is cached with the product). A violet *Alcohol (week)* ring shows the last seven days against a weekly limit (14 units, the UK guideline, editable under Goals), turning red past it, with today's units under it; meal headers and entries show units; copying a day keeps them. The day endpoint returns an `alcohol` summary (today, week, goal, drinking days), and `/api/v1/sync/nutrition` carries each entry's units to the phone.
+- **Home Assistant:** `Nutrition Alcohol Today / Week / Remaining / Goal` sensors and an *Alcohol (week)* ring on the example dashboard.
+- **Alcohol and recovery** (Analytics): once there are 5 or more days with 2+ units logged, the morning-after resting heart rate, heart-rate variability and sleep from Garmin are compared with the morning after a dry day (a day only counts as dry if food was logged), with a note that this shows what happens, not why. `services/alcohol.py`.
+
 ## [0.4.1-beta] - 2026-10-11
 
 Upgrading is automatic. Android 0.20.1-beta goes with this (it needs this server to show sugar).

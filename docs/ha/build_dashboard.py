@@ -9,7 +9,7 @@ N = 'sensor.headwind_nutrition_'
 B = 'sensor.bike_tracker_'
 MEALS = [('breakfast', 'Breakfast', 'mdi:coffee'), ('lunch', 'Lunch', 'mdi:food'), ('dinner', 'Dinner', 'mdi:silverware-fork-knife'),
          ('snacks', 'Snacks', 'mdi:cookie'), ('ride_fuel', 'Ride fuel', 'mdi:bike-fast'), ('recovery', 'Recovery', 'mdi:blender')]
-HEX = {'protein': '#facc15', 'carbs': '#38bdf8', 'fat': '#f87171', 'fibre': '#fb923c', 'sugar': '#f472b6', 'kcal': '#fc4c02', 'water': '#60a5fa'}
+HEX = {'protein': '#facc15', 'carbs': '#38bdf8', 'fat': '#f87171', 'fibre': '#fb923c', 'sugar': '#f472b6', 'alcohol': '#a78bfa', 'kcal': '#fc4c02', 'water': '#60a5fa'}
 
 BG = 'linear-gradient(150deg,rgba(255,255,255,.16) 0%,rgba(255,255,255,.05) 55%,rgba(8,20,34,.35) 100%)'
 THEME = 'Frosted Glass Dark'
@@ -431,13 +431,13 @@ return `
     <span style="font-size:11px;color:${{MUTED}}">rough · full-day estimate</span></div>
 </div>`;"""), 12)
 
-    def macro(name, ent, colour, key):
+    def macro(name, ent, colour, key, unit='g'):
         return cols(bc([ent, N + key + '_goal'], f"""
 const val = n('{ent}'), goal = n('{N}{key}_goal');
 const pct = goal ? val / goal * 100 : 0;
 const over = goal && val > goal;
-const sub = !goal ? 'set a goal in Headwind' : (over ? `<span style="color:#f87171">${{fmt(val - goal)}}g over</span>` : `${{fmt(goal - val)}}g to go`);
-return ring(pct, over ? '#f87171' : '{colour}', Math.round(val * 10) / 10 % 1 === 0 ? Math.round(val) : val.toFixed(1), goal ? 'of ' + fmt(goal) + 'g' : 'g') +
+const sub = !goal ? 'set a goal in Headwind' : (over ? `<span style="color:#f87171">${{fmt(val - goal)}}{unit} over</span>` : `${{fmt(goal - val)}}{unit} to go`);
+return ring(pct, over ? '#f87171' : '{colour}', Math.round(val * 10) / 10 % 1 === 0 ? Math.round(val) : val.toFixed(1), goal ? 'of ' + fmt(goal) + '{unit}' : '{unit}') +
   `<div style="text-align:center;margin-top:10px;font-size:14px;font-weight:700;color:{colour}">{name}</div>` +
   `<div style="text-align:center;font-size:11px;color:${{MUTED}}">${{sub}}</div>`;""", pad=14), 6)
 
@@ -445,7 +445,8 @@ return ring(pct, over ? '#f87171' : '{colour}', Math.round(val * 10) / 10 % 1 ==
               macro('Carbs', N + 'carbs', HEX['carbs'], 'carbs'),
               macro('Fat', N + 'fat', HEX['fat'], 'fat'),
               macro('Fibre', N + 'fibre', HEX['fibre'], 'fibre'),
-              macro('Sugar', N + 'sugar', HEX['sugar'], 'sugar')]
+              macro('Sugar', N + 'sugar', HEX['sugar'], 'sugar'),
+              macro('Alcohol (week)', N + 'alcohol_week', HEX['alcohol'], 'alcohol', ' units')]
 
     water = cols(bc([N + 'water', N + 'water_progress', N + 'water_goal'], f"""
 const ml = n('{N}water'), pct = n('{N}water_progress');

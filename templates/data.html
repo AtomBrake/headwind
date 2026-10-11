@@ -250,6 +250,28 @@
   </div>
 </div>
 
+{% if alcohol_recovery %}
+<div class="card" style="margin-bottom:1.5rem;">
+  <div class="card-title">Alcohol and recovery</div>
+  {% if alcohol_recovery.enough %}
+  <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0 0 0.6rem;">The morning after a day with 2 or more units ({{ alcohol_recovery.drink_days }} days) against the morning after a dry day with food logged ({{ alcohol_recovery.dry_days }} days), from your Garmin data.</p>
+  <table class="table-compact" style="width:100%;">
+    <thead><tr><th></th><th>After drinking</th><th>After a dry day</th><th>Difference</th></tr></thead>
+    <tbody>
+    {% for r in alcohol_recovery.rows %}
+      {% set worse = (r.diff < 0) if r.better_when_higher else (r.diff > 0) %}
+      <tr><td>{{ r.label }}</td><td>{{ r.drink }} {{ r.unit }}</td><td>{{ r.dry }} {{ r.unit }}</td>
+          <td style="font-weight:700; color:{{ '#f87171' if worse and r.diff != 0 else '#34d399' if r.diff != 0 else 'var(--text-muted)' }};">{{ '+' if r.diff > 0 }}{{ r.diff }} {{ r.unit }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p style="color:var(--text-muted); font-size:0.75rem; margin:0.6rem 0 0; line-height:1.5;">This shows what happens, not why: a late night out is also a short night. The more days you log, the steadier the comparison.</p>
+  {% else %}
+  <p style="color:var(--text-muted); font-size:0.875rem; margin:0;">Needs a few more logged drinks to compare ({{ alcohol_recovery.drink_days }} drinking day{{ '' if alcohol_recovery.drink_days == 1 else 's' }} with recovery data so far; it starts at 5).</p>
+  {% endif %}
+</div>
+{% endif %}
+
 <div class="card" style="margin-bottom:1.5rem;">
   <div class="card-title">Avg Speed by Weather Condition</div>
   <div class="cbox cbox-wide"><canvas id="wxCondChart"></canvas></div>

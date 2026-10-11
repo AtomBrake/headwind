@@ -280,6 +280,8 @@ def index():
 
     from services.weather import fog_candidates
     wx_fog = fog_candidates(get_db(), rid, sport)
+    from services import alcohol as _alcohol
+    alcohol_recovery = _alcohol.recovery_comparison(get_db(), rid) if (active_rider and active_rider['isDefault']) else None      # Garmin data is the owner's
     from services import storms as _storms
     wx_storm = _storms.storm_rides(get_db(), rid) + _storms.violent_unnamed(get_db(), rid)
     from datetime import datetime as _dt
@@ -327,6 +329,7 @@ def index():
         wx_cond_avgs=wx_cond_avgs,
         wx_cond_counts=wx_cond_counts,
         wx_fog=wx_fog,
+        alcohol_recovery=alcohol_recovery,
         wx_storm=wx_storm,
         all_riders=all_riders,
         active_rider=active_rider,

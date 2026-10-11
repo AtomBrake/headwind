@@ -116,6 +116,9 @@ NUTRITION_SENSORS = [
     ("nutrition_fibre_remaining",   "Nutrition Fibre Remaining",    "mdi:target",            "g"),
     ("nutrition_sugar_g",            "Nutrition Sugar",              "mdi:cube-outline",      "g"),
     ("nutrition_sugar_remaining",    "Nutrition Sugar Remaining",    "mdi:target",            "g"),
+    ("nutrition_alcohol_today",      "Nutrition Alcohol Today",      "mdi:glass-mug-variant", "units"),
+    ("nutrition_alcohol_week",       "Nutrition Alcohol Week",       "mdi:glass-mug-variant", "units"),
+    ("nutrition_alcohol_remaining",  "Nutrition Alcohol Remaining",  "mdi:target",            "units"),
     ("nutrition_water_ml",           "Nutrition Water",              "mdi:water",             "ml"),
     # ── Goals (from Headwind's Goals screen) ─────────────────────
     ("nutrition_calories_goal",      "Nutrition Calories Goal",      "mdi:flag-checkered",    "kcal"),
@@ -124,6 +127,7 @@ NUTRITION_SENSORS = [
     ("nutrition_fat_goal",           "Nutrition Fat Goal",           "mdi:flag-checkered",    "g"),
     ("nutrition_fibre_goal",         "Nutrition Fibre Goal",         "mdi:flag-checkered",    "g"),
     ("nutrition_sugar_goal",         "Nutrition Sugar Goal",         "mdi:flag-checkered",    "g"),
+    ("nutrition_alcohol_goal",       "Nutrition Alcohol Goal",       "mdi:flag-checkered",    "units"),
     ("nutrition_water_goal",         "Nutrition Water Goal",         "mdi:flag-checkered",    "ml"),
     ("nutrition_garmin_last_sync",   "Nutrition Garmin Last Sync",   "mdi:watch-import",      None),
     ("nutrition_garmin_status",      "Nutrition Garmin Status",      "mdi:watch-variant",     None),
@@ -306,7 +310,7 @@ def _gather_nutrition():
     from services import workouts as _wk
     wk_cal = _wk.calories_on(rid, today)                          # recorded walks / runs count toward today's burn
     settings = query_db(
-        'SELECT nutritionCalGoal, nutritionProteinGoal, nutritionCarbGoal, nutritionFatGoal, nutritionWaterGoalMl, nutritionWeightEmaAlpha, nutritionBmrKcal, nutritionSugarGoal FROM Settings WHERE id=1',
+        'SELECT nutritionCalGoal, nutritionProteinGoal, nutritionCarbGoal, nutritionFatGoal, nutritionWaterGoalMl, nutritionWeightEmaAlpha, nutritionBmrKcal, nutritionSugarGoal, nutritionAlcoholWeekGoal FROM Settings WHERE id=1',
         one=True,
     )
     # Same priority as the Nutrition page (routes/nutrition.py day_log), so HA and Headwind always agree:
@@ -378,6 +382,7 @@ def _gather_nutrition():
         'fibre':        round(food['fibre'], 1) if food else 0,
         'sugar':        round(food['sugar'], 1) if food else 0,
         'sugar_goal':   (settings['nutritionSugarGoal'] if settings else None) or SUGAR_GOAL_G,
+        'alcohol':      _alcohol(rid, today, (settings['nutritionAlcoholWeekGoal'] if settings else None) or 14),
         'meals':        meals,
         'water_ml':     int(water['ml'])   if water else 0,
         'cal_goal':     settings['nutritionCalGoal']     if settings else None,
@@ -664,6 +669,15 @@ def _activity_status():
         return 'unknown'
 
 
+def _alcohol(rid, today, goal):
+    """Today's and this week's alcohol units (see routes.nutrition._alcohol_summary)."""
+    try:
+        from routes.nutrition import _alcohol_summary
+        return _alcohol_summary(rid, today, goal)
+    except Exception:
+        return {'today': 0, 'week': 0, 'goal': goal, 'days': 0}
+
+
 def _nutrition_state_values(n):
     def v(val):
         return str(val) if val is not None else 'unknown'
@@ -680,6 +694,10 @@ def _nutrition_state_values(n):
         'nutrition_fat_g':              v(n['fat']),
         'nutrition_fibre_g':            v(n.get('fibre', 0)),
         'nutrition_sugar_g':            v(n.get('sugar', 0)),
+        'nutrition_alcohol_today':      v((n.get('alcohol') or {}).get('today', 0)),
+        'nutrition_alcohol_week':       v((n.get('alcohol') or {}).get('week', 0)),
+        'nutrition_alcohol_goal':       v((n.get('alcohol') or {}).get('goal', 14)),
+        'nutrition_alcohol_remaining':  v(round(max(0, (n.get('alcohol') or {}).get('goal', 14) - (n.get('alcohol') or {}).get('week', 0)), 1)),
         'nutrition_sugar_remaining':    v(round(max(0, (n.get('sugar_goal') or SUGAR_GOAL_G) - (n.get('sugar') or 0)), 1)),
         'nutrition_sugar_goal':         v(n.get('sugar_goal') or SUGAR_GOAL_G),
         'nutrition_carbs_remaining':    v(max(0, n['carbs_goal'] - n['carbs']) if n.get('carbs_goal') else 0),

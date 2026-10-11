@@ -25,8 +25,11 @@
     .nu-net.neutral { background:var(--border); color:var(--text-muted); }
 
     /* ── Macro grid ────────────────────────────── */
-    .nu-ring-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:0.6rem; margin-bottom:1rem; }
-    @media (max-width: 720px) { .nu-ring-grid { grid-template-columns:repeat(3,1fr); } }
+    .nu-ring-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:0.6rem; margin-bottom:1rem; }
+    @media (max-width: 860px) { .nu-ring-grid { grid-template-columns:repeat(3,1fr); } }
+    .dr-presets { display:grid; grid-template-columns:repeat(auto-fill,minmax(8.5rem,1fr)); gap:0.45rem; margin:0.4rem 0 0.9rem; }
+    .dr-presets button { text-align:left; line-height:1.25; }
+    .dr-presets button small { display:block; color:var(--text-muted); font-size:0.7rem; }
     .nu-ring { background:var(--card-bg); border:1px solid var(--border); border-radius:14px; padding:0.7rem 0.4rem 0.6rem; text-align:center; }
     .nu-ring svg { width:76px; height:76px; display:block; margin:0 auto; transform:rotate(-90deg); }
     .nu-ring .trk { fill:none; stroke:var(--border); stroke-width:8; }
@@ -496,6 +499,12 @@
     <div class="nu-ring-lbl">Sugar</div>
   </div>
 </div>
+  <div class="nu-ring" id="ring_alcohol">
+    <svg viewBox="0 0 80 80"><circle class="trk" cx="40" cy="40" r="32"/><circle class="bar" id="ringBar_alcohol" cx="40" cy="40" r="32" stroke-dasharray="201.06" stroke-dashoffset="201.06"/></svg>
+    <div class="nu-ring-val" id="ringVal_alcohol">0</div>
+    <div class="nu-ring-lbl">Alcohol (week)</div>
+  </div>
+</div>
 
 <button class="nu-viewnutri" id="btnViewNutri"><span>&#x1F4CA;</span><span style="color:var(--text);font-size:1rem;">View Nutrition</span><span>&rsaquo;</span></button>
 
@@ -503,6 +512,7 @@
 <div class="nu-actions">
   <button class="btn btn-primary"   id="btnAddFood">+ Add Food</button>
   <button class="btn btn-secondary" id="btnManual">Manual</button>
+  <button class="btn btn-secondary" id="btnDrink">&#x1F37A; Drink</button>
   <button class="btn btn-secondary" id="btnImportShot">&#x1F4F7; Import</button>
 </div>
 
@@ -649,6 +659,30 @@
   </div>
 </div>
 
+<!-- ── Drink modal: log alcohol as units ───────────────── -->
+<div class="modal-backdrop" id="drinkModal">
+  <div class="modal-panel">
+    <div class="modal-header">
+      <h2>Log a drink</h2>
+      <button class="btn-close" id="closeDrink">&times;</button>
+    </div>
+    <div class="dr-presets" id="drPresets"></div>
+    <div class="form-row">
+      <div class="form-group"><label>Drink</label><input type="text" id="drName" placeholder="e.g. Pint of lager"></div>
+      <div class="form-group"><label>How many</label><input type="number" id="drQty" min="1" step="1" value="1" inputmode="numeric"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Each (ml)</label><input type="number" id="drMl" min="0" step="1" inputmode="numeric"></div>
+      <div class="form-group"><label>Strength (% ABV)</label><input type="number" id="drAbv" min="0" max="100" step="0.1" inputmode="decimal"></div>
+    </div>
+    <div class="form-group"><label>Calories (kcal, each)</label><input type="number" id="drKcal" min="0" step="1" inputmode="numeric"><small style="color:var(--text-muted);">Filled in from the alcohol alone (about 55 kcal a unit). Beer, cider and mixers add sugars on top, so type the label figure if you know it.</small></div>
+    <div id="drSummary" style="font-size:0.9rem; margin:0.4rem 0 0.8rem; font-weight:600;"></div>
+    <div class="form-group"><label>Meal</label><select id="drMeal"></select></div>
+    <button class="btn btn-primary" id="drLog" style="width:100%; min-height:46px; justify-content:center;">Log drink</button>
+    <p style="font-size:0.75rem; color:var(--text-muted); margin:0.6rem 0 0;">One UK unit is 10 ml of pure alcohol, so units = ml &times; strength &divide; 1000. Pours vary, so treat the total as an estimate.</p>
+  </div>
+</div>
+
 <!-- ── Goals modal ─────────────────────────────────────── -->
 <div class="modal-backdrop" id="goalsModal">
   <div class="modal-panel">
@@ -670,7 +704,7 @@
     </div>
     <div class="form-row">
       <div class="form-group"><label>Sugar limit (g)</label><input type="number" id="gSugar" min="0" placeholder="e.g. 50"></div>
-      <div class="form-group"></div>
+      <div class="form-group"><label>Alcohol limit (units / week)</label><input type="number" id="gAlcohol" min="0" step="1" placeholder="14"></div>
     </div>
     <div class="form-group" style="display:none;">
       <label>Resting BMR (kcal/day)</label>
@@ -1193,6 +1227,10 @@ function renderAll(data) {
   renderRing('fat',     fat,     goals.fat,     '#f87171');
   renderRing('fibre',   fibreTot, goals.fibre || 30, '#fb923c');
   renderRing('sugar',   sugarTot, goals.sugar,  '#f472b6', true);
+  const al = data.alcohol || {today: 0, week: 0, goal: goals.alcohol_week || 14};
+  renderRing('alcohol', al.week, al.goal, '#a78bfa', true, ' u');
+  const alEl = document.getElementById('ringVal_alcohol');
+  if (alEl && al.today) alEl.innerHTML += `<small style="color:#a78bfa;">${al.today} today</small>`;
 
   // Hydration
   document.getElementById('waterTotal').textContent = waterMl.toLocaleString();
@@ -1222,15 +1260,16 @@ function renderProg(wrapId, fillId, pctId, remId, val, goal, pctFmt, remFmt) {
 }
 
 const RING_C = 2 * Math.PI * 32;
-function renderRing(key, val, goal, colour, isLimit) {
+function renderRing(key, val, goal, colour, isLimit, unit) {
+  unit = unit || 'g';
   const bar = document.getElementById('ringBar_' + key), txt = document.getElementById('ringVal_' + key);
   if (!bar || !txt) return;
   const frac = goal ? Math.min(1, val / goal) : 0;
   bar.style.strokeDasharray = RING_C;
   bar.style.strokeDashoffset = RING_C * (1 - frac);
   bar.style.stroke = (isLimit && goal && val > goal) ? '#ef4444' : colour;
-  const n = v => Math.round(v);
-  txt.innerHTML = goal ? `${n(val)}<small>of ${n(goal)}g</small>` : `${n(val)}<small>g</small>`;
+  const n = v => (unit === 'g' ? Math.round(v) : Math.round(v * 10) / 10);
+  txt.innerHTML = goal ? `${n(val)}<small>of ${n(goal)}${unit}</small>` : `${n(val)}<small>${unit}</small>`;
 }
 
 function renderMacroGoal(goalId, wrapId, fillId, val, goal) {
@@ -1283,7 +1322,7 @@ function buildMealSection(meal, entries) {
   // the meal's macros at a glance, next to its calories
   const mt = k => entries.reduce((x, e) => x + (e[k] || 0), 0);
   const chip = (lbl, v, col) => `<span class="meal-mac" style="color:${col};"><b>${Math.round(v)}</b><small>${lbl}</small></span>`;
-  const macros = `<div class="meal-macs">${chip('P', mt('protein'), '#facc15')}${chip('C', mt('carbs'), '#38bdf8')}${chip('F', mt('fat'), '#f87171')}${chip('Fi', mt('fibre'), '#fb923c')}${chip('S', mt('sugar'), '#f472b6')}</div>`;
+  const macros = `<div class="meal-macs">${chip('P', mt('protein'), '#facc15')}${chip('C', mt('carbs'), '#38bdf8')}${chip('F', mt('fat'), '#f87171')}${chip('Fi', mt('fibre'), '#fb923c')}${chip('S', mt('sugar'), '#f472b6')}${mt('alcoholUnits') > 0 ? `<span class="meal-mac" style="color:#a78bfa;"><b>${Math.round(mt('alcoholUnits') * 10) / 10}</b><small>U</small></span>` : ''}</div>`;
   const header = `
     <div class="meal-header">
       <button class="meal-title-btn" onclick="openNutriSheet({kind:'meal', key:'${meal.key}'})">${escHtml(meal.label)}<span class="chev">&rsaquo;</span></button>
@@ -1300,6 +1339,7 @@ function buildMealSection(meal, entries) {
       e.carbs      ? 'C'+Math.round(e.carbs)+'g'     : null,
       e.fat        ? 'F'+Math.round(e.fat)+'g'       : null,
       e.sugar      ? 'S'+Math.round(e.sugar)+'g'     : null,
+      e.alcoholUnits ? (Math.round(e.alcoholUnits*10)/10)+' units' : null,
       e.source === 'photo_ai' ? '≈ AI estimate' : null,
     ].filter(Boolean).join(' · ');
     return `<div class="meal-entry" data-id="${e.id}">
@@ -1334,7 +1374,7 @@ function buildMealSection(meal, entries) {
       if (e) showUndo(`Deleted ${e.foodName}`, async () => {
         await fetch('/nutrition/api/log', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
           date: isoDate(currentDate), name: e.foodName, barcode: e.barcode || null, calories: e.calories, protein: e.protein,
-          carbs: e.carbs, fat: e.fat, fibre: e.fibre, sugar: e.sugar, serving_g: e.servingG, quantity: e.quantity || 1,
+          carbs: e.carbs, fat: e.fat, fibre: e.fibre, sugar: e.sugar, alcohol_units: e.alcoholUnits, serving_g: e.servingG, quantity: e.quantity || 1,
           meal_type: e.mealType || 'uncategorised', source: e.source || 'manual', brand: e.brand || null,
           image_url: e.imageUrl || null, nutri_score_grade: e.nutriScoreGrade || null })});
         loadDay();
@@ -1850,6 +1890,7 @@ document.getElementById('btnGoals').addEventListener('click', async () => {
   document.getElementById('gFat').value     = g.fat     || '';
   document.getElementById('gWater').value   = g.water   || '';
   document.getElementById('gSugar').value   = g.sugar   || '';
+  document.getElementById('gAlcohol').value = g.alcohol_week || '';
   document.getElementById('gBmr').value     = g.bmr     || '';
   document.getElementById('gWeightUnit').value = ws.unit || 'stlb';
   document.getElementById('gDietStart').value  = ws.dietStartDate || '';
@@ -1879,6 +1920,7 @@ document.getElementById('saveGoals').addEventListener('click', async () => {
       fat:     parseInt(document.getElementById('gFat').value)     || null,
       water:   parseInt(document.getElementById('gWater').value)   || null,
       sugar:   parseInt(document.getElementById('gSugar').value)   || null,
+      alcohol_week: parseFloat(document.getElementById('gAlcohol').value) || null,
       bmr:     parseInt(document.getElementById('gBmr').value)     || null,
     }),
   });
@@ -1913,7 +1955,7 @@ async function scaleMealPortion(list, f, label) {
   for (const e of list) {
     await fetch('/nutrition/api/log', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
       id: e.id, date, name: e.foodName, barcode: e.barcode || null,
-      calories: sc(e.calories), protein: sc(e.protein), carbs: sc(e.carbs), fat: sc(e.fat), fibre: sc(e.fibre), sugar: sc(e.sugar),
+      calories: sc(e.calories), protein: sc(e.protein), carbs: sc(e.carbs), fat: sc(e.fat), fibre: sc(e.fibre), sugar: sc(e.sugar), alcohol_units: sc(e.alcoholUnits),
       serving_g: e.servingG ? Math.round(e.servingG * f * 10) / 10 : null, quantity: e.quantity || 1,
       meal_type: e.mealType || 'uncategorised', source: e.source || 'manual', brand: e.brand || null,
       image_url: e.imageUrl || null, nutri_score_grade: e.nutriScoreGrade || null }) });
@@ -2229,7 +2271,7 @@ function openFoodDetail(item, ctx) {
   if (ctx.mode === 'absolute' && (item.quantity || 1) > 1) {
     const q = item.quantity, per = v => (v == null ? v : v / q);
     item = { ...item, calories: per(item.calories), protein: per(item.protein), carbs: per(item.carbs), fat: per(item.fat),
-             fibre: per(item.fibre), sugar: per(item.sugar), servingG: per(item.servingG) };
+             fibre: per(item.fibre), sugar: per(item.sugar), alcoholUnits: per(item.alcoholUnits), servingG: per(item.servingG) };
   }
   fdBaseG = null;
   fdContext = { ...ctx, item };
@@ -2282,7 +2324,7 @@ function fdComputeTotals() {
   const item = fdContext.item;
   const g   = parseFloat(document.getElementById('fdServingG').value) || 0;
   const qty = parseFloat(document.getElementById('fdServingQty').value) || 1;
-  let kcal=null, prot=null, carbs=null, fat=null, fibre=null, sugar=null, servG=null;
+  let kcal=null, prot=null, carbs=null, fat=null, fibre=null, sugar=null, alcohol=null, servG=null;
   if (fdContext.mode === 'per100') {
     if (item.kcal_per_100g && g) {
       const f = (g/100)*qty;
@@ -2292,6 +2334,7 @@ function fdComputeTotals() {
       fat   = item.fat_per_100g     != null ? item.fat_per_100g     * f : null;
       fibre = item.fibre_per_100g   != null ? item.fibre_per_100g   * f : null;
       sugar = item.sugars_per_100g  != null ? item.sugars_per_100g  * f : null;
+      alcohol = item.abv            != null ? g * qty * item.abv / 1000 : null;
     }
     servG = g ? g*qty : null;
   } else {
@@ -2304,6 +2347,7 @@ function fdComputeTotals() {
       fat   = item.fat      != null ? item.fat      * ratio : null;
       fibre = item.fibre    != null ? item.fibre    * ratio : null;
       sugar = item.sugar    != null ? item.sugar    * ratio : null;
+      alcohol = item.alcoholUnits != null ? item.alcoholUnits * ratio : null;
       servG = g * qty;
     } else {
       kcal  = item.calories != null ? item.calories * qty : null;
@@ -2312,10 +2356,11 @@ function fdComputeTotals() {
       fat   = item.fat      != null ? item.fat      * qty : null;
       fibre = item.fibre    != null ? item.fibre    * qty : null;
       sugar = item.sugar    != null ? item.sugar    * qty : null;
+      alcohol = item.alcoholUnits != null ? item.alcoholUnits * qty : null;
       servG = g ? g * qty : (item.servingG ? item.servingG * qty : null);
     }
   }
-  return { kcal, prot, carbs, fat, fibre, sugar, servG, g, qty };
+  return { kcal, prot, carbs, fat, fibre, sugar, alcohol, servG, g, qty };
 }
 
 function updateFdMacros() {
@@ -2373,7 +2418,7 @@ async function fdSaveEntry() {
   const sourceMap = {search:'barcode', myfoods:'custom_food', gotos:'favourite', log:'manual'};
   const payload = {
     name: item.name || item.foodName, barcode: item.barcode || null,
-    calories: t.kcal, protein: t.prot, carbs: t.carbs, fat: t.fat, fibre: t.fibre, sugar: t.sugar,
+    calories: t.kcal, protein: t.prot, carbs: t.carbs, fat: t.fat, fibre: t.fibre, sugar: t.sugar, alcohol_units: t.alcohol,
     serving_g: t.servG, quantity: t.qty, meal_type: mealType,
     source: sourceMap[fdContext.sourceKind] || fdContext.sourceKind || 'manual',
     brand: item.brand || null,
@@ -2740,6 +2785,47 @@ async function onScanSuccess(code) {
 
 // ── Manual entry ──────────────────────────────────────────────────────
 document.getElementById('btnManual').addEventListener('click', () => { currentMealType=guessMealType(); openManual(''); });
+// ── Drinks: alcohol units ─────────────────────────────────────────────
+const DRINKS = [
+  ['Pint of lager', 568, 4.5], ['Pint of bitter / ale', 568, 4.2], ['Pint of cider', 568, 4.5], ['Half pint', 284, 4.5],
+  ['Bottle of beer', 330, 5], ['Can of beer', 440, 4.5], ['Small wine (125 ml)', 125, 13], ['Medium wine (175 ml)', 175, 13],
+  ['Large wine (250 ml)', 250, 13], ['Glass of prosecco', 125, 11], ['Single spirit (25 ml)', 25, 40], ['Double spirit (50 ml)', 50, 40],
+];
+const drUnits = () => { const q = parseFloat(document.getElementById('drQty').value) || 1, ml = parseFloat(document.getElementById('drMl').value) || 0, a = parseFloat(document.getElementById('drAbv').value) || 0; return ml * a / 1000 * q; };
+function drRecalc(fromPreset) {
+  const q = parseFloat(document.getElementById('drQty').value) || 1, ml = parseFloat(document.getElementById('drMl').value) || 0, a = parseFloat(document.getElementById('drAbv').value) || 0;
+  const eachUnits = ml * a / 1000;
+  if (fromPreset !== 'kcal') document.getElementById('drKcal').value = Math.round(eachUnits * 55.2) || '';
+  const total = eachUnits * q;
+  document.getElementById('drSummary').textContent = total ? `${Math.round(total * 10) / 10} units` + (q > 1 ? ` (${Math.round(eachUnits * 10) / 10} each)` : '') : '';
+}
+function openDrink() {
+  const box = document.getElementById('drPresets');
+  box.innerHTML = DRINKS.map((d, i) => `<button class="btn btn-secondary" data-i="${i}">${d[0]}<small>${d[1]} ml · ${d[2]}% · ${Math.round(d[1] * d[2]) / 1000} u</small></button>`).join('');
+  box.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+    const d = DRINKS[+b.dataset.i];
+    document.getElementById('drName').value = d[0].replace(/ \(.*\)/, ''); document.getElementById('drMl').value = d[1]; document.getElementById('drAbv').value = d[2]; document.getElementById('drQty').value = 1;
+    drRecalc();
+  }));
+  ['drQty', 'drMl', 'drAbv'].forEach(id => { document.getElementById(id).value = id === 'drQty' ? 1 : ''; });
+  document.getElementById('drName').value = ''; document.getElementById('drKcal').value = ''; document.getElementById('drSummary').textContent = '';
+  document.getElementById('drMeal').innerHTML = mealTypeOptions(guessMealType());
+  document.getElementById('drinkModal').classList.add('open');
+}
+document.getElementById('btnDrink').addEventListener('click', openDrink);
+document.getElementById('closeDrink').addEventListener('click', () => document.getElementById('drinkModal').classList.remove('open'));
+['drQty', 'drMl', 'drAbv'].forEach(id => document.getElementById(id).addEventListener('input', () => drRecalc()));
+document.getElementById('drKcal').addEventListener('input', () => drRecalc('kcal'));
+document.getElementById('drLog').addEventListener('click', async () => {
+  const q = Math.max(1, parseFloat(document.getElementById('drQty').value) || 1), ml = parseFloat(document.getElementById('drMl').value), a = parseFloat(document.getElementById('drAbv').value);
+  const name = document.getElementById('drName').value.trim() || 'Drink';
+  if (!(ml > 0) || !(a > 0)) { alert('Pick a drink, or enter its size (ml) and strength (% ABV).'); return; }
+  const kcal = parseFloat(document.getElementById('drKcal').value);
+  await postLog({ name: q > 1 ? `${name} x${q}` : name, calories: isNaN(kcal) ? Math.round(ml * a / 1000 * 55.2 * q) : kcal * q, protein: 0, carbs: null, fat: 0,
+                  serving_g: ml * q, quantity: 1, alcohol_units: Math.round(ml * a / 1000 * q * 100) / 100, meal_type: document.getElementById('drMeal').value, source: 'drink' });
+  document.getElementById('drinkModal').classList.remove('open');
+});
+
 document.getElementById('closeManual').addEventListener('click',  () => document.getElementById('manualModal').classList.remove('open'));
 document.getElementById('cancelManual').addEventListener('click', () => document.getElementById('manualModal').classList.remove('open'));
 document.getElementById('btnAddFood').addEventListener('click', () => openFindFood(guessMealType()));

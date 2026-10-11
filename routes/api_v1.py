@@ -410,7 +410,7 @@ def sync_nutrition():
     today = datetime.now(ZoneInfo('Europe/London')).date()
     since = (today - timedelta(days=days)).isoformat()
     rows = [dict(r) for r in query_db(
-        'SELECT id, logDate, foodName, calories, protein, carbs, fat, fibre, sugar, servingG, quantity, barcode, mealType, source, brand, imageUrl, '
+        'SELECT id, logDate, foodName, calories, protein, carbs, fat, fibre, sugar, alcoholUnits, servingG, quantity, barcode, mealType, source, brand, imageUrl, '
         'nutriScoreGrade, createdAt FROM FoodLog WHERE riderId=? AND logDate>=? ORDER BY createdAt ASC, id ASC', [rid, since])]
     created = {r['id']: r['createdAt'] for r in rows}
     entries = nu._annotate_food_rows([dict(r) for r in rows])
