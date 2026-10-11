@@ -60,6 +60,28 @@
 </div>
 {% endif %}
 
+<div class="card" style="margin-bottom:1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;padding:.7rem 1rem;" id="typeCard">
+  <span style="color:var(--text-muted);font-size:.78rem;letter-spacing:.07em;text-transform:uppercase;font-weight:700;">Activity type</span>
+  <form method="POST" action="{{ url_for('workouts_ui.workouts_sport', wid=activity.id) if is_workout else url_for('rides.change_sport', rid=activity.id) }}" style="margin:0;"
+        id="typeForm" data-current="{{ activity.sportType }}">
+    <select name="sport" id="typeSelect" aria-label="What kind of activity was this?" onchange="typeChanged(this)">
+      {% if activity.sportType not in sports %}<option value="" selected>{{ activity.sportType or 'Not set' }}</option>{% endif %}
+      {% for sp in sports %}<option value="{{ sp }}" {{ 'selected' if activity.sportType == sp }}>{{ 'Indoor ride' if sp == 'VirtualRide' else sp }}</option>{% endfor %}
+    </select>
+  </form>
+  <span style="color:var(--text-muted);font-size:.8rem;">Recorded as the wrong thing? Pick the right type. A walk, run or hike moves to Workouts; a ride moves back to your rides.</span>
+</div>
+<script>
+function typeChanged(sel) {
+  var f = sel.form, cur = f.getAttribute('data-current');
+  if (!sel.value || sel.value === cur) { sel.value = cur; return; }
+  var label = sel.options[sel.selectedIndex].text.toLowerCase();
+  var moves = /Walk|Run|Hike/.test(sel.value) !== /Walk|Run|Hike/.test(cur);
+  if (confirm('Change this to ' + (/^[aeiou]/.test(label) ? 'an ' : 'a ') + label + '?' + (moves ? (/Walk|Run|Hike/.test(sel.value) ? ' It will move out of your rides and into Workouts.' : ' It will move out of Workouts and into your rides.') : ''))) f.submit();
+  else sel.value = cur;
+}
+</script>
+
 {% if is_ride and (gear_bikes or activity.riderId) %}
 <div class="card" style="margin-bottom:1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;padding:.7rem 1rem;">
   <span style="color:var(--text-muted);font-size:.78rem;letter-spacing:.07em;text-transform:uppercase;font-weight:700;">Bike</span>
@@ -75,14 +97,6 @@
   <a href="{{ url_for('gear.bike_form', rider=activity.riderId) }}">Add a bike</a><span style="color:var(--text-muted);font-size:.85rem;">to track which bike rode this and how worn its parts are.</span>
   {% endif %}
   {% if gear_error %}<span style="color:#fecaca;">{{ gear_error }}</span>{% endif %}
-  <span style="margin-left:auto;display:flex;gap:.5rem;align-items:center;">
-    <span style="color:var(--text-muted);font-size:.78rem;letter-spacing:.07em;text-transform:uppercase;font-weight:700;">Type</span>
-    <form method="POST" action="{{ url_for('workouts_ui.workouts_sport', wid=activity.id) if is_workout else url_for('rides.change_sport', rid=activity.id) }}" style="margin:0;display:flex;gap:.4rem;align-items:center;"
-          onsubmit="return this.sport.value === '{{ activity.sportType }}' ? false : confirm('Change this to a ' + this.sport.value.replace('VirtualRide', 'indoor ride').toLowerCase() + '? ' + (this.sport.value.match(/Walk|Run|Hike/) ? 'It will move out of your rides and into Workouts.' : ''))">
-      <select name="sport" aria-label="What kind of activity was this?">{% for sp in sports %}<option value="{{ sp }}" {{ 'selected' if activity.sportType == sp }}>{{ 'Indoor ride' if sp == 'VirtualRide' else sp }}</option>{% endfor %}</select>
-      <button class="btn btn-secondary btn-sm" style="padding:.25rem .6rem;font-size:.78rem;" type="submit">Change</button>
-    </form>
-  </span>
 </div>
 {% endif %}
 

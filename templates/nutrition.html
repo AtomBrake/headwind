@@ -425,6 +425,12 @@
 {% endblock %}
 
 {% block content %}
+<div id="profileNudge" class="card" style="display:none; margin-bottom:1rem; border-color:#b45309; background:rgba(180,83,9,0.10);">
+  <div style="font-weight:600; margin-bottom:0.2rem;">Finish your profile for goals made for you</div>
+  <div style="font-size:0.85rem; color:var(--text-muted); line-height:1.5;" id="profileNudgeText"></div>
+  <a href="/settings#profileCard" class="btn btn-secondary" style="margin-top:0.6rem; display:inline-block; padding:0.3rem 0.9rem;">Open Profile &amp; goals</a>
+</div>
+
 
 <!-- Date nav -->
 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
@@ -1763,6 +1769,17 @@ document.getElementById('pmAbort').addEventListener('click', () => { if (pmAbort
 document.getElementById('pmCancel').addEventListener('click', pmClose);
 document.getElementById('pmClose').addEventListener('click', pmClose);
 document.getElementById('ffPhotoBtn').addEventListener('click', openPhotoMeal);
+
+// A nudge when the profile the smart goals need is incomplete (it lives under Settings -> Profile & goals)
+(async function() {
+  try {
+    const d = await (await fetch('/nutrition/api/profile')).json();
+    if (d.plan_error) {
+      document.getElementById('profileNudgeText').textContent = d.plan_error + '. Add your details once and Headwind works out your calorie and macro goals, and your road to goal weight.';
+      document.getElementById('profileNudge').style.display = '';
+    }
+  } catch (e) {}
+})();
 
 // ── Smart goals ───────────────────────────────────────────────────────
 async function sgLoad() {

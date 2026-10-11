@@ -260,8 +260,17 @@ function dismissFlagged(id) {
     {% if is_filtered %}<span style="font-size:0.8125rem; font-weight:400; color:var(--text-muted); margin-left:0.5rem;">{{ search_results | length }} result{{ 's' if search_results | length != 1 }}</span>{% endif %}
   </div>
 
+  {% if typed %}{% set t = typed.split('|') %}<div style="margin:0.4rem 0 0.8rem; padding:0.5rem 0.8rem; border:1px solid var(--border); border-radius:8px; font-size:0.85rem;">{{ t[0] }} activit{{ 'y' if t[0] == '1' else 'ies' }} changed to {{ t[2] }}{% if t[1] != '0' %}, {{ t[1] }} could not be changed{% endif %}.</div>{% endif %}
   {% if is_filtered %}
   {% if search_results %}
+  <form method="POST" action="/rides/bulk-sport" style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; margin:0.2rem 0 0.8rem; padding:0.55rem 0.8rem; border:1px solid var(--border); border-radius:8px;"
+        onsubmit="return confirm('Change the type of these ' + {{ search_results | length }} + ' activities to ' + this.sport.options[this.sport.selectedIndex].text + '?')">
+    <input type="hidden" name="ids" value="{{ search_results | map(attribute='id') | join(',') }}">
+    <input type="hidden" name="back" value="{{ back_url }}">
+    <span style="font-size:0.8125rem; color:var(--text-muted);">Change the type of all {{ search_results | length }} results to</span>
+    <select name="sport" style="font-size:0.8125rem;">{% for v, l in sport_choices %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>
+    <button class="btn btn-secondary" type="submit" style="padding:0.25rem 0.8rem; font-size:0.8125rem;">Change type</button>
+  </form>
   <div>
     {% for a in search_results %}
     <div onclick="location.href='/rides/{{ a.id }}'"

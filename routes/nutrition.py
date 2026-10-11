@@ -322,6 +322,18 @@ def goal_plan():
     return jsonify({'plan': goal_model.plan(), 'profile': goal_model.profile(), 'current': _get_goals()})
 
 
+@bp.route('/api/profile', methods=['GET'])
+def get_profile():
+    """Everything the Settings 'Profile & goals' card shows: the body stats, the latest weight, the goal weight and what the smart plan still needs."""
+    from services import goal_model
+    rider_id = _default_rider_id()
+    pl = goal_model.plan(rider_id)
+    kg = goal_model.current_weight_kg(rider_id)
+    ws = _weight_settings()
+    return jsonify({'profile': goal_model.profile(), 'weight_kg': round(kg, 1) if kg else None, 'goal_weight_kg': ws.get('goalWeightKg'),
+                    'weight_unit': ws['unit'], 'weight_settings': ws, 'plan_error': pl.get('error'), 'plan': None if 'error' in pl else pl})
+
+
 @bp.route('/api/goal-profile', methods=['POST'])
 def save_goal_profile():
     from services import goal_model

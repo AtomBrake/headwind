@@ -1,6 +1,8 @@
 from calendar import month_name
 from datetime import date, datetime, timedelta, timezone
 
+from urllib.parse import urlencode
+
 from flask import Blueprint, redirect, render_template, request
 
 from database import get_db, query_db
@@ -235,6 +237,9 @@ def dashboard():
         'dashboard.html',
         gear_due=gear_due,
         flagged=flagged,
+        typed=request.args.get('typed', ''),
+        back_url='/dashboard?' + urlencode([(k, v) for k, v in request.args.items(multi=True) if k != 'typed']),
+        sport_choices=[('Ride', 'Ride'), ('VirtualRide', 'Indoor ride'), ('Walk', 'Walk'), ('Run', 'Run'), ('Hike', 'Hike')],
         athlete=athlete,
         totals=totals,
         activities=activities,

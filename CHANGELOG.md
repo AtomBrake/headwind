@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.1-beta] - 2026-10-11
+
+Upgrading is automatic. Android 0.20.1-beta goes with this (it needs this server to show sugar).
+
+### Added
+- **Profile & goals card in Settings.** The stats the smart goals work from (sex, age, height, weight now, goal weight, loss target, steps goal, and whether weights show as stone and lb or kg) were hidden inside a collapsed section of the Nutrition page's Goals pop-up, so new users could not find them. They now have their own card under Settings, with a note of what is still missing and the calculated goals, and the Nutrition page shows a nudge to finish the profile until the plan has what it needs. `GET /nutrition/api/profile`.
+- **Change an activity's type from a dropdown, everywhere.** The type control was buried in the ride-only Bike card, so a walk or run page had none. Every activity page now has an *Activity type* card (Ride, Indoor ride, Walk, Run, Hike) that confirms and converts, moving the activity between rides and Workouts as needed. On the dashboard, a filtered search offers *Change the type of all N results* for fixing a batch at once (`POST /rides/bulk-sport`).
+
+### Fixed
+- **Sugar never reached the phone.** `/api/v1/sync/nutrition` did not include each entry's sugar, so the app showed 0. It now does.
+
 ## [0.4.0-beta] - 2026-10-11
 
 Upgrading is automatic (new columns: `Activity.weatherSource / flagReason / flagDismissed`, `FoodLog.sugar`, `SavedMealItem.sugar`, `Settings.nutritionSugarGoal`, plus the roughness and sensor tables from 0.3). Phone app: Android 0.20.0-beta goes with this.

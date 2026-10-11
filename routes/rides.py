@@ -421,6 +421,38 @@ def change_sport(rid):
     return redirect(url_for('workouts_ui.workouts_page') if res['kind'] == 'workout' else url_for('rides.detail', rid=res['id']))
 
 
+@bp.route('/bulk-sport', methods=['POST'])
+def bulk_sport():
+    """Change the type of many activities at once (the results of a dashboard search): ids are comma-separated in `ids`. A walk/run/hike moves to Workouts,
+    a ride moves back. Each one is converted by the same code as the single-activity dropdown; one that cannot be changed is skipped and counted."""
+    from services import convert
+    from urllib.parse import quote
+    sport = request.form.get('sport')
+    ids = [i for i in (request.form.get('ids') or '').split(',') if i][:5000]
+    back = request.form.get('back') or '/dashboard'
+    if not back.startswith('/') or back.startswith('//'):
+        back = '/dashboard'
+    if sport not in convert.SPORTS or not ids:
+        return redirect(back)
+    db = get_db()
+    changed = skipped = 0
+    for i in ids:
+        kind = 'workout' if db.execute('SELECT 1 FROM Workout WHERE id=?', [i]).fetchone() else 'ride'
+        try:
+            res = convert.change_sport(db, kind, i, sport)
+            changed += 1 if res.get('changed') else 0
+        except ValueError:
+            skipped += 1
+    db.commit()
+    try:
+        from services.mqtt import push_update, push_update_nutrition
+        push_update(background=True); push_update_nutrition()
+    except Exception:
+        pass
+    sep = '&' if '?' in back else '?'
+    return redirect(back + sep + 'typed=' + quote(f'{changed}|{skipped}|{sport}'))
+
+
 @bp.route('/<rid>/duplicate/<dup_id>/<action>', methods=['POST'])
 def resolve_duplicate(rid, dup_id, action):
     """The same ride recorded twice: use the other recording, keep both as separate rides, or discard the other one."""

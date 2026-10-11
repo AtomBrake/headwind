@@ -25,6 +25,36 @@
     </a>
   </div>
 
+  <!-- Profile & goals: the stats the smart goals work from -->
+  <div class="card" id="profileCard">
+    <div class="card-title">Profile &amp; goals</div>
+    <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0 0 0.8rem;">Your body stats and targets. Headwind uses them to work out your daily calorie, protein, carb and fat goals, and to project your road to goal weight. Everything here is saved to this Headwind only.</p>
+    <div id="pfStatus" style="font-size:0.8125rem; margin-bottom:0.8rem;"></div>
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:0.8rem;">
+      <div class="form-group" style="margin:0;"><label>Sex</label><select id="pfSex"><option value="">—</option><option value="female">Female</option><option value="male">Male</option></select></div>
+      <div class="form-group" style="margin:0;"><label>Age</label><input type="number" id="pfAge" min="16" max="100" inputmode="numeric" style="width:100%;"></div>
+      <div class="form-group" style="margin:0;"><label>Height</label>
+        <div style="display:flex; gap:0.4rem;"><input type="number" id="pfFt" min="3" max="7" inputmode="numeric" placeholder="ft" style="flex:1; min-width:0; width:100%;"><input type="number" id="pfIn" min="0" max="11.9" step="0.5" inputmode="decimal" placeholder="in" style="flex:1; min-width:0; width:100%;"></div>
+        <small style="color:var(--text-muted);">or <input type="number" id="pfCm" min="100" max="250" inputmode="numeric" placeholder="cm" style="width:5rem; display:inline;"> cm</small></div>
+      <div class="form-group" style="margin:0;"><label>Weight now</label>
+        <div id="pfWtStlb" style="display:flex; gap:0.4rem;"><input type="number" id="pfSt" min="0" inputmode="numeric" placeholder="st" style="flex:1; min-width:0; width:100%;"><input type="number" id="pfLb" min="0" max="13.9" step="0.1" inputmode="decimal" placeholder="lb" style="flex:1; min-width:0; width:100%;"></div>
+        <input type="number" id="pfKg" min="0" step="0.1" inputmode="decimal" placeholder="kg" style="display:none;"></div>
+      <div class="form-group" style="margin:0;"><label>Goal weight</label>
+        <div id="pfGoalStlb" style="display:flex; gap:0.4rem;"><input type="number" id="pfGSt" min="0" inputmode="numeric" placeholder="st" style="flex:1; min-width:0; width:100%;"><input type="number" id="pfGLb" min="0" max="13.9" step="0.1" inputmode="decimal" placeholder="lb" style="flex:1; min-width:0; width:100%;"></div>
+        <input type="number" id="pfGKg" min="0" step="0.1" inputmode="decimal" placeholder="kg" style="display:none;"></div>
+      <div class="form-group" style="margin:0;"><label>Show weights as</label><select id="pfUnit"><option value="stlb">Stone &amp; lb</option><option value="kg">kg</option></select></div>
+      <div class="form-group" style="margin:0;"><label>Loss target (lb / week)</label><input type="number" id="pfLoss" min="0" max="2.5" step="0.25" inputmode="decimal" style="flex:1; min-width:0; width:100%;"></div>
+      <div class="form-group" style="margin:0;"><label>Daily steps goal</label><input type="number" id="pfSteps" min="1000" step="500" inputmode="numeric" style="flex:1; min-width:0; width:100%;"></div>
+    </div>
+    <div style="display:flex; gap:0.6rem; flex-wrap:wrap; margin-top:1rem; align-items:center;">
+      <button class="btn btn-primary" type="button" onclick="pfSave()">Save profile</button>
+      <button class="btn btn-secondary" type="button" id="pfApply" onclick="pfApply()" disabled>Use the calculated goals</button>
+      <span id="pfMsg" style="font-size:0.8125rem; color:var(--text-muted);"></span>
+    </div>
+    <div id="pfPlan" style="font-size:0.85rem; line-height:1.55; margin-top:0.8rem;"></div>
+    <p style="color:var(--text-muted); font-size:0.75rem; margin:0.8rem 0 0;">Fine-tune the calorie and macro goals themselves on the Nutrition page (Goals).</p>
+  </div>
+
   <!-- Measurement Units -->
   <form method="POST" class="card">
     <div class="card-title">Display Preferences</div>
@@ -722,5 +752,78 @@ function garminActivitySync() {
   };
 }
 
+</script>
+
+<script>
+// ── Profile & goals ──
+var PF = { auto: 0, rides: null, rideGoal: null, ws: null };
+var KG_PER_LB = 0.45359237;
+function pfNum(id) { var v = parseFloat(document.getElementById(id).value); return isNaN(v) ? null : v; }
+function pfShowUnit(unit) {
+  var kg = unit === 'kg';
+  ['pfWtStlb', 'pfGoalStlb'].forEach(function(i) { document.getElementById(i).style.display = kg ? 'none' : 'flex'; });
+  ['pfKg', 'pfGKg'].forEach(function(i) { document.getElementById(i).style.display = kg ? '' : 'none'; });
+}
+function pfFill(id1, id2, idKg, kg) {
+  if (!kg) { document.getElementById(id1).value = ''; document.getElementById(id2).value = ''; document.getElementById(idKg).value = ''; return; }
+  var lbs = kg / KG_PER_LB;
+  document.getElementById(id1).value = Math.floor(lbs / 14); document.getElementById(id2).value = Math.round((lbs % 14) * 10) / 10;
+  document.getElementById(idKg).value = Math.round(kg * 10) / 10;
+}
+function pfKgFrom(unit, idSt, idLb, idKg) {
+  if (unit === 'kg') return pfNum(idKg);
+  var st = pfNum(idSt), lb = pfNum(idLb);
+  if (st === null && lb === null) return null;
+  return ((st || 0) * 14 + (lb || 0)) * KG_PER_LB;
+}
+async function pfLoad() {
+  var d = await (await fetch('/nutrition/api/profile')).json();
+  var p = d.profile || {};
+  PF.auto = p.auto ? 1 : 0; PF.rides = p.ride_kcal_week; PF.rideGoal = p.ride_goal_week; PF.ws = d.weight_settings;
+  document.getElementById('pfSex').value = p.sex || '';
+  document.getElementById('pfAge').value = p.age || '';
+  if (p.height_cm) { var inch = p.height_cm / 2.54; document.getElementById('pfFt').value = Math.floor(inch / 12); document.getElementById('pfIn').value = Math.round((inch % 12) * 2) / 2; document.getElementById('pfCm').value = Math.round(p.height_cm); }
+  document.getElementById('pfUnit').value = d.weight_unit; pfShowUnit(d.weight_unit);
+  pfFill('pfSt', 'pfLb', 'pfKg', d.weight_kg); pfFill('pfGSt', 'pfGLb', 'pfGKg', d.goal_weight_kg);
+  document.getElementById('pfLoss').value = p.loss_lb_week; document.getElementById('pfSteps').value = p.step_goal;
+  pfRender(d);
+}
+function pfRender(d) {
+  var st = document.getElementById('pfStatus'), box = document.getElementById('pfPlan'), apply = document.getElementById('pfApply');
+  var miss = [];
+  var p = d.profile || {};
+  if (!p.sex) miss.push('sex'); if (!p.age) miss.push('age'); if (!p.height_cm) miss.push('height'); if (!d.weight_kg) miss.push('your weight'); if (!d.goal_weight_kg) miss.push('a goal weight');
+  st.innerHTML = miss.length ? '<span style="color:#fbbf24;">Still to fill in: ' + miss.join(', ') + '.</span>' : '<span style="color:#34d399;">Profile complete.</span>';
+  apply.disabled = !!d.plan_error;
+  if (d.plan_error) { box.textContent = d.plan_error + ' — fill those in above and save.'; return; }
+  var pl = d.plan, f = function(n) { return Number(n).toLocaleString('en-GB'); };
+  box.innerHTML = '<b>' + f(pl.goal) + ' kcal</b> a day &nbsp;·&nbsp; protein ' + pl.protein + ' g · carbs ' + pl.carbs + ' g · fat ' + pl.fat + ' g<br><span style="color:var(--text-muted)">From a resting burn of ' + f(pl.bmr) + ' kcal, your step goal and riding, minus the deficit for your loss target.</span>';
+}
+async function pfSave() {
+  var msg = document.getElementById('pfMsg'); msg.textContent = 'Saving…';
+  var unit = document.getElementById('pfUnit').value;
+  var cm = pfNum('pfCm'); var ft = pfNum('pfFt'), inch = pfNum('pfIn');
+  var height = ft !== null ? Math.round((ft * 12 + (inch || 0)) * 2.54) : cm;
+  var post = function(url, body) { return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); };
+  var r = await post('/nutrition/api/goal-profile', { sex: document.getElementById('pfSex').value, age: document.getElementById('pfAge').value, height_cm: height,
+    loss_lb_week: document.getElementById('pfLoss').value, step_goal: document.getElementById('pfSteps').value, ride_kcal_week: PF.rides, ride_goal_week: PF.rideGoal, auto: !!PF.auto });
+  if (!r.ok) { msg.textContent = (await r.json()).error || 'Could not save.'; return; }
+  var kg = pfKgFrom(unit, 'pfSt', 'pfLb', 'pfKg');
+  if (kg) {
+    var today = new Date(); var iso = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+    var w = await (await post('/nutrition/api/weight', { date: iso, unit: 'kg', kg: Math.round(kg * 100) / 100, force: true, source: 'settings' })).json();
+    if (w.error) { msg.textContent = w.error; return; }
+  }
+  var gkg = pfKgFrom(unit, 'pfGSt', 'pfGLb', 'pfGKg'); var ws = PF.ws || {};
+  var gr = await post('/nutrition/api/weight/settings', { unit: unit, emaAlpha: ws.emaAlpha || 0.1, dietStartDate: ws.dietStartDate || null, goalWeightKg: gkg ? Math.round(gkg * 10) / 10 : null });
+  if (!gr.ok) { msg.textContent = (await gr.json()).error || 'Could not save the goal weight.'; return; }
+  msg.textContent = 'Saved.'; pfLoad();
+}
+async function pfApply() {
+  var r = await fetch('/nutrition/api/goal-plan/apply', { method: 'POST' });
+  document.getElementById('pfMsg').textContent = r.ok ? 'Your calorie and macro goals are updated.' : ((await r.json()).error || 'Could not apply.');
+}
+document.getElementById('pfUnit').addEventListener('change', function() { pfShowUnit(this.value); });
+pfLoad();
 </script>
 {% endblock %}
