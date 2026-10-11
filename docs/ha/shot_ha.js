@@ -14,7 +14,7 @@ const which = process.argv[2] || 'phone';
   }, [auth.url, auth.token]);
   const page = await ctx.newPage();
   page.on('pageerror', e => console.log('PAGEERR', e.message.slice(0, 120)));
-  for (const v of ['today', 'body', 'riding']) {
+  for (const v of (process.argv[3] || 'today,body,riding').split(',')) {
     await page.goto(`${auth.url}/rob-health/${v}`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(9000);
     await page.screenshot({ path: D + `shots/${which}_${v}.png`, fullPage: true });

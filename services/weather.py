@@ -16,6 +16,45 @@ _WMO = {
 }
 
 
+# The conditions the analytics page groups rides into, and the weather code a hand-picked one is stored as.
+CATEGORIES = {'Clear': 0, 'Cloudy': 3, 'Fog': 45, 'Rain': 63, 'Snow': 73, 'Storm': 95}
+
+
+def bucket(code):
+    """Analytics condition (Clear / Cloudy / Fog / Rain / Snow / Storm) for a WMO weather code, or None. Snow is 71-77 and 85-86; rain is drizzle,
+    rain, freezing rain and rain showers."""
+    if code is None:
+        return None
+    c = int(code)
+    if c <= 1:
+        return 'Clear'
+    if c <= 3:
+        return 'Cloudy'
+    if c in (45, 48):
+        return 'Fog'
+    if 71 <= c <= 77 or c in (85, 86):
+        return 'Snow'
+    if c >= 95:
+        return 'Storm'
+    return 'Rain'
+
+
+def origin(row):
+    """(lat, lng) where a ride started: the stored start point, else the first GPS point of its track (older imports kept only the track)."""
+    if row['startLat'] and row['startLng']:
+        return row['startLat'], row['startLng']
+    try:
+        import json
+        st = row['streams']
+        st = json.loads(st) if isinstance(st, str) else st
+        for pt in ((st or {}).get('latlng') or {}).get('data') or []:
+            if pt and pt[0] and pt[1]:
+                return pt[0], pt[1]
+    except Exception:
+        pass
+    return None, None
+
+
 def _bearing(a, b):
     lat1, lat2 = math.radians(a[0]), math.radians(b[0])
     dlng = math.radians(b[1] - a[1])
@@ -198,10 +237,15 @@ def fetch_weather(lat, lng, start_dt_local, streams_json=None):
     }
 
 
-def save_weather(db, activity_id, weather_dict):
+def save_weather(db, activity_id, weather_dict, claim=True):
     """Persist weather dict to Activity row."""
     if not weather_dict:
         return
+    cur = db.execute('SELECT weatherSource, weatherCode, weatherSummary FROM Activity WHERE id=?', [str(activity_id)]).fetchone()
+    sticky = bool(cur and cur['weatherSource'] in ('manual', 'storm'))
+    if sticky:                                            # picked by the rider (or a named storm claimed it): refresh the numbers, keep the condition
+        lead = (cur['weatherSummary'] or '').split(', ')[0] or bucket(cur['weatherCode'])
+        weather_dict = dict(weather_dict, weatherCode=cur['weatherCode'], weatherSummary=_summary_with(weather_dict.get('weatherSummary'), lead))
     db.execute('''
         UPDATE Activity SET
             weatherTempC=?, weatherWindKph=?, weatherGustKph=?,
@@ -220,3 +264,86 @@ def save_weather(db, activity_id, weather_dict):
         weather_dict['weatherWindRel'],
         str(activity_id),
     ])
+    if claim and not sticky:
+        from services import storms
+        storms.claim(db, activity_id)                     # a named-storm day outranks whatever the lookup said
+
+
+def _summary_with(summary, label):
+    """Swap the leading condition words of an automatic summary ('Light rain, 9°C, wind 12kph') for the rider's chosen one."""
+    rest = [p for p in (summary or '').split(', ') if p]
+    if rest and rest[0].lower() in set(_WMO.values()):
+        rest = rest[1:]
+    return ', '.join([label] + rest)
+
+
+def set_condition(db, activity_id, label, note=None, source='manual'):
+    """Record a rider-chosen condition on a ride (one of CATEGORIES), or hand it back to automatic with label None/''/'auto'. Returns the stored summary.
+    A chosen condition survives every later backfill: only the numbers (temperature, wind) are refreshed around it. Does not commit."""
+    row = db.execute('SELECT id, weatherSummary, weatherCode, weatherSource FROM Activity WHERE id=?', [str(activity_id)]).fetchone()
+    if not row:
+        return None
+    if label == 'keep':                                    # "this is right as it is": stop suggesting changes, keep the automatic condition
+        db.execute("UPDATE Activity SET weatherSource='manual' WHERE id=? AND weatherCode IS NOT NULL", [row['id']])
+        return row['weatherSummary']
+    if label in CATEGORIES:
+        summary = _summary_with(row['weatherSummary'], note or label)
+        db.execute("UPDATE Activity SET weatherCode=?, weatherSummary=?, weatherSource=? WHERE id=?", [CATEGORIES[label], summary, source, row['id']])
+        return summary
+    db.execute('UPDATE Activity SET weatherSource=NULL WHERE id=?', [row['id']])
+    return row['weatherSummary']
+
+
+_FAILED = set()          # rides the weather service had nothing for this process lifetime: do not let them block the rest of the queue
+
+
+def backfill_missing(db, limit=None, since_days=None, pause=0.15, on_each=None):
+    """Fetch weather for rides that have none, using the start point or else the first GPS point of the track. Returns (done, failed).
+    A ride the service has no data for is skipped for this run (never retried in a loop). Commits per ride."""
+    import time
+    q = """SELECT id, startLat, startLng, startDateLocal, streams FROM Activity
+           WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL"""
+    if since_days:
+        q += f" AND startDate >= datetime('now', '-{int(since_days)} days')"
+    q += ' ORDER BY startDateLocal DESC'
+    done = failed = 0
+    tried = 0
+    for r in db.execute(q).fetchall():
+        lat, lng = origin(r)
+        if lat is None or r['id'] in _FAILED:
+            continue
+        if limit and tried >= limit:
+            break
+        tried += 1
+        try:
+            w = fetch_weather(lat, lng, r['startDateLocal'], r['streams'])
+        except Exception:
+            w = None
+        if w:
+            save_weather(db, r['id'], w)
+            if not (r['startLat'] and r['startLng']):
+                db.execute('UPDATE Activity SET startLat=?, startLng=? WHERE id=? AND startLat IS NULL', [lat, lng, r['id']])
+            db.commit()
+            done += 1
+        else:
+            failed += 1
+            _FAILED.add(r['id'])
+        if on_each:
+            on_each(done, failed)
+        if pause:
+            time.sleep(pause)
+    return done, failed
+
+
+def fog_candidates(db, rider_id, sport=None, limit=300):
+    """Rides that were damp and still at the start (humidity 97%+, light wind, no rain, reported as clear / cloudy) and that nobody has confirmed or rejected.
+    Fog is far too local for a weather model to report, so these are suggestions for the rider to confirm, never labelled automatically."""
+    q = """SELECT id, name, startDateLocal, weatherHumidity, weatherWindKph, weatherTempC FROM Activity
+           WHERE riderId=? AND weatherHumidity >= 97 AND weatherWindKph < 15 AND COALESCE(weatherRainMm, 0) < 0.1
+             AND weatherCode IS NOT NULL AND weatherCode <= 3 AND weatherSource IS NULL"""
+    args = [rider_id]
+    if sport:
+        q += " AND lower(sportType) LIKE ?"
+        args.append(f'%{sport.lower()}%')
+    q += " ORDER BY weatherHumidity DESC, weatherWindKph ASC, startDateLocal DESC LIMIT %d" % int(limit)
+    return [dict(r) for r in db.execute(q, args).fetchall()]

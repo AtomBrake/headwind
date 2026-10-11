@@ -46,7 +46,7 @@ def _parse_serving_g(s):
 def _get_goals():
     row = query_db('''
         SELECT nutritionCalGoal, nutritionProteinGoal, nutritionCarbGoal,
-               nutritionFatGoal, nutritionWaterGoalMl, nutritionBmrKcal
+               nutritionFatGoal, nutritionWaterGoalMl, nutritionBmrKcal, nutritionSugarGoal
         FROM Settings WHERE id=1
     ''', one=True)
     if not row:
@@ -56,6 +56,8 @@ def _get_goals():
         'protein': row['nutritionProteinGoal'],
         'carbs':   row['nutritionCarbGoal'],
         'fat':     row['nutritionFatGoal'],
+        'fibre':   30,                                     # UK recommendation
+        'sugar':   row['nutritionSugarGoal'] or 50,         # a limit, not a target: 50 g of total sugars unless you set your own
         'water':   row['nutritionWaterGoalMl'],
         'bmr':     row['nutritionBmrKcal'],
     }
@@ -98,7 +100,10 @@ def _with_quality(product, sugars_per_100g=None):
         fibre_per_100g=product.get('fibre_per_100g'),
         sugars_per_100g=sugars_per_100g if sugars_per_100g is not None else product.get('_sugars_per_100g'),
     )
+    sg = sugars_per_100g if sugars_per_100g is not None else product.get('_sugars_per_100g')
     product.pop('_sugars_per_100g', None)
+    if sg is not None:
+        product['sugars_per_100g'] = sg               # the page scales this by the portion, like fibre
     return product
 
 
@@ -264,7 +269,7 @@ def save_goals():
     db.execute('''
         UPDATE Settings SET
             nutritionCalGoal=?, nutritionProteinGoal=?, nutritionCarbGoal=?,
-            nutritionFatGoal=?, nutritionWaterGoalMl=?, nutritionBmrKcal=?
+            nutritionFatGoal=?, nutritionWaterGoalMl=?, nutritionBmrKcal=?, nutritionSugarGoal=?
         WHERE id=1
     ''', [
         d.get('cal')     or None,
@@ -273,6 +278,7 @@ def save_goals():
         d.get('fat')     or None,
         d.get('water')   or None,
         d.get('bmr')     or None,
+        d.get('sugar')   or None,
     ])
     db.commit()
     _mqtt_nutrition()   # goals are HA sensors too
@@ -738,6 +744,21 @@ def upload_food_image():
 
 # ── Log entries ───────────────────────────────────────────────────────
 
+def _saved_sugar(barcode, name, grams, calories):
+    """Sugars (g) we can work out for a food being logged without a sugar figure: from the food database's per-100g value, else from an earlier log of the same food."""
+    if barcode and grams:
+        fc = query_db('SELECT sugars100g FROM FoodCache WHERE key=? AND sugars100g IS NOT NULL', [barcode], one=True)
+        if fc:
+            return round(fc['sugars100g'] * grams / 100, 2)
+    prev = query_db('''
+        SELECT sugar, calories FROM FoodLog
+        WHERE sugar IS NOT NULL AND calories > 0 AND ((? != '' AND barcode=?) OR lower(foodName)=lower(?))
+        ORDER BY id DESC LIMIT 1''', [barcode or '', barcode or '', name or ''], one=True)
+    if prev and calories:
+        return round(prev['sugar'] * calories / prev['calories'], 2)
+    return None
+
+
 def _saved_fibre(barcode, name, grams, calories):
     """Fibre we already know for this food, so a value the user corrected/added sticks however it is added
     again (search, Recent, Go-Tos…). Order: their per-barcode correction, My Foods, an earlier log of it, the cached API value."""
@@ -811,7 +832,7 @@ def log_food():
     d = request.get_json(silent=True) or {}
     if not _valid_date(d.get('date')) or not str(d.get('name') or '').strip():
         return jsonify({'error': 'a valid date (YYYY-MM-DD) and food name are required'}), 400
-    bad = _bad_numbers(d, ('calories', 'protein', 'carbs', 'fat', 'fibre', 'serving_g', 'quantity'))
+    bad = _bad_numbers(d, ('calories', 'protein', 'carbs', 'fat', 'fibre', 'sugar', 'serving_g', 'quantity'))
     if bad:
         return jsonify({'error': f'{bad} must be a number between 0 and 100000'}), 400
     rider_id = _default_rider_id()
@@ -823,6 +844,8 @@ def log_food():
             return jsonify({'ok': True, 'id': prev['entryId'], 'duplicate': True})
     if d.get('fibre') is None:
         d['fibre'] = _saved_fibre(d.get('barcode'), d.get('name'), d.get('serving_g'), d.get('calories'))
+    if d.get('sugar') is None:
+        d['sugar'] = _saved_sugar(d.get('barcode'), d.get('name'), d.get('serving_g'), d.get('calories'))
     db = get_db()
     values = [
         d['date'], d.get('barcode'), d['name'],
@@ -830,13 +853,13 @@ def log_food():
         d.get('serving_g'), d.get('quantity', 1),
         d.get('meal_type', 'uncategorised'),
         d.get('source', 'manual'),
-        d.get('brand'), d.get('image_url'), d.get('nutri_score_grade'), d.get('fibre'),
+        d.get('brand'), d.get('image_url'), d.get('nutri_score_grade'), d.get('fibre'), d.get('sugar'),
     ]
     if d.get('id'):
         db.execute('''
             UPDATE FoodLog SET
                 logDate=?, barcode=?, foodName=?, calories=?, protein=?, carbs=?, fat=?,
-                servingG=?, quantity=?, mealType=?, source=?, brand=?, imageUrl=?, nutriScoreGrade=?, fibre=?
+                servingG=?, quantity=?, mealType=?, source=?, brand=?, imageUrl=?, nutriScoreGrade=?, fibre=?, sugar=?
             WHERE id=?
         ''', values + [d['id']])
         entry_id = d['id']
@@ -844,8 +867,8 @@ def log_food():
         db.execute('''
             INSERT INTO FoodLog
                 (logDate, barcode, foodName, calories, protein, carbs, fat,
-                 servingG, quantity, mealType, source, brand, imageUrl, nutriScoreGrade, fibre, riderId)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 servingG, quantity, mealType, source, brand, imageUrl, nutriScoreGrade, fibre, sugar, riderId)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', values + [rider_id])
         entry_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
     if cid:
@@ -871,10 +894,10 @@ def log_food_batch():
     for it in items:
         db.execute('''
             INSERT INTO FoodLog
-                (logDate, foodName, calories, protein, carbs, fat, fibre, quantity, mealType, source, riderId)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+                (logDate, foodName, calories, protein, carbs, fat, fibre, sugar, quantity, mealType, source, riderId)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
         ''', [d['date'], it['name'], it.get('calories'), it.get('protein'), it.get('carbs'),
-              it.get('fat'), it.get('fibre'), it.get('meal_type') or 'uncategorised',
+              it.get('fat'), it.get('fibre'), it.get('sugar'), it.get('meal_type') or 'uncategorised',
               'screenshot_est' if it.get('est') else 'screenshot', rider_id])
     db.commit()
     _mqtt_nutrition()
@@ -1076,7 +1099,7 @@ def delete_water(entry_id):
 def day_log(date_str):
     rider_id = _default_rider_id()
     entries = query_db('''
-        SELECT id, foodName, calories, protein, carbs, fat, fibre, servingG, quantity,
+        SELECT id, foodName, calories, protein, carbs, fat, fibre, sugar, servingG, quantity,
                barcode, mealType, source, brand, imageUrl, nutriScoreGrade
         FROM FoodLog WHERE riderId=? AND logDate=? ORDER BY createdAt ASC
     ''', [rider_id, date_str])
@@ -1393,7 +1416,7 @@ def list_saved_meals():
     result = []
     for m in meals:
         items = query_db(
-            'SELECT id, foodName, calories, protein, carbs, fat, fibre, servingG, barcode '
+            'SELECT id, foodName, calories, protein, carbs, fat, fibre, sugar, servingG, barcode '
             'FROM SavedMealItem WHERE mealId=? ORDER BY id',
             [m['id']],
         )
@@ -1419,12 +1442,12 @@ def create_saved_meal():
     meal_id = cur.lastrowid
     for item in items:
         db.execute('''
-            INSERT INTO SavedMealItem (mealId, foodName, calories, protein, carbs, fat, fibre, servingG, barcode)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO SavedMealItem (mealId, foodName, calories, protein, carbs, fat, fibre, sugar, servingG, barcode)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', [
             meal_id, item['foodName'],
             item.get('calories'), item.get('protein'), item.get('carbs'),
-            item.get('fat'), item.get('fibre'), item.get('servingG'), item.get('barcode'),
+            item.get('fat'), item.get('fibre'), item.get('sugar'), item.get('servingG'), item.get('barcode'),
         ])
     db.commit()
     return jsonify({'id': meal_id, 'name': name}), 201
@@ -1455,9 +1478,9 @@ def log_saved_meal(meal_id):
     for item in items:
         db.execute('''
             INSERT INTO FoodLog
-                (riderId, logDate, barcode, foodName, calories, protein, carbs, fat, fibre,
+                (riderId, logDate, barcode, foodName, calories, protein, carbs, fat, fibre, sugar,
                  servingG, quantity, mealType, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 'saved_meal')
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 'saved_meal')
         ''', [
             rider_id, date_str, item['barcode'], item['foodName'],
             (item['calories'] * scale) if item['calories'] else None,
@@ -1465,6 +1488,7 @@ def log_saved_meal(meal_id):
             (item['carbs']    * scale) if item['carbs']    else None,
             (item['fat']      * scale) if item['fat']      else None,
             (item['fibre']    * scale) if item['fibre']    else None,
+            (item['sugar']    * scale) if item['sugar']    else None,
             (item['servingG'] * scale) if item['servingG'] else None,
             meal_type,
         ])
@@ -1498,12 +1522,12 @@ def copy_day():
     for e in entries:
         db.execute('''
             INSERT INTO FoodLog
-                (riderId, logDate, barcode, foodName, calories, protein, carbs, fat, fibre,
+                (riderId, logDate, barcode, foodName, calories, protein, carbs, fat, fibre, sugar,
                  servingG, quantity, mealType, source, brand, imageUrl, nutriScoreGrade)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'copied', ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'copied', ?, ?, ?)
         ''', [
             rider_id, to_date, e['barcode'], e['foodName'],
-            e['calories'], e['protein'], e['carbs'], e['fat'], e['fibre'],
+            e['calories'], e['protein'], e['carbs'], e['fat'], e['fibre'], e['sugar'],
             e['servingG'], e['quantity'],
             e['mealType'] if e['mealType'] else 'uncategorised',
             e['brand'], e['imageUrl'], e['nutriScoreGrade'],

@@ -139,6 +139,15 @@ def _publish(c, sender=None, conn=None):
         return False
 
 
+def announce(sender=None, conn=None):
+    """Publish the live-ride entities (retained discovery + an idle state) once, without a ride, so Home Assistant has them, and the Live dashboard tab can show,
+    before the first ride is ever streamed. Safe to repeat. Returns True if published."""
+    with _lock:
+        if _state['last'] is not None:
+            return False              # a real reading has already gone out
+        return _publish(clean({'state': 'idle'}), sender, conn)
+
+
 def update(payload, sender=None, conn=None, app=None):
     """Handle one POST from the phone. Returns the cleaned reading. Publishes at most every MIN_PUBLISH_GAP_S, but always publishes idle."""
     c = clean(payload)

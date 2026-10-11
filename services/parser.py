@@ -110,7 +110,24 @@ def extremes_from_streams(streams):
     return out
 
 
-def parse_gpx(data: bytes):
+def _gain_smoothed(alts, threshold=3.0, window=7):
+    """Total climb from a noisy altitude track (phone GPS altitude wanders by metres even when you stand still): smooth it, then only count a rise once it is
+    at least `threshold` metres from the last low point."""
+    if len(alts) < window:
+        return 0.0
+    h = window // 2
+    sm = [sum(alts[max(0, i - h):i + h + 1]) / len(alts[max(0, i - h):i + h + 1]) for i in range(len(alts))]
+    gain, low = 0.0, sm[0]
+    for a in sm[1:]:
+        if a - low >= threshold:
+            gain += a - low
+            low = a
+        elif a < low:
+            low = a
+    return gain
+
+
+def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
     import gpxpy
 
     gpx = gpxpy.parse(io.StringIO(data.decode('utf-8', errors='replace')))
@@ -136,10 +153,24 @@ def parse_gpx(data: bytes):
         if t.type:
             sport_type = _map_sport(t.type)
 
-    moving_data = gpx.tracks[0].get_moving_data() if gpx.tracks else None
+    # stopped_speed: below this many m/s counts as standing still. gpxpy's default (1 m/s, 2.2 mph) is right for a bike but drops a stroll or a hill walk from the moving time
+    moving_data = (gpx.tracks[0].get_moving_data(stopped_speed_threshold=stopped_speed) if stopped_speed else gpx.tracks[0].get_moving_data()) if gpx.tracks else None
     distance = moving_data.moving_distance if moving_data else 0
     moving_time = moving_data.moving_time if moving_data else 0
     uphill, _ = gpx.tracks[0].get_uphill_downhill() if gpx.tracks else (0, 0)
+    if smooth_gain:
+        uphill = _gain_smoothed([p.elevation for p in points if p.elevation is not None])
+
+    if stopped_speed:
+        # on foot: phone GPS often repeats a position for a second or two and then jumps, so single-second speeds flicker between 0 and double. Judge movement over a ~10 s window.
+        timed_pts = [p for p in points if p.time is not None and p.latitude is not None]
+        moving = 0.0
+        for i in range(len(timed_pts) - 1):
+            a, b = timed_pts[max(0, i - 5)], timed_pts[min(len(timed_pts) - 1, i + 5)]
+            span = (b.time - a.time).total_seconds()
+            if span > 0 and _haversine(a.latitude, a.longitude, b.latitude, b.longitude) / span >= stopped_speed:
+                moving += max(0.0, min(30.0, (timed_pts[i + 1].time - timed_pts[i].time).total_seconds()))
+        moving_time = moving
 
     latlng, altitude, hr_s, cad_s, time_s, dist_s, pwr_s = [], [], [], [], [], [], []
     acc_dist = 0.0

@@ -15,6 +15,11 @@
     @media (max-width: 900px) {
       .chart-grid-2 { grid-template-columns: 1fr; }
     }
+    .cbox { position: relative; width: 100%; }
+    /* heights follow the screen width (so the shape stays the same on a phone and a big monitor) between a floor and a ceiling */
+    .cbox-wide    { height: clamp(240px, 24vw, 380px); }
+    .cbox-half    { height: clamp(250px, 24vw, 360px); }
+    .cbox-scatter { height: clamp(280px, 28vw, 440px); }
     .heatmap-wrap { overflow-x: auto; padding-bottom: 0.5rem; }
     .heatmap-grid { display: flex; gap: 3px; align-items: flex-start; }
     .heatmap-col  { display: flex; flex-direction: column; gap: 3px; }
@@ -174,7 +179,7 @@
 <!-- Speed over time -->
 <div class="card" style="margin-bottom:1.5rem;">
   <div class="card-title">Avg Speed Per Ride (mph)</div>
-  <canvas id="speedChart" height="90"></canvas>
+  <div class="cbox cbox-wide"><canvas id="speedChart"></canvas></div>
 </div>
 
 <!-- Calendar Heatmap -->
@@ -196,6 +201,7 @@
     <div class="legend-cell" style="background:#c4621f;"></div>
     <div class="legend-cell" style="background:#fc4c02;"></div>
     More
+    <span id="heatLegendNote" style="margin-left:0.75rem; font-size:0.75rem;"></span>
   </div>
 </div>
 
@@ -203,29 +209,29 @@
 <div class="chart-grid-2">
   <div class="card">
     <div class="card-title">Monthly Distance (mi)</div>
-    <canvas id="monthlyChart" height="160"></canvas>
+    <div class="cbox cbox-half"><canvas id="monthlyChart"></canvas></div>
   </div>
   <div class="card">
     <div class="card-title">Year on Year</div>
-    <canvas id="yoyChart" height="160"></canvas>
+    <div class="cbox cbox-half"><canvas id="yoyChart"></canvas></div>
   </div>
 </div>
 
 <!-- Calories over time -->
 <div class="card" style="margin-bottom:1.5rem;">
   <div class="card-title">Calories Burned Per Ride</div>
-  <canvas id="calChart" height="80"></canvas>
+  <div class="cbox cbox-wide"><canvas id="calChart"></canvas></div>
 </div>
 
 <!-- Histogram + Day of week -->
 <div class="chart-grid-2">
   <div class="card">
     <div class="card-title">Ride Length Distribution</div>
-    <canvas id="histChart" height="160"></canvas>
+    <div class="cbox cbox-half"><canvas id="histChart"></canvas></div>
   </div>
   <div class="card">
     <div class="card-title">Rides by Day of Week</div>
-    <canvas id="dowChart" height="160"></canvas>
+    <div class="cbox cbox-half"><canvas id="dowChart"></canvas></div>
   </div>
 </div>
 
@@ -236,17 +242,55 @@
 <div class="chart-grid-2" style="margin-bottom:1.5rem;">
   <div class="card">
     <div class="card-title">Speed vs Temperature (mph / °C)</div>
-    <canvas id="wxTempChart" height="200"></canvas>
+    <div class="cbox cbox-scatter"><canvas id="wxTempChart"></canvas></div>
   </div>
   <div class="card">
     <div class="card-title">Speed vs Wind Speed (mph)</div>
-    <canvas id="wxWindChart" height="200"></canvas>
+    <div class="cbox cbox-scatter"><canvas id="wxWindChart"></canvas></div>
   </div>
 </div>
 
 <div class="card" style="margin-bottom:1.5rem;">
   <div class="card-title">Avg Speed by Weather Condition</div>
-  <canvas id="wxCondChart" height="80"></canvas>
+  <div class="cbox cbox-wide"><canvas id="wxCondChart"></canvas></div>
+  <p style="color:var(--text-muted); font-size:0.75rem; margin:0.6rem 0 0; line-height:1.5;">Bars are your average speed in each condition (left axis, from zero); the dots are how many rides that is (right axis), so a condition with few rides is easy to spot. Set a ride's conditions by hand on its page.</p>
+  {% if wx_storm %}
+  {% set claimed = wx_storm | selectattr('condition', 'equalto', 'Storm') | list %}
+  {% set other = wx_storm | rejectattr('condition', 'equalto', 'Storm') | list %}
+  <details style="margin-top:0.9rem;">
+    <summary style="cursor:pointer; color:var(--accent); font-size:0.875rem;">Storm rides — {{ claimed | length }} counted as Storm{% if other %}, {{ other | length }} to review{% endif %}</summary>
+    <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0.5rem 0;">A storm is only a storm where you rode it, so a name alone is not enough. A ride on a day the Met Office named a storm counts as <strong>Storm</strong> when the weather at its own place and hour had gusts of 50 km/h or more; that outranks the lookup's own condition (Rain, Snow, Cloudy). Rides to review: a named-storm day with gusts of 40–49 km/h, a named day that stayed calm where you rode, and violent wind (75 km/h+) on a day with no named storm. Tap <strong>Storm</strong> to count one, or <strong>Not a storm</strong> to take one back.</p>
+    <div style="max-height:24rem; overflow:auto; font-size:0.8125rem;">
+      {% for r in claimed + other %}
+      <div id="storm_{{ r.id }}" style="display:flex; align-items:center; gap:0.6rem; padding:0.35rem 0; border-top:1px solid #163352; flex-wrap:wrap;">
+        <a href="/rides/{{ r.id }}" style="flex:1 1 13rem;">{{ r.date_txt }} · {{ r.name or 'Ride' }}<br><span style="color:var(--text-muted);">Storm {{ r.storm }} · {{ (r.distance / 1609.344) | round(1) }} mi · {% if r.gust_kph is not none %}gusts {{ r.gust_kph | round | int }} kph{% else %}no wind data{% endif %}{% if r.condition and r.condition != 'Storm' %} · {{ r.condition }}{% endif %}</span></a>
+        {% if r.condition == 'Storm' %}
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;" onclick="stormPick('{{ r.id }}','notstorm')">Not a storm</button>
+        {% else %}
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;" onclick="stormPick('{{ r.id }}','Storm')">Storm</button>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
+
+  {% if wx_fog %}
+  <details style="margin-top:0.9rem;">
+    <summary style="cursor:pointer; color:var(--accent); font-size:0.875rem;">Possible fog rides ({{ wx_fog|length }}) — confirm the ones that were</summary>
+    <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0.5rem 0;">Weather models almost never report fog because it is so local. These rides started damp and still (humidity 97%+, light wind, no rain), so some were probably fog. Only you know: tap <strong>Fog</strong> to count it, or <strong>Not fog</strong> to stop it being suggested.</p>
+    <div id="fogList" style="max-height:22rem; overflow:auto; font-size:0.8125rem;">
+      {% for f in wx_fog %}
+      <div class="fogRow" id="fog_{{ f.id }}" style="display:flex; align-items:center; gap:0.6rem; padding:0.35rem 0; border-top:1px solid #163352; flex-wrap:wrap;">
+        <a href="/rides/{{ f.id }}" style="flex:1 1 11rem;">{{ f.date }} · {{ f.name or 'Ride' }}</a>
+        <span style="color:var(--text-muted);">{{ f.weatherHumidity }}% humidity · {{ f.weatherWindKph|round|int }} kph{% if f.weatherTempC is not none %} · {{ f.weatherTempC|round|int }}°C{% endif %}</span>
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;" onclick="fogPick('{{ f.id }}','Fog')">Fog</button>
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;" onclick="fogPick('{{ f.id }}','keep')">Not fog</button>
+      </div>
+      {% endfor %}
+    </div>
+  </details>
+  {% endif %}
 </div>
 {% endif %}
 
@@ -380,6 +424,7 @@ function computeEfforts() {
 Chart.defaults.color          = '#4d7d95';
 Chart.defaults.borderColor    = '#163352';
 Chart.defaults.font.family    = 'inherit';
+Chart.defaults.maintainAspectRatio = false;      // each chart fills a fixed-height box (.cbox) instead of growing taller as the screen gets wider
 
 const GRID_COLOR  = '#163352';
 const TICK_COLOR  = '#4d7d95';
@@ -610,88 +655,86 @@ new Chart(document.getElementById('dowChart'), {
   fromSel.value = Math.max(minYear, maxYear - 2);
   toSel.value   = maxYear;
 
-  window.renderHeatmap = function () {
-    const fromYear = parseInt(fromSel.value);
-    const toYear   = parseInt(toSel.value);
-    const rangeEnd = new Date(Math.min(new Date(toYear, 11, 31), today));
+  // One continuous calendar (a column per week, a row per weekday), the same for any span. Cells keep a fixed size and never shrink, so a long span scrolls
+  // sideways instead of being squashed; it opens scrolled to the most recent end.
+  const CELL = 12, GAP = 3, STEP = CELL + GAP;
+  const ymd = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');   // local date: toISOString() (UTC) shifts local-midnight cells a day in summer time
 
-    // Start on the Sunday on or before Jan 1 of fromYear
+  window.renderHeatmap = function () {
+    let fromYear = parseInt(fromSel.value), toYear = parseInt(toSel.value);
+    if (fromYear > toYear) { const t = fromYear; fromYear = toYear; toYear = t; }
+    const rangeEnd = new Date(Math.min(new Date(toYear, 11, 31), today));
     const jan1  = new Date(fromYear, 0, 1);
     const start = new Date(jan1);
-    start.setDate(jan1.getDate() - jan1.getDay());  // back to Sunday
-
-    const msPerWeek = 7 * 24 * 60 * 60 * 1000;
-    const weeks     = Math.ceil((rangeEnd - start) / msPerWeek) + 1;
+    start.setDate(jan1.getDate() - jan1.getDay());                       // back to the Sunday on or before 1 Jan
+    const weeks = Math.ceil((rangeEnd - start) / (7 * 864e5)) + 1;
 
     const container = document.getElementById('heatmapContainer');
     container.innerHTML = '';
 
-    // Month label row
+    const wrap = document.createElement('div');
+    wrap.className = 'heatmap-wrap';
+    wrap.style.cssText = 'overflow-x:auto; padding-bottom:0.5rem;';
+
+    const inner = document.createElement('div');
+    inner.style.cssText = 'display:flex; flex-direction:column; width:max-content;';
+
+    // month labels (the year is shown on each January)
     const monthRow = document.createElement('div');
-    monthRow.className = 'heatmap-month-row';
-    monthRow.style.marginLeft = '28px';
+    monthRow.style.cssText = 'position:relative; height:16px; margin-left:28px; width:' + (weeks * STEP) + 'px;';
     let lastMonth = -1;
     for (let w = 0; w < weeks; w++) {
-      const d  = new Date(start);
-      d.setDate(start.getDate() + w * 7);
+      const d = new Date(start); d.setDate(start.getDate() + w * 7);
       const mo = d.getMonth();
       if (mo !== lastMonth && d <= rangeEnd) {
         const lbl = document.createElement('div');
-        lbl.className = 'heatmap-month-label';
-        // Show year when month is January
+        lbl.style.cssText = 'position:absolute; top:0; font-size:10px; color:#4d7d95; white-space:nowrap; left:' + (w * STEP) + 'px;';
         lbl.textContent = mo === 0 ? `${MONTHS[mo]} ${d.getFullYear()}` : MONTHS[mo];
-        lbl.style.left  = (w * 15) + 'px';
         monthRow.appendChild(lbl);
         lastMonth = mo;
       }
     }
 
-    const wrap = document.createElement('div');
-    wrap.className = 'heatmap-wrap';
-
     const row = document.createElement('div');
     row.style.display = 'flex';
-
-    // Day labels
     const dayCol = document.createElement('div');
-    dayCol.className = 'heatmap-day-labels';
+    dayCol.style.cssText = 'width:28px; flex-shrink:0; display:flex; flex-direction:column; gap:' + GAP + 'px; position:sticky; left:0; z-index:1; background:var(--card-bg, #0b1f33);';
     DAY_NAMES.forEach(name => {
       const lbl = document.createElement('div');
-      lbl.className = 'heatmap-day-label';
+      lbl.style.cssText = 'height:' + CELL + 'px; font-size:9px; color:#4d7d95; line-height:' + CELL + 'px;';
       lbl.textContent = name;
       dayCol.appendChild(lbl);
     });
     row.appendChild(dayCol);
 
-    // Grid
     const grid = document.createElement('div');
-    grid.className = 'heatmap-grid';
-
+    grid.style.cssText = 'display:flex; gap:' + GAP + 'px; flex-shrink:0;';
     for (let w = 0; w < weeks; w++) {
       const col = document.createElement('div');
-      col.className = 'heatmap-col';
+      col.style.cssText = 'display:flex; flex-direction:column; gap:' + GAP + 'px; flex-shrink:0;';
       for (let d = 0; d < 7; d++) {
-        const cellDate = new Date(start);
-        cellDate.setDate(start.getDate() + w * 7 + d);
-        const cell = document.createElement('div');
-        cell.className = 'heatmap-cell';
-        if (cellDate > rangeEnd || cellDate > today) {
-          cell.style.background = 'transparent';
+        const cd = new Date(start); cd.setDate(start.getDate() + w * 7 + d);
+        const c = document.createElement('div');
+        c.style.cssText = 'width:' + CELL + 'px; height:' + CELL + 'px; border-radius:2px; flex-shrink:0;';
+        if (cd > rangeEnd || cd > today || cd.getFullYear() < fromYear) {
+          c.style.background = 'transparent';
         } else {
-          const ds = cellDate.getFullYear() + '-' + String(cellDate.getMonth() + 1).padStart(2, '0') + '-' + String(cellDate.getDate()).padStart(2, '0');   // local date: toISOString() (UTC) shifts local-midnight cells a day in summer time
-          const mi = heatmap[ds] || 0;
-          cell.style.background = heatColor(mi);
-          cell.title = mi > 0 ? `${fmtDate(ds)}: ${mi.toFixed(1)} mi` : fmtDate(ds);
+          const ds = ymd(cd), mi = heatmap[ds] || 0;
+          c.style.background = heatColor(mi);
+          c.title = mi > 0 ? `${fmtDate(ds)}: ${mi.toFixed(1)} mi` : fmtDate(ds);
         }
-        col.appendChild(cell);
+        col.appendChild(c);
       }
       grid.appendChild(col);
     }
-
     row.appendChild(grid);
-    wrap.appendChild(monthRow);
-    wrap.appendChild(row);
+    inner.appendChild(monthRow);
+    inner.appendChild(row);
+    wrap.appendChild(inner);
     container.appendChild(wrap);
+    wrap.scrollLeft = wrap.scrollWidth;                                    // open at the most recent end
+    const legend = document.getElementById('heatLegendNote');
+    if (legend) legend.textContent = 'Each square is a day (miles ridden). Scroll sideways for earlier years.';
   };
 
   renderHeatmap();
@@ -806,32 +849,60 @@ new Chart(document.getElementById('dowChart'), {
   new Chart(document.getElementById('wxCondChart'), {
     type: 'bar',
     data: {
-      labels,
+      labels: labels.map((l, i) => l + ' (' + counts[i] + ')'),
       datasets: [{
         label: 'Avg Speed (mph)',
         data: avgs,
         backgroundColor: labels.map(l => condColors[l] || 'rgba(100,181,246,0.7)'),
         borderRadius: 4,
+        yAxisID: 'y',
+      }, {
+        type: 'line',
+        label: 'Rides',
+        data: counts,
+        yAxisID: 'y2',
+        showLine: false,
+        pointStyle: 'rectRot',
+        pointRadius: 7,
+        pointBackgroundColor: '#fc4c02',
+        pointBorderColor: '#fff',
       }]
     },
     options: {
       animation: false,
       plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            afterLabel: (ctx) => `${counts[ctx.dataIndex]} rides`,
-          }
-        }
+        legend: { display: true, labels: { color: '#8ab4cc' } },
+        tooltip: { callbacks: { afterLabel: (ctx) => ctx.datasetIndex === 0 ? `${counts[ctx.dataIndex]} rides` : '' } }
       },
       scales: {
         x: { ticks: { color: '#8ab4cc' }, grid: { color: '#1a3a52' } },
-        y: { title: { display: true, text: 'Avg Speed (mph)', color: '#4d7d95' },
+        y: { beginAtZero: true, title: { display: true, text: 'Avg Speed (mph)', color: '#4d7d95' },
              ticks: { color: '#4d7d95' }, grid: { color: '#1a3a52' } },
+        y2: { beginAtZero: true, position: 'right', title: { display: true, text: 'Rides', color: '#fc4c02' },
+              ticks: { color: '#fc4c02' }, grid: { drawOnChartArea: false } },
       }
     }
   });
 })();
 {% endif %}
+function stormPick(id, what) {
+  fetch('/rides/' + id + '/weather', { method: 'POST', body: new URLSearchParams({ condition: what }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) { alert('Could not save: ' + d.error); return; }
+      var row = document.getElementById('storm_' + id);
+      if (row) row.innerHTML = '<span style="color:var(--text-muted);">' + (what === 'Storm' ? 'Counted as a storm ride. Refresh to update the chart.' : 'Taken back to ' + (d.condition || 'its own condition') + '.') + '</span>';
+    });
+}
+
+function fogPick(id, what) {
+  fetch('/rides/' + id + '/weather', { method: 'POST', body: new URLSearchParams({ condition: what }) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) { alert('Could not save: ' + d.error); return; }
+      var row = document.getElementById('fog_' + id);
+      if (row) row.innerHTML = '<span style="color:var(--text-muted);">' + (what === 'Fog' ? 'Marked as fog. Refresh to update the chart.' : 'Kept as it was.') + '</span>';
+    });
+}
 </script>
 {% endblock %}

@@ -130,7 +130,7 @@
 <div class="dash-split">
   <div class="card" style="padding:0;">
     <div style="display:flex; align-items:center; justify-content:space-between; padding:1.25rem 1.25rem 0.75rem;">
-      <div class="card-title" style="margin:0;">Recent Rides</div>
+      <div class="card-title" style="margin:0;">Recent Activities</div>
       {% if grouped or search_results %}<a href="#ride-history" style="font-size:0.75rem; color:var(--accent); text-decoration:none;">View all &rarr;</a>{% endif %}
     </div>
     {% if activities %}
@@ -194,6 +194,26 @@
   {% endif %}
 </div>
 
+{% if flagged %}
+<div class="card" id="flaggedCard" style="margin-bottom:1rem; border-color:#b45309; background:rgba(180,83,9,0.10);">
+  <div class="card-title">Rides that look wrong ({{ flagged|length }})</div>
+  <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0 0 0.5rem;">These broke a sanity limit (an impossible speed, a tiny blip, a climb that does not fit the distance). They are left out of the speed and weather analytics until you decide: keep one if it is genuinely right, or delete it.</p>
+  {% for f in flagged %}
+  <div id="flag_{{ f.id }}" style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; padding:0.4rem 0; border-top:1px solid rgba(22,51,82,0.6); font-size:0.8125rem;">
+    <a href="/rides/{{ f.id }}" style="flex:1 1 14rem;">{{ f.startDateLocal | fmt_date }} · {{ f.name or 'Ride' }}<br><span style="color:var(--text-muted);">{{ f.flagReason }}</span></a>
+    <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;" onclick="dismissFlagged('{{ f.id }}')">It's right</button>
+  </div>
+  {% endfor %}
+</div>
+<script>
+function dismissFlagged(id) {
+  fetch('/rides/' + id + '/flag/dismiss', { method: 'POST' }).then(function(r) {
+    if (r.ok) { var e = document.getElementById('flag_' + id); if (e) e.remove(); if (!document.querySelector('[id^=flag_]')) { var c = document.getElementById('flaggedCard'); if (c) c.remove(); } }
+  });
+}
+</script>
+{% endif %}
+
 <!-- Search / Filter -->
 <form method="GET" action="/dashboard" class="toolbar">
   {% if not active_rider.isDefault %}<input type="hidden" name="rider" value="{{ active_rider.id }}">{% endif %}
@@ -254,7 +274,7 @@
         <div style="font-size:0.9375rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
           {{ a.sportType | sport_icon }} {{ a.name }}
           {% if a.aiKudos %}<span style="font-size:0.7rem; color:var(--accent); margin-left:0.3rem; font-weight:400;">AI</span>{% endif %}
-          {% if a.id.startswith('garmin_') %}<span style="font-size:0.65rem; color:#5bb8d4; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">GARMIN</span>{% elif a.id.startswith('imp_') %}<span style="font-size:0.65rem; color:#c9a84c; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">IMPORT</span>{% endif %}
+          {% if a.sportType == 'Run' %}<span style="font-size:0.65rem; color:#a78bfa; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">RUN</span>{% endif %}{% if a.id.startswith('garmin_') %}<span style="font-size:0.65rem; color:#5bb8d4; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">GARMIN</span>{% elif a.id.startswith('imp_') %}<span style="font-size:0.65rem; color:#c9a84c; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">IMPORT</span>{% endif %}
         </div>
         <div style="font-size:0.775rem; color:var(--text-muted); margin-top:0.15rem;">
           {{ a.startDateLocal | fmt_date }}
@@ -305,7 +325,7 @@
                   <div style="font-size:0.9375rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                     {{ a.sportType | sport_icon }} {{ a.name }}
                     {% if a.aiKudos %}<span style="font-size:0.7rem; color:var(--accent); margin-left:0.3rem; font-weight:400;">AI</span>{% endif %}
-                    {% if a.id.startswith('garmin_') %}<span style="font-size:0.65rem; color:#5bb8d4; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">GARMIN</span>{% elif a.id.startswith('imp_') %}<span style="font-size:0.65rem; color:#c9a84c; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">IMPORT</span>{% endif %}
+                    {% if a.sportType == 'Run' %}<span style="font-size:0.65rem; color:#a78bfa; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">RUN</span>{% endif %}{% if a.id.startswith('garmin_') %}<span style="font-size:0.65rem; color:#5bb8d4; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">GARMIN</span>{% elif a.id.startswith('imp_') %}<span style="font-size:0.65rem; color:#c9a84c; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">IMPORT</span>{% endif %}
                   </div>
                   <div style="font-size:0.775rem; color:var(--text-muted); margin-top:0.15rem; font-variant-numeric:tabular-nums;">
                     <span style="color:var(--text);">{{ a.distance | fmt_dist }}</span>

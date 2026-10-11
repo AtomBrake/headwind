@@ -9,7 +9,7 @@ N = 'sensor.headwind_nutrition_'
 B = 'sensor.bike_tracker_'
 MEALS = [('breakfast', 'Breakfast', 'mdi:coffee'), ('lunch', 'Lunch', 'mdi:food'), ('dinner', 'Dinner', 'mdi:silverware-fork-knife'),
          ('snacks', 'Snacks', 'mdi:cookie'), ('ride_fuel', 'Ride fuel', 'mdi:bike-fast'), ('recovery', 'Recovery', 'mdi:blender')]
-HEX = {'protein': '#facc15', 'carbs': '#38bdf8', 'fat': '#f87171', 'fibre': '#fb923c', 'kcal': '#fc4c02', 'water': '#60a5fa'}
+HEX = {'protein': '#facc15', 'carbs': '#38bdf8', 'fat': '#f87171', 'fibre': '#fb923c', 'sugar': '#f472b6', 'kcal': '#fc4c02', 'water': '#60a5fa'}
 
 BG = 'linear-gradient(150deg,rgba(255,255,255,.16) 0%,rgba(255,255,255,.05) 55%,rgba(8,20,34,.35) 100%)'
 THEME = 'Frosted Glass Dark'
@@ -444,7 +444,8 @@ return ring(pct, over ? '#f87171' : '{colour}', Math.round(val * 10) / 10 % 1 ==
     macros = [macro('Protein', N + 'protein', HEX['protein'], 'protein'),
               macro('Carbs', N + 'carbs', HEX['carbs'], 'carbs'),
               macro('Fat', N + 'fat', HEX['fat'], 'fat'),
-              macro('Fibre', N + 'fibre', HEX['fibre'], 'fibre')]
+              macro('Fibre', N + 'fibre', HEX['fibre'], 'fibre'),
+              macro('Sugar', N + 'sugar', HEX['sugar'], 'sugar')]
 
     water = cols(bc([N + 'water', N + 'water_progress', N + 'water_goal'], f"""
 const ml = n('{N}water'), pct = n('{N}water_progress');
@@ -552,11 +553,11 @@ return panel('Next calorie change', k(A.saved_goal) + ' now', null, `
     meal_cards = []
     for key, label, icon in MEALS:
         k = f'{N}{key}_'
-        ents = [k + 'calories', k + 'protein', k + 'carbs', k + 'fat', k + 'fibre']
+        ents = [k + 'calories', k + 'protein', k + 'carbs', k + 'fat', k + 'fibre', k + 'sugar']
         meal_cards.append({
             'type': 'conditional', 'conditions': [{'condition': 'numeric_state', 'entity': k + 'calories', 'above': 0}],
             'card': cols(bc(ents, f"""
-const kc = n('{k}calories'), p = n('{k}protein'), c = n('{k}carbs'), f = n('{k}fat'), fi = n('{k}fibre');
+const kc = n('{k}calories'), p = n('{k}protein'), c = n('{k}carbs'), f = n('{k}fat'), fi = n('{k}fibre'), su = n('{k}sugar');
 const tot = (p * 4 + c * 4 + f * 9) || 1;
 const seg = (v, col) => `<div style="width:${{v / tot * 100}}%;background:${{col}}"></div>`;
 return `
@@ -566,7 +567,7 @@ return `
   <div style="flex:1;min-width:0">
     <div style="font-weight:700;font-size:16px">{label}</div>
     <div style="display:flex;height:6px;border-radius:4px;overflow:hidden;margin:7px 0 6px;background:rgba(255,255,255,.08)">${{seg(p * 4, '{HEX['protein']}')}}${{seg(c * 4, '{HEX['carbs']}')}}${{seg(f * 9, '{HEX['fat']}')}}</div>
-    <div style="font-size:12px;color:${{MUTED}}">P ${{fmt(p)}}g · C ${{fmt(c)}}g · F ${{fmt(f)}}g · Fibre ${{fmt(fi, 1)}}g</div></div>
+    <div style="font-size:12px;color:${{MUTED}}">P ${{fmt(p)}}g · C ${{fmt(c)}}g · F ${{fmt(f)}}g · Fibre ${{fmt(fi, 1)}}g · Sugar ${{fmt(su, 1)}}g</div></div>
   <div style="text-align:right"><div style="font-size:24px;font-weight:800;line-height:1">${{fmt(kc)}}</div><div style="font-size:11px;color:${{MUTED}}">kcal</div></div>
 </div>`;""", pad=14), 12)})
     empty = {'type': 'conditional', 'conditions': [{'condition': 'numeric_state', 'entity': eaten, 'below': 1}],
@@ -632,6 +633,10 @@ return panel('Macros · last 3 weeks (g)', '', [['Protein', '#facc15'], ['Carbs'
 const L = 21, fi = tail(A.fi, L);
 return panel('Fibre · last 3 weeks', fmt(last(fi) || 0, 1) + ' g today', null,
   chart({labels: tail(A.d, L), series: [{v: fi, color: '#fb923c', type: 'bar'}], goal: 30, zero: true, dec: 0}));""")
+    sugar_hist = chart_card(D_, """
+const L = 21, su = tail(A.su || [], L);
+return panel('Sugar · last 3 weeks', fmt(last(su) || 0, 1) + ' g today', null,
+  chart({labels: tail(A.d, L), series: [{v: su, color: '#f472b6', type: 'bar'}], goal: (A.goal || {}).su || 50, zero: true, dec: 0}));""")
     activity_trend = chart_card(N + 'activity_weekly', """
 const d = A.d || [];
 if (d.length < 2) return panel('Activity trend', '', null, `<div style="color:${MUTED};font-size:13px;padding:8px 0">Needs a few weeks of data.</div>`);
@@ -658,7 +663,7 @@ return panel('Activity trend · 26 weeks', '', [['Week', 'rgba(255,255,255,.6)']
   ${flatMsg}
   <div style="font-size:11px;color:${MUTED};margin-top:10px;white-space:normal;line-height:1.35">Raw weekly values are the bars; the line is a 4-week average of completed weeks (this week, dimmed, is still in progress). Trend verdict compares the last 4 weeks with the 4 before, ±5% counts as flat. Steps only go back to late June.</div>`);""")
 
-    s3 = {'type': 'grid', 'cards': [heading('Trends', 'mdi:chart-line'), reality, activity_trend, kcal_hist, macro_hist, fibre_hist]}
+    s3 = {'type': 'grid', 'cards': [heading('Trends', 'mdi:chart-line'), reality, activity_trend, kcal_hist, macro_hist, fibre_hist, sugar_hist]}
     return {'title': 'Today', 'path': 'today', 'icon': 'mdi:food-apple', 'type': 'sections', 'max_columns': 3, 'sections': [s1, s2, s3]}
 
 

@@ -214,6 +214,7 @@ def detail(rid):
             elev_loss_ft += -d * 3.28084
 
     sport = (activity['sportType'] or '').lower()
+    from services import weather as _wx
     is_ride = 'ride' in sport or 'cycling' in sport
     is_run = sport in ('run', 'trailrun', 'virtualrun')
 
@@ -250,6 +251,8 @@ def detail(rid):
                            elev_loss_ft=int(elev_loss_ft),
                            prev_ride=prev_ride, next_ride=next_ride,
                            is_ride=is_ride, is_run=is_run, is_workout=is_workout,
+                           wx_categories=list(_wx.CATEGORIES), wx_condition=_wx.bucket(activity['weatherCode'] if not is_workout else None),
+                           wx_manual=(not is_workout and activity['weatherSource'] == 'manual'), wx_storm=(not is_workout and activity['weatherSource'] == 'storm'),
                            ride_badges=ride_badges,
                            personalities=PERSONALITIES,
                            current_personality=query_db('SELECT coachPersonality FROM Settings WHERE id=1', one=True) or {},
@@ -273,6 +276,55 @@ def scan_segments(rid):
     db.commit()
     from flask import jsonify
     return jsonify(matched=matched)
+
+
+@bp.route('/<rid>/weather', methods=['POST'])
+def set_weather(rid):
+    """Set a ride's weather condition by hand (Clear / Cloudy / Fog / Rain / Snow / Storm), or 'auto' to hand it back to the automatic lookup."""
+    from services import weather
+    from flask import jsonify
+    label = (request.form.get('condition') or (request.get_json(silent=True) or {}).get('condition') or '').strip()
+    if label not in ('auto', 'keep', 'notstorm') and label not in weather.CATEGORIES:
+        return jsonify(error='unknown condition'), 400
+    db = get_db()
+    if not db.execute('SELECT 1 FROM Activity WHERE id=?', [rid]).fetchone():
+        return jsonify(error='not found'), 404
+    if label == 'notstorm':           # it was not a storm ride after all: back to the lookup's own condition, and never claimed again
+        weather.set_condition(db, rid, None)
+        row = db.execute('SELECT startLat, startLng, startDateLocal, streams FROM Activity WHERE id=?', [rid]).fetchone()
+        lat, lng = weather.origin(row)
+        w = weather.fetch_weather(lat, lng, row['startDateLocal'], row['streams']) if lat is not None else None
+        if w:
+            weather.save_weather(db, rid, w, claim=False)
+        weather.set_condition(db, rid, 'keep')
+    elif label == 'keep':
+        weather.set_condition(db, rid, 'keep')
+    elif label == 'auto':
+        weather.set_condition(db, rid, None)
+        row = db.execute('SELECT startLat, startLng, startDateLocal, streams FROM Activity WHERE id=?', [rid]).fetchone()
+        lat, lng = weather.origin(row)
+        w = weather.fetch_weather(lat, lng, row['startDateLocal'], row['streams']) if lat is not None else None
+        if w:
+            weather.save_weather(db, rid, w, claim=False)
+        elif db.execute('SELECT weatherTempC FROM Activity WHERE id=?', [rid]).fetchone()[0] is None:      # nothing automatic to fall back on: forget the hand-picked word
+            db.execute('UPDATE Activity SET weatherCode=NULL, weatherSummary=NULL WHERE id=?', [rid])
+    else:
+        weather.set_condition(db, rid, label)
+    db.commit()
+    row = db.execute('SELECT weatherCode, weatherSummary, weatherSource FROM Activity WHERE id=?', [rid]).fetchone()
+    return jsonify(ok=True, condition=weather.bucket(row['weatherCode']), summary=row['weatherSummary'], manual=row['weatherSource'] == 'manual')
+
+
+@bp.route('/<rid>/flag/dismiss', methods=['POST'])
+def dismiss_flag(rid):
+    """The rider says a flagged ride is right after all: clear the flag for good (it is counted in the analytics again)."""
+    from services import sanity
+    db = get_db()
+    if not db.execute('SELECT 1 FROM Activity WHERE id=?', [rid]).fetchone():
+        return ('Not found', 404)
+    sanity.dismiss(db, rid)
+    db.commit()
+    return ('', 204)
 
 
 @bp.route('/<rid>/notes', methods=['POST'])

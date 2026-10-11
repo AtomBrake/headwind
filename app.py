@@ -58,6 +58,8 @@ def _mqtt_heartbeat(app):
             with app.app_context():
                 from services.mqtt import push_update
                 push_update(background=True)
+                from services import live
+                live.announce()                               # the live-ride entities exist from the start (idle), so the Live card can be shown before a first ride
                 from services.homeassistant import sync_if_due, sync_weather_if_due
                 sync_if_due()
                 sync_weather_if_due()
@@ -413,6 +415,8 @@ def create_app():
     app.register_blueprint(segments_bp)
     app.register_blueprint(riders_bp)
     app.register_blueprint(heatmap_bp)
+    from routes.roughness import bp as roughness_bp
+    app.register_blueprint(roughness_bp)
     app.register_blueprint(ai_bp)
     app.register_blueprint(garmin_bp)
     app.register_blueprint(garmin_page_bp)

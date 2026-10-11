@@ -251,66 +251,42 @@ def calorie_adjust_history():
     return jsonify({'ok': True, 'pct': calorie_adjust.get_pct(), 'touched': touched})
 
 
+_WX_MISSING = """FROM Activity WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL
+                 AND (startLat IS NOT NULL OR streams LIKE '%latlng%')"""
+
+
 @bp.route('/weather-backfill', methods=['POST'])
 def weather_backfill():
     from flask import current_app
     from database import get_db
 
     db = get_db()
+    remaining = db.execute('SELECT COUNT(*) ' + _WX_MISSING).fetchone()[0]
 
     with _backfill_lock:
         if _backfill_state['running']:
-            remaining = db.execute('''
-                SELECT COUNT(*) FROM Activity
-                WHERE startLat IS NOT NULL AND startLng IS NOT NULL AND weatherSummary IS NULL
-            ''').fetchone()[0]
-            return jsonify(done=_backfill_state['done'], failed=_backfill_state['failed'],
-                           remaining=remaining, running=True)
-
-        remaining = db.execute('''
-            SELECT COUNT(*) FROM Activity
-            WHERE startLat IS NOT NULL AND startLng IS NOT NULL AND weatherSummary IS NULL
-        ''').fetchone()[0]
-
-        if remaining == 0:
+            return jsonify(done=_backfill_state['done'], failed=_backfill_state['failed'], remaining=remaining, running=True)
+        if remaining == 0 or (_backfill_state.get('last_failed') and _backfill_state['last_failed'] >= remaining):
             return jsonify(done=_backfill_state['done'], failed=_backfill_state['failed'], remaining=0)
-
         _backfill_state['running'] = True
-        _backfill_state['done']    = 0
-        _backfill_state['failed']  = 0
+        _backfill_state['done'] = 0
+        _backfill_state['failed'] = 0
 
     app = current_app._get_current_object()
 
+    def _each(done, failed):
+        with _backfill_lock:
+            _backfill_state['done'], _backfill_state['failed'] = done, failed
+
     def _run():
-        from services.weather import fetch_weather, save_weather
+        from services.weather import backfill_missing
         with app.app_context():
-            inner_db = get_db()
             try:
-                while True:
-                    rows = inner_db.execute('''
-                        SELECT id, startLat, startLng, startDateLocal, streams
-                        FROM Activity
-                        WHERE startLat IS NOT NULL AND startLng IS NOT NULL
-                          AND weatherSummary IS NULL
-                        ORDER BY startDateLocal DESC
-                        LIMIT 20
-                    ''').fetchall()
-                    if not rows:
-                        break
-                    for r in rows:
-                        try:
-                            w = fetch_weather(r['startLat'], r['startLng'], r['startDateLocal'], r['streams'])
-                            if w:
-                                save_weather(inner_db, r['id'], w)
-                                with _backfill_lock:
-                                    _backfill_state['done'] += 1
-                        except Exception:
-                            with _backfill_lock:
-                                _backfill_state['failed'] += 1
-                    inner_db.commit()
+                backfill_missing(get_db(), on_each=_each)      # start point, or the first GPS point of the track for older imports
             finally:
                 with _backfill_lock:
                     _backfill_state['running'] = False
+                    _backfill_state['last_failed'] = _backfill_state['failed']
 
     _threading.Thread(target=_run, daemon=True).start()
     return jsonify(done=0, failed=0, remaining=remaining, started=True)

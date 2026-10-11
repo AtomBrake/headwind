@@ -149,6 +149,34 @@ def dashboard():
         ORDER BY a.startDateLocal DESC
     ''', params)
 
+    # Runs are a proper sport: they sit in the same history list as rides (they are recorded in the Workout table, so ride totals and charts stay ride-only).
+    run_where = ['w.riderId=?', "w.sport='Run'"]
+    run_params = [rid]
+    if q:
+        run_where.append("COALESCE(w.name, 'Run') LIKE ?"); run_params.append(f'%{q}%')
+    if date_from:
+        run_where.append('date(w.startDateLocal) >= ?'); run_params.append(date_from)
+    if date_to:
+        run_where.append('date(w.startDateLocal) <= ?'); run_params.append(date_to)
+    for val, op in ((min_mi, '>='), (max_mi, '<=')):
+        if val:
+            try:
+                run_where.append(f'w.distance {op} ?'); run_params.append(float(val) * 1609.344)
+            except ValueError:
+                pass
+    if not sport or 'run' in sport.lower():
+        runs = query_db(f'''
+            SELECT w.id, COALESCE(NULLIF(w.name, ''), 'Run') AS name, 'Run' AS sportType, w.startDateLocal, w.distance, w.movingTime,
+                   w.totalElevationGain, w.averageSpeed, NULL AS averageWatts, w.averageHeartrate, NULL AS city, NULL AS country, NULL AS aiKudos,
+                   r.name AS riderName, r.avatarPath AS riderAvatar, r.isDefault AS riderIsDefault, r.id AS riderId
+            FROM Workout w LEFT JOIN Rider r ON r.id = w.riderId
+            WHERE {' AND '.join(run_where)}''', run_params)
+        if runs:
+            activities = sorted([*activities, *runs], key=lambda a: str(a['startDateLocal'] or ''), reverse=True)
+            if sport and 'run' in sport.lower():          # filtering to runs: the headline numbers are the runs' own
+                totals = {'rides': len(runs), 'dist': sum(r['distance'] or 0 for r in runs), 'elev': sum(r['totalElevationGain'] or 0 for r in runs),
+                          'secs': sum(r['movingTime'] or 0 for r in runs), 'cals': None}
+
     year_speed_rows = query_db(
         "SELECT date(startDateLocal) as d, averageSpeed, name "
         "FROM Activity "
@@ -165,6 +193,8 @@ def dashboard():
         'SELECT DISTINCT sportType FROM Activity WHERE riderId=? AND sportType IS NOT NULL ORDER BY sportType',
         [rid]
     )
+    if query_db("SELECT 1 FROM Workout WHERE riderId=? AND sport='Run' LIMIT 1", [rid], one=True) and not any(t['sportType'] == 'Run' for t in sport_types):
+        sport_types = [*sport_types, {'sportType': 'Run'}]
 
     recovery = None
     if active_rider and active_rider['isDefault']:
@@ -195,9 +225,16 @@ def dashboard():
     except Exception:
         gear_due = []
 
+    try:
+        from services import sanity
+        flagged = sanity.flagged(get_db(), rid)
+    except Exception:
+        flagged = []
+
     return render_template(
         'dashboard.html',
         gear_due=gear_due,
+        flagged=flagged,
         athlete=athlete,
         totals=totals,
         activities=activities,

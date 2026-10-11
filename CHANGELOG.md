@@ -1,6 +1,40 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.0-beta] - 2026-10-11
+
+Upgrading is automatic (new columns: `Activity.weatherSource / flagReason / flagDismissed`, `FoodLog.sugar`, `SavedMealItem.sugar`, `Settings.nutritionSugarGoal`, plus the roughness and sensor tables from 0.3). Phone app: Android 0.20.0-beta goes with this.
+
+### Added (nutrition)
+- **Sugar tracking.** Every food entry now carries sugars (g). It is filled in automatically from the food database's per-100g value (or an earlier log of the same food) and can be typed in the add / edit dialogs. A sugar *limit* (default 50 g, editable under Goals) is shown on the Nutrition page.
+- **Macro ring gauges.** The Nutrition page shows protein, carbs, fat, fibre and sugar as filling rings (full = goal reached; the sugar ring turns red past its limit), like the phone app, and each meal's header shows its protein / carbs / fat / fibre / sugar next to its calories.
+- **Home Assistant:** sugar sensors (`Nutrition Sugar`, `Sugar Remaining`, `Sugar Goal`, and one per meal), a Sugar ring and per-meal sugar line on the example dashboard, and a sugar trend chart; a 30-day sugar history for the chart.
+
+### Added (weather and storms)
+- **Named storms.** A reference table of the 84 UK and Ireland named storms 2015-2026 (Met Office archive). A ride on a named-storm day counts as **Storm** only when the weather at the ride's own place and hour had gusts of 50 km/h or more (a name alone is not proof it reached you); that outranks the lookup's own condition. Rides on a storm day with 40-49 km/h gusts or calm weather, and rides with violent wind (75 km/h+) on an unnamed day, are listed on the Analytics page to confirm with one tap, and every claim can be taken back. New rides are claimed as their weather is saved. `services/storms.py`.
+
+
+### Fixed
+- **Walks and runs: moving time, climb and calories were wrong.** The GPX parser's "stopped" threshold (1 m/s, right for a bike) counted a stroll as standing still, so a 2 h walk became 71 min and the walking equation was fed a 5.5 mph pace. On foot, movement is now judged over a 10 s window (phone GPS repeats positions) with a 0.2 m/s threshold, and climb ignores GPS altitude noise (a recovered walk dropped from 243 m to 92 m).
+- **Snow never appeared in the weather-by-condition analytics.** The grouping tested "rain" before "snow", so every snow ride was counted as Rain (the Rain badges had the same problem). Snow (codes 71-77, 85-86) is now its own group, and the chart also counts rides that have a condition but no temperature or wind.
+- **Weather backfill skipped almost every old ride.** It only handled rides with a stored start point, but older imports kept just the GPS track (about 95% of the rides on a long-running instance). It now uses the first track point (and fills in the start point), the sync tops up a few old rides each time so history fills in by itself, and a ride the weather service has no data for no longer blocks the queue.
+- **Wind arrows on the ride map were hard to see** once the route was drawn in roughness colours: they are now bigger, outlined and drawn on top. The route is no longer coloured by roughness for phone-in-the-pocket recordings (that mostly measures the rider).
+- **Roughness map tiles could fail to load** after a filter had shown nothing (the hidden map had zero size). It now re-measures itself, and uses the same satellite imagery and place names as the ride map.
+- **Segments are matched automatically on every import path.** Rides arriving through the Garmin sync and the bulk file imports were never scanned against segments (only the single-file import was), so efforts and PRs only appeared after pressing the scan button by hand. They are now scanned as the ride lands (after duplicate resolution, so the surviving recording is the one scanned).
+
+### Added
+- **Junk-ride safety rails.** Every new ride (any import path) is checked against generous limits (average over 45 mph, top speed over 80 mph, under 160 m long, a 3-second moving time against a real distance, a climb that does not fit the distance, over 72 hours, over 15,000 kcal). A ride that breaks one is flagged, never deleted: a banner on its page and a card on the dashboard give the reason, with *It's right, keep it* or *Delete*. Flagged rides are left out of the speed and weather analytics until dismissed; a dismissed ride is never flagged again. `services/sanity.py`, `services/ingest.py` (one place for what every new ride gets: sanity check and segment scan).
+- **Runs on the dashboard.** Runs now appear in the dashboard's activity list and search (with a RUN tag and a Run filter), alongside rides; ride totals and charts stay ride-only.
+- **Workouts is a full history.** The page no longer stops at 90 days: totals, search and filters, and the same year / month / day tree as the dashboard.
+- **Analytics are compact and readable:** fixed-height charts (they no longer grow taller on wide screens), junk speeds left out of the weather charts, ride counts shown on the condition chart, and the heatmap shows one band per year (a strip of weeks for long spans) so 14 years fit.
+- **Possible fog rides.** Weather models almost never report fog, so rides that started damp and still (97%+ humidity, light wind, no rain) are listed under the condition chart to confirm or reject.
+- **Live-ride entities are announced when the server starts** (idle), so the Live card can be added to a dashboard before the first ride is streamed.
+- **Rebuild an activity from a sensor recording.** If a phone was left in sensors-only mode and never sent the walk, run or hike itself, `sensors.rebuild_activity` builds it from the recording's own GPS track (the sensor data then attaches to it, and it is idempotent).
+- **Set a ride's weather by hand.** The ride page has a *Conditions* dropdown (Clear, Cloudy, Fog, Rain, Snow, Storm, or Automatic) for rides where the lookup is missing or wrong. A chosen condition is kept through every later backfill (only temperature and wind are refreshed around it) and feeds the analytics; *Automatic* hands the ride back to the lookup. New column `Activity.weatherSource`.
+- **Estimated cadence from a phone in the pocket** (Android 0.19). Sidecars gain a `cad` column (rpm, from the leg's rhythm in the accelerometer). The ride page's Phone sensors card shows average cadence, time coasting and a cadence chart. Older sidecars without the column keep working.
+- **Road roughness map** (new *Roughness* page). The phone's shake readings from sensor recordings that have GPS are laid onto the road: each reading is eased towards a steady 18 mph (square-root scaling: a real ride showed shake grows much slower than linearly with speed), readings on climbs steeper than 6% are dropped (pedalling and rocking the bike swamp the road), averaged into
+  about 20 m cells, and rides over the same road average out. Coloured smooth to roughest by percentile of your own roads, with a legend, a period filter (all / 90 days / 30 days), a "roughest spots" list that
+  zooms to each one, and phone-in-the-pocket recordings left out unless you tick the box (a pocket mostly measures the rider). `GET /roughness/data` returns the cells. On the ride page the route is also drawn
+  coloured by roughness. See `services/roughness.py`.
 
 ## [0.3.0-beta] - 2026-10-11
 

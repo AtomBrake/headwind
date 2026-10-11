@@ -594,10 +594,17 @@ def delete_ride(kind, rid):
 @ui.route('/workouts')
 def workouts_page():
     from services import workouts
+    from routes.dashboard import _group_activities
     rider = _rider()
-    rows = workouts.recent(rider['id'], 90) if rider else []
+    f = {k: request.args.get(k, '').strip() for k in ('q', 'from', 'to', 'min_mi', 'max_mi', 'sport')}
+    is_filtered = any(f.values())
+    rows = workouts.search(rider['id'], f['q'], f['from'], f['to'], f['min_mi'], f['max_mi'], f['sport']) if rider else []
+    totals = {'count': len(rows), 'dist': sum(r['distance'] or 0 for r in rows), 'secs': sum(r['movingTime'] or 0 for r in rows),
+              'elev': sum(r['totalElevationGain'] or 0 for r in rows), 'kcal': sum(r['calories'] or 0 for r in rows), 'steps': sum(r['steps'] or 0 for r in rows)}
+    sports = [r[0] for r in query_db('SELECT DISTINCT sport FROM Workout WHERE riderId=? AND sport IS NOT NULL ORDER BY sport', [rider['id']])] if rider else []
     st = query_db('SELECT units FROM Settings WHERE id=1', one=True)
-    return render_template('workouts.html', workouts=rows, units=(st['units'] if st and st['units'] else 'imperial'), today=_today(),
+    return render_template('workouts.html', workouts=rows, grouped=_group_activities(rows) if not is_filtered else [], totals=totals, sports=sports, f=f, is_filtered=is_filtered,
+                           units=(st['units'] if st and st['units'] else 'imperial'), today=_today(),
                            now=datetime.now(ZoneInfo('Europe/London')).strftime('%H:%M'), error=request.args.get('error'))
 
 

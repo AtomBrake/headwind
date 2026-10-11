@@ -25,6 +25,15 @@
     .nu-net.neutral { background:var(--border); color:var(--text-muted); }
 
     /* ── Macro grid ────────────────────────────── */
+    .nu-ring-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:0.6rem; margin-bottom:1rem; }
+    @media (max-width: 720px) { .nu-ring-grid { grid-template-columns:repeat(3,1fr); } }
+    .nu-ring { background:var(--card-bg); border:1px solid var(--border); border-radius:14px; padding:0.7rem 0.4rem 0.6rem; text-align:center; }
+    .nu-ring svg { width:76px; height:76px; display:block; margin:0 auto; transform:rotate(-90deg); }
+    .nu-ring .trk { fill:none; stroke:var(--border); stroke-width:8; }
+    .nu-ring .bar { fill:none; stroke-width:8; stroke-linecap:round; transition:stroke-dashoffset 0.5s ease, stroke 0.3s; }
+    .nu-ring-val { position:relative; margin-top:-52px; height:28px; font-size:0.78rem; font-weight:700; line-height:1.05; font-variant-numeric:tabular-nums; }
+    .nu-ring-val small { display:block; font-weight:500; color:var(--text-muted); font-size:0.62rem; }
+    .nu-ring-lbl { margin-top:20px; font-size:0.78rem; color:var(--text-muted); }
     .nu-macro-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:0.75rem; margin-bottom:1rem; }
     .nu-macro-val  { font-size:1.1rem; font-weight:700; white-space:nowrap; }
     .nu-macro-goal { font-size:0.7rem; font-weight:600; color:var(--text-muted); }
@@ -157,6 +166,11 @@
     .meal-title-btn { display:flex; align-items:center; gap:0.4rem; background:none; border:none; color:inherit; font:inherit; font-weight:700; font-size:1.02rem;
                       cursor:pointer; min-height:44px; padding:0; flex:1; text-align:left; }
     .meal-title-btn .chev { color:var(--text-muted); font-size:1.3rem; }
+    .meal-macs { display:flex; gap:0.7rem; margin-left:auto; margin-right:0.8rem; flex-wrap:wrap; justify-content:flex-end; }
+    .meal-mac { display:flex; flex-direction:column; align-items:center; line-height:1.1; min-width:1.6rem; }
+    .meal-mac b { font-size:0.82rem; font-variant-numeric:tabular-nums; }
+    .meal-mac small { font-size:0.6rem; color:var(--text-muted); font-weight:600; letter-spacing:0.04em; }
+    @media (max-width: 560px) { .meal-macs { gap:0.45rem; margin-right:0.5rem; } .meal-mac:nth-child(4) { display:none; } }   /* phones: drop fibre, keep P C F S */
     .meal-total { text-align:right; line-height:1.15; }
     .meal-total b { display:block; color:var(--accent); font-size:1.15rem; }
     .meal-total small { color:var(--text-muted); font-size:0.72rem; }
@@ -331,6 +345,7 @@
     }
     .fd-badge.verified   { background:rgba(16,185,129,0.15); color:var(--success); }
     .fd-badge.quality    { background:rgba(96,165,250,0.15); color:#60a5fa; }
+    .fd-badge.tag-sugar   { background:rgba(244,114,182,0.15); color:#f472b6; }
     .fd-badge.tag-fibre   { background:rgba(249,115,22,0.15); color:#fb923c; }
     .fd-badge.tag-protein { background:rgba(234,179,8,0.15);  color:#facc15; }
     .fd-badge.tag-fat     { background:rgba(239,68,68,0.15);  color:#f87171; }
@@ -346,6 +361,7 @@
     }
     .fd-macro-lbl.cal     { background:rgba(16,185,129,0.18); color:var(--success); }
     .fd-macro-lbl.protein { background:rgba(234,179,8,0.18);  color:#facc15; }
+    .fd-macro-lbl.sugar   { background:rgba(244,114,182,0.18); color:#f472b6; }
     .fd-macro-lbl.fibre   { background:rgba(249,115,22,0.18); color:#fb923c; }
     .fd-macro-lbl.carbs   { background:rgba(56,189,248,0.18); color:#38bdf8; }
     .fd-macro-lbl.fat     { background:rgba(239,68,68,0.18);  color:#f87171; }
@@ -446,27 +462,32 @@
 </div>
 
 <!-- Macros -->
-<div class="nu-macro-grid">
-  <div class="stat-card">
-    <div class="nu-macro-val"><span id="macroProtein">0</span><span class="nu-macro-goal" id="macroProteinGoal">g</span></div>
-    <div class="nu-macro-lbl">Protein</div>
-    <div id="protProgWrap" style="display:none;">
-      <div class="nu-prog-bg"><div class="nu-prog-fill" id="protProgFill" style="width:0%"></div></div>
-    </div>
+<!-- Macros: a filling ring each, like the phone app -->
+<div class="nu-ring-grid">
+  <div class="nu-ring" id="ring_protein">
+    <svg viewBox="0 0 80 80"><circle class="trk" cx="40" cy="40" r="32"/><circle class="bar" id="ringBar_protein" cx="40" cy="40" r="32" stroke-dasharray="201.06" stroke-dashoffset="201.06"/></svg>
+    <div class="nu-ring-val" id="ringVal_protein">0</div>
+    <div class="nu-ring-lbl">Protein</div>
   </div>
-  <div class="stat-card">
-    <div class="nu-macro-val"><span id="macroCarbsVal">0</span><span class="nu-macro-goal" id="macroCarbsGoal">g</span></div>
-    <div class="nu-macro-lbl">Carbs</div>
-    <div id="carbProgWrap" style="display:none;">
-      <div class="nu-prog-bg"><div class="nu-prog-fill" id="carbProgFill" style="width:0%"></div></div>
-    </div>
+  <div class="nu-ring" id="ring_carbs">
+    <svg viewBox="0 0 80 80"><circle class="trk" cx="40" cy="40" r="32"/><circle class="bar" id="ringBar_carbs" cx="40" cy="40" r="32" stroke-dasharray="201.06" stroke-dashoffset="201.06"/></svg>
+    <div class="nu-ring-val" id="ringVal_carbs">0</div>
+    <div class="nu-ring-lbl">Carbs</div>
   </div>
-  <div class="stat-card">
-    <div class="nu-macro-val"><span id="macroFatVal">0</span><span class="nu-macro-goal" id="macroFatGoal">g</span></div>
-    <div class="nu-macro-lbl">Fat</div>
-    <div id="fatProgWrap" style="display:none;">
-      <div class="nu-prog-bg"><div class="nu-prog-fill" id="fatProgFill" style="width:0%"></div></div>
-    </div>
+  <div class="nu-ring" id="ring_fat">
+    <svg viewBox="0 0 80 80"><circle class="trk" cx="40" cy="40" r="32"/><circle class="bar" id="ringBar_fat" cx="40" cy="40" r="32" stroke-dasharray="201.06" stroke-dashoffset="201.06"/></svg>
+    <div class="nu-ring-val" id="ringVal_fat">0</div>
+    <div class="nu-ring-lbl">Fat</div>
+  </div>
+  <div class="nu-ring" id="ring_fibre">
+    <svg viewBox="0 0 80 80"><circle class="trk" cx="40" cy="40" r="32"/><circle class="bar" id="ringBar_fibre" cx="40" cy="40" r="32" stroke-dasharray="201.06" stroke-dashoffset="201.06"/></svg>
+    <div class="nu-ring-val" id="ringVal_fibre">0</div>
+    <div class="nu-ring-lbl">Fibre</div>
+  </div>
+  <div class="nu-ring" id="ring_sugar">
+    <svg viewBox="0 0 80 80"><circle class="trk" cx="40" cy="40" r="32"/><circle class="bar" id="ringBar_sugar" cx="40" cy="40" r="32" stroke-dasharray="201.06" stroke-dashoffset="201.06"/></svg>
+    <div class="nu-ring-val" id="ringVal_sugar">0</div>
+    <div class="nu-ring-lbl">Sugar</div>
   </div>
 </div>
 
@@ -640,6 +661,10 @@
     <div class="form-row">
       <div class="form-group"><label>Fat (g)</label><input type="number" id="gFat" min="0"></div>
       <div class="form-group"><label>Water (ml)</label><input type="number" id="gWater" min="0"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Sugar limit (g)</label><input type="number" id="gSugar" min="0" placeholder="e.g. 50"></div>
+      <div class="form-group"></div>
     </div>
     <div class="form-group" style="display:none;">
       <label>Resting BMR (kcal/day)</label>
@@ -886,12 +911,13 @@
       <div class="imp-note" id="pmAssume" style="font-size:0.8rem; margin-bottom:0.6rem;"></div>
       <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.3rem;">Portion size (scales everything)</div>
       <div id="pmScales" style="display:grid; grid-template-columns:repeat(5,1fr); gap:0.4rem; margin-bottom:0.75rem;"></div>
-      <div class="imp-macros" style="grid-template-columns:repeat(5,1fr);">
+      <div class="imp-macros" style="grid-template-columns:repeat(6,1fr);">
         <div><label>kcal</label><input type="number" id="pmKcal" inputmode="decimal" step="1"></div>
         <div><label>P g</label><input type="number" id="pmP" inputmode="decimal" step="0.1"></div>
         <div><label>C g</label><input type="number" id="pmC" inputmode="decimal" step="0.1"></div>
         <div><label>F g</label><input type="number" id="pmF" inputmode="decimal" step="0.1"></div>
         <div><label>Fibre</label><input type="number" id="pmFi" inputmode="decimal" step="0.1"></div>
+        <div><label>Sugar</label><input type="number" id="pmS" inputmode="decimal" step="0.1"></div>
       </div>
       <div id="pmRange" style="font-size:0.78rem; color:var(--text-muted); margin:0.4rem 0 0.75rem;"></div>
       <details style="margin-bottom:0.75rem;"><summary style="cursor:pointer; min-height:36px; display:flex; align-items:center; font-size:0.85rem;">What the AI saw</summary><div id="pmItems" style="font-size:0.82rem; line-height:1.6;"></div></details>
@@ -1153,13 +1179,14 @@ function renderAll(data) {
     netEl.style.display = 'none';
   }
 
-  // Macros
-  document.getElementById('macroProtein').textContent  = Math.round(protein);
-  document.getElementById('macroCarbsVal').textContent = Math.round(carbs);
-  document.getElementById('macroFatVal').textContent   = Math.round(fat);
-  renderMacroGoal('macroProteinGoal', 'protProgWrap', 'protProgFill', protein, goals.protein);
-  renderMacroGoal('macroCarbsGoal',   'carbProgWrap', 'carbProgFill', carbs,   goals.carbs);
-  renderMacroGoal('macroFatGoal',     'fatProgWrap',  'fatProgFill',  fat,     goals.fat);
+  // Macros: filling rings (a ring is full when the goal is reached; sugar is a limit, so it turns red when you pass it)
+  const fibreTot = entries.reduce((x,e) => x+(e.fibre||0), 0);
+  const sugarTot = entries.reduce((x,e) => x+(e.sugar||0), 0);
+  renderRing('protein', protein, goals.protein, '#facc15');
+  renderRing('carbs',   carbs,   goals.carbs,   '#38bdf8');
+  renderRing('fat',     fat,     goals.fat,     '#f87171');
+  renderRing('fibre',   fibreTot, goals.fibre || 30, '#fb923c');
+  renderRing('sugar',   sugarTot, goals.sugar,  '#f472b6', true);
 
   // Hydration
   document.getElementById('waterTotal').textContent = waterMl.toLocaleString();
@@ -1186,6 +1213,18 @@ function renderProg(wrapId, fillId, pctId, remId, val, goal, pctFmt, remFmt) {
   fill.className = 'nu-prog-fill'+(pct>=100?' over':pct>=85?' nearly':'');
   if (pctId && pctFmt) document.getElementById(pctId).textContent = pctFmt.replace('{v}',Math.round(val).toLocaleString());
   if (remId && remFmt) document.getElementById(remId).textContent = remFmt.replace('{r}',Math.round(Math.max(0,goal-val)).toLocaleString()).replace('{g}',goal.toLocaleString());
+}
+
+const RING_C = 2 * Math.PI * 32;
+function renderRing(key, val, goal, colour, isLimit) {
+  const bar = document.getElementById('ringBar_' + key), txt = document.getElementById('ringVal_' + key);
+  if (!bar || !txt) return;
+  const frac = goal ? Math.min(1, val / goal) : 0;
+  bar.style.strokeDasharray = RING_C;
+  bar.style.strokeDashoffset = RING_C * (1 - frac);
+  bar.style.stroke = (isLimit && goal && val > goal) ? '#ef4444' : colour;
+  const n = v => Math.round(v);
+  txt.innerHTML = goal ? `${n(val)}<small>of ${n(goal)}g</small>` : `${n(val)}<small>g</small>`;
 }
 
 function renderMacroGoal(goalId, wrapId, fillId, val, goal) {
@@ -1235,9 +1274,14 @@ function buildMealSection(meal, entries) {
     return div;
   }
 
+  // the meal's macros at a glance, next to its calories
+  const mt = k => entries.reduce((x, e) => x + (e[k] || 0), 0);
+  const chip = (lbl, v, col) => `<span class="meal-mac" style="color:${col};"><b>${Math.round(v)}</b><small>${lbl}</small></span>`;
+  const macros = `<div class="meal-macs">${chip('P', mt('protein'), '#facc15')}${chip('C', mt('carbs'), '#38bdf8')}${chip('F', mt('fat'), '#f87171')}${chip('Fi', mt('fibre'), '#fb923c')}${chip('S', mt('sugar'), '#f472b6')}</div>`;
   const header = `
     <div class="meal-header">
       <button class="meal-title-btn" onclick="openNutriSheet({kind:'meal', key:'${meal.key}'})">${escHtml(meal.label)}<span class="chev">&rsaquo;</span></button>
+      ${macros}
       <div class="meal-total"><b>${Math.round(totalKcal)}</b><small>Total kcal</small></div>
     </div>`;
 
@@ -1249,6 +1293,7 @@ function buildMealSection(meal, entries) {
       e.protein    ? 'P'+Math.round(e.protein)+'g'   : null,
       e.carbs      ? 'C'+Math.round(e.carbs)+'g'     : null,
       e.fat        ? 'F'+Math.round(e.fat)+'g'       : null,
+      e.sugar      ? 'S'+Math.round(e.sugar)+'g'     : null,
       e.source === 'photo_ai' ? '≈ AI estimate' : null,
     ].filter(Boolean).join(' · ');
     return `<div class="meal-entry" data-id="${e.id}">
@@ -1283,7 +1328,7 @@ function buildMealSection(meal, entries) {
       if (e) showUndo(`Deleted ${e.foodName}`, async () => {
         await fetch('/nutrition/api/log', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
           date: isoDate(currentDate), name: e.foodName, barcode: e.barcode || null, calories: e.calories, protein: e.protein,
-          carbs: e.carbs, fat: e.fat, fibre: e.fibre, serving_g: e.servingG, quantity: e.quantity || 1,
+          carbs: e.carbs, fat: e.fat, fibre: e.fibre, sugar: e.sugar, serving_g: e.servingG, quantity: e.quantity || 1,
           meal_type: e.mealType || 'uncategorised', source: e.source || 'manual', brand: e.brand || null,
           image_url: e.imageUrl || null, nutri_score_grade: e.nutriScoreGrade || null })});
         loadDay();
@@ -1324,10 +1369,10 @@ function toggleSection(header) {
 // ── Meal / day nutrition sheet ────────────────────────────────────────
 let lastData = null;       // most recent /api/day payload
 let nutriView = null;      // {kind:'meal', key} | {kind:'day'} while the sheet is open
-const NN_COLORS = { protein:'#facc15', fibre:'#fb923c', carbs:'#38bdf8', fat:'#f87171' };
+const NN_COLORS = { protein:'#facc15', fibre:'#fb923c', carbs:'#38bdf8', fat:'#f87171', sugar:'#f472b6' };
 
 function sumEntries(list) {
-  const s = { calories:0, protein:0, fibre:0, carbs:0, fat:0 };
+  const s = { calories:0, protein:0, fibre:0, carbs:0, fat:0, sugar:0 };
   list.forEach(e => { for (const k in s) s[k] += (e[k] || 0); });
   return s;
 }
@@ -1341,6 +1386,7 @@ function nnTiles(t, goalsMap) {
     ${tile('protein', 'Protein', fmt(t.protein, 'g'), g.protein ? g.protein + 'g' : '')}
     ${tile('fibre', 'Fibre', fmt(t.fibre, 'g'), '')}
     ${tile('carbs', 'Carbs', fmt(t.carbs, 'g'), g.carbs ? g.carbs + 'g' : '')}
+    ${tile('sugar', 'Sugar', fmt(t.sugar, 'g'), g.sugar ? g.sugar + 'g' : '')}
     ${tile('fat', 'Fats', fmt(t.fat, 'g'), g.fat ? g.fat + 'g' : '')}
   </div>`;
 }
@@ -1494,6 +1540,7 @@ function addComputedToBuildMeal(item, t) {
     carbs:    t.carbs || 0,
     fat:      t.fat   || 0,
     fibre:    t.fibre || 0,
+    sugar:    t.sugar || 0,
   });
   renderBuildMealIngredients();
 }
@@ -1518,6 +1565,7 @@ async function saveBuildMeal() {
       carbs: item.carbs,
       fat: item.fat,
       fibre: item.fibre,
+      sugar: item.sugar,
       servingG: item.servingG * item.quantity
     }))
   };
@@ -1548,7 +1596,7 @@ document.getElementById('smSaveConfirm').addEventListener('click', async () => {
     .filter(e => smPendingItems.entryIds.includes(e.id))
     .map(e => ({
       foodName: e.foodName, calories: e.calories, protein: e.protein,
-      carbs: e.carbs, fat: e.fat, fibre: e.fibre, servingG: e.servingG, barcode: e.barcode,
+      carbs: e.carbs, fat: e.fat, fibre: e.fibre, sugar: e.sugar, servingG: e.servingG, barcode: e.barcode,
     }));
   await fetch('/nutrition/api/saved-meals', {
     method:'POST', headers:{'Content-Type':'application/json'},
@@ -1678,13 +1726,13 @@ function pmFill() {
   const f = (v, dp) => Math.round(v * pmScale * 10 ** dp) / 10 ** dp;
   document.getElementById('pmKcal').value = f(pmBase.calories, 0);
   document.getElementById('pmP').value = f(pmBase.protein, 1); document.getElementById('pmC').value = f(pmBase.carbs, 1);
-  document.getElementById('pmF').value = f(pmBase.fat, 1);     document.getElementById('pmFi').value = f(pmBase.fibre, 1);
+  document.getElementById('pmF').value = f(pmBase.fat, 1);     document.getElementById('pmFi').value = f(pmBase.fibre, 1); document.getElementById('pmS').value = f(pmBase.sugar || 0, 1);
   const lo = Math.round(pmData.calories_low * pmScale), hi = Math.round(pmData.calories_high * pmScale);
   document.getElementById('pmRange').textContent = `Plausible range ${lo}–${hi} kcal — restaurant portions and hidden oil make these guesses rough.`;
   document.getElementById('pmLog').textContent = `Log · ${Math.round(pmBase.calories * pmScale)} kcal`;
 }
 // typing in a box updates the base, so the portion buttons scale YOUR numbers
-[['pmKcal', 'calories'], ['pmP', 'protein'], ['pmC', 'carbs'], ['pmF', 'fat'], ['pmFi', 'fibre']].forEach(([id, k]) => {
+[['pmKcal', 'calories'], ['pmP', 'protein'], ['pmC', 'carbs'], ['pmF', 'fat'], ['pmFi', 'fibre'], ['pmS', 'sugar']].forEach(([id, k]) => {
   document.getElementById(id).addEventListener('input', e => {
     const v = parseFloat(e.target.value); pmBase[k] = isNaN(v) ? 0 : v / pmScale;
     document.getElementById('pmLog').textContent = `Log · ${Math.round(pmBase.calories * pmScale)} kcal`;
@@ -1702,7 +1750,7 @@ document.getElementById('pmLog').addEventListener('click', async () => {
   const kcal = parseFloat(document.getElementById('pmKcal').value);
   if (!name || isNaN(kcal)) { alert('Give it a name and calories.'); return; }
   const num = id => { const v = parseFloat(document.getElementById(id).value); return isNaN(v) ? null : v; };
-  await postLog({ name, calories: kcal, protein: num('pmP'), carbs: num('pmC'), fat: num('pmF'), fibre: num('pmFi'),
+  await postLog({ name, calories: kcal, protein: num('pmP'), carbs: num('pmC'), fat: num('pmF'), fibre: num('pmFi'), sugar: num('pmS'),
                   serving_g: null, quantity: 1, meal_type: document.getElementById('pmMeal').value, source: 'photo_ai', image_url: pmData.image_url });
   pmClose();
   document.getElementById('findFoodModal').classList.remove('open');
@@ -1784,6 +1832,7 @@ document.getElementById('btnGoals').addEventListener('click', async () => {
   document.getElementById('gCarbs').value   = g.carbs   || '';
   document.getElementById('gFat').value     = g.fat     || '';
   document.getElementById('gWater').value   = g.water   || '';
+  document.getElementById('gSugar').value   = g.sugar   || '';
   document.getElementById('gBmr').value     = g.bmr     || '';
   document.getElementById('gWeightUnit').value = ws.unit || 'stlb';
   document.getElementById('gDietStart').value  = ws.dietStartDate || '';
@@ -1812,6 +1861,7 @@ document.getElementById('saveGoals').addEventListener('click', async () => {
       carbs:   parseInt(document.getElementById('gCarbs').value)   || null,
       fat:     parseInt(document.getElementById('gFat').value)     || null,
       water:   parseInt(document.getElementById('gWater').value)   || null,
+      sugar:   parseInt(document.getElementById('gSugar').value)   || null,
       bmr:     parseInt(document.getElementById('gBmr').value)     || null,
     }),
   });
@@ -1846,7 +1896,7 @@ async function scaleMealPortion(list, f, label) {
   for (const e of list) {
     await fetch('/nutrition/api/log', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
       id: e.id, date, name: e.foodName, barcode: e.barcode || null,
-      calories: sc(e.calories), protein: sc(e.protein), carbs: sc(e.carbs), fat: sc(e.fat), fibre: sc(e.fibre),
+      calories: sc(e.calories), protein: sc(e.protein), carbs: sc(e.carbs), fat: sc(e.fat), fibre: sc(e.fibre), sugar: sc(e.sugar),
       serving_g: e.servingG ? Math.round(e.servingG * f * 10) / 10 : null, quantity: e.quantity || 1,
       meal_type: e.mealType || 'uncategorised', source: e.source || 'manual', brand: e.brand || null,
       image_url: e.imageUrl || null, nutri_score_grade: e.nutriScoreGrade || null }) });
@@ -2162,7 +2212,7 @@ function openFoodDetail(item, ctx) {
   if (ctx.mode === 'absolute' && (item.quantity || 1) > 1) {
     const q = item.quantity, per = v => (v == null ? v : v / q);
     item = { ...item, calories: per(item.calories), protein: per(item.protein), carbs: per(item.carbs), fat: per(item.fat),
-             fibre: per(item.fibre), servingG: per(item.servingG) };
+             fibre: per(item.fibre), sugar: per(item.sugar), servingG: per(item.servingG) };
   }
   fdBaseG = null;
   fdContext = { ...ctx, item };
@@ -2215,7 +2265,7 @@ function fdComputeTotals() {
   const item = fdContext.item;
   const g   = parseFloat(document.getElementById('fdServingG').value) || 0;
   const qty = parseFloat(document.getElementById('fdServingQty').value) || 1;
-  let kcal=null, prot=null, carbs=null, fat=null, fibre=null, servG=null;
+  let kcal=null, prot=null, carbs=null, fat=null, fibre=null, sugar=null, servG=null;
   if (fdContext.mode === 'per100') {
     if (item.kcal_per_100g && g) {
       const f = (g/100)*qty;
@@ -2224,6 +2274,7 @@ function fdComputeTotals() {
       carbs = item.carbs_per_100g   != null ? item.carbs_per_100g   * f : null;
       fat   = item.fat_per_100g     != null ? item.fat_per_100g     * f : null;
       fibre = item.fibre_per_100g   != null ? item.fibre_per_100g   * f : null;
+      sugar = item.sugars_per_100g  != null ? item.sugars_per_100g  * f : null;
     }
     servG = g ? g*qty : null;
   } else {
@@ -2235,6 +2286,7 @@ function fdComputeTotals() {
       carbs = item.carbs    != null ? item.carbs    * ratio : null;
       fat   = item.fat      != null ? item.fat      * ratio : null;
       fibre = item.fibre    != null ? item.fibre    * ratio : null;
+      sugar = item.sugar    != null ? item.sugar    * ratio : null;
       servG = g * qty;
     } else {
       kcal  = item.calories != null ? item.calories * qty : null;
@@ -2242,10 +2294,11 @@ function fdComputeTotals() {
       carbs = item.carbs    != null ? item.carbs    * qty : null;
       fat   = item.fat      != null ? item.fat      * qty : null;
       fibre = item.fibre    != null ? item.fibre    * qty : null;
+      sugar = item.sugar    != null ? item.sugar    * qty : null;
       servG = g ? g * qty : (item.servingG ? item.servingG * qty : null);
     }
   }
-  return { kcal, prot, carbs, fat, fibre, servG, g, qty };
+  return { kcal, prot, carbs, fat, fibre, sugar, servG, g, qty };
 }
 
 function updateFdMacros() {
@@ -2256,9 +2309,10 @@ function updateFdMacros() {
     ['carbs',   'Carbs',    t.carbs != null ? Math.round(t.carbs)+'g'   : '—'],
     ['fat',     'Fats',     t.fat   != null ? Math.round(t.fat)+'g'     : '—'],
     ['fibre',   'Fibre',    t.fibre != null ? (Math.round(t.fibre*10)/10)+'g' : '—'],
+    ['sugar',   'Sugar',    t.sugar != null ? (Math.round(t.sugar*10)/10)+'g' : '—'],
   ];
   if (fdEditing) {
-    const ids = { cal:['fdEdKcal', t.kcal], protein:['fdEdProt', t.prot], fibre:['fdEdFibre', t.fibre], carbs:['fdEdCarbs', t.carbs], fat:['fdEdFat', t.fat] };
+    const ids = { cal:['fdEdKcal', t.kcal], protein:['fdEdProt', t.prot], fibre:['fdEdFibre', t.fibre], sugar:['fdEdSugar', t.sugar], carbs:['fdEdCarbs', t.carbs], fat:['fdEdFat', t.fat] };
     document.getElementById('fdMacroGrid').innerHTML = tiles.map(([cls,lbl]) => {
       const [id, v] = ids[cls];
       return `<div class="fd-macro-tile"><div class="fd-macro-lbl ${cls}">${lbl}</div>
@@ -2302,7 +2356,7 @@ async function fdSaveEntry() {
   const sourceMap = {search:'barcode', myfoods:'custom_food', gotos:'favourite', log:'manual'};
   const payload = {
     name: item.name || item.foodName, barcode: item.barcode || null,
-    calories: t.kcal, protein: t.prot, carbs: t.carbs, fat: t.fat, fibre: t.fibre,
+    calories: t.kcal, protein: t.prot, carbs: t.carbs, fat: t.fat, fibre: t.fibre, sugar: t.sugar,
     serving_g: t.servG, quantity: t.qty, meal_type: mealType,
     source: sourceMap[fdContext.sourceKind] || fdContext.sourceKind || 'manual',
     brand: item.brand || null,
@@ -2403,7 +2457,7 @@ function fdEndEdit() {
 async function fdSaveNutrition() {
   const item = fdContext.item;
   const num = id => { const v = document.getElementById(id).value; return v === '' ? null : parseFloat(v); };
-  const T = { kcal: num('fdEdKcal'), prot: num('fdEdProt'), fibre: num('fdEdFibre'), carbs: num('fdEdCarbs'), fat: num('fdEdFat') };
+  const T = { kcal: num('fdEdKcal'), prot: num('fdEdProt'), fibre: num('fdEdFibre'), sugar: num('fdEdSugar'), carbs: num('fdEdCarbs'), fat: num('fdEdFat') };
   const t0 = fdComputeTotals();
   const grams = t0.servG;              // grams these totals describe (serving × quantity)
   if (T.kcal == null) { alert('Calories are required.'); return; }
@@ -2424,10 +2478,10 @@ async function fdSaveNutrition() {
   const qty = t0.qty || 1;
   if (fdContext.mode === 'per100') {
     Object.assign(item, { kcal_per_100g: per100(T.kcal), protein_per_100g: per100(T.prot), carbs_per_100g: per100(T.carbs),
-                          fat_per_100g: per100(T.fat), fibre_per_100g: per100(T.fibre) });
+                          fat_per_100g: per100(T.fat), fibre_per_100g: per100(T.fibre), sugars_per_100g: per100(T.sugar) });
   } else {
     Object.assign(item, { calories: T.kcal / qty, protein: T.prot == null ? null : T.prot / qty, carbs: T.carbs == null ? null : T.carbs / qty,
-                          fat: T.fat == null ? null : T.fat / qty, fibre: T.fibre == null ? null : T.fibre / qty,
+                          fat: T.fat == null ? null : T.fat / qty, fibre: T.fibre == null ? null : T.fibre / qty, sugar: T.sugar == null ? null : T.sugar / qty,
                           servingG: grams / qty });
   }
   fdEndEdit();

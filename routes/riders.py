@@ -313,11 +313,11 @@ def _compute_badges(rid, totals):
         _b('🔥', 'Heatwave',       'Ride when temp ≥ 30°C',       _fr('weatherTempC >= 30')),
         _b('🌡️',  'Mad Dog',        'Ride when temp ≥ 35°C',       _fr('weatherTempC >= 35')),
         # ── Rain ─────────────────────────────────────────────────
-        _b('🌧️',  'First Drops',    'Ride in the rain',            _fr('weatherCode BETWEEN 51 AND 82')),
-        _b('☔', 'Rain Regular',   '10 rides in rain',            _wc(10,  'weatherCode BETWEEN 51 AND 82')),
-        _b('🌊', 'Soggy Cyclist',  '50 rides in rain',            _wc(50,  'weatherCode BETWEEN 51 AND 82')),
-        _b('💦', 'Waterproof',     '100 rides in rain',           _wc(100, 'weatherCode BETWEEN 51 AND 82')),
-        _b('🌧️',  'British Summer', '500 rides in rain',           _wc(500, 'weatherCode BETWEEN 51 AND 82')),
+        _b('🌧️',  'First Drops',    'Ride in the rain',            _fr('(weatherCode BETWEEN 51 AND 67 OR weatherCode BETWEEN 80 AND 82)')),
+        _b('☔', 'Rain Regular',   '10 rides in rain',            _wc(10,  '(weatherCode BETWEEN 51 AND 67 OR weatherCode BETWEEN 80 AND 82)')),
+        _b('🌊', 'Soggy Cyclist',  '50 rides in rain',            _wc(50,  '(weatherCode BETWEEN 51 AND 67 OR weatherCode BETWEEN 80 AND 82)')),
+        _b('💦', 'Waterproof',     '100 rides in rain',           _wc(100, '(weatherCode BETWEEN 51 AND 67 OR weatherCode BETWEEN 80 AND 82)')),
+        _b('🌧️',  'British Summer', '500 rides in rain',           _wc(500, '(weatherCode BETWEEN 51 AND 67 OR weatherCode BETWEEN 80 AND 82)')),
         # ── Storm ────────────────────────────────────────────────
         _b('⛈️',  'Storm Chaser',   'Ride during a thunderstorm',  _fr('weatherCode >= 95')),
         _b('🌩️',  'Lightning Rod',  '5 rides in a storm',          _wc(5,  'weatherCode >= 95')),

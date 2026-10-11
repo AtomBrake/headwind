@@ -18,7 +18,7 @@ def make_rows(n=120, step_ms=1000, start=T0, speed=8.0, rough=0.4):
 
 
 def payload(cid='c1', **kw):
-    d = {'client_id': cid, 'fields': sensors.FIELDS, 'rows': make_rows(**kw), 'mount': 'bars', 'device': 'Pixel 10', 'sensors_only': True}
+    d = {'client_id': cid, 'fields': sensors.FIELDS[:10], 'rows': make_rows(**kw), 'mount': 'bars', 'device': 'Pixel 10', 'sensors_only': True}
     return d
 
 
@@ -58,7 +58,7 @@ def test_a_sidecar_is_validated_and_summarised(db):
 
 def test_junk_is_rejected(db):
     assert sensors.store(db, 1, {'client_id': 'x', 'fields': ['t'], 'rows': [[1]]})[1]
-    assert sensors.store(db, 1, {'fields': sensors.FIELDS, 'rows': make_rows()})[1] == 'client_id is required'
+    assert sensors.store(db, 1, {'fields': sensors.FIELDS[:10], 'rows': make_rows()})[1] == 'client_id is required'
     assert sensors.store(db, 1, 'nope')[1]
 
 
@@ -170,3 +170,30 @@ def test_live_goes_idle_if_the_phone_stops_talking():
     live._idle_check(c['ts'], sender=lambda m, *a: sent.append(m), conn=('h', 1883, None))
     status = [m['payload'] for m in sent[-1] if m['topic'].endswith('live_ride_status/state')]
     assert status == ['idle']
+
+
+def test_cadence_summary_and_old_rows():
+    from services import sensors
+    rows = [[i * 1000, 2.0, 5.0, 0.5, 10, 1000.0, 54.8, -1.7, 5.0, 100, (90.0 if i % 4 else None)] for i in range(100)]
+    s = sensors.summarise(rows)
+    assert s['cad_avg'] == 90 and s['coast_pct'] == 25
+    old = [r[:10] for r in rows]                      # stored before the column existed
+    assert 'cad_avg' not in sensors.summarise(old)
+
+
+def test_new_ride_is_scanned_against_segments(app_ctx=None):
+    from services.segments import scan_new_ride
+    assert scan_new_ride(None, 'nope') == 0          # never raises
+
+
+def test_a_sensors_only_recording_can_be_rebuilt_as_a_walk(db):
+    from flask import current_app
+    sensors.store(db, 1, payload('walk1', n=300, speed=1.4))
+    db.commit()
+    sid = db.execute("SELECT id FROM RideSensor WHERE clientId='walk1'").fetchone()['id']
+    w, created = sensors.rebuild_activity(1, sid, 'Walk')
+    assert created and w['sport'] == 'Walk' and w['distance'] > 100 and w['source'] == 'sensor-recovery'
+    assert db.execute('SELECT rideId FROM RideSensor WHERE id=?', [sid]).fetchone()['rideId'] == w['id']      # the sidecar is now attached to it
+    assert sensors.rebuild_activity(1, sid, 'Walk')[1] is False                                              # idempotent
+    with pytest.raises(ValueError):
+        sensors.rebuild_activity(1, 9999)

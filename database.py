@@ -228,6 +228,9 @@ def migrate_db():
         ('weatherCode',     'INTEGER'),
         ('weatherSummary',  'TEXT'),
         ('weatherWindRel',  'TEXT'),
+        ('weatherSource',   'TEXT'),
+        ('flagReason',      'TEXT'),
+        ('flagDismissed',   'INTEGER'),
         ('aiKudos',         'TEXT'),
         ('aiKudosAt',       'TEXT'),
         ('caloriesRaw',     'REAL'),
@@ -291,6 +294,7 @@ def migrate_db():
         ('nutritionProteinGoal', 'INTEGER'),
         ('nutritionCarbGoal',    'INTEGER'),
         ('nutritionFatGoal',     'INTEGER'),
+        ('nutritionSugarGoal',   'INTEGER'),
         ('nutritionWaterGoalMl', 'INTEGER DEFAULT 2500'),
         ('nutritionBmrKcal',     'INTEGER'),
         ('units',                "TEXT DEFAULT 'imperial'"),
@@ -398,6 +402,7 @@ def migrate_db():
         ('imageUrl',        'TEXT'),
         ('nutriScoreGrade', 'TEXT'),
         ('fibre',           'REAL'),
+        ('sugar',           'REAL'),
     ]:
         if col not in food_log_cols:
             db.execute(f'ALTER TABLE FoodLog ADD COLUMN {col} {defn}')
@@ -421,6 +426,8 @@ def migrate_db():
     saved_meal_item_cols = {r[1] for r in db.execute('PRAGMA table_info(SavedMealItem)').fetchall()}
     if saved_meal_item_cols and 'fibre' not in saved_meal_item_cols:
         db.execute('ALTER TABLE SavedMealItem ADD COLUMN fibre REAL')
+    if saved_meal_item_cols and 'sugar' not in saved_meal_item_cols:
+        db.execute('ALTER TABLE SavedMealItem ADD COLUMN sugar REAL')
 
     db.execute('''
         CREATE TABLE IF NOT EXISTS WeightLog (

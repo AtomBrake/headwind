@@ -84,29 +84,12 @@ def sync():
         log.warning('Garmin HR backfill (sync) failed: %s', ge)
 
     try:
-        from services.weather import fetch_weather, save_weather
-        missing_wx = query_db('''
-            SELECT a.id, a.startLat, a.startLng, a.startDateLocal, a.streams
-            FROM Activity a
-            JOIN Rider r ON r.id = a.riderId
-            WHERE r.isDefault = 1
-              AND a.weatherSummary IS NULL
-              AND a.startLat IS NOT NULL
-              AND a.startLng IS NOT NULL
-              AND a.startDateLocal IS NOT NULL
-              AND a.startDate >= datetime('now', '-7 days')
-        ''')
-        if missing_wx:
-            db = get_db()
-            for act in missing_wx:
-                try:
-                    w = fetch_weather(act['startLat'], act['startLng'], act['startDateLocal'], act['streams'])
-                    if w:
-                        save_weather(db, act['id'], w)
-                        db.commit()
-                        log.warning('Weather backfill on sync: enriched %s', act['id'])
-                except Exception as we:
-                    log.warning('Weather backfill failed for %s: %s', act['id'], we)
+        from services.weather import backfill_missing
+        db = get_db()
+        recent, _ = backfill_missing(db, since_days=7, pause=0)              # new rides first
+        older, _ = backfill_missing(db, limit=25, pause=0.1)                   # then a few of the old ones each time, so history fills in by itself
+        if recent or older:
+            log.warning('Weather backfill on sync: enriched %d recent and %d older rides', recent, older)
     except Exception as wxe:
         log.warning('Weather backfill (sync) failed: %s', wxe)
 

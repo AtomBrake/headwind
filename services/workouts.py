@@ -43,7 +43,7 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
     """Parse a GPX recording and store it. Returns (workout dict, created: bool) or raises ValueError with a readable reason."""
     from services.parser import parse_gpx
     try:
-        act = parse_gpx(data)
+        act = parse_gpx(data, stopped_speed=0.2, smooth_gain=True)     # on foot: a slow stroll is still moving, and phone GPS altitude is noisy
     except Exception as e:                             # not XML / not GPX / truncated upload
         raise ValueError(f'that is not a readable GPX file ({type(e).__name__})')
     if not act or not act.get('startDateLocal'):
@@ -138,6 +138,27 @@ def recent(rider_id, days=30):
     rows = query_db('''SELECT id, sport, name, startDateLocal, distance, movingTime, totalElevationGain, calories, steps, weatherSummary, source
                        FROM Workout WHERE riderId=? AND date(startDateLocal)>=? ORDER BY startDateLocal DESC''', [rider_id, since])
     return [dict(r) for r in rows]
+
+
+def search(rider_id, q='', date_from='', date_to='', min_mi='', max_mi='', sport=''):
+    """The complete workout history (no 90-day cut-off), newest first, with the same filters as the activity list on the dashboard."""
+    where, args = ['riderId=?'], [rider_id]
+    if q:
+        where.append("COALESCE(name, sport) LIKE ?"); args.append(f'%{q}%')
+    if date_from:
+        where.append('date(startDateLocal) >= ?'); args.append(date_from)
+    if date_to:
+        where.append('date(startDateLocal) <= ?'); args.append(date_to)
+    for val, op in ((min_mi, '>='), (max_mi, '<=')):
+        if val:
+            try:
+                where.append(f'distance {op} ?'); args.append(float(val) * MI)
+            except ValueError:
+                pass
+    if sport:
+        where.append('sport = ?'); args.append(sport)
+    return query_db(f'''SELECT id, sport, name, startDateLocal, distance, movingTime, totalElevationGain, averageSpeed, calories, steps, weatherSummary, source
+                        FROM Workout WHERE {' AND '.join(where)} ORDER BY startDateLocal DESC''', args)
 
 
 def forget(db, wid):

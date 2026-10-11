@@ -190,6 +190,12 @@ def _process_single_file(path, original_name, rider_id=None):
         log.warning('Single file import: imported id=%s name=%s', act['id'], act.get('name'))
 
         try:
+            from services import sanity
+            sanity.flag(db, act['id'])
+            db.commit()
+        except Exception:
+            pass
+        try:
             from services.segments import scan_activity_against_segments, _refresh_prs
             segments = db.execute('SELECT * FROM Segment').fetchall()
             if segments:
@@ -305,9 +311,11 @@ def _process_strava_export(zf, names, rider_id=None):
             from services.best_efforts import save_best_efforts
             save_best_efforts(db, act.get('id'), act.get('startDateLocal'), act.get('streams'))
             from services import duplicates
-            duplicates.resolve(db, act.get('id'))
+            dup = duplicates.resolve(db, act.get('id'))
             from services import gear
             gear.on_ride_added(db, act.get('id'))
+            from services.ingest import after_ride_added
+            after_ride_added(db, (dup or {}).get('kept', act.get('id')))
             db.commit()
             imported += 1
         except Exception as e:
@@ -348,9 +356,11 @@ def _process_generic_zip(zf, names, rider_id=None):
                     from services.best_efforts import save_best_efforts
                     save_best_efforts(db, act.get('id'), act.get('startDateLocal'), act.get('streams'))
                     from services import duplicates
-                    duplicates.resolve(db, act.get('id'))
+                    dup = duplicates.resolve(db, act.get('id'))
                     from services import gear
                     gear.on_ride_added(db, act.get('id'))
+                    from services.ingest import after_ride_added
+                    after_ride_added(db, (dup or {}).get('kept', act.get('id')))
                     db.commit()
                     imported += 1
             else:

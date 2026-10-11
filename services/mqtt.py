@@ -83,6 +83,7 @@ GARMIN_SENSORS = [
 ]
 
 FIBRE_GOAL_G = 30   # UK recommendation; no fibre field on the Goals screen yet
+SUGAR_GOAL_G = 50   # a limit on total sugars, used when none is set on the Goals screen
 
 # Meals as logged in Headwind (key -> label). Each gets calories / protein / carbs / fat / fibre sensors.
 NUTRITION_MEALS = [
@@ -95,6 +96,7 @@ _MEAL_METRICS = [  # (suffix, label, icon, unit)
     ("carbs",    "Carbs",    "mdi:bread-slice", "g"),
     ("fat",      "Fat",      "mdi:oil",         "g"),
     ("fibre",    "Fibre",    "mdi:grain",       "g"),
+    ("sugar",    "Sugar",    "mdi:cube-outline", "g"),
 ]
 
 NUTRITION_SENSORS = [
@@ -112,6 +114,8 @@ NUTRITION_SENSORS = [
     ("nutrition_fat_remaining",      "Nutrition Fat Remaining",      "mdi:target",            "g"),
     ("nutrition_fibre_g",            "Nutrition Fibre",              "mdi:grain",             "g"),
     ("nutrition_fibre_remaining",   "Nutrition Fibre Remaining",    "mdi:target",            "g"),
+    ("nutrition_sugar_g",            "Nutrition Sugar",              "mdi:cube-outline",      "g"),
+    ("nutrition_sugar_remaining",    "Nutrition Sugar Remaining",    "mdi:target",            "g"),
     ("nutrition_water_ml",           "Nutrition Water",              "mdi:water",             "ml"),
     # ── Goals (from Headwind's Goals screen) ─────────────────────
     ("nutrition_calories_goal",      "Nutrition Calories Goal",      "mdi:flag-checkered",    "kcal"),
@@ -119,6 +123,7 @@ NUTRITION_SENSORS = [
     ("nutrition_carbs_goal",         "Nutrition Carbs Goal",         "mdi:flag-checkered",    "g"),
     ("nutrition_fat_goal",           "Nutrition Fat Goal",           "mdi:flag-checkered",    "g"),
     ("nutrition_fibre_goal",         "Nutrition Fibre Goal",         "mdi:flag-checkered",    "g"),
+    ("nutrition_sugar_goal",         "Nutrition Sugar Goal",         "mdi:flag-checkered",    "g"),
     ("nutrition_water_goal",         "Nutrition Water Goal",         "mdi:flag-checkered",    "ml"),
     ("nutrition_garmin_last_sync",   "Nutrition Garmin Last Sync",   "mdi:watch-import",      None),
     ("nutrition_garmin_status",      "Nutrition Garmin Status",      "mdi:watch-variant",     None),
@@ -278,16 +283,16 @@ def _gather_nutrition():
     rid = rider['id']
     food = query_db('''
         SELECT COALESCE(SUM(calories),0) as cal, COALESCE(SUM(protein),0) as prot,
-               COALESCE(SUM(carbs),0) as carbs, COALESCE(SUM(fat),0) as fat, COALESCE(SUM(fibre),0) as fibre
+               COALESCE(SUM(carbs),0) as carbs, COALESCE(SUM(fat),0) as fat, COALESCE(SUM(fibre),0) as fibre, COALESCE(SUM(sugar),0) as sugar
         FROM FoodLog WHERE riderId=? AND logDate=?
     ''', [rid, today], one=True)
     meal_rows = query_db('''
         SELECT COALESCE(NULLIF(mealType,''),'uncategorised') as meal, COALESCE(SUM(calories),0) as cal,
                COALESCE(SUM(protein),0) as prot, COALESCE(SUM(carbs),0) as carbs,
-               COALESCE(SUM(fat),0) as fat, COALESCE(SUM(fibre),0) as fibre
+               COALESCE(SUM(fat),0) as fat, COALESCE(SUM(fibre),0) as fibre, COALESCE(SUM(sugar),0) as sugar
         FROM FoodLog WHERE riderId=? AND logDate=? GROUP BY meal
     ''', [rid, today])
-    meals = {r['meal']: {'calories': r['cal'], 'protein': r['prot'], 'carbs': r['carbs'], 'fat': r['fat'], 'fibre': r['fibre']}
+    meals = {r['meal']: {'calories': r['cal'], 'protein': r['prot'], 'carbs': r['carbs'], 'fat': r['fat'], 'fibre': r['fibre'], 'sugar': r['sugar']}
              for r in meal_rows}
     water = query_db(
         'SELECT COALESCE(SUM(ml),0) as ml FROM HydrationLog WHERE riderId=? AND logDate=?',
@@ -301,7 +306,7 @@ def _gather_nutrition():
     from services import workouts as _wk
     wk_cal = _wk.calories_on(rid, today)                          # recorded walks / runs count toward today's burn
     settings = query_db(
-        'SELECT nutritionCalGoal, nutritionProteinGoal, nutritionCarbGoal, nutritionFatGoal, nutritionWaterGoalMl, nutritionWeightEmaAlpha, nutritionBmrKcal FROM Settings WHERE id=1',
+        'SELECT nutritionCalGoal, nutritionProteinGoal, nutritionCarbGoal, nutritionFatGoal, nutritionWaterGoalMl, nutritionWeightEmaAlpha, nutritionBmrKcal, nutritionSugarGoal FROM Settings WHERE id=1',
         one=True,
     )
     # Same priority as the Nutrition page (routes/nutrition.py day_log), so HA and Headwind always agree:
@@ -371,6 +376,8 @@ def _gather_nutrition():
         'carbs':        int(food['carbs']) if food else 0,
         'fat':          int(food['fat'])   if food else 0,
         'fibre':        round(food['fibre'], 1) if food else 0,
+        'sugar':        round(food['sugar'], 1) if food else 0,
+        'sugar_goal':   (settings['nutritionSugarGoal'] if settings else None) or SUGAR_GOAL_G,
         'meals':        meals,
         'water_ml':     int(water['ml'])   if water else 0,
         'cal_goal':     settings['nutritionCalGoal']     if settings else None,
@@ -519,10 +526,10 @@ def _history_payloads():
     # diary: last 30 days of daily totals (missing days = 0) + the goals to draw against
     start = today - timedelta(days=29)
     by_day = {r['logDate']: r for r in query_db('''
-        SELECT logDate, SUM(calories) k, SUM(protein) p, SUM(carbs) c, SUM(fat) f, SUM(fibre) fi
+        SELECT logDate, SUM(calories) k, SUM(protein) p, SUM(carbs) c, SUM(fat) f, SUM(fibre) fi, SUM(sugar) su
         FROM FoodLog WHERE riderId=? AND logDate>=? GROUP BY logDate''', [rid, start.isoformat()])}
     days = [start + timedelta(days=i) for i in range(30)]
-    g = query_db('SELECT nutritionCalGoal, nutritionProteinGoal, nutritionCarbGoal, nutritionFatGoal FROM Settings WHERE id=1', one=True)
+    g = query_db('SELECT nutritionCalGoal, nutritionProteinGoal, nutritionCarbGoal, nutritionFatGoal, nutritionSugarGoal FROM Settings WHERE id=1', one=True)
     out['nutrition_diary_history'] = {
         'd': [d.isoformat() for d in days],
         'k': [round((by_day.get(d.isoformat()) or {'k': 0})['k'] or 0) for d in days],
@@ -530,8 +537,10 @@ def _history_payloads():
         'c': [round((by_day.get(d.isoformat()) or {'c': 0})['c'] or 0) for d in days],
         'f': [round((by_day.get(d.isoformat()) or {'f': 0})['f'] or 0) for d in days],
         'fi': [round((by_day.get(d.isoformat()) or {'fi': 0})['fi'] or 0, 1) for d in days],
+        'su': [round((by_day.get(d.isoformat()) or {'su': 0})['su'] or 0, 1) for d in days],
         'goal': {'k': g['nutritionCalGoal'] if g else None, 'p': g['nutritionProteinGoal'] if g else None,
-                 'c': g['nutritionCarbGoal'] if g else None, 'f': g['nutritionFatGoal'] if g else None},
+                 'c': g['nutritionCarbGoal'] if g else None, 'f': g['nutritionFatGoal'] if g else None,
+                 'su': (g['nutritionSugarGoal'] if g else None) or SUGAR_GOAL_G},
     }
 
     # recovery: last 30 days from Garmin
@@ -670,6 +679,9 @@ def _nutrition_state_values(n):
         'nutrition_carbs_g':            v(n['carbs']),
         'nutrition_fat_g':              v(n['fat']),
         'nutrition_fibre_g':            v(n.get('fibre', 0)),
+        'nutrition_sugar_g':            v(n.get('sugar', 0)),
+        'nutrition_sugar_remaining':    v(round(max(0, (n.get('sugar_goal') or SUGAR_GOAL_G) - (n.get('sugar') or 0)), 1)),
+        'nutrition_sugar_goal':         v(n.get('sugar_goal') or SUGAR_GOAL_G),
         'nutrition_carbs_remaining':    v(max(0, n['carbs_goal'] - n['carbs']) if n.get('carbs_goal') else 0),
         'nutrition_fat_remaining':      v(max(0, n['fat_goal'] - n['fat']) if n.get('fat_goal') else 0),
         'nutrition_fibre_remaining':    v(round(max(0, FIBRE_GOAL_G - (n.get('fibre') or 0)), 1)),

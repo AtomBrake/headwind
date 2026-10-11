@@ -357,3 +357,19 @@ def scan_all_activities(db, segment_ids=None):
     db.commit()
     log.warning('Segment scan complete — %d activities, %d segments', len(activities), len(segments))
     return len(activities)
+
+
+def scan_new_ride(db, act_id):
+    """Match one freshly stored ride against every segment and refresh PRs. Call after any ingest path; never raises, does not commit."""
+    try:
+        act = db.execute('SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id=?', [act_id]).fetchone()
+        segments = db.execute('SELECT * FROM Segment').fetchall()
+        if not act or not act['streams'] or not segments:
+            return 0
+        n = scan_activity_against_segments(db, act, segments)
+        if n:
+            for seg in segments:
+                _refresh_prs(db, seg['id'])
+        return n
+    except Exception:
+        return 0

@@ -4,6 +4,7 @@ from flask import Blueprint, g, jsonify, render_template, request
 
 from database import get_db, query_db
 from services.best_efforts import BRACKETS_MI, scan_all_best_efforts
+from services.sanity import SANE_SQL
 
 bp = Blueprint('data', __name__)
 
@@ -33,7 +34,7 @@ def index():
     # averageSpeed < 25 (m/s, ~56mph) excludes a couple of ancient corrupt rows
     # (movingTime=3s against a real distance, from the original 2014/15 Strava
     # import) whose garbage averageSpeed otherwise blows out the chart's autoscale.
-    where_clause = "WHERE riderId=? AND averageSpeed > 0 AND averageSpeed < 25"
+    where_clause = "WHERE riderId=? AND " + SANE_SQL + " AND averageSpeed >= 1.0 AND averageSpeed < 25"
     where_params = [rid]
     if sport:
         where_clause += " AND lower(sportType) LIKE ?"
@@ -221,7 +222,8 @@ def index():
     climbing_by_month = {ym: {str(b): v for b, v in bmap.items() if v} for ym, bmap in climbing_by_month.items()}
 
     # ── Weather performance ───────────────────────────────────────
-    wx_where = "WHERE riderId=? AND averageSpeed > 0 AND weatherTempC IS NOT NULL AND weatherWindKph IS NOT NULL"
+    # real rides only: a few corrupt old imports (a 3 s moving time against a real distance, or a 0.005-mile blip) give speeds of 2,500 mph or 0.01 mph that blow out the axes
+    wx_where = "WHERE riderId=? AND " + SANE_SQL + " AND averageSpeed >= 1.0 AND averageSpeed < 20 AND distance >= 1000 AND weatherTempC IS NOT NULL AND weatherWindKph IS NOT NULL"
     wx_params = [rid]
     if sport:
         wx_where += " AND lower(sportType) LIKE ?"
@@ -239,15 +241,7 @@ def index():
     wx_wind_x, wx_wind_y, wx_wind_rel, wx_wind_ids    = [], [], [], []
     wx_cond_buckets = {'Clear': [], 'Cloudy': [], 'Fog': [], 'Rain': [], 'Snow': [], 'Storm': []}
 
-    def _wmo_bucket(code):
-        if code is None: return None
-        c = int(code)
-        if c <= 1:  return 'Clear'
-        if c <= 3:  return 'Cloudy'
-        if c in (45, 48): return 'Fog'
-        if c <= 82: return 'Rain'
-        if c <= 77: return 'Snow'
-        return 'Storm'
+    from services.weather import bucket as _wmo_bucket
 
     def _season(mo):
         m = int(mo)
@@ -272,10 +266,28 @@ def index():
         wx_wind_rel.append(r['weatherWindRel'] or 'calm')
         wx_wind_ids.append(r['id'])
 
-        bucket = _wmo_bucket(r['weatherCode'])
-        if bucket:
-            wx_cond_buckets[bucket].append(mph)
 
+    # condition chart: every ride with a condition counts, including ones whose temperature or wind is missing (hand-picked conditions often are)
+    cond_where = "WHERE riderId=? AND " + SANE_SQL + " AND averageSpeed >= 1.0 AND averageSpeed < 20 AND distance >= 1000 AND weatherCode IS NOT NULL"
+    cond_params = [rid]
+    if sport:
+        cond_where += " AND lower(sportType) LIKE ?"
+        cond_params.append(f'%{sport.lower()}%')
+    for r in query_db(f'SELECT averageSpeed, weatherCode FROM Activity {cond_where}', cond_params):
+        b = _wmo_bucket(r['weatherCode'])
+        if b:
+            wx_cond_buckets[b].append(round(float(r['averageSpeed']) * 2.23694, 1))
+
+    from services.weather import fog_candidates
+    wx_fog = fog_candidates(get_db(), rid, sport)
+    from services import storms as _storms
+    wx_storm = _storms.storm_rides(get_db(), rid) + _storms.violent_unnamed(get_db(), rid)
+    from datetime import datetime as _dt
+    from services.dates import day_month_year
+    for f in wx_fog:
+        f['date'] = day_month_year(_dt.fromisoformat(str(f['startDateLocal'])[:19]))
+    for r_ in wx_storm:
+        r_['date_txt'] = day_month_year(_dt.fromisoformat(r_['date']))
     wx_cond_labels = list(wx_cond_buckets.keys())
     wx_cond_avgs   = [round(sum(v) / len(v), 2) if v else 0 for v in wx_cond_buckets.values()]
     wx_cond_counts = [len(v) for v in wx_cond_buckets.values()]
@@ -314,6 +326,8 @@ def index():
         wx_cond_labels=wx_cond_labels,
         wx_cond_avgs=wx_cond_avgs,
         wx_cond_counts=wx_cond_counts,
+        wx_fog=wx_fog,
+        wx_storm=wx_storm,
         all_riders=all_riders,
         active_rider=active_rider,
         sport_types=sport_types,

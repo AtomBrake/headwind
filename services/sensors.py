@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 log = logging.getLogger(__name__)
 
-FIELDS = ['t', 'rough', 'peak', 'gyro', 'tilt', 'press', 'lat', 'lng', 'spd', 'alt']
+FIELDS = ['t', 'rough', 'peak', 'gyro', 'tilt', 'press', 'lat', 'lng', 'spd', 'alt', 'cad']   # cad = pedalling cadence (rpm) estimated from leg motion, added in app 0.19
 MIN_ROWS = 20
 MAX_ROWS = 60_000          # 16 h at 1 Hz
 MOUNTS = ('pocket', 'bars', 'frame', 'other')
@@ -85,7 +85,7 @@ def summarise(rows):
     """Headline numbers for a sidecar: roughness, peak shock, tilt, barometric climb, hard braking, roughest stretches."""
     n = len(rows)
     ix = {f: i for i, f in enumerate(FIELDS)}
-    col = lambda f: [r[ix[f]] for r in rows]
+    col = lambda f: [r[ix[f]] if ix[f] < len(r) else None for r in rows]      # stored rows from before a field existed are shorter
     rough = [v for v in col('rough') if v is not None]
     peak = [v for v in col('peak') if v is not None]
     tilt = [abs(v) for v in col('tilt') if v is not None]
@@ -129,6 +129,10 @@ def summarise(rows):
         else:
             run = False
         prev = (s, rows[i][0])
+    cad = [(c, sp) for c, sp in zip(col('cad'), spd) if sp is not None and sp >= 2.5]
+    if any(c is not None for c, _ in cad):
+        pedalling = [c for c, _ in cad if c is not None]
+        out.update(cad_avg=round(sum(pedalling) / len(pedalling)), cad_max=round(max(pedalling)), coast_pct=round(100 * (1 - len(pedalling) / len(cad))))
     if any(s is not None for s in spd):
         out.update(hard_brakes=hard, max_decel=round(maxdec, 1))
     return out
@@ -250,7 +254,42 @@ def for_ride(db, ride_id, max_points=500):
     p0 = next((r[ix['press']] for r in rows if r[ix['press']]), None)
     series = {
         'min': [round((r[0] - r0) / 60000, 2) for r in sub],
+        'cad': [r[ix['cad']] if ix['cad'] < len(r) else None for r in sub],
         'rough': [r[ix['rough']] for r in sub], 'tilt': [r[ix['tilt']] for r in sub],
         'alt': [None if r[ix['press']] is None else round(_alt_from_pressure(r[ix['press']], p0) or 0, 1) for r in sub],
     }
-    return {'id': s['id'], 'device': s['device'], 'mount': s['mount'], 'sensors_only': bool(s['sensorsOnly']), 'summary': json.loads(s['summary']), 'series': series}
+    from services import roughness
+    return {'id': s['id'], 'device': s['device'], 'mount': s['mount'], 'sensors_only': bool(s['sensorsOnly']), 'summary': json.loads(s['summary']), 'series': series,
+            'track': roughness.track(rows)}
+
+
+def to_gpx(rows, name='Recovered recording'):
+    """GPX bytes for a sidecar's rows that have a position (time, latitude, longitude, altitude). None if there is no usable track."""
+    from xml.sax.saxutils import escape
+    ix = {f: i for i, f in enumerate(FIELDS)}
+    pts = []
+    for r in rows:
+        lat, lng = r[ix['lat']], r[ix['lng']]
+        if lat is None or lng is None:
+            continue
+        t = datetime.fromtimestamp(r[0] / 1000, timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        alt = r[ix['alt']]
+        pts.append('<trkpt lat="%.6f" lon="%.6f">%s<time>%s</time></trkpt>' % (lat, lng, '<ele>%.1f</ele>' % alt if alt is not None else '', t))
+    if len(pts) < 10:
+        return None
+    return ('<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Headwind" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>%s</name><trkseg>%s</trkseg></trk></gpx>'
+            % (escape(name), ''.join(pts))).encode()
+
+
+def rebuild_activity(rider_id, sensor_id, sport='Walk', name=None):
+    """Make a walk / run / hike from a sensor recording's own GPS track, for when a phone was left in sensors-only mode and never sent the activity.
+    Returns (workout dict, created) like workouts.save_from_gpx; the sidecar then attaches to it by time. ValueError if there is no usable track."""
+    from database import get_db
+    from services import workouts
+    row = get_db().execute('SELECT clientId, data FROM RideSensor WHERE id=? AND riderId=?', [sensor_id, rider_id]).fetchone()
+    if not row:
+        raise ValueError('no such sensor recording')
+    gpx = to_gpx(json.loads(row['data']))
+    if not gpx:
+        raise ValueError('that recording has no GPS track to build an activity from')
+    return workouts.save_from_gpx(rider_id, gpx, sport=sport, name=name, client_id=row['clientId'], source='sensor-recovery')
