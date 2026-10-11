@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.2-beta] - 2026-10-11
+
+No migration. Android 0.21.2-beta goes with this.
+
+### Fixed
+- **A drink added from search or a scan got no alcohol units** when Open Food Facts had no strength for it. A scanned Jack Daniel's, for example, came back with 220 kcal per 100 g and nothing else, so 100 ml logged 0 units. The food card now recognises a drink by its name (whisky, gin, vodka, lager, ale, cider, wine, prosecco and well-known brands) and shows a **Strength (% ABV)** field with a typical strength pre-filled for you to confirm, working out the units live (100 ml at 40% is 4 units). A strength you confirm is remembered with that product, so the next search, scan or phone-app log of it needs no typing (the server also derives and remembers the strength from the units a phone sends). Editing a logged drink shows the strength it implies. Not guessed, on purpose: sauces and food flavoured with a drink (Jack Daniel's BBQ sauce, rum raisin ice cream, ginger biscuits), alcohol-free versions (0.0, 0%), and ready-to-drink mixes and seltzers, where the spirit's own 40% would be about eight times too high (those still show the field, empty). `services/alcohol.recognise`.
+
 ## [0.5.1-beta] - 2026-10-11
 
 No migration, nothing to configure; your saved sugar reference is kept. Android 0.21.1-beta goes with this.

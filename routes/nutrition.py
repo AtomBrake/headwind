@@ -102,6 +102,17 @@ def _with_quality(product, sugars_per_100g=None):
         fibre_per_100g=product.get('fibre_per_100g'),
         sugars_per_100g=sugars_per_100g if sugars_per_100g is not None else product.get('_sugars_per_100g'),
     )
+    from services import alcohol as _alc
+    is_drink, guess = _alc.recognise(product.get('name'), product.get('brand'))
+    if product.get('abv') is None and product.get('barcode'):                # a strength remembered from an earlier log of this drink
+        known = query_db('SELECT abv FROM FoodCache WHERE key=? AND abv IS NOT NULL', [str(product['barcode'])], one=True)
+        if known:
+            product['abv'] = known['abv']
+    if product.get('abv') is not None or is_drink or product.get('_alcoholic_cat'):
+        product['alcoholic'] = True                         # the food card shows a strength field
+        if product.get('abv') is None and guess is not None:
+            product['abv_guess'] = guess
+    product.pop('_alcoholic_cat', None)
     sg = sugars_per_100g if sugars_per_100g is not None else product.get('_sugars_per_100g')
     product.pop('_sugars_per_100g', None)
     if sg is not None:
@@ -382,7 +393,7 @@ def apply_goal_plan():
 
 OFF_FIELDS = (
     'code,product_name,product_name_en,brands,nutriments,serving_size,'
-    'nutriscore_grade,image_front_small_url,image_front_url,image_url'
+    'nutriscore_grade,image_front_small_url,image_front_url,image_url,categories_tags'
 )
 
 
@@ -412,6 +423,7 @@ def _off_product_to_dict(p):
         'nutri_score_grade': p.get('nutriscore_grade'),
         '_sugars_per_100g':  n.get('sugars_100g'),
         'abv':               n.get('alcohol_100g') or n.get('alcohol'),          # % alcohol by volume, for drinks that declare it
+        '_alcoholic_cat':    any('alcoholic-beverage' in c for c in (p.get('categories_tags') or [])),
     }
 
 
@@ -862,6 +874,10 @@ def log_food():
         d['fibre'] = _saved_fibre(d.get('barcode'), d.get('name'), d.get('serving_g'), d.get('calories'))
     if d.get('sugar') is None:
         d['sugar'] = _saved_sugar(d.get('barcode'), d.get('name'), d.get('serving_g'), d.get('calories'))
+    if d.get('abv') is None and d.get('alcohol_units') is None and d.get('barcode'):
+        known = query_db('SELECT abv FROM FoodCache WHERE key=? AND abv IS NOT NULL', [str(d['barcode'])], one=True)      # strength remembered from an earlier log of this drink
+        if known:
+            d['abv'] = known['abv']
     if d.get('alcohol_units') is None and d.get('abv') and d.get('serving_g'):
         d['alcohol_units'] = round(float(d['serving_g']) * float(d['abv']) / 1000, 2)       # grams of a drink ~ ml; 1 UK unit = 10 ml of pure alcohol
     db = get_db()
@@ -891,6 +907,12 @@ def log_food():
         entry_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
     if cid:
         db.execute("INSERT OR IGNORE INTO ClientOp (clientId, kind, entryId) VALUES (?, 'food', ?)", [op_key, entry_id])
+    if d.get('alcohol_units') is not None and d.get('barcode'):
+        from services import alcohol as _alc
+        abv = d.get('abv')
+        if not abv and d.get('serving_g'):                         # the phone sends units, not a strength: the strength they imply is what to remember
+            abv = round(float(d['alcohol_units']) * 1000 / float(d['serving_g']), 1)
+        _alc.remember_abv(db, d.get('barcode'), abv)
     db.commit()
     if d.get('barcode') and not d.get('id'):
         from services import food_cache

@@ -1007,6 +1007,12 @@
       <input type="number" id="fdServingQty" min="0.5" max="20" step="0.5" value="1">
       <span class="serving-unit">servings</span>
     </div>
+    <div class="serving-row" id="fdAbvRow" style="display:none;">
+      <label>Strength (% ABV)</label>
+      <input type="number" id="fdAbv" min="0" max="100" step="0.1" placeholder="e.g. 40">
+      <span class="serving-unit" id="fdAbvUnits"></span>
+    </div>
+    <div class="fd-section-sub" id="fdAbvHint" style="display:none; margin:-0.2rem 0 0.6rem;">This looks like a drink. Check the strength on the bottle and Headwind counts the units (and remembers it for next time).</div>
     <div class="serving-row">
       <label>Meal</label>
       <select id="fdMealType"></select>
@@ -2310,6 +2316,14 @@ function openFoodDetail(item, ctx) {
   }
   document.getElementById('fdServingG').value = defG;
   document.getElementById('fdServingQty').value = defQty;
+  // a drink: show the strength field (known strength, else a typical one to confirm, else for an entry that already has units, the strength they imply)
+  let abv = null, isDrink = !!(item.alcoholic || item.abv != null || item.alcoholUnits != null);
+  if (item.abv != null) abv = item.abv;
+  else if (ctx.mode === 'absolute' && item.alcoholUnits != null && item.servingG) abv = Math.round(item.alcoholUnits * 1000 / item.servingG * 10) / 10;
+  else if (item.abv_guess != null) abv = item.abv_guess;
+  document.getElementById('fdAbvRow').style.display = isDrink ? '' : 'none';
+  document.getElementById('fdAbvHint').style.display = (isDrink && item.abv == null && item.alcoholUnits == null) ? '' : 'none';
+  document.getElementById('fdAbv').value = isDrink && abv != null ? abv : '';
   fdUpdateWeightHint();
   document.getElementById('fdMealType').innerHTML = mealTypeOptions(item.mealType || currentMealType);
   document.getElementById('fdMealType').closest('.serving-row').style.display = ctx.target === 'buildmeal' ? 'none' : '';
@@ -2362,11 +2376,16 @@ function fdComputeTotals() {
       servG = g ? g * qty : (item.servingG ? item.servingG * qty : null);
     }
   }
+  if (document.getElementById('fdAbvRow').style.display !== 'none') {       // a drink: units come from the strength shown on the card
+    const abv = parseFloat(document.getElementById('fdAbv').value);
+    alcohol = abv > 0 && servG ? Math.round(servG * abv / 1000 * 100) / 100 : null;
+  }
   return { kcal, prot, carbs, fat, fibre, sugar, alcohol, servG, g, qty };
 }
 
 function updateFdMacros() {
   const t = fdComputeTotals();
+  const au = document.getElementById('fdAbvUnits'); if (au) au.textContent = t.alcohol != null ? '= ' + (Math.round(t.alcohol * 10) / 10) + ' units' : '';
   const tiles = [
     ['cal',     'Calories', t.kcal  != null ? Math.round(t.kcal)        : '—'],
     ['protein', 'Protein',  t.prot  != null ? Math.round(t.prot)+'g'    : '—'],
@@ -2407,6 +2426,7 @@ document.getElementById('fdServingG').addEventListener('change', () => {
   updateFdMacros();
 });
 document.getElementById('fdServingQty').addEventListener('input', updateFdMacros);
+document.getElementById('fdAbv').addEventListener('input', updateFdMacros);
 
 document.getElementById('fdBack').addEventListener('click', () => {
   document.getElementById('foodDetailModal').classList.remove('open');
@@ -2421,6 +2441,7 @@ async function fdSaveEntry() {
   const payload = {
     name: item.name || item.foodName, barcode: item.barcode || null,
     calories: t.kcal, protein: t.prot, carbs: t.carbs, fat: t.fat, fibre: t.fibre, sugar: t.sugar, alcohol_units: t.alcohol,
+    abv: (document.getElementById('fdAbvRow').style.display !== 'none' ? (parseFloat(document.getElementById('fdAbv').value) || null) : null),
     serving_g: t.servG, quantity: t.qty, meal_type: mealType,
     source: sourceMap[fdContext.sourceKind] || fdContext.sourceKind || 'manual',
     brand: item.brand || null,

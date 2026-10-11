@@ -64,3 +64,45 @@ def test_recovery_needs_logged_drinks_and_enough_of_them(ctx):
     drink(ctx, '2026-09-01', 3.0)
     r = alcohol.recovery_comparison(ctx, 1)
     assert r is not None and not r['enough']
+
+
+# ── recognising a drink the food database has no strength for (a scanned Jack Daniel's had calories and nothing else) ──
+
+@pytest.mark.parametrize('name,brand,expected', [
+    ('Jack Daniels', 'Jack Daniels', (True, 40)),
+    ('Gordons Gin', None, (True, 37.5)),
+    ('Guinness', None, (True, 4.2)),
+    ('Merlot red wine', None, (True, 13)),
+    ('Pale ale', None, (True, 4.5)),
+    ("Jack Daniel's Cola ZERO", None, (True, None)),          # a ready-to-drink: a drink, but 40% would be far too high, so no strength is guessed
+    ('Jack daniels seltzer', None, (True, None)),
+    ("Gordon's gin & tonic can", None, (True, None)),
+    ('Guinness 0.0', None, (False, None)),                    # alcohol-free
+    ('Lager 0%', None, (False, None)),
+    ("Jack Daniel's BBQ sauce", None, (False, None)),         # food flavoured with it
+    ('Ginger biscuits', None, (False, None)),                 # "gin" inside a longer word
+    ('Rumble bar', None, (False, None)),
+    ('Rum raisin ice cream', None, (False, None)),
+    ('Tomato soup', None, (False, None)),
+])
+def test_drinks_are_recognised_by_name_without_false_alarms(name, brand, expected):
+    from services.alcohol import recognise
+    assert recognise(name, brand) == expected
+
+
+def test_a_typed_strength_is_remembered_and_used_for_the_next_log(ctx):
+    import routes.nutrition as nu
+    nu._mqtt_nutrition = lambda: None                                     # never publish from a test
+    ctx.execute("INSERT INTO FoodCache (key, barcode, name, searchText, kcal100g) VALUES ('555', '555', 'Jack Daniels', 'jack daniels', 220)")
+    ctx.commit()
+    from flask import current_app
+    app = current_app._get_current_object()
+    app.register_blueprint(nu.bp, url_prefix='/nutrition')
+    c = app.test_client()
+    first = c.post('/nutrition/api/log', json={'date': '2026-10-11', 'name': 'Jack Daniels', 'barcode': '555', 'calories': 220, 'serving_g': 100, 'quantity': 1, 'abv': 40, 'alcohol_units': 4.0})
+    assert first.status_code == 200
+    assert ctx.execute("SELECT abv FROM FoodCache WHERE key='555'").fetchone()[0] == 40
+    # next time: no strength typed at all (the phone app logs this way), and the units still come out
+    second = c.post('/nutrition/api/log', json={'date': '2026-10-12', 'name': 'Jack Daniels', 'barcode': '555', 'calories': 66, 'serving_g': 30, 'quantity': 1})
+    assert second.status_code == 200
+    assert ctx.execute("SELECT alcoholUnits FROM FoodLog WHERE id=?", [second.get_json()['id']]).fetchone()[0] == 1.2
