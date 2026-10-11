@@ -58,7 +58,8 @@ def _get_goals():
         'fat':     row['nutritionFatGoal'],
         'fibre':   30,                                     # UK recommendation
         'alcohol_week': row['nutritionAlcoholWeekGoal'] or 14,          # UK guideline: no more than 14 units a week, spread over 3+ days
-        'sugar':   row['nutritionSugarGoal'] or 50,         # a limit, not a target: 50 g of total sugars unless you set your own
+        'sugar':   row['nutritionSugarGoal'] or 50,         # a REFERENCE for TOTAL sugars (not free/added sugars): 50 g unless you set your own
+        'sugar_basis': 'total',                            # FoodLog.sugar is total sugars. Open Food Facts' added-sugars is unreliable, so free/added sugar is not tracked (see CHANGELOG 0.5.1)
         'water':   row['nutritionWaterGoalMl'],
         'bmr':     row['nutritionBmrKcal'],
     }
@@ -760,7 +761,7 @@ def upload_food_image():
 # ── Log entries ───────────────────────────────────────────────────────
 
 def _saved_sugar(barcode, name, grams, calories):
-    """Sugars (g) we can work out for a food being logged without a sugar figure: from the food database's per-100g value, else from an earlier log of the same food."""
+    """TOTAL sugars (g) -- never free/added sugar -- we can work out for a food being logged without a sugar figure: from the food database's per-100g value, else from an earlier log of the same food."""
     if barcode and grams:
         fc = query_db('SELECT sugars100g FROM FoodCache WHERE key=? AND sugars100g IS NOT NULL', [barcode], one=True)
         if fc:

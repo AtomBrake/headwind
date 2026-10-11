@@ -496,15 +496,15 @@
   <div class="nu-ring" id="ring_sugar">
     <svg viewBox="0 0 80 80"><circle class="trk" cx="40" cy="40" r="32"/><circle class="bar" id="ringBar_sugar" cx="40" cy="40" r="32" stroke-dasharray="201.06" stroke-dashoffset="201.06"/></svg>
     <div class="nu-ring-val" id="ringVal_sugar">0</div>
-    <div class="nu-ring-lbl">Sugar</div>
+    <div class="nu-ring-lbl" title="Total sugars: everything on the label's 'of which sugars' line, including the natural sugars in fruit and milk. UK guidance (about 30 g a day) is for free sugars, which Headwind cannot separate yet, so this is a reference to keep an eye on, not a limit.">Total sugar</div>
   </div>
-</div>
   <div class="nu-ring" id="ring_alcohol">
     <svg viewBox="0 0 80 80"><circle class="trk" cx="40" cy="40" r="32"/><circle class="bar" id="ringBar_alcohol" cx="40" cy="40" r="32" stroke-dasharray="201.06" stroke-dashoffset="201.06"/></svg>
     <div class="nu-ring-val" id="ringVal_alcohol">0</div>
     <div class="nu-ring-lbl">Alcohol (week)</div>
   </div>
 </div>
+<p style="font-size:0.7rem; color:var(--text-muted); margin:-0.4rem 0 0.9rem; line-height:1.4;">Sugar shows <b>total</b> sugars, including the natural sugars in fruit and milk. UK guidance (about 30 g a day) is for <b>free</b> sugars, which Headwind cannot separate yet, so this is a reference, not a limit.</p>
 
 <button class="nu-viewnutri" id="btnViewNutri"><span>&#x1F4CA;</span><span style="color:var(--text);font-size:1rem;">View Nutrition</span><span>&rsaquo;</span></button>
 
@@ -703,7 +703,7 @@
       <div class="form-group"><label>Water (ml)</label><input type="number" id="gWater" min="0"></div>
     </div>
     <div class="form-row">
-      <div class="form-group"><label>Sugar limit (g)</label><input type="number" id="gSugar" min="0" placeholder="e.g. 50"></div>
+      <div class="form-group"><label title="Total sugars: everything on the label's 'of which sugars' line, including the natural sugars in fruit and milk. UK guidance (about 30 g a day) is for free sugars, which Headwind cannot separate yet, so this is a reference to keep an eye on, not a limit.">Total sugar reference (g)</label><input type="number" id="gSugar" min="0" placeholder="e.g. 50"><small style="color:var(--text-muted);">Total sugars include fruit and milk. UK guidance (about 30 g) is for free sugars only, so treat this as a reference, not a limit.</small></div>
       <div class="form-group"><label>Alcohol limit (units / week)</label><input type="number" id="gAlcohol" min="0" step="1" placeholder="14"></div>
     </div>
     <div class="form-group" style="display:none;">
@@ -957,7 +957,7 @@
         <div><label>C g</label><input type="number" id="pmC" inputmode="decimal" step="0.1"></div>
         <div><label>F g</label><input type="number" id="pmF" inputmode="decimal" step="0.1"></div>
         <div><label>Fibre</label><input type="number" id="pmFi" inputmode="decimal" step="0.1"></div>
-        <div><label>Sugar</label><input type="number" id="pmS" inputmode="decimal" step="0.1"></div>
+        <div><label title="Total sugars">Sugar (total)</label><input type="number" id="pmS" inputmode="decimal" step="0.1"></div>
       </div>
       <div id="pmRange" style="font-size:0.78rem; color:var(--text-muted); margin:0.4rem 0 0.75rem;"></div>
       <details style="margin-bottom:0.75rem;"><summary style="cursor:pointer; min-height:36px; display:flex; align-items:center; font-size:0.85rem;">What the AI saw</summary><div id="pmItems" style="font-size:0.82rem; line-height:1.6;"></div></details>
@@ -1226,7 +1226,9 @@ function renderAll(data) {
   renderRing('carbs',   carbs,   goals.carbs,   '#38bdf8');
   renderRing('fat',     fat,     goals.fat,     '#f87171');
   renderRing('fibre',   fibreTot, goals.fibre || 30, '#fb923c');
-  renderRing('sugar',   sugarTot, goals.sugar,  '#f472b6', true);
+  renderRing('sugar',   sugarTot, goals.sugar,  '#f472b6', false);         // total sugar: a reference, never a red limit
+  const sugEl = document.getElementById('ringVal_sugar');
+  if (sugEl && goals.sugar && sugarTot > goals.sugar) sugEl.innerHTML += '<small style="color:var(--text-muted);">above reference</small>';
   const al = data.alcohol || {today: 0, week: 0, goal: goals.alcohol_week || 14};
   renderRing('alcohol', al.week, al.goal, '#a78bfa', true, ' u');
   const alEl = document.getElementById('ringVal_alcohol');
@@ -1321,7 +1323,7 @@ function buildMealSection(meal, entries) {
 
   // the meal's macros at a glance, next to its calories
   const mt = k => entries.reduce((x, e) => x + (e[k] || 0), 0);
-  const chip = (lbl, v, col) => `<span class="meal-mac" style="color:${col};"><b>${Math.round(v)}</b><small>${lbl}</small></span>`;
+  const chip = (lbl, v, col) => `<span class="meal-mac" style="color:${col};" title="${lbl === 'S' ? 'Total sugar' : ''}"><b>${Math.round(v)}</b><small>${lbl}</small></span>`;
   const macros = `<div class="meal-macs">${chip('P', mt('protein'), '#facc15')}${chip('C', mt('carbs'), '#38bdf8')}${chip('F', mt('fat'), '#f87171')}${chip('Fi', mt('fibre'), '#fb923c')}${chip('S', mt('sugar'), '#f472b6')}${mt('alcoholUnits') > 0 ? `<span class="meal-mac" style="color:#a78bfa;"><b>${Math.round(mt('alcoholUnits') * 10) / 10}</b><small>U</small></span>` : ''}</div>`;
   const header = `
     <div class="meal-header">
@@ -1432,7 +1434,7 @@ function nnTiles(t, goalsMap) {
     ${tile('protein', 'Protein', fmt(t.protein, 'g'), g.protein ? g.protein + 'g' : '')}
     ${tile('fibre', 'Fibre', fmt(t.fibre, 'g'), '')}
     ${tile('carbs', 'Carbs', fmt(t.carbs, 'g'), g.carbs ? g.carbs + 'g' : '')}
-    ${tile('sugar', 'Sugar', fmt(t.sugar, 'g'), g.sugar ? g.sugar + 'g' : '')}
+    ${tile('sugar', 'Total sugar', fmt(t.sugar, 'g'), g.sugar ? g.sugar + 'g' : '')}
     ${tile('fat', 'Fats', fmt(t.fat, 'g'), g.fat ? g.fat + 'g' : '')}
   </div>`;
 }
@@ -2371,7 +2373,7 @@ function updateFdMacros() {
     ['carbs',   'Carbs',    t.carbs != null ? Math.round(t.carbs)+'g'   : '—'],
     ['fat',     'Fats',     t.fat   != null ? Math.round(t.fat)+'g'     : '—'],
     ['fibre',   'Fibre',    t.fibre != null ? (Math.round(t.fibre*10)/10)+'g' : '—'],
-    ['sugar',   'Sugar',    t.sugar != null ? (Math.round(t.sugar*10)/10)+'g' : '—'],
+    ['sugar',   'Total sugar', t.sugar != null ? (Math.round(t.sugar*10)/10)+'g' : '—'],
   ];
   if (fdEditing) {
     const ids = { cal:['fdEdKcal', t.kcal], protein:['fdEdProt', t.prot], fibre:['fdEdFibre', t.fibre], sugar:['fdEdSugar', t.sugar], carbs:['fdEdCarbs', t.carbs], fat:['fdEdFat', t.fat] };

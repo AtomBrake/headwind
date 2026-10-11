@@ -431,13 +431,15 @@ return `
     <span style="font-size:11px;color:${{MUTED}}">rough · full-day estimate</span></div>
 </div>`;"""), 12)
 
-    def macro(name, ent, colour, key, unit='g'):
+    def macro(name, ent, colour, key, unit='g', reference=False):
+        # reference=True: a figure to keep an eye on (total sugar), not a limit or a target: never red, and worded as above / below the reference
         return cols(bc([ent, N + key + '_goal'], f"""
 const val = n('{ent}'), goal = n('{N}{key}_goal');
 const pct = goal ? val / goal * 100 : 0;
 const over = goal && val > goal;
-const sub = !goal ? 'set a goal in Headwind' : (over ? `<span style="color:#f87171">${{fmt(val - goal)}}{unit} over</span>` : `${{fmt(goal - val)}}{unit} to go`);
-return ring(pct, over ? '#f87171' : '{colour}', Math.round(val * 10) / 10 % 1 === 0 ? Math.round(val) : val.toFixed(1), goal ? 'of ' + fmt(goal) + '{unit}' : '{unit}') +
+const ref = {'true' if reference else 'false'};
+const sub = !goal ? 'set a reference in Headwind' : (ref ? (over ? `${{fmt(val - goal)}}{unit} above your reference` : `${{fmt(goal - val)}}{unit} below your reference`) : (over ? `<span style="color:#f87171">${{fmt(val - goal)}}{unit} over</span>` : `${{fmt(goal - val)}}{unit} to go`));
+return ring(pct, (over && !ref) ? '#f87171' : '{colour}', Math.round(val * 10) / 10 % 1 === 0 ? Math.round(val) : val.toFixed(1), goal ? 'of ' + fmt(goal) + '{unit}' : '{unit}') +
   `<div style="text-align:center;margin-top:10px;font-size:14px;font-weight:700;color:{colour}">{name}</div>` +
   `<div style="text-align:center;font-size:11px;color:${{MUTED}}">${{sub}}</div>`;""", pad=14), 6)
 
@@ -445,7 +447,7 @@ return ring(pct, over ? '#f87171' : '{colour}', Math.round(val * 10) / 10 % 1 ==
               macro('Carbs', N + 'carbs', HEX['carbs'], 'carbs'),
               macro('Fat', N + 'fat', HEX['fat'], 'fat'),
               macro('Fibre', N + 'fibre', HEX['fibre'], 'fibre'),
-              macro('Sugar', N + 'sugar', HEX['sugar'], 'sugar'),
+              macro('Total sugar', N + 'sugar', HEX['sugar'], 'sugar', reference=True),
               macro('Alcohol (week)', N + 'alcohol_week', HEX['alcohol'], 'alcohol', ' units')]
 
     water = cols(bc([N + 'water', N + 'water_progress', N + 'water_goal'], f"""
@@ -568,7 +570,7 @@ return `
   <div style="flex:1;min-width:0">
     <div style="font-weight:700;font-size:16px">{label}</div>
     <div style="display:flex;height:6px;border-radius:4px;overflow:hidden;margin:7px 0 6px;background:rgba(255,255,255,.08)">${{seg(p * 4, '{HEX['protein']}')}}${{seg(c * 4, '{HEX['carbs']}')}}${{seg(f * 9, '{HEX['fat']}')}}</div>
-    <div style="font-size:12px;color:${{MUTED}}">P ${{fmt(p)}}g · C ${{fmt(c)}}g · F ${{fmt(f)}}g · Fibre ${{fmt(fi, 1)}}g · Sugar ${{fmt(su, 1)}}g</div></div>
+    <div style="font-size:12px;color:${{MUTED}}">P ${{fmt(p)}}g · C ${{fmt(c)}}g · F ${{fmt(f)}}g · Fibre ${{fmt(fi, 1)}}g · Total sugar ${{fmt(su, 1)}}g</div></div>
   <div style="text-align:right"><div style="font-size:24px;font-weight:800;line-height:1">${{fmt(kc)}}</div><div style="font-size:11px;color:${{MUTED}}">kcal</div></div>
 </div>`;""", pad=14), 12)})
     empty = {'type': 'conditional', 'conditions': [{'condition': 'numeric_state', 'entity': eaten, 'below': 1}],
@@ -636,7 +638,7 @@ return panel('Fibre · last 3 weeks', fmt(last(fi) || 0, 1) + ' g today', null,
   chart({labels: tail(A.d, L), series: [{v: fi, color: '#fb923c', type: 'bar'}], goal: 30, zero: true, dec: 0}));""")
     sugar_hist = chart_card(D_, """
 const L = 21, su = tail(A.su || [], L);
-return panel('Sugar · last 3 weeks', fmt(last(su) || 0, 1) + ' g today', null,
+return panel('Total sugar · last 3 weeks', fmt(last(su) || 0, 1) + ' g today', null,
   chart({labels: tail(A.d, L), series: [{v: su, color: '#f472b6', type: 'bar'}], goal: (A.goal || {}).su || 50, zero: true, dec: 0}));""")
     activity_trend = chart_card(N + 'activity_weekly', """
 const d = A.d || [];

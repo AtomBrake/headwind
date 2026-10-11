@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.1-beta] - 2026-10-11
+
+No migration, nothing to configure; your saved sugar reference is kept. Android 0.21.1-beta goes with this.
+
+### Fixed
+- **The Nutrition page layout broke** after the Alcohol ring was added (one `</div>` too many closed the ring grid early, pushing the rest of the page out of shape on some widths). The six rings now sit in one grid: three across on a phone or tablet, six on a wide screen.
+
+### Changed
+- **Sugar is total sugar, and is treated as a reference, not a limit.** `FoodLog.sugar` has always been *total* sugars (the label's "of which sugars", per 100 g from Open Food Facts scaled by the portion, or from an earlier log of the same food, or typed by hand), which includes the natural sugars in fruit and milk. UK guidance (about 30 g a day) is for *free* sugars, so a red "over the limit" ring was misleading. The ring is now *Total sugar*, stays its own colour past the number and shows a muted "above reference", the goals field is *Total sugar reference (g)* with a note, and a one-line explanation sits under the rings. Home Assistant gets the same: the Total sugar ring is never red and reads "above / below your reference". The default stays 50 g and is not changed to 30 (that would be wrong for total sugars). Protein, carb and fat targets are untouched. The alcohol ring keeps its red because the weekly alcohol guideline is a real limit. Entity ids are unchanged, so existing Home Assistant history and dashboards keep working.
+- The goals API now also returns `sugar_basis: "total"`.
+
+### Not done, on purpose: free / added sugar
+Open Food Facts does carry an `added-sugars_100g` field, but it cannot be trusted: in a sample of products from a real diary it was missing on some, zero on strawberry jam (about 62 g total), and larger than the total sugars on others (43.11 g added against 2.3 g total; 52.75 g against 49.7 g). Headwind does not store it and does not estimate added sugar from total sugar. If a reliable source appears (a verified branded-food database, or labels that declare "includes added sugars"), the clean design is a separate nullable `FoodLog.addedSugar` column and per-100g field alongside the existing total, shown as its own gauge against the 30 g free-sugar guidance; existing records would simply have no value.
+
 ## [0.5.0-beta] - 2026-10-11
 
 Upgrading is automatic (`FoodLog.alcoholUnits`, `FoodCache.abv`, `Settings.nutritionAlcoholWeekGoal`). Android 0.21.0-beta goes with this.
