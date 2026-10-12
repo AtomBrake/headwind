@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.3-beta] - 2026-10-12
+
+Migration: one new column, `SegmentEffort.approx`, added automatically at startup. No Android change.
+
+### Added
+- **Close-match segment efforts.** A ride that clearly rode a segment but was not *perfectly* on it now counts. It must follow the stored shape in the right order, within 75 m, for at least 85% of its length, without looping or wandering, at a believable speed. The time is estimated from the part followed and scaled to the whole segment, so these efforts show a `≈` on the segment and ride pages and **never take a personal best** (exact matches only). Direction, a different road and part-rides are still rejected. Where a ride matched both ways the estimate was within 1% of the exact time. Rescan from the Segments page to pick them up. `services/segments.match_segment_close`, `tests/test_segments_close.py`.
+
+### Fixed
+- **Creating a segment dropped the editor below the phone-sensor card**, so the map was off screen while placing the start and end markers. The panel now sits directly under the map.
+
 ## [0.5.2-beta] - 2026-10-11
 
 No migration. Android 0.21.2-beta goes with this.

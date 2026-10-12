@@ -9,6 +9,9 @@ CHECKPOINT_M = 60  # metres — tolerance for interior waypoints (wider to absor
 CHECKPOINT_N = 4   # number of evenly-spaced interior checkpoints to sample
 MIN_SPEED_MPS = {'ride': 2.0, 'run': 1.2}   # slower than this is a false match (4.5 mph on a bike; a 13:50/mi shuffle on foot)
 RUN_SPORTS = {'run', 'trailrun', 'virtualrun'}
+CLOSE_TOL_M = 75        # a ride counts as "on the shape" within this many metres (GPS drift, a different lane, a cycle path beside the road)
+CLOSE_COVER = 0.85      # share of the segment's length the ride must follow, in order, to count as a close (approximate) match
+CLOSE_DETOUR = 1.35     # the ride's own path over that stretch may be at most this much longer than the segment (no loops / wandering)
 
 
 def seg_sport(seg):
@@ -267,6 +270,82 @@ def match_segment(activity_streams_json, seg):
     return best_elapsed
 
 
+def _fast_m(lat1, lng1, lat2, lng2):
+    """Equirectangular distance in metres: ~0.1% off at these ranges and several times cheaper than haversine."""
+    x = radians(lng2 - lng1) * cos(radians((lat1 + lat2) / 2))
+    y = radians(lat2 - lat1)
+    return 6_371_000 * sqrt(x * x + y * y)
+
+
+def match_segment_close(activity_streams_json, seg):
+    """
+    The forgiving second chance for a ride that follows a segment but is not PERFECTLY on it (a stop short of the end marker,
+    GPS drift, a lane or path beside the road). Returns (estimated_elapsed_secs, covered_fraction) or None.
+
+    The ride must run along the stored shape in the right order, within CLOSE_TOL_M of it, for at least CLOSE_COVER of its
+    length, without wandering (CLOSE_DETOUR) and at a believable speed. The time is the time over the part followed, scaled up
+    to the whole segment, so it is an estimate: callers store it with approx=1 and never let it take a PR.
+    Segments with no stored shape cannot be matched this way.
+    """
+    try:
+        poly = json.loads(seg['polyline']) if seg['polyline'] else []
+        streams = json.loads(activity_streams_json or '{}')
+    except Exception:
+        return None
+    if len(poly) < 4:
+        return None
+    ll = (streams.get('latlng') or {}).get('data') or []
+    tm = (streams.get('time') or {}).get('data') or []
+    n = min(len(ll), len(tm))
+    if n < 10:
+        return None
+    seg_len = float(seg['distanceM'] or 0) or _path_length_m(poly)
+    if seg_len <= 0:
+        return None
+    step = max(1, len(poly) // 120)                       # ~120 shape samples is plenty for a 75 m margin
+    shape = poly[::step] + ([poly[-1]] if (len(poly) - 1) % step else [])
+    cum = [0.0]
+    for a, b in zip(shape, shape[1:]):
+        cum.append(cum[-1] + _fast_m(a[0], a[1], b[0], b[1]))
+    shape_len = cum[-1] or 1.0
+    cell = 0.0015                                          # ~170 m grid: only ride points near the shape matter
+    grid = {(int(q[0] / cell), int(q[1] / cell)) for q in shape}
+    near = []                                              # (ride index, lat, lng) in ride order
+    for i in range(n):
+        la, ln = ll[i][0], ll[i][1]
+        ci, cj = int(la / cell), int(ln / cell)
+        if any((ci + di, cj + dj) in grid for di in (-1, 0, 1) for dj in (-1, 0, 1)):
+            near.append((i, la, ln))
+    if len(near) < 5:
+        return None
+    cursor, hits = 0, []                                   # hits: (shape sample k, ride index)
+    for k, q in enumerate(shape):
+        for pos in range(cursor, len(near)):
+            if _fast_m(near[pos][1], near[pos][2], q[0], q[1]) <= CLOSE_TOL_M:
+                hits.append((k, near[pos][0]))
+                cursor = pos
+                break
+    if len(hits) < 4:
+        return None
+    k0, i0 = hits[0]
+    k1, i1 = hits[-1]
+    span = cum[k1] - cum[k0]
+    if span < CLOSE_COVER * shape_len or i1 <= i0:
+        return None
+    if len(hits) < CLOSE_COVER * (k1 - k0 + 1):            # skipped too much of the stretch it claims to cover
+        return None
+    path = sum(_fast_m(ll[j][0], ll[j][1], ll[j + 1][0], ll[j + 1][1]) for j in range(i0, i1))
+    if path > CLOSE_DETOUR * span:
+        return None
+    secs = tm[i1] - tm[i0]
+    if secs <= 0:
+        return None
+    est = secs * (shape_len / span)
+    if seg_len / est < MIN_SPEED_MPS[seg_sport(seg)]:
+        return None
+    return int(round(est)), span / shape_len
+
+
 def _refresh_prs(db, segment_id):
     db.execute('UPDATE SegmentEffort SET isPR=0 WHERE segmentId=?', [segment_id])
     # Mark each rider's personal best
@@ -274,13 +353,13 @@ def _refresh_prs(db, segment_id):
         SELECT DISTINCT a.riderId
         FROM SegmentEffort e
         JOIN SegActivity a ON a.id = e.activityId
-        WHERE e.segmentId=? AND a.riderId IS NOT NULL
+        WHERE e.segmentId=? AND a.riderId IS NOT NULL AND COALESCE(e.approx, 0) = 0
     ''', [segment_id]).fetchall()
     for row in riders:
         best = db.execute('''
             SELECT e.id FROM SegmentEffort e
             JOIN SegActivity a ON a.id = e.activityId
-            WHERE e.segmentId=? AND a.riderId=?
+            WHERE e.segmentId=? AND a.riderId=? AND COALESCE(e.approx, 0) = 0
             ORDER BY e.elapsedSecs ASC LIMIT 1
         ''', [segment_id, row[0]]).fetchone()
         if best:
@@ -295,23 +374,29 @@ def scan_activity_against_segments(db, activity, segments):
         if fam is None or seg_sport(seg) != fam:        # runs only match run segments, rides only ride segments
             continue
         elapsed = match_segment(activity['streams'], seg)
+        approx = 0
         if elapsed is None:
-            continue
+            close = match_segment_close(activity['streams'], seg)      # not perfectly on it, but clearly rode it
+            if close is None:
+                continue
+            elapsed, approx = close[0], 1
         dist_m     = seg['distanceM'] or 0
         avg_speed  = dist_m / elapsed if dist_m and elapsed else None
         db.execute('''
             INSERT INTO SegmentEffort
-              (segmentId, activityId, activityDate, elapsedSecs, avgSpeedMps)
-            VALUES (?,?,?,?,?)
+              (segmentId, activityId, activityDate, elapsedSecs, avgSpeedMps, approx)
+            VALUES (?,?,?,?,?,?)
             ON CONFLICT(segmentId, activityId) DO UPDATE SET
               elapsedSecs=excluded.elapsedSecs,
-              avgSpeedMps=excluded.avgSpeedMps
+              avgSpeedMps=excluded.avgSpeedMps,
+              approx=excluded.approx
         ''', [
             seg['id'],
             activity['id'],
             str(activity['startDateLocal'] or '')[:10],
             elapsed,
             avg_speed,
+            approx,
         ])
         matched += 1
     return matched

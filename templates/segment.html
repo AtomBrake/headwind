@@ -184,7 +184,7 @@
         </td>
         <td style="padding:0.875rem 1rem; text-align:right; font-weight:600; font-variant-numeric:tabular-nums;
                    color:{% if e.isPR %}var(--accent){% else %}var(--text){% endif %};">
-          {{ e.elapsedSecs | fmt_duration }}
+          {% if e.approx %}<span title="Close match: you rode this but not exactly through the start/end markers, so the time is estimated" style="color:var(--text-muted); font-weight:400;">≈</span> {% endif %}{{ e.elapsedSecs | fmt_duration }}
         </td>
         <td style="padding:0.875rem 1.25rem; text-align:right; color:var(--text-muted); font-size:0.875rem;">
           {% if e.avgSpeedMps %}{% if is_run %}{{ e.avgSpeedMps | pace_mi }}{% else %}{{ (e.avgSpeedMps * 2.23694) | round(1) }} mph{% endif %}{% else %}—{% endif %}

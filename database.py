@@ -344,6 +344,10 @@ def migrate_db():
         if col not in seg_cols:
             db.execute(f'ALTER TABLE Segment ADD COLUMN {col} {defn}')
 
+    eff_cols = {r[1] for r in db.execute('PRAGMA table_info(SegmentEffort)').fetchall()}
+    if 'approx' not in eff_cols:        # 1 = close-but-not-exact match (time estimated); see services/segments.match_segment_close
+        db.execute('ALTER TABLE SegmentEffort ADD COLUMN approx INTEGER DEFAULT 0')
+
     friend_cols = {r[1] for r in db.execute('PRAGMA table_info(Friend)').fetchall()}
     if 'riderName' not in friend_cols:
         db.execute('ALTER TABLE Friend ADD COLUMN riderName TEXT')
