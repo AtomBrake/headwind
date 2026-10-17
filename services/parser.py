@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import re
 from math import atan2, cos, radians, sin, sqrt
 
 
@@ -130,7 +131,10 @@ def _gain_smoothed(alts, threshold=3.0, window=7):
 def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
     import gpxpy
 
-    gpx = gpxpy.parse(io.StringIO(data.decode('utf-8', errors='replace')))
+    text = data.decode('utf-8', errors='replace')
+    # Trailforks writes "2026-07-21T12:05:57z" — gpxpy only accepts an upper-case T/Z and silently drops every timestamp otherwise
+    text = re.sub(r'<time>([^<]*)</time>', lambda m: '<time>' + m.group(1).strip().upper() + '</time>', text)
+    gpx = gpxpy.parse(io.StringIO(text))
 
     points = []
     for track in gpx.tracks:
@@ -141,7 +145,11 @@ def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
         import logging; logging.getLogger(__name__).warning('parse_gpx: no track points found (route-only or empty file)')
         return None
     if points[0].time is None:
-        import logging; logging.getLogger(__name__).warning('parse_gpx: no timestamps in track — cannot import route-only files')
+        if '<time>' in text.split('<trkpt', 1)[-1]:
+            import logging; logging.getLogger(__name__).warning('parse_gpx: track has <time> tags gpxpy could not read (first: %s)',
+                                                                re.search(r'<time>([^<]*)</time>', text.split('<trkpt', 1)[-1]).group(1))
+        else:
+            import logging; logging.getLogger(__name__).warning('parse_gpx: no timestamps in track — cannot import route-only files')
         return None
 
     start = points[0].time
