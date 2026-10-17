@@ -65,11 +65,17 @@ final class RideStore {
         } catch {
             throw .storage(underlying: error)
         }
-        insert(ride)
+        do throws(AppError) {
+            try insert(ride)
+        } catch {
+            try? FileManager.default.removeItem(at: fileURL(ride))
+            throw error
+        }
         return ride
     }
 
-    /// Takes ownership of a GPX file (moved, not copied), e.g. one that arrived from the Watch.
+    /// Takes ownership of a GPX file (moved, not copied), e.g. one that arrived from the Watch. If it can't be
+    /// stored, the file is left where it was.
     @discardableResult
     func adopt(file: URL, summary: RideSummary, source: SavedRide.Source) throws(AppError) -> SavedRide {
         let ride = SavedRide(id: UUID(), summary: summary, source: source, status: .pending)
@@ -78,20 +84,31 @@ final class RideStore {
         } catch {
             throw .storage(underlying: error)
         }
-        insert(ride)
+        do throws(AppError) {
+            try insert(ride)
+        } catch {
+            try? FileManager.default.moveItem(at: fileURL(ride), to: file)
+            throw error
+        }
         return ride
     }
 
-    private func insert(_ ride: SavedRide) {
+    /// A ride missing from the index would be orphaned on the next launch, so a failed index write undoes the insert.
+    private func insert(_ ride: SavedRide) throws(AppError) {
         rides.insert(ride, at: 0)
         rides.sort { $0.summary.start > $1.summary.start }
-        save()
+        do throws(AppError) {
+            try save()
+        } catch {
+            rides.removeAll { $0.id == ride.id }
+            throw error
+        }
     }
 
     func delete(_ ride: SavedRide) {
         try? FileManager.default.removeItem(at: fileURL(ride))
         rides.removeAll { $0.id == ride.id }
-        save()
+        try? save()
     }
 
     func gpxURL(for ride: SavedRide) -> URL { fileURL(ride) }
@@ -132,7 +149,7 @@ final class RideStore {
     private func update(_ id: UUID, _ change: (inout SavedRide) -> Void) {
         guard let i = rides.firstIndex(where: { $0.id == id }) else { return }
         change(&rides[i])
-        save()
+        try? save()
     }
 
     private func fileURL(_ ride: SavedRide) -> URL { directory.appending(path: ride.filename) }
@@ -145,9 +162,11 @@ final class RideStore {
         rides = saved.map { var r = $0; if r.status == .uploading { r.status = .pending }; return r }
     }
 
-    private func save() {
-        if let data = try? JSONEncoder().encode(rides) {
-            try? data.write(to: indexURL, options: .atomic)
+    private func save() throws(AppError) {
+        do {
+            try JSONEncoder().encode(rides).write(to: indexURL, options: .atomic)
+        } catch {
+            throw .storage(underlying: error)
         }
     }
 }
