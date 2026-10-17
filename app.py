@@ -5,7 +5,6 @@ import time
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from flask import Flask, g, jsonify, redirect, request, session, url_for, render_template
-from werkzeug.middleware.proxy_fix import ProxyFix
 from config import Config
 from database import close_db, migrate_db
 
@@ -181,7 +180,8 @@ def _garmin_heartbeat(app):
 
 def create_app():
     app = Flask(__name__)
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+    from services import trusted_proxy
+    app.wsgi_app = trusted_proxy.wrap(app.wsgi_app)   # X-Forwarded-* only from a trusted proxy
     app.config.from_object(Config)
     app.teardown_appcontext(close_db)
 

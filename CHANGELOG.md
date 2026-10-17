@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.4-beta] - 2026-10-17
+
+Security and bug fixes from a project-wide review. No migration. No Android change.
+
+**Check before upgrading:** if your reverse proxy reaches Headwind from a *public* address (not the same machine, LAN, Docker network or a local tunnel), set `TRUSTED_PROXIES` to that address, or Headwind will stop believing its `X-Forwarded-*` headers. If you pointed anything at the friend feed with `?token=` in the URL, send the `X-Feed-Token` header instead. Headwind's own friend sync already does.
+
+### Security
+- **A friend could pull rides another friend shared only with you.** `/api/riders` listed the riders created by syncing a friend, and `/api/feed?rider=<name>` served their rides, with full GPS and heart-rate streams, to anyone holding your feed token. Both now offer only the riders who live on this instance. `tests/test_friend_feed.py`.
+- **The sign-in lockout could be dodged on a directly exposed port.** Headwind believed `X-Forwarded-For` from any client, so each attempt could claim a new address. Forwarded headers are now honoured only from a loopback or private address, or from the addresses in the new `TRUSTED_PROXIES` setting (`none` turns them off). `services/trusted_proxy.py`.
+- **The friend feed token is header-only and compared in constant time.** `?token=` in the URL is no longer accepted, because it ends up in proxy access logs. All four feed endpoints now share one check.
+
+### Fixed
+- **The MQTT heartbeat thread could die** if a gear-alert sweep failed, stopping MQTT, Home Assistant, weather sync and goal updates until a restart.
+- **The Android APK default pointed at a developer's home folder.** Headwind now looks for `headwind.apk` (and an optional `version.txt`) beside the database, or wherever `HEADWIND_APK` points, and the Phones → App page says where to put it.
+
 ## [0.5.3-beta] - 2026-10-12
 
 Migration: one new column, `SegmentEffort.approx`, added automatically at startup. No Android change.
