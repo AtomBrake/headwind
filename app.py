@@ -10,6 +10,7 @@ from config import Config
 from database import close_db, migrate_db
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+log = logging.getLogger(__name__)
 
 
 def _friends_autosync(app):
