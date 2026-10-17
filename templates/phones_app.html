@@ -8,7 +8,8 @@
   {% if available %}
     <a class="btn btn-primary" href="/phones/app.apk" style="min-height:48px;display:inline-flex;align-items:center;font-size:1rem">⬇ Download APK ({{ size_mb }} MB)</a>
     <pre style="font-size:0.72rem;color:var(--text-muted);white-space:pre-wrap;margin-top:0.8rem">{{ info }}</pre>
-  {% else %}<p style="color:var(--danger)">No APK is available on this server yet.</p>{% endif %}
+  {% else %}<p style="color:var(--danger)">No APK is available on this server yet.</p>
+    <p style="color:var(--text-muted);font-size:0.8rem;margin:0">To offer one, put it at <code>{{ apk_path }}</code> or point <code>HEADWIND_APK</code> at it.</p>{% endif %}
 </div>
 <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:1rem;line-height:1.6;font-size:0.92rem">
   <div style="font-weight:600;margin-bottom:0.4rem">Installing it</div>

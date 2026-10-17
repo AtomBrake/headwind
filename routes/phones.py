@@ -47,22 +47,28 @@ def revoke(device_id):
 
 
 # ── the Android app itself (sideloading; served behind the normal login) ─────────────────────────────
-APK_PATH = os.environ.get('HEADWIND_APK') or '/home/rob/headwind-android/dist/headwind.apk'
+def _apk_path():
+    """HEADWIND_APK, or headwind.apk beside the database (with an optional version.txt next to it)."""
+    data_dir = os.path.dirname(os.path.abspath(current_app.config['DATABASE'].replace('sqlite:///', '')))
+    return os.environ.get('HEADWIND_APK') or os.path.join(data_dir, 'headwind.apk')
 
 
 @bp.route('/app')
 def app_page():
+    apk = _apk_path()
     info = ''
     try:
-        info = open(os.path.join(os.path.dirname(APK_PATH), 'version.txt')).read().strip()
+        info = open(os.path.join(os.path.dirname(apk), 'version.txt')).read().strip()
     except OSError:
         pass
-    return render_template('phones_app.html', available=os.path.exists(APK_PATH), info=info,
-                           size_mb=round(os.path.getsize(APK_PATH) / 1048576, 1) if os.path.exists(APK_PATH) else None)
+    available = os.path.exists(apk)
+    return render_template('phones_app.html', available=available, info=info, apk_path=apk,
+                           size_mb=round(os.path.getsize(apk) / 1048576, 1) if available else None)
 
 
 @bp.route('/app.apk')
 def app_apk():
-    if not os.path.exists(APK_PATH):
+    apk = _apk_path()
+    if not os.path.exists(apk):
         return jsonify({'error': 'no APK has been built yet'}), 404
-    return send_file(APK_PATH, mimetype='application/vnd.android.package-archive', as_attachment=True, download_name='headwind.apk')
+    return send_file(apk, mimetype='application/vnd.android.package-archive', as_attachment=True, download_name='headwind.apk')

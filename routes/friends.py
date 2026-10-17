@@ -26,21 +26,21 @@ BATCH = 50
 OWN_RIDERS_SQL = 'id NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)'
 
 
+def _feed_token_ok():
+    """Header only: a token in the query string would end up in proxy access logs. Constant-time comparison."""
+    token = request.headers.get('X-Feed-Token', '')
+    settings = query_db('SELECT feedToken FROM Settings WHERE id=1', one=True)
+    return bool(settings and settings['feedToken'] and token
+                and hmac.compare_digest(str(settings['feedToken']).encode(), token.encode()))
+
+
 @bp.route('/api/riders')
 def riders_list():
     """Token-authenticated rider list — lets a friend's instance discover who's here."""
-    token = request.headers.get('X-Feed-Token', '') or request.args.get('token', '')
-    settings = query_db('SELECT feedToken FROM Settings WHERE id=1', one=True)
-    if not settings or not settings['feedToken'] or token != settings['feedToken']:
+    if not _feed_token_ok():
         abort(403)
     riders = query_db(f'SELECT id, name, isDefault FROM Rider WHERE {OWN_RIDERS_SQL} ORDER BY isDefault DESC, name ASC')
     return jsonify([dict(r) for r in riders])
-
-
-def _feed_token_ok():
-    token = request.headers.get('X-Feed-Token', '') or request.args.get('token', '')
-    settings = query_db('SELECT feedToken FROM Settings WHERE id=1', one=True)
-    return bool(settings and settings['feedToken'] and hmac.compare_digest(str(settings['feedToken']), token))
 
 
 @bp.route('/api/foods-feed')
@@ -81,9 +81,7 @@ def feed():
     Each line is a JSON object with a 'type' field: meta | segment | ride.
     Accepts ?since=YYYY-MM-DD and ?rider=<name> to filter.
     """
-    token = request.headers.get('X-Feed-Token', '') or request.args.get('token', '')
-    settings = query_db('SELECT feedToken FROM Settings WHERE id=1', one=True)
-    if not settings or not settings['feedToken'] or token != settings['feedToken']:
+    if not _feed_token_ok():
         abort(403)
 
     since = request.args.get('since')
