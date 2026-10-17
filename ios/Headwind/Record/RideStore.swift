@@ -46,6 +46,9 @@ final class RideStore {
     private(set) var rides: [SavedRide] = []
     private let directory: URL
     private var uploading = false
+    /// Set when uploadPending is called mid-upload, so the running pass goes round again for new rides.
+    private var uploadAgain = false
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
 
     init(directory: URL? = nil) {
         let base = (try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
@@ -113,36 +116,70 @@ final class RideStore {
 
     func gpxURL(for ride: SavedRide) -> URL { fileURL(ride) }
 
-    /// Upload everything not yet on the server, oldest first. Safe to call often; overlapping calls are ignored.
+    /// Upload everything not yet on the server, oldest first. Safe to call often: a call made mid-upload
+    /// returns at once, and the running upload picks up any ride added since it started.
     func uploadPending(using session: Session) async {
-        guard !uploading, session.pairing != nil else { return }
+        guard session.pairing != nil else { return }
+        guard !uploading else { uploadAgain = true; return }
         uploading = true
         defer { uploading = false }
 
-        // Finish even if the user locks the phone straight after stopping a ride.
-        let task = UIApplication.shared.beginBackgroundTask(withName: "Upload rides")
-        defer { if task != .invalid { UIApplication.shared.endBackgroundTask(task) } }
+        // Finish even if the user locks the phone straight after stopping a ride. If iOS runs out of background
+        // time first, stop: the ride in flight goes back to pending and the rest wait for the next foreground.
+        let work = Task { await uploadAll(using: session) }
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "Upload rides") { [weak self] in
+            MainActor.assumeIsolated {
+                work.cancel()
+                self?.endBackgroundTask()
+            }
+        }
+        await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+        endBackgroundTask()
+    }
 
-        for ride in rides.reversed() where ride.status != .uploaded {
-            guard let data = try? Data(contentsOf: fileURL(ride)) else {
-                update(ride.id) { $0.status = .failed; $0.message = "The recording file is missing." }
-                continue
+    private func endBackgroundTask() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
+    }
+
+    private func uploadAll(using session: Session) async {
+        var tried = Set<UUID>()
+        repeat {
+            uploadAgain = false
+            for ride in rides.reversed() where ride.status != .uploaded && !tried.contains(ride.id) {
+                guard !Task.isCancelled else { return }
+                tried.insert(ride.id)
+                guard await upload(ride, using: session) else { return }   // offline: don't burn through the rest
             }
-            update(ride.id) { $0.status = .uploading; $0.message = nil }
-            do throws(AppError) {
-                let filename = "\(GPXWriter.rideName(start: ride.summary.start)).gpx"
-                let reply = try await session.call { client async throws(AppError) in
-                    try await client.upload("rides", file: data, filename: filename, mimeType: "application/gpx+xml", as: UploadReply.self)
-                }
-                update(ride.id) {
-                    $0.status = .uploaded
-                    $0.serverId = reply.ride?.id
-                    $0.message = reply.status == "imported" ? nil : "Already on the server"
-                }
-            } catch {
-                update(ride.id) { $0.status = .failed; $0.message = error.localizedDescription }
-                if error.isNetworkError { break }   // offline: don't burn through the rest
+        } while uploadAgain && !Task.isCancelled
+    }
+
+    /// Returns false if the phone looks offline or the upload was cancelled, so the caller stops.
+    private func upload(_ ride: SavedRide, using session: Session) async -> Bool {
+        guard let data = try? Data(contentsOf: fileURL(ride)) else {
+            update(ride.id) { $0.status = .failed; $0.message = "The recording file is missing." }
+            return true
+        }
+        update(ride.id) { $0.status = .uploading; $0.message = nil }
+        do throws(AppError) {
+            let filename = "\(GPXWriter.rideName(start: ride.summary.start)).gpx"
+            let reply = try await session.call { client async throws(AppError) in
+                try await client.upload("rides", file: data, filename: filename, mimeType: "application/gpx+xml", as: UploadReply.self)
             }
+            update(ride.id) {
+                $0.status = .uploaded
+                $0.serverId = reply.ride?.id
+                $0.message = reply.status == "imported" ? nil : "Already on the server"
+            }
+            return true
+        } catch {
+            if Task.isCancelled {
+                update(ride.id) { $0.status = .pending; $0.message = nil }
+                return false
+            }
+            update(ride.id) { $0.status = .failed; $0.message = error.localizedDescription }
+            return !error.isNetworkError
         }
     }
 

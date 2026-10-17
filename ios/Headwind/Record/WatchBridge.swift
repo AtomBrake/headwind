@@ -14,6 +14,8 @@ final class WatchBridge: NSObject {
     @ObservationIgnored var onRideReceived: (() -> Void)?
     /// The last Watch ride that couldn't be stored on the phone, for the Record tab to show.
     private(set) var lastError: AppError?
+    /// The latest units/paired context for the Watch, kept until the session can take it.
+    @ObservationIgnored private var context: (units: String, paired: Bool)?
     /// Where arriving rides are held (GPX plus a summary .json) until the RideStore takes them. Once a transfer
     /// is received the Watch deletes its copy, so this is in Application Support, not a purgeable temp directory.
     nonisolated let inbox: URL
@@ -36,9 +38,16 @@ final class WatchBridge: NSObject {
     }
 
     func updateWatch(units: String?, paired: Bool) {
-        guard WCSession.isSupported(), WCSession.default.activationState == .activated,
+        context = (units ?? "metric", paired)
+        sendContext()
+    }
+
+    /// Send the latest context if the session is ready; otherwise activation or the Watch app being installed
+    /// sends it later.
+    private func sendContext() {
+        guard let context, WCSession.isSupported(), WCSession.default.activationState == .activated,
               WCSession.default.isPaired, WCSession.default.isWatchAppInstalled else { return }
-        try? WCSession.default.updateApplicationContext([WatchLink.unitsKey: units ?? "metric", WatchLink.pairedKey: paired])
+        try? WCSession.default.updateApplicationContext([WatchLink.unitsKey: context.units, WatchLink.pairedKey: context.paired])
     }
 
     /// Move every held ride into the RideStore. One that can't be stored stays in the inbox for the next try.
@@ -81,7 +90,12 @@ final class WatchBridge: NSObject {
 }
 
 extension WatchBridge: WCSessionDelegate {
-    nonisolated func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {}
+    nonisolated func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
+        Task { @MainActor in self.sendContext() }
+    }
+    nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
+        Task { @MainActor in self.sendContext() }   // e.g. the Watch app was just installed
+    }
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
     nonisolated func sessionDidDeactivate(_ session: WCSession) {
         session.activate()   // the user switched to another Watch

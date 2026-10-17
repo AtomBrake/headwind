@@ -168,10 +168,16 @@ struct SummaryView: View {
                         LabeledContent("Avg HR", value: "\(hr) bpm")
                     }
                 }
-                Label(phone.waitingToSend > 0 ? "Sending to iPhone…" : "Sent to iPhone",
-                      systemImage: phone.waitingToSend > 0 ? "arrow.up.circle" : "checkmark.circle")
-                    .font(.footnote)
-                    .foregroundStyle(phone.waitingToSend > 0 ? Color.secondary : Color.green)
+                if phone.waitingToSend > 0, let problem = phone.sendProblem {
+                    Label("Not sent to iPhone: \(problem)", systemImage: "exclamationmark.circle")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                } else {
+                    Label(phone.waitingToSend > 0 ? "Sending to iPhone…" : "Sent to iPhone",
+                          systemImage: phone.waitingToSend > 0 ? "arrow.up.circle" : "checkmark.circle")
+                        .font(.footnote)
+                        .foregroundStyle(phone.waitingToSend > 0 ? Color.secondary : Color.green)
+                }
                 if let error = workout.error {
                     Text(error.localizedDescription).font(.footnote).foregroundStyle(.orange)
                 }
