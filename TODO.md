@@ -78,6 +78,11 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
 - [ ] **Road routing in the planner** — `routes/route_builder.py` only measures straight-line (haversine) distance between waypoints. Use a self-hosted BRouter (cycling profiles, runs on a Pi).
 - [ ] **Send routes to Garmin** as courses.
 - [ ] **Trailforks trail routing** for off-road routes.
+- [ ] **Clickable heatmap** — click a track on the heatmap to go straight to that ride's page (`/rides/<id>`).
+  - [ ] `/heatmap/data` (`routes/heatmap.py`) selects only `streams` and returns bare point lists, so send each track's ride ID, name and date with it.
+  - [ ] In `templates/heatmap.html` the polylines are `interactive: false`. Make them clickable, with a wider invisible hit line so thin tracks are easy to tap on a phone.
+  - [ ] Where tracks overlap (a regular commute can stack dozens), show a popup listing every ride under the click (name, date, distance), newest first, each linking to its page, instead of picking one.
+  - [ ] Optionally highlight the hovered or picked track over the others.
 
 ## Import and export
 
