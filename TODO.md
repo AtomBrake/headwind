@@ -46,6 +46,14 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
 - [ ] **Watch says "Sent to iPhone" when nothing was sent** (`ios/HeadwindWatch/HeadwindWatchApp.swift` summary). The green check shows whenever `waitingToSend == 0`, including when the ride was too short to send or `phone.send` threw `.storage`. Track whether a send actually happened.
 - [ ] **Today shows yesterday's date west of UTC** (`ios/Headwind/Today/TodayView.swift`). The server's local date string is parsed as UTC midnight, then checked with `isDateInToday` in local time. In New York, `2026-10-17` becomes the evening of 16 October and the title reads "Friday 16 October" instead of "Today". Parse it with the local calendar/time zone (or compare date strings).
 
+## iOS and watchOS app
+
+- [ ] **Upload rides straight from the Watch** over cellular or Wi-Fi when the iPhone isn't around. Recording and saving to Apple Health already work without the phone, but the ride only reaches Headwind through the phone: `PhoneLink` queues it with `WCSession.transferFile`, and the phone uploads it when the two are next in range. Fix the two Watch-link bugs above first (the retry loop with no backoff in `PhoneLink`, and the context `WatchBridge` drops before activation), since this builds on the same path.
+  - [ ] **Credentials on the Watch:** the phone sends the server URL and a token over WatchConnectivity, and the Watch keeps them in its Keychain. Give the Watch its own pairing, created from the phone, rather than a copy of the phone's token, so it can be revoked on its own from the server's Phones page.
+  - [ ] **Direct upload:** after a ride, `POST /api/v1/rides` from a background `URLSession` (watchOS runs it over cellular or known Wi-Fi), still queuing the `transferFile` as the fallback.
+  - [ ] **No double upload:** the server already ignores duplicates, so a ride arriving both ways is harmless, but cancel the queued transfer once the direct upload succeeds so the phone doesn't upload it again.
+  - [ ] **Battery:** back off between retries, because cellular on the Watch is expensive.
+
 ## Training and analysis
 
 - [ ] **Training metrics** — FTP, power and HR zones, power curve, NP/IF/TSS, and fitness/fatigue/form (CTL/ATL/TSB). The inputs are already stored (`weightedAvgWatts`, streams, Garmin HRV), and the `sufferScore` column exists but is never filled in.
