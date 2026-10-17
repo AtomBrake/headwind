@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.5.6-beta] - 2026-10-17
+
+No migration. No Android change.
+
+### Fixed
+- **A big import stopped if you left the Import page.** The import ran in the background, but once about 200 rides had been processed with nobody watching, it waited forever for the page to read its progress. It now runs to the end whatever the browser does. Coming back to the Import page picks up the progress where it is, or shows the result if it finished while you were away. `routes/import_rides.py`, `tests/test_import_background.py`.
+
+### Added
+- **Import progress on every page.** While an import runs, the top bar shows "Importing 142 / 800" with a progress line, and links to the Import page. When it finishes, it shows how many rides were imported (or the error) until you dismiss it. `GET /import/progress`.
+
 ## [0.5.5-beta] - 2026-10-17
 
 Migration: five new `Settings.garminHistory*` columns, added automatically at startup. No Android change.

@@ -107,7 +107,14 @@
         <span class="hamburger-line"></span>
       </button>
       <h1>{% block page_title %}{% endblock %}</h1>
-      <div class="topbar-actions">{% block topbar_actions %}{% endblock %}</div>
+      <div class="topbar-right">
+        <div class="import-pill" id="importPill" hidden>
+          <a href="{{ url_for('import_rides.index') }}" id="importPillText"></a>
+          <div class="import-pill-bar"><div id="importPillFill"></div></div>
+          <button type="button" id="importPillClose" aria-label="Dismiss" hidden>&times;</button>
+        </div>
+        <div class="topbar-actions">{% block topbar_actions %}{% endblock %}</div>
+      </div>
     </div>
     <div class="content">
       {% with messages = get_flashed_messages(with_categories=true) %}
@@ -135,6 +142,33 @@
   }
   </script>
   {% block scripts %}{% endblock %}
+  {% if request.blueprint != 'import_rides' %}
+  <script>
+  // An import started on the Import page carries on in the background; show how it is getting on from every other page.
+  (function () {
+    var pill = document.getElementById('importPill'), text = document.getElementById('importPillText'),
+        fill = document.getElementById('importPillFill'), close = document.getElementById('importPillClose');
+    function poll() {
+      fetch('/import/progress').then(function (r) { return r.json(); }).then(function (d) {
+        if (!('running' in d)) { pill.hidden = true; return; }
+        pill.hidden = false;
+        pill.className = 'import-pill' + (d.error ? ' import-pill-error' : d.running ? '' : ' import-pill-done');
+        close.hidden = d.running;
+        if (d.error) text.textContent = 'Import failed: ' + d.error;
+        else if (d.running) text.textContent = d.total ? 'Importing ' + (d.done || 0) + ' / ' + d.total : 'Importing\u2026';
+        else text.textContent = '\u2713 Import done \u00b7 ' + (d.imported || 0) + ' imported';
+        fill.style.width = (d.running ? (d.total ? Math.round((d.done || 0) / d.total * 100) : 0) : 100) + '%';
+        if (d.running) setTimeout(poll, 2000);
+      }).catch(function () {});
+    }
+    close.addEventListener('click', function () {
+      pill.hidden = true;
+      fetch('/import/progress/dismiss', { method: 'POST' }).catch(function () {});
+    });
+    poll();
+  })();
+  </script>
+  {% endif %}
   <script>
   (function () {
     var tip = document.createElement('div');
