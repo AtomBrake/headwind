@@ -1,0 +1,146 @@
+{
+    "all": {
+        "calories": 89332,
+        "distance_m": 3190425,
+        "elev_m": 28716,
+        "moving_s": 441756,
+        "rides": 60
+    },
+    "month": {
+        "calories": 15768,
+        "distance_m": 563135,
+        "elev_m": 5068,
+        "moving_s": 77972,
+        "rides": 11
+    },
+    "recovery": {
+        "bodyBattery": 74,
+        "date": "2026-10-17",
+        "hrv": 62,
+        "restingHR": 48,
+        "sleepHours": 7.4,
+        "sleepScore": 81,
+        "steps": 6420
+    },
+    "rider": "Tom",
+    "sports": [
+        "Ride"
+    ],
+    "week": {
+        "calories": 6638,
+        "distance_m": 237082,
+        "elev_m": 2134,
+        "moving_s": 32827,
+        "rides": 4
+    },
+    "weekly": [
+        {
+            "calories": 6759,
+            "current": false,
+            "distance_m": 241402,
+            "elev_m": 2172,
+            "label": "27 Jul"
+        },
+        {
+            "calories": 7266,
+            "current": false,
+            "distance_m": 259587,
+            "elev_m": 2336,
+            "label": "3 Aug"
+        },
+        {
+            "calories": 925,
+            "current": false,
+            "distance_m": 32992,
+            "elev_m": 297,
+            "label": "10 Aug"
+        },
+        {
+            "calories": 7096,
+            "current": false,
+            "distance_m": 253472,
+            "elev_m": 2281,
+            "label": "17 Aug"
+        },
+        {
+            "calories": 9667,
+            "current": false,
+            "distance_m": 345204,
+            "elev_m": 3108,
+            "label": "24 Aug"
+        },
+        {
+            "calories": 6180,
+            "current": false,
+            "distance_m": 220641,
+            "elev_m": 1987,
+            "label": "31 Aug"
+        },
+        {
+            "calories": 18172,
+            "current": false,
+            "distance_m": 648888,
+            "elev_m": 5842,
+            "label": "7 Sep"
+        },
+        {
+            "calories": 2320,
+            "current": false,
+            "distance_m": 82881,
+            "elev_m": 745,
+            "label": "14 Sep"
+        },
+        {
+            "calories": 13659,
+            "current": false,
+            "distance_m": 487792,
+            "elev_m": 4391,
+            "label": "21 Sep"
+        },
+        {
+            "calories": 1218,
+            "current": false,
+            "distance_m": 43452,
+            "elev_m": 391,
+            "label": "28 Sep"
+        },
+        {
+            "calories": 7912,
+            "current": false,
+            "distance_m": 282601,
+            "elev_m": 2543,
+            "label": "5 Oct"
+        },
+        {
+            "calories": 6638,
+            "current": true,
+            "distance_m": 237056,
+            "elev_m": 2134,
+            "label": "12 Oct"
+        }
+    ],
+    "workouts": {
+        "month": {
+            "calories": 0,
+            "count": 0,
+            "distance_m": 0
+        },
+        "week": {
+            "calories": 0,
+            "count": 0,
+            "distance_m": 0
+        },
+        "year": {
+            "calories": 0,
+            "count": 0,
+            "distance_m": 0
+        }
+    },
+    "year": {
+        "calories": 89332,
+        "distance_m": 3190425,
+        "elev_m": 28716,
+        "moving_s": 441756,
+        "rides": 60
+    }
+}

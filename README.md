@@ -744,6 +744,8 @@ Known limits: one shared admin login; the password is stored in plaintext in you
 
 A native Kotlin/Jetpack Compose companion — nutrition logging with barcode scan, ride recording, widgets and Health Connect — exists but is **a work in progress and not publicly released**. It pairs with your server via a QR code (**Phones** page) and a per-device token, and **requires HTTPS**. Until it's released, everything works from the browser, and the nutrition tracker installs as a PWA.
 
+An iPhone app (SwiftUI) with an Apple Watch companion lives in [`ios/`](ios/README.md). It pairs the same way, with the same QR code and token. It's early: the Today and Overview dashboards, plus ride recording on the iPhone or the Watch (with heart rate), uploaded through the same import as any GPX.
+
 ---
 
 ## Troubleshooting

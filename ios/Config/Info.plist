@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The server's Phones page encodes pairing as headwind://pair?u=<server>&t=<token>; registering the scheme lets the
+	     iPhone's own Camera app open the QR straight into Headwind. Everything else comes from INFOPLIST_KEY_* build settings. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>io.github.atombrake.headwind.pair</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>headwind</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Keeps GPS recording while the screen is locked during a ride (started from the foreground). -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+</dict>
+</plist>
