@@ -21,6 +21,10 @@ bp = Blueprint('friends', __name__)
 
 BATCH = 50
 
+# Riders who live on this instance. A synced friend is stored as a Rider too, and their rides were shared with us, not with
+# whoever holds our feed token, so the feed never offers them.
+OWN_RIDERS_SQL = 'id NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)'
+
 
 @bp.route('/api/riders')
 def riders_list():
@@ -29,7 +33,7 @@ def riders_list():
     settings = query_db('SELECT feedToken FROM Settings WHERE id=1', one=True)
     if not settings or not settings['feedToken'] or token != settings['feedToken']:
         abort(403)
-    riders = query_db('SELECT id, name, isDefault FROM Rider ORDER BY isDefault DESC, name ASC')
+    riders = query_db(f'SELECT id, name, isDefault FROM Rider WHERE {OWN_RIDERS_SQL} ORDER BY isDefault DESC, name ASC')
     return jsonify([dict(r) for r in riders])
 
 
@@ -90,7 +94,7 @@ def feed():
         db = _get_db()
 
         if rider_name:
-            rider = db.execute('SELECT * FROM Rider WHERE name=? COLLATE NOCASE', [rider_name]).fetchone()
+            rider = db.execute(f'SELECT * FROM Rider WHERE name=? COLLATE NOCASE AND {OWN_RIDERS_SQL}', [rider_name]).fetchone()
         else:
             rider = db.execute('SELECT * FROM Rider WHERE isDefault=1').fetchone()
         yield json.dumps({'type': 'meta', 'name': rider['name'] if rider else 'Unknown'}) + '\n'
