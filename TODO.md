@@ -78,6 +78,12 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
 - [ ] **Road routing in the planner** — `routes/route_builder.py` only measures straight-line (haversine) distance between waypoints. Use a self-hosted BRouter (cycling profiles, runs on a Pi).
 - [ ] **Send routes to Garmin** as courses.
 - [ ] **Trailforks trail routing** for off-road routes.
+- [ ] **More map types, including off-road ones** — every map uses Esri tiles only: dark, light, satellite and satellite + labels. None show trails, contours or surface.
+  - [ ] Move the map-type list into one shared script. `TILE_DEFS` is copied into `heatmap.html` and `route_builder.html`, and `ride.html`, `segment.html` and `roughness.html` each hard-code their own layers. Remember the chosen type per viewer.
+  - [ ] Keyless additions: **OpenTopoMap** (contours, paths, tracks), **CyclOSM** (cycling-focused: surfaces, MTB trail grades, bike shops) and **Esri World Topo**. Add **Waymarked Trails MTB / cycling** as an overlay that can sit on top of any base map.
+  - [ ] Optional ones that need an API key, entered in Settings and stored with `services/credentials.py`: **Thunderforest** OpenCycleMap / Outdoors, and **OS Maps** (Ordnance Survey leisure maps for Great Britain, with bridleways and rights of way).
+  - [ ] Follow each provider's usage policy (attribution, a proper user agent through the tile proxy, no bulk downloading). Check the free tiers allow this use.
+  - [ ] Support the new types in the heatmap HD export. `routes/heatmap.py` `tile_proxy` only proxies Esri layers, and each layer's maximum zoom differs.
 - [ ] **Clickable heatmap** — click a track on the heatmap to go straight to that ride's page (`/rides/<id>`).
   - [ ] `/heatmap/data` (`routes/heatmap.py`) selects only `streams` and returns bare point lists, so send each track's ride ID, name and date with it.
   - [ ] In `templates/heatmap.html` the polylines are `interactive: false`. Make them clickable, with a wider invisible hit line so thin tracks are easy to tap on a phone.
