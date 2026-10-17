@@ -63,8 +63,10 @@ final class WorkoutManager: NSObject {
         let config = HKWorkoutConfiguration()
         config.activityType = .cycling
         config.locationType = .outdoor
+        var started: HKWorkoutSession?
         do {
             let session = try HKWorkoutSession(healthStore: healthStore, configuration: config)
+            started = session
             let builder = session.associatedWorkoutBuilder()
             builder.dataSource = HKLiveWorkoutDataSource(healthStore: healthStore, workoutConfiguration: config)
             session.delegate = self
@@ -81,10 +83,15 @@ final class WorkoutManager: NSObject {
             journal.begin(start: now)
             session.startActivity(with: now)
             try await builder.beginCollection(at: now)
+            // The session can fail or end while collection starts, and has then already been cleaned up or finished.
+            guard self.session === session, state == .starting else { return }
             location.startUpdatingLocation()
             state = .recording
         } catch {
+            guard self.session === started else { return }
             self.error = .health(underlying: error)
+            // startActivity has already run, so end the session or it keeps the app running as a workout.
+            self.session?.end()
             reset()
         }
     }
@@ -133,8 +140,15 @@ final class WorkoutManager: NSObject {
 
     // MARK: - Finishing
 
+    /// Runs once per ride, from whichever comes first: HealthKit confirming `end()`, the system ending the
+    /// session itself, or the session failing.
     private func finishWorkout(at end: Date) async {
-        guard let builder, let start = clock.startedAt else { reset(); return }
+        guard let builder, let start = clock.startedAt else { return }
+        self.builder = nil   // claims the finish, so a later .ended or failure for this session does nothing
+        let routeBuilder = self.routeBuilder
+        state = .saving
+        clock.pause(at: end)
+        location.stopUpdatingLocation()
         let summary = RideSummary(start: start, tracker: tracker, elapsed: clock.elapsed(at: end))
         do {
             try await builder.endCollection(at: end)
@@ -142,8 +156,8 @@ final class WorkoutManager: NSObject {
                 _ = try? await routeBuilder?.finishRoute(with: workout, metadata: nil)
             }
         } catch {
-            // Health couldn't save it; the ride still goes to Headwind.
-            self.error = .health(underlying: error)
+            // Health couldn't save it; the ride still goes to Headwind. A session failure's error is kept.
+            self.error = self.error ?? .health(underlying: error)
         }
         if tracker.pointCount >= 2 {
             do throws(AppError) {
@@ -160,8 +174,7 @@ final class WorkoutManager: NSObject {
         }
         lastSummary = summary
         session = nil
-        self.builder = nil
-        routeBuilder = nil
+        self.routeBuilder = nil
         state = .finished
     }
 
@@ -181,7 +194,8 @@ final class WorkoutManager: NSObject {
 
     // MARK: - Events (hopped onto the main actor by the delegate methods below)
 
-    private func sessionChanged(to newState: HKWorkoutSessionState, at date: Date) {
+    private func sessionChanged(_ changed: HKWorkoutSession, to newState: HKWorkoutSessionState, at date: Date) {
+        guard changed === session else { return }   // a session already ended or abandoned
         switch newState {
         case .running where state == .paused:
             state = .recording
@@ -194,6 +208,21 @@ final class WorkoutManager: NSObject {
             clock.pause(at: date)
         case .ended:
             Task { await finishWorkout(at: date) }
+        default:
+            break
+        }
+    }
+
+    /// A failed session may never reach .ended, so end it and finish the ride here rather than wait.
+    private func sessionFailed(_ failed: HKWorkoutSession, error: Error) {
+        guard failed === session else { return }
+        self.error = .health(underlying: error)
+        failed.end()
+        switch state {
+        case .starting:
+            reset()   // start() sees the session is gone and stops there
+        case .recording, .paused, .saving:
+            Task { await finishWorkout(at: Date()) }
         default:
             break
         }
@@ -229,11 +258,11 @@ final class WorkoutManager: NSObject {
 extension WorkoutManager: HKWorkoutSessionDelegate {
     nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didChangeTo toState: HKWorkoutSessionState,
                                     from fromState: HKWorkoutSessionState, date: Date) {
-        Task { @MainActor in self.sessionChanged(to: toState, at: date) }
+        Task { @MainActor in self.sessionChanged(workoutSession, to: toState, at: date) }
     }
 
     nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
-        Task { @MainActor in self.error = .health(underlying: error) }
+        Task { @MainActor in self.sessionFailed(workoutSession, error: error) }
     }
 }
 
