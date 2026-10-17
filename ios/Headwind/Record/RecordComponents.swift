@@ -3,12 +3,13 @@ import SwiftUI
 /// Start, or pause / resume / finish, depending on the recorder's state.
 struct RecordControls: View {
     var recorder: PhoneRideRecorder
+    var onStart: () -> Void
     var onFinish: () -> Void
 
     var body: some View {
         switch recorder.state {
         case .idle:
-            IdleControls(recorder: recorder)
+            IdleControls(recorder: recorder, onStart: onStart)
         case .recording, .paused:
             HStack(spacing: 12) {
                 if recorder.state == .recording {
@@ -37,6 +38,7 @@ struct RecordControls: View {
 
 private struct IdleControls: View {
     var recorder: PhoneRideRecorder
+    var onStart: () -> Void
 
     var body: some View {
         VStack(spacing: 8) {
@@ -49,7 +51,7 @@ private struct IdleControls: View {
                     Link("Open Settings", destination: settings)
                 }
             } else {
-                Button(action: recorder.start) {
+                Button(action: onStart) {
                     Label("Start ride", systemImage: "bicycle")
                         .font(.title3.bold())
                         .frame(maxWidth: .infinity, minHeight: 44)

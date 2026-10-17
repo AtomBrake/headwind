@@ -155,3 +155,74 @@ struct RideSummaryTests {
         #expect(RideSummary(dictionary: s.dictionary) == s)
     }
 }
+
+private func tempURL(_ name: String) -> URL {
+    FileManager.default.temporaryDirectory.appending(path: "\(name)-\(UUID().uuidString)")
+}
+
+/// A journal holding a ride left behind by a crash.
+private func crashedJournal() -> RideJournal {
+    let journal = RideJournal(url: tempURL("journal").appendingPathExtension("jsonl"))
+    let points = ride(seconds: 10)
+    journal.begin(start: points[0].time)
+    for p in points { journal.append(p) }
+    return journal
+}
+
+private struct DiskFull: Error {}
+
+@MainActor
+struct PhoneRideRecorderTests {
+    @Test func recoveredRideSurvivesAFailedSave() throws {
+        let journal = crashedJournal()
+        defer { journal.clear() }
+        let recorder = PhoneRideRecorder(journal: journal)
+        #expect(recorder.recovered != nil)
+
+        #expect(throws: AppError.self) {
+            try recorder.saveRecovered { (_: Data, _: RideSummary) throws(AppError) -> Void in
+                throw .storage(underlying: DiskFull())
+            }
+        }
+        #expect(recorder.recovered != nil)
+        #expect(journal.load()?.segments.first?.count == 10)
+
+        let kept = try recorder.saveRecovered { (gpx: Data, _: RideSummary) throws(AppError) -> Data in gpx }
+        #expect(!kept.isEmpty)
+        #expect(recorder.recovered == nil)
+        #expect(!journal.exists)
+    }
+
+    @Test func startingWaitsForTheRecoveredRide() {
+        let journal = crashedJournal()
+        defer { journal.clear() }
+        let recorder = PhoneRideRecorder(journal: journal)
+        recorder.start()
+        #expect(recorder.state == .idle)
+        #expect(journal.load()?.segments.first?.count == 10)   // not replaced by a new ride's journal
+    }
+}
+
+@MainActor
+struct WatchInboxTests {
+    @Test func ridesLeftInTheInboxAreStoredOnLaunch() throws {
+        let inbox = tempURL("inbox"), recordings = tempURL("recordings")
+        defer { try? FileManager.default.removeItem(at: inbox); try? FileManager.default.removeItem(at: recordings) }
+        try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        let summary = RideSummary(start: Date(timeIntervalSince1970: 1_760_000_000), distance: 1_000, movingTime: 200,
+                                  elapsedTime: 210, elevationGain: 5)
+        let gpx = GPXWriter.gpx(segments: [ride(seconds: 3)], name: "Morning Ride")
+        try gpx.write(to: inbox.appending(path: "a.gpx"))
+        try JSONEncoder().encode(summary).write(to: inbox.appending(path: "a.json"))
+        try gpx.write(to: inbox.appending(path: "b.gpx"))   // no summary beside it: still stored
+
+        let store = RideStore(directory: recordings)
+        _ = WatchBridge(store: store, inbox: inbox)
+
+        #expect(store.rides.count == 2)
+        #expect(store.rides.contains { $0.summary == summary && $0.source == .watch })
+        #expect(try FileManager.default.contentsOfDirectory(atPath: inbox.path()).isEmpty)
+        // And the index survives a relaunch.
+        #expect(RideStore(directory: recordings).rides.count == 2)
+    }
+}

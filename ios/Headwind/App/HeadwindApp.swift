@@ -18,9 +18,9 @@ struct HeadwindApp: App {
         watch.onRideReceived = { Task { await store.uploadPending(using: session) } }
         recorder.postLive = { update in
             // Best effort: Home Assistant missing one position doesn't matter; the ride itself is journalled.
-            _ = try? await session.call { client async throws(AppError) in
-                try await client.post("live", json: update, as: Ignored.self)
-            }
+            // Not through session.call, so a 401 here doesn't unpair the phone mid-ride.
+            guard let pairing = session.pairing else { return }
+            _ = try? await APIClient(pairing: pairing).post("live", json: update, as: Ignored.self)
         }
         _session = State(initialValue: session)
         _store = State(initialValue: store)
@@ -56,13 +56,18 @@ struct Ignored: Decodable, Sendable {}
 
 struct RootView: View {
     @Environment(Session.self) private var session
+    @Environment(PhoneRideRecorder.self) private var recorder
 
     var body: some View {
         Group {
-            if session.pairing == nil {
-                PairingView()
-            } else {
+            if session.pairing != nil {
                 MainTabs()
+            } else if recorder.isRecording {
+                // Unpaired mid-ride (token revoked, or a new pairing link accepted): keep Pause and Finish
+                // reachable. The ride is stored on the phone and uploads once paired again.
+                RecordView()
+            } else {
+                PairingView()
             }
         }
         .alert("Pair with a different server?", isPresented: switchPrompt) {

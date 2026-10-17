@@ -52,6 +52,11 @@ final class WorkoutManager: NSObject {
     func start() async {
         guard state == .idle || state == .finished else { return }
         error = nil
+        // Starting replaces the journal, so send an unfinished ride first; if that fails, don't start.
+        if recovered != nil {
+            saveRecovered()
+            guard recovered == nil else { return }
+        }
         state = .starting
         await requestAuthorization()
 
@@ -107,13 +112,18 @@ final class WorkoutManager: NSObject {
         lastSummary = nil
     }
 
+    /// Keeps the recovered ride, journal and all, if it can't be handed to the phone.
     func saveRecovered() {
         guard let r = recovered else { return }
-        recovered = nil
         let t = RideTracker(segments: r.segments)
         let end = t.lastPoint?.time ?? r.start
-        send(segments: r.segments, summary: RideSummary(start: r.start, tracker: t, elapsed: end.timeIntervalSince(r.start)))
-        journal.clear()
+        do throws(AppError) {
+            try send(segments: r.segments, summary: RideSummary(start: r.start, tracker: t, elapsed: end.timeIntervalSince(r.start)))
+            recovered = nil
+            journal.clear()
+        } catch {
+            self.error = error
+        }
     }
 
     func discardRecovered() {
@@ -136,11 +146,18 @@ final class WorkoutManager: NSObject {
             self.error = .health(underlying: error)
         }
         if tracker.pointCount >= 2 {
-            send(segments: tracker.segments, summary: summary)
+            do throws(AppError) {
+                try send(segments: tracker.segments, summary: summary)
+                journal.clear()
+            } catch {
+                // Couldn't queue it for the phone (e.g. Watch storage full): keep the journal and offer it again.
+                self.error = error
+                recovered = journal.load()
+            }
         } else {
             error = error ?? .rideTooShort
+            journal.clear()
         }
-        journal.clear()
         lastSummary = summary
         session = nil
         self.builder = nil
@@ -148,13 +165,9 @@ final class WorkoutManager: NSObject {
         state = .finished
     }
 
-    private func send(segments: [[RidePoint]], summary: RideSummary) {
+    private func send(segments: [[RidePoint]], summary: RideSummary) throws(AppError) {
         let gpx = GPXWriter.gpx(segments: segments, name: GPXWriter.rideName(start: summary.start), creator: "Headwind watchOS")
-        do throws(AppError) {
-            try phone.send(gpx: gpx, summary: summary)
-        } catch {
-            self.error = error
-        }
+        try phone.send(gpx: gpx, summary: summary)
     }
 
     private func reset() {

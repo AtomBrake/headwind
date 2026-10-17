@@ -45,9 +45,11 @@ final class PhoneRideRecorder {
         return l.horizontalAccuracy >= 0 && l.horizontalAccuracy <= RideTracker.maxAccuracy && -l.timestamp.timeIntervalSinceNow < 10
     }
 
-    /// Start watching location for the map before a ride (foreground only).
+    /// Start watching location for the map before a ride (foreground only). Mid-ride the feed is already
+    /// running in the background, and restarting it here would switch that off.
     func warmUp() {
         if authorization == .notDetermined { feed.manager.requestWhenInUseAuthorization() }
+        guard state == .idle else { return }
         feed.start(background: false)
     }
 
@@ -55,8 +57,9 @@ final class PhoneRideRecorder {
         if state == .idle { feed.stop() }
     }
 
+    /// Refuses while a recovered ride is waiting: the new ride's journal would replace the one it lives in.
     func start() {
-        guard state == .idle else { return }
+        guard state == .idle, recovered == nil else { return }
         if authorization == .notDetermined { feed.manager.requestWhenInUseAuthorization() }
         tracker = RideTracker()
         let now = Date()
@@ -82,30 +85,33 @@ final class PhoneRideRecorder {
         journal.newSegment()
     }
 
-    /// Stops recording and returns the ride as GPX plus its summary. Throws, and keeps recording, if there's
-    /// no usable track yet, so the user can carry on or discard rather than lose the ride.
-    func finish() throws(AppError) -> (gpx: Data, summary: RideSummary) {
+    /// Hands the ride, as GPX plus its summary, to `keep` (which stores it), and only once that succeeds stops
+    /// recording and clears the journal. Throws, and keeps recording, if there's no usable track yet or `keep`
+    /// fails, so the user can retry or discard rather than lose the ride.
+    func finish<T>(into keep: (Data, RideSummary) throws(AppError) -> T) throws(AppError) -> T {
         guard state != .idle, let start = clock.startedAt else { throw .rideTooShort }
         guard tracker.pointCount >= 2 else { throw .rideTooShort }
-        clock.pause()
         let gpx = GPXWriter.gpx(segments: tracker.segments, name: GPXWriter.rideName(start: start))
         let summary = RideSummary(start: start, tracker: tracker, elapsed: clock.elapsed())
+        let kept = try keep(gpx, summary)
         endRecording()
-        return (gpx, summary)
+        return kept
     }
 
     func discard() {
         endRecording()
     }
 
-    func takeRecovered() throws(AppError) -> (gpx: Data, summary: RideSummary) {
+    /// Like `finish(into:)` for the recovered ride: it stays recovered, journal and all, unless `keep` succeeds.
+    func saveRecovered<T>(into keep: (Data, RideSummary) throws(AppError) -> T) throws(AppError) -> T {
         guard let r = recovered else { throw .rideTooShort }
-        recovered = nil
-        journal.clear()
         let t = RideTracker(segments: r.segments)
         let end = t.lastPoint?.time ?? r.start
-        return (GPXWriter.gpx(segments: r.segments, name: GPXWriter.rideName(start: r.start)),
-                RideSummary(start: r.start, tracker: t, elapsed: end.timeIntervalSince(r.start)))
+        let kept = try keep(GPXWriter.gpx(segments: r.segments, name: GPXWriter.rideName(start: r.start)),
+                            RideSummary(start: r.start, tracker: t, elapsed: end.timeIntervalSince(r.start)))
+        recovered = nil
+        journal.clear()
+        return kept
     }
 
     func discardRecovered() {
