@@ -54,6 +54,18 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
   - [ ] **No double upload:** the server already ignores duplicates, so a ride arriving both ways is harmless, but cancel the queued transfer once the direct upload succeeds so the phone doesn't upload it again.
   - [ ] **Battery:** back off between retries, because cellular on the Watch is expensive.
 
+- [ ] **Apple Health as a steps source** — read the day's step count from HealthKit on the iPhone and send it to the server, so riders without a Garmin still get steps on Today, MQTT and the step goal. The Watch app already writes workouts to Apple Health (`ios/HeadwindWatch/WorkoutManager.swift`, on `ios-app`), but nothing reads steps back.
+  - [ ] Ask for HealthKit read access to `stepCount` and sum the day with an `HKStatisticsQuery` (`.cumulativeSum`), which de-duplicates iPhone and Watch samples.
+  - [ ] Post it as a `BodyMetric` (e.g. `steps_health`) and add that to `STEP_METRICS` in `services/mqtt.py`, so `_best_steps_for` takes the highest of Garmin, phone, Watch, manual and Apple Health.
+  - [ ] Keep it fresh with an `HKObserverQuery` and background delivery, plus a send on foreground, and backfill the last few days on first connect.
+
+## AI
+
+- [ ] **Claude as an AI source** — add `claude` to `aiProvider` alongside `openai` and `ollama` (Settings page in `routes/settings.py`, key and model columns on `Settings`).
+  - [ ] `services/ai.py` `_get_client_and_model` returns an OpenAI client for every provider, and callers (`services/food_vision.py` included) use `client.chat.completions.create`. Either use Anthropic's OpenAI-compatible endpoint, or wrap the Anthropic SDK behind one small `chat()` helper that all callers go through.
+  - [ ] Check the food-screenshot and recipe readers still work, since they send images.
+  - [ ] Store the API key with the others, and update the "add an OpenAI key in Settings" errors to name whichever provider is missing.
+
 ## Training and analysis
 
 - [ ] **Training metrics** — FTP, power and HR zones, power curve, NP/IF/TSS, and fitness/fatigue/form (CTL/ATL/TSB). The inputs are already stored (`weightedAvgWatts`, streams, Garmin HRV), and the `sufferScore` column exists but is never filled in.
