@@ -99,7 +99,22 @@ async function startUpload() {
   document.getElementById('progressCard').style.display = 'block';
   document.getElementById('doneCard').style.display = 'none';
 
-  const resp = await fetch('/import/upload', { method: 'POST', body: fd });
+  await readStream(await fetch('/import/upload', { method: 'POST', body: fd }));
+}
+
+// The import keeps running on the server if this page is left; coming back re-attaches to it (or shows how it finished).
+(async () => {
+  const resp = await fetch('/import/status');
+  let shown = false;
+  await readStream(resp, () => {
+    if (shown) return;
+    shown = true;
+    uploadBtn.disabled = true;
+    document.getElementById('progressCard').style.display = 'block';
+  });
+})();
+
+async function readStream(resp, onFirst) {
   const reader = resp.body.getReader();
   const dec = new TextDecoder();
   let buf = '';
@@ -113,6 +128,7 @@ async function startUpload() {
     for (const chunk of parts) {
       const line = chunk.trim();
       if (!line.startsWith('data:')) continue;
+      if (onFirst) onFirst();
       try { handleEvent(JSON.parse(line.slice(5).trim())); } catch {}
     }
   }

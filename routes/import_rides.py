@@ -5,7 +5,6 @@ import io
 import json
 import logging
 import os
-import queue
 import tempfile
 import threading
 import traceback
@@ -54,9 +53,11 @@ def upload():
     f.save(tmp)
     tmp.close()
 
-    # Run processing in a background thread so browser disconnect can't kill the import.
-    # Events are queued and the SSE generator reads from the queue until done.
-    event_queue = queue.Queue(maxsize=200)
+    # Run processing in a background thread so browser disconnect can't kill the import. The worker appends to a job log that never
+    # blocks; any number of SSE streams (the uploading page, or the import page reopened later) read from it.
+    job = _Job()
+    global _current_job
+    _current_job = job
     app = current_app._get_current_object()
 
     def _worker():
@@ -64,7 +65,7 @@ def upload():
             try:
                 if is_single:
                     for item in _process_single_file(tmp.name, f.filename, rider_id):
-                        event_queue.put(item)
+                        job.put(item)
                 else:
                     with zipfile.ZipFile(tmp.name) as zf:
                         check_zip(zf)
@@ -76,34 +77,103 @@ def upload():
                         else:
                             gen = _process_generic_zip(zf, names, rider_id)
                         for item in gen:
-                            event_queue.put(item)
+                            job.put(item)
             except zipfile.BadZipFile:
                 log.error('Import failed: bad zip file')
-                event_queue.put(_event({'error': 'Not a valid zip file'}))
+                job.put(_event({'error': 'Not a valid zip file'}))
             except Exception as e:
                 log.error('Import failed: %s\n%s', e, traceback.format_exc())
-                event_queue.put(_event({'error': str(e)}))
+                job.put(_event({'error': str(e)}))
             finally:
                 os.unlink(tmp.name)
-                event_queue.put(None)  # sentinel — always signals end
+                job.finish()  # always signals end
 
     threading.Thread(target=_worker, daemon=True).start()
+    return _sse(job.stream())
 
-    def generate():
-        while True:
-            try:
-                item = event_queue.get(timeout=1200)  # 20-minute timeout for large exports
-            except queue.Empty:
-                break
-            if item is None:
-                break
-            yield item
 
+@bp.route('/import/status')
+def status():
+    """Re-attach to the import still running in the background after the page was left, or show once how one that finished
+    while nobody was watching turned out. Streams nothing when there is neither."""
+    job = _current_job
+    if job is None or (job.done and job.delivered):
+        return _sse(iter(()))
+    return _sse(job.stream())
+
+
+@bp.route('/import/progress')
+def progress():
+    """Snapshot of the background import for the indicator every page shows: {} when there is nothing to show."""
+    job = _current_job
+    if job is None or (job.done and job.delivered):
+        return {}
+    with job.cond:
+        return dict(job.state, running=not job.done)
+
+
+@bp.route('/import/progress/dismiss', methods=['POST'])
+def dismiss():
+    job = _current_job
+    if job is not None and job.done:
+        job.delivered = True
+    return {}
+
+
+def _sse(gen):
     return Response(
-        stream_with_context(generate()),
+        stream_with_context(gen),
         mimetype='text/event-stream',
         headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'},
     )
+
+
+class _Job:
+    """Event log of one web import. Gunicorn runs a single worker process, so a module-level job is visible to every request."""
+
+    def __init__(self):
+        self.events = []            # (is_progress, sse_text)
+        self.done = False
+        self.delivered = False      # the outcome has been shown: a stream passed the end on, or the indicator was dismissed
+        self.state = {}             # every field seen so far (total, done, imported, ..., complete, error), for /import/progress
+        self.cond = threading.Condition()
+
+    def put(self, item):
+        with self.cond:
+            self.events.append(('"done":' in item, item))
+            try:
+                self.state.update(json.loads(item[len('data: '):]))
+            except ValueError:
+                pass
+            self.cond.notify_all()
+
+    def finish(self):
+        with self.cond:
+            self.done = True
+            self.cond.notify_all()
+
+    def stream(self):
+        i = 0
+        while True:
+            with self.cond:
+                while i == len(self.events) and not self.done:
+                    if not self.cond.wait(timeout=15):
+                        break
+                batch, i, done = self.events[i:], len(self.events), self.done
+            if not batch and not done:
+                yield ': keepalive\n\n'   # also how a vanished browser is noticed; the worker carries on regardless
+                continue
+            # A late joiner catching up on a big Strava export only needs the latest progress, not thousands of them.
+            last_progress = max((n for n, (p, _) in enumerate(batch) if p), default=-1)
+            for n, (is_progress, item) in enumerate(batch):
+                if not is_progress or n == last_progress:
+                    yield item
+            if done:
+                self.delivered = True
+                return
+
+
+_current_job = None
 
 
 @bp.route('/import/api/upload-ride', methods=['POST'])
