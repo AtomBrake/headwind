@@ -603,6 +603,8 @@ Set these in a `.env` file next to `docker-compose.yml` (Compose reads it automa
 | `HEADWIND_MULTI_RIDER` | *(unset)* | `1` enables the advanced multi-rider mode (several local riders on one instance). |
 | `RIDE_UPLOAD_TOKEN` | *(unset)* | Enables `POST /import/api/upload-ride` (authenticated by the `X-Upload-Token` header). Disabled when unset. |
 | `SESSION_COOKIE_SECURE` | `false` | Set to `true` when serving over HTTPS so the login cookie is never sent over plain HTTP. |
+| `TRUSTED_PROXIES` | private addresses | Where a reverse proxy may connect from for Headwind to believe its `X-Forwarded-*` headers: comma-separated addresses or networks (e.g. `203.0.113.7` or `10.8.0.0/24`), or `none`. Unset, any loopback or private address is trusted (a proxy on the same machine, LAN or Docker network, or a local tunnel). Set it if your proxy reaches Headwind from a public address. |
+| `HEADWIND_APK` | `headwind.apk` in the data folder | The Android APK offered on **Phones → App**. A `version.txt` beside it is shown on that page. |
 | `HEADWIND_MQTT_PREFIX` / `HEADWIND_MQTT_NAME` | *(defaults)* | Give a second instance on the same MQTT broker its own entity prefix and device name so they don't collide. |
 | `HEADWIND_MQTT_NUTRITION` | `1` | `0` publishes only the ride sensors, not nutrition. |
 | `HEADWIND_ENV` | `./.env` | Point an instance at a different env file (useful for running two instances from one code folder). |
@@ -693,7 +695,7 @@ headwind.example.com {
 }
 ```
 
-Behind a proxy Headwind trusts one `X-Forwarded-*` hop; make sure your proxy sets those headers and that port 5001 isn't directly reachable from outside.
+Behind a proxy Headwind trusts one `X-Forwarded-*` hop, but only from a loopback or private address (or the ones in `TRUSTED_PROXIES`), so a client reaching port 5001 directly can't fake its address to get round the sign-in lockout. Make sure your proxy sets those headers, and keep port 5001 unreachable from outside anyway.
 
 ---
 
