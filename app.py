@@ -178,6 +178,27 @@ def _garmin_heartbeat(app):
         time.sleep(interval_hours * 3600)
 
 
+def _garmin_history(app):
+    """The first-run Garmin health-history backfill. Picks up where it left off after a restart, a rate limit or an
+    outage; answering the first-run question wakes it straight away (services.garmin.HISTORY_WAKE)."""
+    from datetime import datetime, timezone
+    from services import garmin
+    garmin.HISTORY_WAKE.wait(90)  # let the app and the first regular sync start
+    while True:
+        garmin.HISTORY_WAKE.clear()
+        try:
+            with app.app_context():
+                from database import query_db
+                s = query_db('SELECT garminEmail, garminPassword, garminHistoryFrom, garminHistoryDone, garminHistoryRetryAt FROM Settings WHERE id=1', one=True)
+                now = datetime.now(timezone.utc).isoformat(timespec='seconds')
+                if (s and s['garminEmail'] and s['garminPassword'] and s['garminHistoryFrom'] and not s['garminHistoryDone']
+                        and (not s['garminHistoryRetryAt'] or s['garminHistoryRetryAt'] <= now)):
+                    garmin.backfill_history(s['garminEmail'], s['garminPassword'])
+        except Exception as e:
+            log.warning('Garmin history backfill error: %s', e)
+        garmin.HISTORY_WAKE.wait(600)
+
+
 def create_app():
     app = Flask(__name__)
     from services import trusted_proxy
@@ -370,7 +391,7 @@ def create_app():
             origin = request.headers.get('Origin')
             if origin and origin != 'null' and urlparse(origin).netloc != request.host:
                 return jsonify(error='cross-origin request blocked'), 403
-        if request.endpoint not in ('setup.wizard', 'setup.restore', 'garmin.connect', 'garmin.connect_mfa'):
+        if request.endpoint not in ('setup.wizard', 'setup.restore', 'garmin.connect', 'garmin.connect_mfa', 'garmin.history', 'garmin.history_status'):
             from database import query_db
             if query_db('SELECT COUNT(*) FROM Rider', one=True)[0] == 0:
                 return redirect('/setup')
@@ -440,6 +461,7 @@ def create_app():
     else:
         threading.Thread(target=_mqtt_heartbeat,   args=(app,), daemon=True).start()
         threading.Thread(target=_garmin_heartbeat, args=(app,), daemon=True).start()
+        threading.Thread(target=_garmin_history,   args=(app,), daemon=True).start()
         threading.Thread(target=__import__('services.mqtt_commands', fromlist=['run']).run, args=(app,), daemon=True).start()
         threading.Thread(target=_friends_autosync, args=(app,), daemon=True).start()
 
