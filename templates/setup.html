@@ -483,6 +483,26 @@
     <button type="button" class="btn btn-primary submit-btn" id="garminVerifyBtn" onclick="garminVerify()">Verify code</button>
   </div>
 
+  <div class="mfa-box" id="historyBox">
+    <div class="field-group" style="margin-top:1rem;">
+      <label for="garminHistory">How much of your past health data should Headwind fetch from Garmin?</label>
+      <select id="garminHistory" class="text-field">
+        <option value="all" selected>All of it</option>
+        <option value="1825">The last 5 years</option>
+        <option value="730">The last 2 years</option>
+        <option value="365">The last year</option>
+        <option value="182">The last 6 months</option>
+        <option value="91">The last 3 months</option>
+        <option value="none">None — just the last two weeks</option>
+      </select>
+    </div>
+    <p style="font-size:0.75rem; color:var(--text-muted); margin:-0.5rem 0 1rem;">
+      Sleep, HRV, resting heart rate, steps and weigh-ins. It downloads in the background, so carry on with setup;
+      several years can take an hour or two. You can fetch more later from Settings.
+    </p>
+    <button type="button" class="btn btn-primary submit-btn" id="garminHistoryBtn" onclick="garminHistory()">Continue →</button>
+  </div>
+
   <a href="/setup?step=4" class="skip-link" id="garminSkip">Skip for now — I'll connect Garmin later from Settings →</a>
 
   {% elif step == '4' %}
@@ -674,9 +694,38 @@ function garminConnect() {
     }
     if (data.ok) {
       document.getElementById('mfaBox').classList.remove('show');
-      showGarminStatus('ok', 'Garmin connected. Recovery data will sync within the hour.');
-      document.getElementById('garminSkip').textContent = 'Continue →';
+      garminConnected();
     }
+  })
+  .catch(function() {
+    btn.disabled = false;
+    showGarminStatus('error', 'Could not reach the server — check your connection and try again.');
+  });
+}
+
+// First run: once Garmin is connected, ask how much history to pull (default: all of it)
+function garminConnected() {
+  showGarminStatus('ok', 'Garmin connected.');
+  document.getElementById('historyBox').classList.add('show');
+  document.getElementById('garminSkip').style.display = 'none';
+}
+
+function garminHistory() {
+  var btn = document.getElementById('garminHistoryBtn');
+  btn.disabled = true;
+  fetch('/garmin/history', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({range: document.getElementById('garminHistory').value}),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) {
+      btn.disabled = false;
+      showGarminStatus('error', data.error);
+      return;
+    }
+    window.location.href = '/setup?step=4';
   })
   .catch(function() {
     btn.disabled = false;
@@ -704,8 +753,7 @@ function garminVerify() {
     }
     if (data.ok) {
       document.getElementById('mfaBox').classList.remove('show');
-      showGarminStatus('ok', 'Garmin connected. Recovery data will sync within the hour.');
-      document.getElementById('garminSkip').textContent = 'Continue →';
+      garminConnected();
     }
   })
   .catch(function() {

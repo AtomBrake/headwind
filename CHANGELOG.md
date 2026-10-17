@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.5-beta] - 2026-10-17
+
+Migration: five new `Settings.garminHistory*` columns, added automatically at startup. No Android change.
+
+### Added
+- **Garmin health history on first connect.** When Garmin is connected (setup wizard or Settings), Headwind asks how much past health data to fetch: all of it (the default), 5 / 2 / 1 years, 6 / 3 months, or just the last two weeks. Sleep, HRV, resting HR, body battery, stress, steps and weigh-ins then download in the background. Each 28-day stretch starts with one step-count request, so only days with data get the full set of calls, and days already stored are skipped. "All" stops after about a year with no data, or at 2005. It keeps its place across restarts, Garmin rate limits and outages, and progress shows in Settings. Existing installs are asked once on the Settings page, and switching Garmin accounts asks again. `services/garmin.backfill_history`, `tests/test_garmin_sync.py`.
+- **Weight from Garmin Connect.** The Garmin sync now pulls weigh-ins from a Garmin Index scale, or typed into Garmin Connect, into the weight log, so the Nutrition weight trend fills itself in. It keeps the last weigh-in of each day. A weight you typed in Headwind, or one from Home Assistant, is never replaced. `services/garmin._sync_weigh_ins`, `tests/test_garmin_sync.py`.
+
 ## [0.5.4-beta] - 2026-10-17
 
 Security and bug fixes from a project-wide review. No migration. No Android change.
