@@ -110,4 +110,9 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
 
 ## Housekeeping
 
+- [ ] **Date of birth instead of age** — the Settings and Nutrition profile forms (`pfAge` in `templates/settings.html`, `sgAge` in `templates/nutrition.html`) ask for an age. `routes/nutrition.py` `goal-profile` stores it as `Settings.birthYear` (this year minus the age), and `services/goal_model.py` `profile()` turns it back into this year minus `birthYear`. So the age used for BMR can be a year out, depending on when the birthday falls.
+  - [ ] Add a `birthDate` column to `Settings`. Fill it from `birthYear` for existing installs (1 January of that year), then ask for the real date.
+  - [ ] Swap both age fields for a date input, and send and validate `birth_date` in `goal-profile`.
+  - [ ] Work out the current age in `profile()` from the date of birth, allowing for whether this year's birthday has passed, so it goes up on the birthday.
+
 - [ ] **Configurable time zone** — `Europe/London` is hard-coded in 21 places (nutrition, MQTT, run stats, goal model, duplicates), so users elsewhere get the wrong "today". Make it a setting (defaulting to the server's local zone) and read it from one helper. This includes the MQTT water command (`services/mqtt_commands.py`), which logs water against the London date, so entries land on the wrong day near midnight elsewhere.
