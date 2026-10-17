@@ -84,6 +84,9 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
     - [ ] Subscribing: needs only the file's public URL, no GitHub account. Poll it from a background thread like `_mqtt_heartbeat`, using ETag / `If-None-Match` so unchanged files cost nothing.
     - [ ] Keep track of where each subscribed segment came from (a source table plus a source segment ID, like `friendId` / `sourceSegId` for friends). Apply adds, edits (re-scan rides when the shape changes) and removals (delete the segment and its efforts). Subscribed segments are read-only locally, and unsubscribing removes them.
     - [ ] Treat the file as untrusted: run the same checks as the file import, cap the size and segment count, and keep the current segments if a fetch fails or the file doesn't parse.
+- [ ] **Pull weight from Garmin Connect** — weigh-ins from a Garmin Index scale (or entered in Garmin Connect) land in `WeightLog`, so the Nutrition weight trend fills itself in. `sync_garmin` in `services/garmin.py` already pulls daily metrics into `GarminDaily`; add the weigh-ins to the same sync.
+  - [ ] Fetch the weigh-ins for the sync window (garminconnect `get_weigh_ins` / `get_body_composition`) and convert grams to kg.
+  - [ ] Upsert into `WeightLog` with `source='garmin'`, one row per day (the table is `UNIQUE(riderId, logDate)`). Take the day's last weigh-in, and never overwrite a manual entry, the way `routes/nutrition.py` asks before replacing one.
 - [ ] **TCX import.**
 - [ ] **Fuller exports** — FIT/TCX and a full JSON/CSV dump (only GPX export exists today).
 
