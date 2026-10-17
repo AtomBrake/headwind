@@ -67,6 +67,15 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
   - [ ] Wait until a file has stopped growing before reading it, so half-synced files aren't picked up.
   - [ ] Remember files already seen (path + size + mtime) so nothing is imported twice, and move each file to `imported/` or `failed/` afterwards.
   - [ ] Show the last scan, the import count and any errors on the Import page.
+- [ ] **Segment export and import as a file** — export all segments to one file that can be shared (email, chat, a forum post) and imported on another instance, so segments can be shared without linking instances.
+  - [ ] Reuse the friend feed's segment fields (`routes/friends.py` `feed`: name, start/end, distance, elevation, polyline, sport) and its import checks (`clean_polyline`, `valid_coord`). Export only our own segments (`friendId IS NULL`).
+  - [ ] Skip segments that are already there on import (same start, end and sport), and scan existing rides against the new ones, as the friend sync does for imported segments.
+  - [ ] Optionally offer GPX too, one track per segment, for use in other apps.
+  - [ ] **Publish to GitHub and subscribe**, so subscribers stay up to date as the sharer adds, removes and edits segments.
+    - [ ] Publishing: push the same file to a GitHub repo (or gist) whenever our segments change, using a token stored with `services/credentials.py`. Give each segment a stable ID in the file so edits and removals can be told apart from new segments.
+    - [ ] Subscribing: needs only the file's public URL, no GitHub account. Poll it from a background thread like `_mqtt_heartbeat`, using ETag / `If-None-Match` so unchanged files cost nothing.
+    - [ ] Keep track of where each subscribed segment came from (a source table plus a source segment ID, like `friendId` / `sourceSegId` for friends). Apply adds, edits (re-scan rides when the shape changes) and removals (delete the segment and its efforts). Subscribed segments are read-only locally, and unsubscribing removes them.
+    - [ ] Treat the file as untrusted: run the same checks as the file import, cap the size and segment count, and keep the current segments if a fetch fails or the file doesn't parse.
 - [ ] **TCX import.**
 - [ ] **Fuller exports** — FIT/TCX and a full JSON/CSV dump (only GPX export exists today).
 
