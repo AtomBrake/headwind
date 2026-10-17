@@ -110,6 +110,12 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
 - [x] **Pull weight from Garmin Connect** — weigh-ins from a Garmin Index scale (or entered in Garmin Connect) land in `WeightLog`, so the Nutrition weight trend fills itself in. `sync_garmin` in `services/garmin.py` already pulls daily metrics into `GarminDaily`; add the weigh-ins to the same sync.
   - [x] Fetch the weigh-ins for the sync window (garminconnect `get_weigh_ins` / `get_body_composition`) and convert grams to kg.
   - [x] Upsert into `WeightLog` with `source='garmin'`, one row per day (the table is `UNIQUE(riderId, logDate)`). Take the day's last weigh-in, and never overwrite a manual entry, the way `routes/nutrition.py` asks before replacing one.
+- [ ] **Re-import rides that changed** — today a ride whose ID is already in the database is skipped outright (`_process_strava_export` in `routes/import_rides.py`), so a ride that first came in broken can't be repaired by importing again. Found when 11 Strava rides came in 1000x too long: 10 Trailforks GPX files whose lower-case `z` timestamps failed to parse (fixed in `fb101a2`) and a TCX file, all of which fell back to a CSV distance read in the wrong units.
+  - [ ] When the ID matches, parse the file anyway and compare it with the saved ride: distance, moving and elapsed time, climb, start time, and whether it has a GPS track and streams.
+  - [ ] Identical, or within rounding: skip as now.
+  - [ ] Different: don't overwrite on the spot. Collect the differences and, once the import finishes, list them on the Import page with old and new values side by side. For each one (or all at once) offer: keep the saved ride, replace it with the import, or fill in only what's missing (e.g. add the GPS track but keep a renamed title).
+  - [ ] Never lose the rider's own edits (name, description, bike, a dismissed sanity flag) on replace, and re-run `services/sanity.py`, the segment scan and `after_ride_added` for any ride that changes.
+  - [ ] Works for the generic zip and single-file imports too, not only Strava exports.
 - [ ] **TCX import.**
 - [ ] **Fuller exports** — FIT/TCX and a full JSON/CSV dump (only GPX export exists today).
 

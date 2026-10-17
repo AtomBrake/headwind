@@ -304,9 +304,33 @@ def _process_single_file(path, original_name, rider_id=None):
         yield _event({'complete': True, 'imported': 0, 'skipped': 0, 'errors': 1})
 
 
+def _strava_csv_rows(f):
+    """activities.csv rows as dicts. Strava repeats some headers (Distance, Elapsed Time, Max Heart Rate, ...): a summary block first, then the
+    detailed block. csv.DictReader keeps only the last of each, so name the repeats 'Distance (2)' etc. and keep both."""
+    reader = csv.reader(f)
+    header = next(reader, [])
+    seen, keys = {}, []
+    for h in header:
+        seen[h] = seen.get(h, 0) + 1
+        keys.append(h if seen[h] == 1 else f'{h} ({seen[h]})')
+    return [dict(zip(keys, r)) for r in reader]
+
+
+def _strava_csv_distance_m(row):
+    """The ride's distance in metres from an activities.csv row, or None. The summary 'Distance' is in km; the detailed 'Distance (2)' is in metres."""
+    for key, scale in (('Distance (2)', 1), ('Distance', 1000)):
+        v = (row.get(key) or '').strip().replace(',', '')
+        try:
+            if v and float(v) > 0:
+                return float(v) * scale
+        except ValueError:
+            pass
+    return None
+
+
 def _process_strava_export(zf, names, rider_id=None):
     with zf.open('activities.csv') as f:
-        rows = list(csv.DictReader(io.TextIOWrapper(f, 'utf-8', errors='replace')))
+        rows = _strava_csv_rows(io.TextIOWrapper(f, 'utf-8', errors='replace'))
 
     total = len(rows)
     yield _event({'total': total, 'source': 'strava'})
@@ -372,9 +396,9 @@ def _process_strava_export(zf, names, rider_id=None):
         if act.get('calories') is None:
             act['calories'] = csv_num('Calories')
         if not act.get('distance'):
-            d = csv_num('Distance')
+            d = _strava_csv_distance_m(row)
             if d:
-                act['distance'] = d * 1000  # Strava CSV is in km
+                act['distance'] = d
 
         try:
             _insert(db, act, rider_id)

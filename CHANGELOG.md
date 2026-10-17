@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.7-beta] - 2026-10-17
+
+No migration. No Android change.
+
+### Fixed
+- **Some Strava-imported rides were 1,000 times too long** (e.g. a 28.6-mile ride shown as 28,558 miles, and flagged by the sanity check). When a ride's own file couldn't be read (a TCX file, or one of the Trailforks GPX files fixed in 0.5.6-beta), the import fell back to the distance in Strava's `activities.csv`. That file has two `Distance` columns, kilometres then metres, and only the metres one was being read, then multiplied by 1,000 as if it were kilometres. Both columns are now kept and the metres one is used. Rides already imported this way keep their wrong distance: delete them and import the Strava export again (a re-import skips rides it already has). `routes/import_rides.py`, `tests/test_strava_csv.py`.
+
 ## [0.5.6-beta] - 2026-10-17
 
 No migration. No Android change.
