@@ -277,6 +277,11 @@ def migrate_db():
         ('garminLastError',      'TEXT'),
         ('garminDeviceSync',     'TEXT'),
         ('garminFailCount',      'INTEGER DEFAULT 0'),
+        ('garminHistoryFrom',    'TEXT'),      # how far back to pull health history: NULL = not asked yet, 'all', 'none' or a YYYY-MM-DD
+        ('garminHistoryCursor',  'TEXT'),      # oldest day the history backfill has covered so far
+        ('garminHistoryDone',    'INTEGER DEFAULT 0'),
+        ('garminHistoryStatus',  'TEXT'),
+        ('garminHistoryRetryAt', 'TEXT'),      # after a rate limit or outage, don't try again before this (UTC ISO)
         ('haUrl',                'TEXT'),
         ('haToken',              'TEXT'),
         ('haEntityMap',          'TEXT'),

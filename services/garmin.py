@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import secrets
+import threading
 import time
 import zipfile
 from datetime import date, timedelta
@@ -176,6 +177,43 @@ def _parse_calories(stats):
         return None, None
 
 
+def _parse_weigh_ins(data):
+    """{'YYYY-MM-DD': kg} from get_weigh_ins(): each day's last weigh-in (Garmin stores grams)."""
+    from services.weight_trend import MIN_SANE_KG, MAX_SANE_KG
+    days = {}
+    for s in (data or {}).get('dailyWeightSummaries') or []:
+        try:
+            entries = [w for w in (s.get('allWeightMetrics') or []) if w.get('weight')]
+            last = max(entries, key=lambda w: w.get('timestampGMT') or w.get('date') or 0) if entries else s.get('latestWeight')
+            day = s.get('summaryDate') or (last or {}).get('calendarDate')
+            if not last or not last.get('weight') or not day:
+                continue
+            kg = round(float(last['weight']) / 1000, 2)
+            if MIN_SANE_KG <= kg <= MAX_SANE_KG:
+                days[day[:10]] = kg
+        except Exception:
+            continue
+    return days
+
+
+def _sync_weigh_ins(api, db, rider_id, start, end):
+    """Upsert Garmin weigh-ins into WeightLog. Only rows Garmin wrote are updated: a manual entry
+    (or another scale's, e.g. Home Assistant) for the same day is left alone.
+    Returns (days Garmin had a weigh-in, rows changed)."""
+    found = _parse_weigh_ins(api.get_weigh_ins(start, end))
+    changed = 0
+    for day, kg in found.items():
+        existing = db.execute('SELECT id, weightKg, source FROM WeightLog WHERE riderId=? AND logDate=?',
+                              [rider_id, day]).fetchone()
+        if not existing:
+            db.execute("INSERT INTO WeightLog (riderId, logDate, weightKg, source) VALUES (?,?,?,'garmin')", [rider_id, day, kg])
+            changed += 1
+        elif existing['source'] == 'garmin' and abs(existing['weightKg'] - kg) > 0.001:
+            db.execute('UPDATE WeightLog SET weightKg=? WHERE id=?', [kg, existing['id']])
+            changed += 1
+    return len(found), changed
+
+
 def fetch_ride_hr(api, start_utc_iso, elapsed_secs, time_stream=None):
     """
     Pull minute-by-minute HR from Garmin for the ride's time window.
@@ -243,95 +281,252 @@ def fetch_ride_hr(api, start_utc_iso, elapsed_secs, time_stream=None):
     return {'avg': avg, 'max': peak, 'stream_data': stream_data}
 
 
+def _is_rate_limit(e):
+    return type(e).__name__ == 'GarminConnectTooManyRequestsError' or '429' in str(e)
+
+
+class _Calls:
+    """Makes Garmin calls for a run of days. An ordinary failure comes back as None, so one missing metric doesn't lose
+    the rest of the day. With raise_rate_limit a rate limit is raised instead, so the history backfill can stop and resume
+    later. `ok` counts the calls that answered, so a total outage isn't mistaken for days with no data."""
+
+    def __init__(self, raise_rate_limit=False):
+        self.raise_rate_limit, self.ok = raise_rate_limit, 0
+
+    def __call__(self, fn, *args):
+        try:
+            r = fn(*args)
+        except Exception as e:
+            if self.raise_rate_limit and _is_rate_limit(e):
+                raise
+            return None
+        self.ok += 1
+        return r
+
+
+def _fetch_day(call, api, d):
+    """One day's Garmin daily metrics as a dict (any value may be None)."""
+    stats = call(api.get_stats, d)
+    total_cal, active_cal = _parse_calories(stats)
+    hrv, balanced = _parse_hrv(call(api.get_hrv_data, d))
+    sleep_hrs, sleep_score = _parse_sleep(call(api.get_sleep_data, d))
+
+    bb_data = call(api.get_body_battery, d, d)
+    bb_stream = []
+    try:
+        if isinstance(bb_data, list):
+            for item in bb_data:
+                for pair in (item.get('bodyBatteryValuesArray') or []):
+                    if isinstance(pair, (list, tuple)) and len(pair) >= 2 and pair[1] is not None:
+                        bb_stream.append([int(pair[0]), int(pair[1])])
+    except Exception:
+        bb_stream = []
+
+    hr_raw = call(api.get_heart_rates, d)
+    try:
+        hr_stream = [[int(ts), int(bpm)] for ts, bpm in ((hr_raw or {}).get('heartRateValues') or []) if bpm is not None]
+    except Exception:
+        hr_stream = []
+
+    return {
+        'restingHR': _parse_rhr(stats), 'hrv': hrv, 'hrvBalanced': balanced,
+        'sleepHours': sleep_hrs, 'sleepScore': sleep_score,
+        'bodyBattery': _parse_body_battery(bb_data),
+        'steps': _parse_steps(call(api.get_steps_data, d)),
+        'stressScore': _parse_stress(call(api.get_stress_data, d)),
+        'hrStream': json.dumps(hr_stream) if hr_stream else None,
+        'bodyBatteryStream': json.dumps(bb_stream) if bb_stream else None,
+        'totalCalories': total_cal, 'activeCalories': active_cal,
+    }
+
+
+def _day_has_data(m):
+    return any(v is not None for k, v in m.items() if k != 'hrvBalanced')
+
+
+def _save_day(db, d, m):
+    """Upsert one day into GarminDaily; a value Garmin didn't return never blanks one already stored."""
+    from services.calorie_adjust import apply as _kcal_apply
+    total_cal, active_cal = m['totalCalories'], m['activeCalories']
+    total_adj = int(round(_kcal_apply(total_cal))) if total_cal is not None else None     # global burn adjustment (raw kept alongside)
+    active_adj = int(round(_kcal_apply(active_cal))) if active_cal is not None else None
+    db.execute('''
+        INSERT INTO GarminDaily (date, restingHR, hrv, hrvBalanced, sleepHours, sleepScore, bodyBattery, steps, stressScore, hrStream, bodyBatteryStream, totalCalories, activeCalories, totalCaloriesRaw, activeCaloriesRaw)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(date) DO UPDATE SET
+            restingHR           = COALESCE(excluded.restingHR,          restingHR),
+            hrv                 = COALESCE(excluded.hrv,                hrv),
+            hrvBalanced         = excluded.hrvBalanced,
+            sleepHours          = COALESCE(excluded.sleepHours,         sleepHours),
+            sleepScore          = COALESCE(excluded.sleepScore,         sleepScore),
+            bodyBattery         = COALESCE(excluded.bodyBattery,        bodyBattery),
+            steps               = COALESCE(excluded.steps,              steps),
+            stressScore         = COALESCE(excluded.stressScore,        stressScore),
+            hrStream            = COALESCE(excluded.hrStream,           hrStream),
+            bodyBatteryStream   = COALESCE(excluded.bodyBatteryStream,  bodyBatteryStream),
+            totalCalories       = COALESCE(excluded.totalCalories,      totalCalories),
+            activeCalories      = COALESCE(excluded.activeCalories,     activeCalories),
+            totalCaloriesRaw    = COALESCE(excluded.totalCaloriesRaw,   totalCaloriesRaw),
+            activeCaloriesRaw   = COALESCE(excluded.activeCaloriesRaw,  activeCaloriesRaw)
+    ''', [d, m['restingHR'], m['hrv'], m['hrvBalanced'], m['sleepHours'], m['sleepScore'], m['bodyBattery'], m['steps'], m['stressScore'],
+          m['hrStream'], m['bodyBatteryStream'], total_adj, active_adj, total_cal, active_cal])
+
+
+def _push_weights():
+    try:
+        from services.mqtt import push_update_nutrition
+        push_update_nutrition()   # the weight-trend sensors changed
+    except Exception:
+        pass
+
+
 def sync_garmin(email, password, days=7):
     """Fetch the last `days` days of Garmin daily metrics and upsert into GarminDaily."""
     from database import get_db
 
     api = _client(email, password)
     db  = get_db()
-    synced = 0
+    call = _Calls()
 
     today = date.today()
     for i in range(days):
         d = (today - timedelta(days=i)).isoformat()
+        _save_day(db, d, _fetch_day(call, api, d))
 
+    # Weigh-ins (Index scale or typed into Garmin Connect) feed the Nutrition weight trend
+    weights = 0
+    rider = db.execute('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1').fetchone()
+    if rider:
         try:
-            stats              = api.get_stats(d)
-            rhr                = _parse_rhr(stats)
-            total_cal, active_cal = _parse_calories(stats)
-        except Exception:
-            rhr, total_cal, active_cal = None, None, None
-
-        try:
-            hrv_data       = api.get_hrv_data(d)
-            hrv, balanced  = _parse_hrv(hrv_data)
-        except Exception:
-            hrv, balanced = None, 0
-
-        try:
-            sleep_data         = api.get_sleep_data(d)
-            sleep_hrs, sleep_score = _parse_sleep(sleep_data)
-        except Exception:
-            sleep_hrs, sleep_score = None, None
-
-        try:
-            bb_data      = api.get_body_battery(d, d)
-            body_battery = _parse_body_battery(bb_data)
-            bb_stream    = []
-            if isinstance(bb_data, list):
-                for item in bb_data:
-                    for pair in (item.get('bodyBatteryValuesArray') or []):
-                        if isinstance(pair, (list, tuple)) and len(pair) >= 2 and pair[1] is not None:
-                            bb_stream.append([int(pair[0]), int(pair[1])])
-            bb_stream_json = json.dumps(bb_stream) if bb_stream else None
-        except Exception:
-            body_battery, bb_stream_json = None, None
-
-        try:
-            hr_raw       = api.get_heart_rates(d)
-            hr_stream    = [[int(ts), int(bpm)] for ts, bpm in (hr_raw.get('heartRateValues') or []) if bpm is not None]
-            hr_stream_json = json.dumps(hr_stream) if hr_stream else None
-        except Exception:
-            hr_stream_json = None
-
-        try:
-            steps_data = api.get_steps_data(d)
-            steps      = _parse_steps(steps_data)
-        except Exception:
-            steps = None
-
-        try:
-            stress_data  = api.get_stress_data(d)
-            stress_score = _parse_stress(stress_data)
-        except Exception:
-            stress_score = None
-
-        from services.calorie_adjust import apply as _kcal_apply
-        total_adj = int(round(_kcal_apply(total_cal))) if total_cal is not None else None     # global burn adjustment (raw kept alongside)
-        active_adj = int(round(_kcal_apply(active_cal))) if active_cal is not None else None
-        db.execute('''
-            INSERT INTO GarminDaily (date, restingHR, hrv, hrvBalanced, sleepHours, sleepScore, bodyBattery, steps, stressScore, hrStream, bodyBatteryStream, totalCalories, activeCalories, totalCaloriesRaw, activeCaloriesRaw)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            ON CONFLICT(date) DO UPDATE SET
-                restingHR           = COALESCE(excluded.restingHR,          restingHR),
-                hrv                 = COALESCE(excluded.hrv,                hrv),
-                hrvBalanced         = excluded.hrvBalanced,
-                sleepHours          = COALESCE(excluded.sleepHours,         sleepHours),
-                sleepScore          = COALESCE(excluded.sleepScore,         sleepScore),
-                bodyBattery         = COALESCE(excluded.bodyBattery,        bodyBattery),
-                steps               = COALESCE(excluded.steps,              steps),
-                stressScore         = COALESCE(excluded.stressScore,        stressScore),
-                hrStream            = COALESCE(excluded.hrStream,           hrStream),
-                bodyBatteryStream   = COALESCE(excluded.bodyBatteryStream,  bodyBatteryStream),
-                totalCalories       = COALESCE(excluded.totalCalories,      totalCalories),
-                activeCalories      = COALESCE(excluded.activeCalories,     activeCalories),
-                totalCaloriesRaw    = COALESCE(excluded.totalCaloriesRaw,   totalCaloriesRaw),
-                activeCaloriesRaw   = COALESCE(excluded.activeCaloriesRaw,  activeCaloriesRaw)
-        ''', [d, rhr, hrv, balanced, sleep_hrs, sleep_score, body_battery, steps, stress_score, hr_stream_json, bb_stream_json, total_adj, active_adj, total_cal, active_cal])
-        synced += 1
+            _, weights = _sync_weigh_ins(api, db, rider['id'], (today - timedelta(days=days - 1)).isoformat(), today.isoformat())
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning('Garmin weigh-in sync failed: %s', e)
 
     db.commit()
-    return synced
+    if weights:
+        _push_weights()
+    return days
+
+
+# ── First-run health history ─────────────────────────────────────────────
+# When Garmin is first connected the rider is asked how far back to pull health history (default: all of it).
+# The regular sync covers the last HISTORY_RECENT days; backfill_history() walks back from there in windows of
+# HISTORY_WINDOW days, saving its place after each one so a restart, a rate limit or an outage just resumes.
+
+HISTORY_RECENT = 14
+HISTORY_WINDOW = 28            # get_daily_steps answers up to 28 days in one request
+HISTORY_FLOOR = date(2005, 1, 1)
+HISTORY_EMPTY_STOP = 13        # 'all' stops after ~a year of windows with no steps and no weigh-ins
+HISTORY_RETRY_MINS = 60        # wait after a rate limit or outage
+HISTORY_WAKE = threading.Event()   # set to start the backfill thread now instead of at its next check
+
+
+def history_from(choice, today=None):
+    """The first-run answer ('all', 'none' or a number of days back) as Settings.garminHistoryFrom."""
+    if choice in ('all', 'none'):
+        return choice
+    days = int(choice)
+    if days <= HISTORY_RECENT:
+        return 'none'
+    return ((today or date.today()) - timedelta(days=days)).isoformat()
+
+
+def _days_with_steps(steps):
+    """Dates get_daily_steps() shows any steps on, or None when the answer can't be read (then every day is fetched)."""
+    if not isinstance(steps, list) or any(not isinstance(x, dict) or 'calendarDate' not in x for x in steps):
+        return None
+    return {x['calendarDate'][:10] for x in steps if (x.get('totalSteps') or 0) > 0}
+
+
+def _history_status(db, **cols):
+    sets = ', '.join(f'{k}=?' for k in cols)
+    db.execute(f'UPDATE Settings SET {sets} WHERE id=1', list(cols.values()))
+    db.commit()
+
+
+def backfill_history(email, password, today=None, pause=0.5):
+    """Pull older Garmin health history (daily metrics and weigh-ins) back to Settings.garminHistoryFrom, newest first.
+    Days already stored are skipped, and only days get_daily_steps() shows activity on get the full set of calls.
+    Returns the status line it saved, or None when there was nothing to do."""
+    import logging
+    from datetime import datetime, timezone
+    from database import get_db
+
+    log = logging.getLogger(__name__)
+    db = get_db()
+    s = db.execute('SELECT garminHistoryFrom, garminHistoryCursor, garminHistoryDone FROM Settings WHERE id=1').fetchone()
+    if not s or not s['garminHistoryFrom'] or s['garminHistoryDone']:
+        return None
+    target = s['garminHistoryFrom']
+    if target == 'none':
+        msg = 'Only recent days are synced (no older history asked for).'
+        _history_status(db, garminHistoryDone=1, garminHistoryStatus=msg)
+        return msg
+
+    today = today or date.today()
+    floor = HISTORY_FLOOR if target == 'all' else max(date.fromisoformat(target), HISTORY_FLOOR)
+    cursor = date.fromisoformat(s['garminHistoryCursor']) if s['garminHistoryCursor'] else today - timedelta(days=HISTORY_RECENT - 1)
+    rider = db.execute('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1').fetchone()
+    call = _Calls(raise_rate_limit=True)
+    empty_run, weights = 0, 0
+
+    def retry_later(why):
+        at = datetime.now(timezone.utc) + timedelta(minutes=HISTORY_RETRY_MINS)
+        msg = f'{why} Carrying on from {cursor:%d %b %Y} at {at.astimezone():%H:%M}.'
+        _history_status(db, garminHistoryRetryAt=at.isoformat(timespec='seconds'), garminHistoryStatus=msg)
+        return msg
+
+    try:
+        api = _client(email, password)
+        while cursor > floor:
+            end = cursor - timedelta(days=1)
+            start = max(end - timedelta(days=HISTORY_WINDOW - 1), floor)
+            call.ok = 0
+            found = 0
+            active = _days_with_steps(call(api.get_daily_steps, start.isoformat(), end.isoformat()))
+            if rider:
+                w = call(_sync_weigh_ins, api, db, rider['id'], start.isoformat(), end.isoformat())
+                if w:
+                    found += w[0]
+                    weights += w[1]
+            have = {r[0] for r in db.execute('SELECT date FROM GarminDaily WHERE date BETWEEN ? AND ? AND (steps IS NOT NULL OR restingHR IS NOT NULL)',
+                                             [start.isoformat(), end.isoformat()])}
+            found += len(have)
+            d = end
+            while d >= start:
+                ds = d.isoformat()
+                if ds not in have and (active is None or ds in active):
+                    m = _fetch_day(call, api, ds)
+                    if _day_has_data(m):
+                        _save_day(db, ds, m)
+                        found += 1
+                    if pause:
+                        time.sleep(pause)
+                d -= timedelta(days=1)
+            if not call.ok:
+                db.rollback()
+                return retry_later('Garmin did not answer.')
+            cursor = start
+            empty_run = 0 if found else empty_run + 1
+            _history_status(db, garminHistoryCursor=cursor.isoformat(), garminHistoryRetryAt=None,
+                            garminHistoryStatus=f'Fetching health history — back to {cursor:%d %b %Y} so far.')
+            if target == 'all' and empty_run >= HISTORY_EMPTY_STOP:
+                break
+    except Exception as e:
+        db.rollback()
+        if _is_rate_limit(e):
+            return retry_later('Garmin asked Headwind to slow down.')
+        log.warning('Garmin history backfill failed: %s', e)
+        return retry_later('Could not reach Garmin.')
+    finally:
+        if weights:
+            _push_weights()
+
+    oldest = db.execute('SELECT MIN(date) FROM GarminDaily WHERE steps IS NOT NULL OR restingHR IS NOT NULL').fetchone()[0]
+    msg = f'Health history complete — back to {date.fromisoformat(oldest):%d %b %Y}.' if oldest else 'Health history complete — Garmin had nothing older.'
+    _history_status(db, garminHistoryDone=1, garminHistoryRetryAt=None, garminHistoryStatus=msg)
+    return msg
 
 
 def sync_garmin_activities(email, password, rider_id):
