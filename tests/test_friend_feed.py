@@ -49,3 +49,28 @@ def test_feed_never_reshares_a_friends_rides(client):
     resp = client.get('/api/feed?rider=Alice', headers={'X-Feed-Token': TOKEN})
     assert resp.status_code == 200
     assert _rides(resp) == []
+
+
+FEED_ENDPOINTS = ['/api/riders', '/api/feed', '/api/foods-feed', '/api/food-image/0000.jpg']
+
+
+@pytest.mark.parametrize('path', FEED_ENDPOINTS)
+def test_wrong_or_missing_token_is_refused(client, path):
+    assert client.get(path).status_code == 403
+    assert client.get(path, headers={'X-Feed-Token': 'wrong'}).status_code == 403
+    assert client.get(path, headers={'X-Feed-Token': TOKEN + 'x'}).status_code == 403
+    assert client.get(path, headers={'X-Feed-Token': 'café'}).status_code == 403     # non-ASCII must not 500
+
+
+@pytest.mark.parametrize('path', FEED_ENDPOINTS)
+def test_token_in_query_string_is_not_accepted(client, path):
+    # it would land in proxy access logs; friend instances send the header
+    assert client.get(path + '?token=' + TOKEN).status_code == 403
+
+
+def test_empty_stored_token_never_matches(client):
+    with client.application.app_context():
+        d = database.get_db()
+        d.execute("UPDATE Settings SET feedToken='' WHERE id=1")
+        d.commit()
+    assert client.get('/api/feed', headers={'X-Feed-Token': ''}).status_code == 403
