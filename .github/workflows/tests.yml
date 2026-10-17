@@ -1,0 +1,30 @@
+name: Tests
+
+on:
+  # every branch push; tag pushes are left to the Windows build, which runs the tests itself
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# a newer push to the same branch supersedes a run still in progress
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'   # matches the Docker image and the Windows build
+          cache: pip
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Tests
+        run: python -m pytest tests -q
