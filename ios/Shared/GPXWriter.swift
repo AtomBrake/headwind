@@ -1,0 +1,59 @@
+import Foundation
+
+/// Writes a recorded ride as GPX 1.1 in the shape services/parser.py reads: one <trk> of type "cycling"
+/// (mapped to Ride), a <trkseg> per stretch between pauses, and heart rate in the Garmin TrackPointExtension
+/// (the parser looks for any element named "hr").
+enum GPXWriter {
+    static func gpx(segments: [[RidePoint]], name: String, type: String = "cycling", creator: String = "Headwind iOS") -> Data {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        let first = segments.lazy.flatMap { $0 }.first
+
+        var out = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <gpx version="1.1" creator="\(escape(creator))" xmlns="http://www.topografix.com/GPX/1/1" \
+        xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1">
+
+        """
+        if let first {
+            out += "  <metadata><time>\(iso.string(from: first.time))</time></metadata>\n"
+        }
+        out += "  <trk>\n    <name>\(escape(name))</name>\n    <type>\(escape(type))</type>\n"
+        for segment in segments where !segment.isEmpty {
+            out += "    <trkseg>\n"
+            for p in segment {
+                out += "      <trkpt lat=\"\(coordinate(p.lat))\" lon=\"\(coordinate(p.lon))\">"
+                if let ele = p.ele { out += "<ele>\(String(format: "%.1f", ele))</ele>" }
+                out += "<time>\(iso.string(from: p.time))</time>"
+                if let hr = p.hr {
+                    out += "<extensions><gpxtpx:TrackPointExtension><gpxtpx:hr>\(hr)</gpxtpx:hr></gpxtpx:TrackPointExtension></extensions>"
+                }
+                out += "</trkpt>\n"
+            }
+            out += "    </trkseg>\n"
+        }
+        out += "  </trk>\n</gpx>\n"
+        return Data(out.utf8)
+    }
+
+    /// "Morning Ride", "Evening Ride"… from the local start time, like the names Headwind gives imported rides.
+    static func rideName(start: Date, calendar: Calendar = .current) -> String {
+        switch calendar.component(.hour, from: start) {
+        case 5..<12: "Morning Ride"
+        case 12..<17: "Afternoon Ride"
+        case 17..<21: "Evening Ride"
+        default: "Night Ride"
+        }
+    }
+
+    private static func coordinate(_ value: Double) -> String {
+        String(format: "%.7f", value)
+    }
+
+    private static func escape(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+}
