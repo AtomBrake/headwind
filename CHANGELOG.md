@@ -6,6 +6,7 @@ No migration. No Android change.
 
 ### Fixed
 - **A big import stopped if you left the Import page.** The import ran in the background, but once about 200 rides had been processed with nobody watching, it waited forever for the page to read its progress. It now runs to the end whatever the browser does. Coming back to the Import page picks up the progress where it is, or shows the result if it finished while you were away. `routes/import_rides.py`, `tests/test_import_background.py`.
+- **Trailforks GPX rides were rejected as routes.** Trailforks writes timestamps with a lower-case `z` (`2026-07-21T12:05:57z`), which the GPX reader silently ignored, so the ride looked like a route with no times. Timestamps are now read whatever their case, and a file whose `<time>` tags can't be read is logged as such rather than as route-only. `services/parser.parse_gpx`, `tests/test_gpx_times.py`.
 
 ### Added
 - **Import progress on every page.** While an import runs, the top bar shows "Importing 142 / 800" with a progress line, and links to the Import page. When it finishes, it shows how many rides were imported (or the error) until you dismiss it. `GET /import/progress`.
