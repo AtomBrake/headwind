@@ -39,6 +39,10 @@ def connect():
         INSERT INTO Settings (id, garminEmail, garminPassword) VALUES (1, ?, ?)
         ON CONFLICT(id) DO UPDATE SET garminEmail=excluded.garminEmail, garminPassword=excluded.garminPassword
     ''', [email, password])
+    if prev and prev['garminEmail'] and prev['garminEmail'].lower() != email.lower():
+        # a different account has its own history: ask the first-run question again
+        db.execute('''UPDATE Settings SET garminHistoryFrom=NULL, garminHistoryCursor=NULL, garminHistoryDone=0,
+                      garminHistoryStatus=NULL, garminHistoryRetryAt=NULL WHERE id=1''')
     db.commit()
     return jsonify(result)
 
@@ -58,6 +62,36 @@ def connect_mfa():
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 400
+
+
+def _history_state():
+    s = query_db('SELECT garminHistoryFrom, garminHistoryDone, garminHistoryStatus FROM Settings WHERE id=1', one=True)
+    return {'from': s['garminHistoryFrom'] if s else None, 'done': bool(s and s['garminHistoryDone']),
+            'status': s['garminHistoryStatus'] if s else None}
+
+
+@bp.route('/garmin/history', methods=['GET'])
+def history_status():
+    return jsonify(_history_state())
+
+
+@bp.route('/garmin/history', methods=['POST'])
+def history():
+    """The first-run question: how much past health data to pull from Garmin. 'all' (the default), 'none', or a
+    number of days. Asking again later (e.g. for more years) carries on from where the backfill got to."""
+    d = request.get_json(silent=True) or {}
+    from services.garmin import history_from, HISTORY_WAKE
+    try:
+        frm = history_from(d.get('range') or 'all')
+    except (TypeError, ValueError):
+        return jsonify({'error': "range must be 'all', 'none' or a number of days"}), 400
+    db = get_db()
+    db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
+    db.execute('UPDATE Settings SET garminHistoryFrom=?, garminHistoryDone=0, garminHistoryRetryAt=NULL, garminHistoryStatus=? WHERE id=1',
+               [frm, 'Only recent days will be synced.' if frm == 'none' else 'Starting to fetch health history…'])
+    db.commit()
+    HISTORY_WAKE.set()
+    return jsonify(_history_state())
 
 
 @bp.route('/garmin/sync', methods=['POST'])
