@@ -22,6 +22,11 @@ def _kg(rider_id):
         return 70.0
 
 
+def _origin(row):
+    """The id the activity first came in with (a Garmin or Strava id), kept across a move between the tables, which gives it a new id."""
+    return (row['originId'] if 'originId' in row.keys() else None) or row['id']
+
+
 def _ride_to_workout(db, row, sport, discard_parked=False):
     from services import duplicates
     from services.workouts import estimate_calories
@@ -39,9 +44,10 @@ def _ride_to_workout(db, row, sport, discard_parked=False):
         kcal = row['calories']
     name = row['name'] if (row['name'] or '').strip().lower() not in _GENERIC_NAMES else None
     db.execute('''INSERT OR REPLACE INTO Workout (id, riderId, sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain,
-                  averageSpeed, maxSpeed, averageHeartrate, calories, startLat, startLng, streams, weatherSummary, source, caloriesRaw) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                  averageSpeed, maxSpeed, averageHeartrate, calories, startLat, startLng, streams, weatherSummary, source, caloriesRaw, originId) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                [wid, row['riderId'], sport, name, row['startDate'], row['startDateLocal'], dist, secs, row['elapsedTime'], gain, row['averageSpeed'], row['maxSpeed'],
-                row['averageHeartrate'], kcal, row['startLat'], row['startLng'], row['streams'], row['weatherSummary'], 'converted', kcal_raw])
+                row['averageHeartrate'], kcal, row['startLat'], row['startLng'], row['streams'], row['weatherSummary'], 'converted', kcal_raw,
+                _origin(row)])
     duplicates.delete_activity(db, row['id'])           # derived data, bike link and a tombstone so a re-sync cannot bring it back as a ride
     db.execute('DELETE FROM RideMemory WHERE rideId=?', [row['id']])
     from services import workouts as _wk
@@ -61,11 +67,11 @@ def _workout_to_ride(db, row, sport):
         kcal_raw = row['caloriesRaw']
         kcal = row['calories']
     db.execute('''INSERT OR REPLACE INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, averageSpeed, maxSpeed,
-                  averageHeartrate, calories, startLat, startLng, streams, rawData, riderId, weatherSummary, caloriesRaw, createdAt, updatedAt)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))''',
+                  averageHeartrate, calories, startLat, startLng, streams, rawData, riderId, weatherSummary, caloriesRaw, originId, createdAt, updatedAt)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))''',
                [aid, label(dict(row)) if not (row['name'] or '').strip() else row['name'], sport, sport, row['startDate'], row['startDateLocal'], dist, secs, row['elapsedTime'] or secs,
                 row['totalElevationGain'] or 0, row['averageSpeed'] or 0, row['maxSpeed'] or 0, row['averageHeartrate'], kcal, row['startLat'], row['startLng'], row['streams'], '{}',
-                row['riderId'], row['weatherSummary'], kcal_raw])
+                row['riderId'], row['weatherSummary'], kcal_raw, _origin(row)])
     from services import workouts as _wk
     _wk.delete(db, row['id'], row['riderId'])           # a Garmin workout is remembered, so a re-sync does not bring it back beside the ride
     duplicates.rebuild_derived(db, aid)                 # best efforts + segment efforts, now that it is a ride

@@ -89,3 +89,47 @@ def test_task_log_runs_failures_orphans_and_pruning(client):
             tasks.record(db, 'x', 'x', 'x')
         db.commit()
         assert db.execute('SELECT COUNT(*) FROM TaskLog').fetchone()[0] <= tasks.KEEP + 1
+
+
+class _NowThread:
+    def __init__(self, target, args=(), **kw): self.target, self.args = target, args
+    def start(self): self.target(*self.args)
+
+
+class _Garmin:
+    def get_activities(self, start, limit):
+        return [{'activityId': 1, 'activityType': {'typeKey': 'lap_swimming'}, 'startTimeLocal': '2026-08-01 07:00:00'}] if start == 0 else []
+
+
+def test_activity_type_check_runs_as_a_background_job(client, monkeypatch):
+    from routes import garmin as garmin_routes
+    with client.application.app_context():
+        db = database.get_db()
+        db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime) "
+                   "VALUES ('garmin_1', 'Pool', 'Ride', 1, '2026-08-01T06:00:00', '2026-08-01T07:00:00', 1500, 1800, 1800)")
+        db.commit()
+    monkeypatch.setattr(garmin_routes.threading, 'Thread', _NowThread)
+    monkeypatch.setattr(garmin, '_client', lambda *a: _Garmin())
+    client.post('/garmin/sports/check')
+    assert not garmin_routes._sports_lock.locked()
+    html = client.get('/garmin/sports').get_data(as_text=True)
+    assert 'Checked 1 of your 1 Garmin rides: 1 has the wrong sport.' in html and '1 with the wrong sport' in html
+    html = client.get('/tasks').get_data(as_text=True)
+    assert 'Activity type check' in html and 'href="/garmin/sports"' in html
+
+    monkeypatch.setattr(garmin, '_client', lambda *a: (_ for _ in ()).throw(ConnectionError('timed out')))
+    client.post('/garmin/sports/check')
+    assert not garmin_routes._sports_lock.locked()
+    assert 'Could not reach Garmin: timed out' in client.get('/tasks').get_data(as_text=True)
+
+
+def test_activity_type_page_shows_a_running_check(client):
+    with client.application.app_context():
+        tasks.start(database.get_db(), 'sport_check', 'Activity type check')
+    html = client.get('/garmin/sports').get_data(as_text=True)
+    assert 'disabled>Asking Garmin' in html and 'location.reload' in html
+
+
+def test_ride_page_links_to_where_it_came_from(client):
+    html = client.get('/rides/555').get_data(as_text=True)                          # the fixture's ride has a Strava id
+    assert 'href="https://www.strava.com/activities/555"' in html and 'Strava ↗' in html

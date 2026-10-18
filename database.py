@@ -234,6 +234,7 @@ def migrate_db():
         ('aiKudos',         'TEXT'),
         ('aiKudosAt',       'TEXT'),
         ('caloriesRaw',     'REAL'),
+        ('originId',        'TEXT'),     # a ride that was a workout: the id it first came in with (services/origin.py)
     ]:
         if col not in act_cols:
             db.execute(f'ALTER TABLE Activity ADD COLUMN {col} {defn}')
@@ -591,6 +592,8 @@ def migrate_db():
     ''')
     if 'caloriesRaw' not in {r[1] for r in db.execute('PRAGMA table_info(Workout)').fetchall()}:
         db.execute('ALTER TABLE Workout ADD COLUMN caloriesRaw REAL')
+    if 'originId' not in {r[1] for r in db.execute('PRAGMA table_info(Workout)').fetchall()}:
+        db.execute('ALTER TABLE Workout ADD COLUMN originId TEXT')       # a workout that was a ride: the id it first came in with
     db.execute('CREATE INDEX IF NOT EXISTS idx_workout_rider_date ON Workout(riderId, startDateLocal)')
 
     from services.duplicates import ensure_schema as _dup_schema
@@ -713,6 +716,8 @@ def migrate_db():
     _reimport_schema(db)
     from services.sport_fix import ensure_schema as _sport_fix_schema
     _sport_fix_schema(db)
+    from services.origin import backfill as _origin_backfill
+    _origin_backfill(db)
     db.commit()
 
 
