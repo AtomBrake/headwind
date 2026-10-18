@@ -184,7 +184,7 @@ def store(db, rider_id, payload):
 def _candidates(db, rider_id):
     """(kind, id, start_ms, end_ms) for the rider's rides and workouts."""
     out = []
-    for kind, table, dur in (('activity', 'Activity', 'COALESCE(elapsedTime, movingTime, 0)'), ('workout', 'Workout', 'COALESCE(elapsedTime, movingTime, 0)')):
+    for kind, table, dur in (('activity', 'Ride', 'COALESCE(elapsedTime, movingTime, 0)'), ('workout', 'Workout', 'COALESCE(elapsedTime, movingTime, 0)')):     # the two views split Activity
         for r in db.execute(f'SELECT id, startDate, {dur} AS d FROM {table} WHERE riderId=? AND startDate IS NOT NULL', [rider_id]).fetchall():
             s = _utc_ms(r['startDate'])
             if s is not None and r['d']:
@@ -222,7 +222,7 @@ def attach(db, sensor_id):
 def attach_for_ride(db, ride_id):
     """A ride (or workout) has just arrived: attach any waiting sidecar that overlaps it. Never raises. Does not commit."""
     try:
-        for kind, table in (('activity', 'Activity'), ('workout', 'Workout')):
+        for kind, table in (('activity', 'Ride'), ('workout', 'Workout')):
             r = db.execute(f"SELECT riderId, startDate, COALESCE(elapsedTime, movingTime, 0) AS d FROM {table} WHERE id=?", [ride_id]).fetchone()
             if not r:
                 continue
@@ -245,8 +245,7 @@ def for_ride(db, ride_id, max_points=500):
     if not s:
         return None
     rows = json.loads(s['data'])
-    table = 'Activity' if s['rideKind'] == 'activity' else 'Workout'
-    ride = db.execute(f'SELECT startDate FROM {table} WHERE id=?', [ride_id]).fetchone()
+    ride = db.execute('SELECT startDate FROM Activity WHERE id=?', [ride_id]).fetchone()
     r0 = _utc_ms(ride['startDate']) if ride else rows[0][0]
     step = max(1, len(rows) // max_points)
     ix = {f: i for i, f in enumerate(FIELDS)}

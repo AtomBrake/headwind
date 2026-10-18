@@ -89,7 +89,7 @@ def _workout_as_activity(wid):
 def detail(rid):
     activity = query_db('''
         SELECT a.*, r.name AS riderName, r.avatarPath AS riderAvatar, r.isDefault AS riderIsDefault
-        FROM Activity a
+        FROM Ride a
         LEFT JOIN Rider r ON r.id = a.riderId
         WHERE a.id=?
     ''', [rid], one=True)
@@ -134,7 +134,7 @@ def detail(rid):
     # Other riders who rode on the same calendar day
     co_riders = query_db('''
         SELECT DISTINCT r.id, r.name, r.avatarPath
-        FROM Activity a
+        FROM Ride a
         JOIN Rider r ON r.id = a.riderId
         WHERE date(a.startDateLocal) = date(?)
           AND a.riderId != ?
@@ -198,13 +198,13 @@ def detail(rid):
                 }
 
     prev_ride = query_db('''
-        SELECT id, name FROM Activity
+        SELECT id, name FROM Ride
         WHERE startDateLocal < ? AND riderId IS ?
         ORDER BY startDateLocal DESC LIMIT 1
     ''', [activity['startDateLocal'], activity['riderId']], one=True)
 
     next_ride = query_db('''
-        SELECT id, name FROM Activity
+        SELECT id, name FROM Ride
         WHERE startDateLocal > ? AND riderId IS ?
         ORDER BY startDateLocal ASC LIMIT 1
     ''', [activity['startDateLocal'], activity['riderId']], one=True)
@@ -227,7 +227,7 @@ def detail(rid):
     if activity['riderId']:
         rtotals = query_db(
             'SELECT COUNT(*) as rides, SUM(distance) as dist, SUM(totalElevationGain) as elev '
-            'FROM Activity WHERE riderId=?', [activity['riderId']], one=True)
+            'FROM Ride WHERE riderId=?', [activity['riderId']], one=True)
         if rtotals:
             for cat in _compute_badges(activity['riderId'], rtotals):
                 for b in cat['badges']:

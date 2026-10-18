@@ -308,8 +308,8 @@ def make_workouts(rng, db, rider_id, end_day, days):
             start = datetime(d.year, d.month, d.day, rng.choice([8, 9, 12, 17, 18]), rng.randint(0, 59))
             utc = start.replace(tzinfo=LONDON).astimezone(timezone.utc)
             kcal = round(dist / 1000 * (62 if sport != 'Run' else 85) * 0.9 + rng.uniform(-20, 20))
-            db.execute('INSERT INTO Workout (id, riderId, sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, averageSpeed, calories, steps, source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                       [f'demo_wk_{n}', rider_id, sport, None, utc.strftime('%Y-%m-%dT%H:%M:%S'), start.strftime('%Y-%m-%dT%H:%M:%S'), dist, secs, secs + rng.randint(0, 300),
+            db.execute("INSERT INTO Activity (id, riderId, type, sportType, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, averageSpeed, calories, steps, source, rawData) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')",
+                       [f'demo_wk_{n}', rider_id, sport, sport, None, utc.strftime('%Y-%m-%dT%H:%M:%S'), start.strftime('%Y-%m-%dT%H:%M:%S'), dist, secs, secs + rng.randint(0, 300),
                         round(dist * rng.uniform(0.004, 0.02)), dist / secs, kcal, int(dist / 0.75) if sport != 'Run' else int(dist / 1.0), 'demo'])
             n += 1
     return n

@@ -13,7 +13,7 @@ with app.app_context():
 
     rows = db.execute('''
         SELECT id, startLat, startLng, startDateLocal, streams
-        FROM Activity
+        FROM Ride
         WHERE startLat IS NOT NULL AND startLng IS NOT NULL
           AND weatherSummary IS NULL
         ORDER BY startDateLocal DESC

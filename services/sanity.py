@@ -71,7 +71,7 @@ def flag(db, act_id):
 def scan_all(db, riders=None):
     """Check every ride (new limits, old data). Returns the number flagged. Safe to repeat. Commits."""
     n = 0
-    for (rid,) in db.execute('SELECT id FROM Activity WHERE flagDismissed IS NULL OR flagDismissed = 0').fetchall():
+    for (rid,) in db.execute('SELECT id FROM Ride WHERE flagDismissed IS NULL OR flagDismissed = 0').fetchall():
         if flag(db, rid):
             n += 1
     db.commit()
@@ -86,7 +86,7 @@ def dismiss(db, act_id):
 def flagged(db, rider_id):
     """The rider's flagged rides, newest first. `isBlip`: shorter than MIN_DIST_M, a start-stop by mistake (the dashboard offers to delete them all)."""
     return [dict(r, isBlip=bool(r['distance'] is not None and 0 < r['distance'] < MIN_DIST_M)) for r in db.execute(
-        'SELECT id, name, startDateLocal, distance, averageSpeed, flagReason FROM Activity WHERE riderId=? AND flagReason IS NOT NULL AND COALESCE(flagDismissed,0)=0 ORDER BY startDateLocal DESC', [rider_id]).fetchall()]
+        'SELECT id, name, startDateLocal, distance, averageSpeed, flagReason FROM Ride WHERE riderId=? AND flagReason IS NOT NULL AND COALESCE(flagDismissed,0)=0 ORDER BY startDateLocal DESC', [rider_id]).fetchall()]
 
 
 def blip_ids(db, rider_id):

@@ -112,7 +112,7 @@ def overview():
     today = tz.today()
 
     def tot(since=None):
-        q = 'SELECT COUNT(*) n, SUM(distance) d, SUM(totalElevationGain) e, SUM(movingTime) t, SUM(calories) c FROM Activity WHERE riderId=?'
+        q = 'SELECT COUNT(*) n, SUM(distance) d, SUM(totalElevationGain) e, SUM(movingTime) t, SUM(calories) c FROM Ride WHERE riderId=?'     # workouts: wk() below
         a = [rid]
         if since:
             q += ' AND date(startDateLocal)>=?'; a.append(since.isoformat())
@@ -125,7 +125,7 @@ def overview():
 
     weekly = [{'label': w['label'], 'distance_m': w['dist_m'], 'elev_m': w['elev_m'], 'calories': w['cals'], 'current': w['current']} for w in _weekly_data(rid)]
     rec = query_db('SELECT date, restingHR, hrv, sleepHours, sleepScore, bodyBattery, steps FROM GarminDaily ORDER BY date DESC LIMIT 1', one=True)
-    sports = [r['sportType'] for r in query_db('SELECT DISTINCT sportType FROM Activity WHERE riderId=? AND sportType IS NOT NULL ORDER BY sportType', [rid])]
+    sports = [r['sportType'] for r in query_db('SELECT DISTINCT sportType FROM Ride WHERE riderId=? AND sportType IS NOT NULL ORDER BY sportType', [rid])]
     return jsonify({
         'rider': rider['name'], 'all': tot(),
         'week': tot(_period_start('week', today)), 'month': tot(_period_start('month', today)), 'year': tot(_period_start('year', today)),
@@ -161,7 +161,7 @@ def perform():
 
     climbs = query_db('''
         SELECT id, name, totalElevationGain, date(startDateLocal) as d
-        FROM Activity WHERE riderId=? AND totalElevationGain > 0
+        FROM Ride WHERE riderId=? AND totalElevationGain > 0
         ORDER BY totalElevationGain DESC LIMIT 5
     ''', [rid])
     biggest_climbs = [{'rideId': c['id'], 'rideName': c['name'], 'elevM': round(c['totalElevationGain']), 'date': c['d']} for c in climbs]
@@ -172,7 +172,7 @@ def perform():
                MAX(CASE WHEN e.isPR=1 THEN e.activityDate END) AS pr_date
         FROM Segment s
         JOIN SegmentEffort e ON e.segmentId = s.id
-        JOIN Activity a ON a.id = e.activityId AND a.riderId=?
+        JOIN Ride a ON a.id = e.activityId AND a.riderId=?
         GROUP BY s.id
         HAVING best_secs IS NOT NULL
         ORDER BY pr_date DESC
@@ -254,7 +254,7 @@ def rides():
     q = (request.args.get('q') or '').strip()
     src = (
         "SELECT 'ride' kind, CAST(id AS TEXT) id, name, sportType sport, startDateLocal, distance, movingTime, totalElevationGain elev, averageSpeed spd, "
-        "averageHeartrate hr, calories, city FROM Activity WHERE riderId=? "
+        "averageHeartrate hr, calories, city FROM Ride WHERE riderId=? "
         "UNION ALL SELECT 'workout', id, name, sport, startDateLocal, distance, movingTime, totalElevationGain, averageSpeed, averageHeartrate, calories, NULL "
         "FROM Workout WHERE riderId=?")
     where, args = [], [rid, rid]
@@ -269,7 +269,7 @@ def rides():
         # ~28-point route outline for the list thumbnail (stream if there is one, else the summary polyline)
         import json as _json
         try:
-            row = query_db('SELECT streams, summaryPolyline FROM Activity WHERE id=?' if kind == 'ride' else 'SELECT streams, NULL summaryPolyline FROM Workout WHERE id=?', [rid_], one=True)
+            row = query_db('SELECT streams, summaryPolyline FROM Ride WHERE id=?' if kind == 'ride' else 'SELECT streams, NULL summaryPolyline FROM Workout WHERE id=?', [rid_], one=True)
             pts = ((_json.loads(row['streams']) if row and row['streams'] else {}).get('latlng') or {}).get('data') or []
             if not pts and row and row['summaryPolyline']:
                 import polyline as pl
@@ -331,7 +331,7 @@ def ride_detail(kind, rid):
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     if kind == 'ride':
-        row = query_db('SELECT * FROM Activity WHERE id=? AND riderId=?', [rid, rider['id']], one=True)
+        row = query_db('SELECT * FROM Ride WHERE id=? AND riderId=?', [rid, rider['id']], one=True)
     elif kind == 'workout':
         row = query_db('SELECT * FROM Workout WHERE id=? AND riderId=?', [rid, rider['id']], one=True)
     else:
@@ -524,12 +524,12 @@ def _refresh_after_change(kind):
 
 @bp.route('/rides/<kind>/<rid>/sport', methods=['POST'])
 def change_sport(kind, rid):
-    """Change what an activity is, e.g. a walk that was recorded as a ride: JSON {sport: Ride|VirtualRide|Walk|Run|Hike}. Moves it between the ride and
-    workout tables when needed, so the id can change: the response carries the new kind and id."""
+    """Change what an activity is, e.g. a walk that was recorded as a ride: JSON {sport: Ride|VirtualRide|Walk|Run|Hike}. The response carries the
+    new kind (and the id, which no longer changes; older apps read it from here)."""
     from services import convert
     rider = _rider()
     db = get_db()
-    tbl = {'ride': 'Activity', 'workout': 'Workout'}.get(kind)
+    tbl = {'ride': 'Ride', 'workout': 'Workout'}.get(kind)
     row = db.execute(f'SELECT riderId FROM {tbl} WHERE id=?', [rid]).fetchone() if tbl else None
     if not rider or not row or row['riderId'] != rider['id']:
         return jsonify({'error': 'not found'}), 404
@@ -577,7 +577,7 @@ def delete_ride(kind, rid):
         from services import workouts as _wk
         n = _wk.delete(db, rid, rider['id'] if rider else -1)
     elif kind == 'ride':
-        row = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone()
+        row = db.execute('SELECT riderId FROM Ride WHERE id=?', [rid]).fetchone()
         n = 1 if (row and rider and row['riderId'] == rider['id'] and duplicates.delete_activity(db, rid)) else 0
         if n:
             db.execute('DELETE FROM RideMemory WHERE rideId=?', [rid])

@@ -364,7 +364,7 @@ def _build_garmin_context(ride_date):
 def _build_badge_context(rid, ride_id):
     totals = query_db(
         'SELECT COUNT(*) as rides, SUM(distance) as dist, SUM(totalElevationGain) as elev '
-        'FROM Activity WHERE riderId=?', [rid], one=True)
+        'FROM Ride WHERE riderId=?', [rid], one=True)
     if not totals:
         return ''
     categories = _compute_badges(rid, totals)

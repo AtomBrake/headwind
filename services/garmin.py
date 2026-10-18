@@ -601,17 +601,22 @@ def backfill_weigh_ins(email, password, today=None):
 
 
 def _save_workout(db, wid, rider_id, sport, name, start_utc, start_local, parsed, max_speed):
-    """Store a Garmin activity that is not a ride in Workout, keeping the watch's calories (the walking/running estimate would be wrong for a swim).
+    """Store a Garmin activity that is not a ride (a Workout row), keeping the watch's calories (the walking/running estimate would be wrong for a swim).
     Does not commit."""
     from services.calorie_adjust import pair as _kcal_pair
     from services import workouts
     cal_raw, cal_adj = _kcal_pair(parsed.get('calories'))
-    db.execute('''INSERT OR IGNORE INTO Workout (id, riderId, sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain,
-                  averageSpeed, maxSpeed, averageHeartrate, calories, startLat, startLng, streams, source, caloriesRaw) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-               [wid, rider_id, sport, (name or '').strip() or None, start_utc, start_local, parsed.get('distance') or 0, parsed.get('movingTime') or 0,
+    db.execute('''INSERT OR IGNORE INTO Activity (id, riderId, type, sportType, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain,
+                  averageSpeed, maxSpeed, averageHeartrate, calories, startLat, startLng, streams, source, caloriesRaw, rawData)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
+               [wid, rider_id, sport, sport, (name or '').strip() or None, start_utc, start_local, parsed.get('distance') or 0, parsed.get('movingTime') or 0,
                 parsed.get('elapsedTime') or 0, parsed.get('totalElevationGain') or 0, parsed.get('averageSpeed') or 0, max_speed,
                 parsed.get('averageHeartrate'), cal_adj, parsed.get('startLat'), parsed.get('startLng'), parsed.get('streams'), 'garmin', cal_raw])
     workouts.refresh_derived(db, wid)                     # a run gets its best times and run-segment efforts
+    from services import duplicates
+    if duplicates.resolve(db, wid):                       # the same session from Strava, a file or the phone: keep the better recording
+        import logging
+        logging.getLogger(__name__).warning('Garmin activity %s matched an existing recording; kept the better one', wid)
 
 
 def sync_garmin_activities(email, password, rider_id):

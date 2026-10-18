@@ -267,7 +267,7 @@ def calorie_adjust_history():
     return jsonify({'ok': True, 'pct': calorie_adjust.get_pct(), 'touched': touched})
 
 
-_WX_MISSING = """FROM Activity WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL
+_WX_MISSING = """FROM Ride WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL
                  AND (startLat IS NOT NULL OR streams LIKE '%latlng%')"""
 
 

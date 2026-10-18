@@ -1,4 +1,5 @@
-"""Walks, runs and hikes recorded by the phone app (the Workout table — kept apart from Activity, which is rides only).
+"""Walks, runs and hikes recorded by the phone app. They are Activity rows like every other activity; the Workout view (database.migrate_db) shows
+the ones that are not rides, under their old column names.
 
 A workout arrives as a GPX file (the app records the track); we reuse the GPX parser, store our own row, estimate calories when the
 phone gave none, and stay idempotent: the same `client_id` (a UUID the app makes per recording) can be re-sent any number of times.
@@ -56,6 +57,9 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
     existing = query_db('SELECT * FROM Workout WHERE id=?', [wid], one=True)
     if existing:
         return dict(existing), False
+    kept = _kept_instead(wid)
+    if kept:                                           # set aside as a copy of another recording: a retried upload gets that one back
+        return kept, False
     from services import goal_model
     kg = goal_model.current_weight_kg(rider_id) or 70.0
     dist, secs, gain = act.get('distance') or 0, int(act.get('movingTime') or 0), act.get('totalElevationGain') or 0
@@ -70,21 +74,32 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
         except Exception:
             pass
     db = get_db()
-    db.execute('''INSERT INTO Workout (id, riderId, sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime,
-                                       totalElevationGain, averageSpeed, averageHeartrate, calories, steps, startLat, startLng,
-                                       streams, weatherSummary, source, caloriesRaw)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-               [wid, rider_id, sport, (name or '').strip() or None, utc, local, dist, secs, int(act.get('elapsedTime') or secs), gain,
+    db.execute('''INSERT INTO Activity (id, riderId, type, sportType, name, startDate, startDateLocal, distance, movingTime, elapsedTime,
+                                        totalElevationGain, averageSpeed, averageHeartrate, calories, steps, startLat, startLng,
+                                        streams, weatherSummary, source, caloriesRaw, rawData)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
+               [wid, rider_id, sport, sport, (name or '').strip() or None, utc, local, dist, secs, int(act.get('elapsedTime') or secs), gain,
                 act.get('averageSpeed'), act.get('averageHeartrate'), kcal, steps, act.get('startLat'), act.get('startLng'),
                 act.get('streams') if isinstance(act.get('streams'), str) else json.dumps(act.get('streams') or {}), weather, source, kcal_raw])
     refresh_derived(db, wid)
+    from services import duplicates
+    dup = duplicates.resolve(db, wid)                  # the same session from Garmin, Strava or a file: keep the better recording
     try:
         from services import sensors
-        sensors.attach_for_ride(db, wid)
+        sensors.attach_for_ride(db, (dup or {}).get('kept', wid))
     except Exception:
         pass
     db.commit()
+    if dup and dup['parked'] == wid:
+        return _kept_instead(wid), False
     return dict(query_db('SELECT * FROM Workout WHERE id=?', [wid], one=True)), True
+
+
+def _kept_instead(wid):
+    """The activity a set-aside recording was a copy of, shaped like a workout (sport, ...), or None."""
+    d = query_db("SELECT primaryId FROM ActivityDuplicate WHERE id=? AND status='parked'", [wid], one=True)
+    row = query_db('SELECT * FROM Activity WHERE id=?', [d['primaryId']], one=True) if d else None
+    return dict(row, sport=row['sportType']) if row else None
 
 
 def label(w):
@@ -176,7 +191,7 @@ def delete(db, wid, rider_id):
     if not db.execute('SELECT 1 FROM Workout WHERE id=? AND riderId=?', [wid, rider_id]).fetchone():
         return False
     forget(db, wid)
-    db.execute('DELETE FROM Workout WHERE id=?', [wid])
+    db.execute('DELETE FROM Activity WHERE id=?', [wid])
     if str(wid).startswith('garmin_'):
         from services import duplicates
         duplicates.tombstone(db, wid, rider_id)

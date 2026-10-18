@@ -1182,7 +1182,7 @@ def day_log(date_str):
     garmin_total  = garmin_row['totalCalories']  if garmin_row else None
     garmin_active = garmin_row['activeCalories'] if garmin_row else None
     ride_row = query_db('''
-        SELECT COALESCE(SUM(calories), 0) as total FROM Activity
+        SELECT COALESCE(SUM(calories), 0) as total FROM Ride
         WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL
     ''', [rider_id, date_str], one=True)
     ride_cal = int(ride_row['total']) if ride_row else 0
@@ -1682,7 +1682,7 @@ def week_log(date_str):
 
         # Burn
         ride_cal = query_db(
-            'SELECT COALESCE(SUM(calories),0) as total FROM Activity WHERE riderId=? AND date(startDateLocal)=?',
+            'SELECT COALESCE(SUM(calories),0) as total FROM Ride WHERE riderId=? AND date(startDateLocal)=?',
             [rider_id, date_iso], one=True
         )
         ride_cal = int(ride_cal['total']) if ride_cal else 0

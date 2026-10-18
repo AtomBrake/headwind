@@ -94,8 +94,8 @@ def _memory_viz_data():
 @bp.route('/ai')
 def index():
     settings = query_db('SELECT * FROM Settings WHERE id=1', one=True)
-    total    = query_db('SELECT COUNT(*) FROM Activity', one=True)[0]
-    analysed = query_db("SELECT COUNT(*) FROM Activity WHERE aiKudos IS NOT NULL AND aiKudos != ''", one=True)[0]
+    total    = query_db('SELECT COUNT(*) FROM Ride', one=True)[0]
+    analysed = query_db("SELECT COUNT(*) FROM Ride WHERE aiKudos IS NOT NULL AND aiKudos != ''", one=True)[0]
     memories = query_db('SELECT COUNT(*) FROM RideMemory', one=True)[0]
     dots, monthly, recent = _memory_viz_data()
     return render_template('ai.html', settings=settings,
@@ -138,7 +138,7 @@ def bulk_analyse():
         db = get_db()
         clause, params = _activity_where(date_from, date_to, force)
         rides = query_db(
-            f'SELECT * FROM Activity {clause} ORDER BY startDateLocal ASC',
+            f'SELECT * FROM Ride {clause} ORDER BY startDateLocal ASC',
             params
         )
 
@@ -186,5 +186,5 @@ def count():
     date_to   = request.args.get('to', '')
     force     = request.args.get('force', '') == '1'
     clause, params = _activity_where(date_from, date_to, force)
-    row = query_db(f'SELECT COUNT(*) FROM Activity {clause}', params, one=True)
+    row = query_db(f'SELECT COUNT(*) FROM Ride {clause}', params, one=True)
     return jsonify({'count': row[0]})
