@@ -209,6 +209,11 @@ Headwind started as a cycling app and is becoming one for every sport. Today rid
 
 ## Social
 
+- [ ] **Connect a friend with a QR code.** Today a friend copies two things by hand: our address and a feed token (Friends → Add a Friend: `probe-url`, `probe-token`). Add "Show as QR code" when a token is made (`create_token` in `routes/friends.py`), with the address and the token in it, so the friend scans it and is connected.
+  - [ ] Make it one-time: the QR holds a short-lived invite code (e.g. 15 minutes, one use), not the feed token itself. The friend's instance exchanges it for the real token on first use, so a photo or screenshot of the QR is useless afterwards. Store only the invite's hash, as `FeedToken` does (`services/feed_tokens.py`).
+  - [ ] Two ways to scan: a "Scan QR code" button in Add a Friend (camera in the browser, via `BarcodeDetector` or a small JS decoder), and the phone app, which opens a `headwind://friend?u=…&c=…` link and asks the friend's own server to add us. Phone pairing already does the same with `headwind://pair` (`routes/phones.py`, `qrcode`).
+  - [ ] After scanning, carry on as now: probe the instance, pick the rider, name them, Add & Sync.
+
 - [ ] **Ride photos**, with EXIF location stripped.
 - [ ] **Peer-to-peer kudos and comments** between linked instances. (The existing `routes/kudos.py` is the AI coach, not social kudos.)
 - [ ] *Longer term:* **ActivityPub federation**, so Headwind can talk to the Fediverse, not only to other Headwinds.
