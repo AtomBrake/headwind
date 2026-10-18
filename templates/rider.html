@@ -219,15 +219,15 @@
 
 <!-- Recent rides -->
 {% if recent %}
-<div class="card">
-  <div class="card-title">Recent Rides</div>
+<div class="card" data-pick-list>
+  <div class="card-title" style="display:flex; align-items:center; gap:0.5rem;">Recent Rides
+    <button type="button" class="btn btn-secondary pick-toggle" data-pick-toggle>Select</button></div>
   <table style="width:100%;">
     <tbody>
       {% for a in recent %}
-      <tr class="ride-row" onclick="location.href='/rides/{{ a.id }}'">
+      <tr class="ride-row" data-pick="{{ a.id }}" onclick="if (!event.target.closest('a')) location.href='/rides/{{ a.id }}'">
         <td>
-          <span style="margin-right:0.4rem;">{{ a.sportType | sport_icon }}</span>
-          {{ a.name }}
+          <a href="/rides/{{ a.id }}" class="dash-link"><span style="margin-right:0.4rem;">{{ a.sportType | sport_icon }}</span>{{ a.name }}</a>
         </td>
         <td>{{ a.startDateLocal | fmt_date }}</td>
         <td>{{ a.distance | fmt_dist }}</td>
@@ -239,6 +239,7 @@
     </tbody>
   </table>
 </div>
+{% include '_bulk_bar.html' %}
 {% endif %}
 
 {% endblock %}

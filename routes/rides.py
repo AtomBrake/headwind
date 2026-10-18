@@ -340,33 +340,29 @@ def save_notes(rid):
     return ('', 204)
 
 
-@bp.route('/<rid>/gpx')
-def export_gpx(rid):
-    from datetime import datetime, timedelta
-    from flask import Response
-
-    activity = query_db('SELECT * FROM Activity WHERE id=?', [rid], one=True)
-    if not activity:
-        abort(404)
-
+def gpx_for(activity):
+    """(filename, GPX text) for a ride with a GPS track, or None. Point times are real UTC: the stored UTC start (startDate) when there is one,
+    else the local start converted (stamping the local time with a 'Z' put every summer ride an hour out, and a re-import beside its original)."""
+    from datetime import timedelta, timezone
+    from services.duplicates import instant
     streams = {}
     if activity['streams']:
         try:
             streams = json.loads(activity['streams'])
         except Exception:
             pass
-
     latlng     = (streams.get('latlng')    or {}).get('data') or []
     altitude   = (streams.get('altitude')  or {}).get('data') or []
     time_data  = (streams.get('time')      or {}).get('data') or []
-
     if not latlng:
-        abort(404)
-
-    try:
-        start_dt = datetime.fromisoformat(str(activity['startDateLocal'])[:19])
-    except Exception:
-        start_dt = datetime.utcnow()
+        return None
+    start_utc = activity['startDate'] if activity['startDate'] and str(activity['startDate']) != str(activity['startDateLocal']) else None
+    start_dt = (instant(start_utc + ('' if 'Z' in str(start_utc) or '+' in str(start_utc)[10:] else 'Z')) if start_utc
+                else instant(activity['startDateLocal']))
+    if start_dt is None:
+        from datetime import datetime
+        start_dt = datetime.now(timezone.utc)
+    start_dt = start_dt.astimezone(timezone.utc).replace(tzinfo=None)
 
     name_escaped = (activity['name'] or 'Ride').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
@@ -393,11 +389,18 @@ def export_gpx(rid):
     safe = re.sub(r'[^\w\s-]', '', activity['name'] or 'ride').strip().replace(' ', '_')
     filename = f"{str(activity['startDateLocal'])[:10]}_{safe}.gpx"
 
-    return Response(
-        '\n'.join(lines),
-        mimetype='application/gpx+xml',
-        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
-    )
+    return filename, '\n'.join(lines)
+
+
+@bp.route('/<rid>/gpx')
+def export_gpx(rid):
+    from flask import Response
+    activity = query_db('SELECT * FROM Activity WHERE id=?', [rid], one=True)
+    out = gpx_for(activity) if activity else None
+    if not out:
+        abort(404)
+    filename, text = out
+    return Response(text, mimetype='application/gpx+xml', headers={'Content-Disposition': f'attachment; filename="{filename}"'})
 
 
 @bp.route('/<rid>/delete', methods=['POST'])
@@ -410,6 +413,93 @@ def delete(rid):
     from services.ingest import after_ride_removed
     after_ride_removed()
     return redirect(url_for('dashboard.dashboard'))
+
+
+def _bulk_ids():
+    ids = request.form.getlist('id') or [i for i in (request.form.get('ids') or '').split(',') if i]
+    return [i.strip() for i in ids if i.strip()]
+
+
+def _safe_back(default='/dashboard'):
+    back = request.form.get('back') or default
+    return back if back.startswith('/') and not back.startswith('//') else default
+
+
+@bp.route('/bulk', methods=['POST'])
+def bulk():
+    """An action on activities picked on a list (services/bulk.py). Reports what happened with a flash message and goes back to the list."""
+    from flask import flash
+    from services import bulk as _bulk
+    action = request.form.get('action')
+    ids = _bulk_ids()
+    back = _safe_back()
+    if not ids:
+        return redirect(back)
+    to_int = lambda v: int(v) if (v or '').isdigit() else None
+    db = get_db()
+    try:
+        res = _bulk.apply(db, action, ids, sport=request.form.get('sport'), bike_id=to_int(request.form.get('bike')),
+                          rider_id=to_int(request.form.get('rider')), name=request.form.get('name'))
+    except ValueError as e:
+        db.rollback()
+        flash(str(e), 'error')
+        return redirect(back)
+    db.commit()
+    try:                                                # once for the whole batch, not per activity
+        from services.mqtt import push_update, push_update_nutrition
+        if 'ride' in res['kinds'] or action == 'delete':
+            push_update(background=True)
+        if 'workout' in res['kinds']:
+            push_update_nutrition()
+    except Exception:
+        pass
+    verb = {'delete': 'Deleted', 'sport': 'Changed the type of', 'bike': 'Set the bike on', 'rider': 'Moved',
+            'rename': 'Renamed', 'dismiss': 'Cleared the flag on'}[action]
+    n = res['done']
+    msg = f"{verb} {n} activit{'y' if n == 1 else 'ies'}."
+    if res['skipped']:
+        msg += f" {res['skipped']} could not be changed" + (' (only rides have a bike or a flag)' if action in ('bike', 'dismiss') else '') + '.'
+    flash(msg, 'success')
+    return redirect(back)
+
+
+@bp.route('/bulk/options')
+def bulk_options():
+    """What the selection bar's pickers offer: this instance's riders, and each one's bikes."""
+    from flask import jsonify
+    from services import bulk as _bulk, convert, gear
+    db = get_db()
+    riders = [dict(r) for r in _bulk.own_riders(db)]
+    for r in riders:
+        r['bikes'] = [{'id': b['id'], 'name': b['name']} for b in gear.list_bikes(db, r['id'])]
+    return jsonify({'riders': riders, 'sports': [{'value': s, 'label': 'Indoor ride' if s == 'VirtualRide' else s} for s in convert.SPORTS]})
+
+
+@bp.route('/bulk/download', methods=['POST'])
+def bulk_download():
+    """The picked rides that have a GPS track, as one zip of GPX files."""
+    import io
+    import zipfile
+    from flask import Response
+    ids = _bulk_ids()[:5000]
+    buf, names = io.BytesIO(), set()
+    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+        for act_id in ids:
+            a = query_db('SELECT * FROM Activity WHERE id=?', [act_id], one=True) or _workout_as_activity(act_id)
+            out = gpx_for(a) if a else None
+            if not out:
+                continue
+            fname, text = out
+            stem, n = fname[:-4], 2
+            while fname in names:                       # two rides on one day with the same name
+                fname, n = f'{stem}_{n}.gpx', n + 1
+            names.add(fname)
+            z.writestr(fname, text)
+    if not names:
+        from flask import flash
+        flash('None of those have a GPS track to download.', 'error')
+        return redirect(_safe_back())
+    return Response(buf.getvalue(), mimetype='application/zip', headers={'Content-Disposition': 'attachment; filename="headwind-activities.zip"'})
 
 
 @bp.route('/flagged/delete-blips', methods=['POST'])
@@ -474,25 +564,6 @@ def bulk_sport():
     return redirect(back + sep + 'typed=' + quote(f'{changed}|{skipped}|{sport}'))
 
 
-@bp.route('/<rid>/duplicate/<dup_id>/<action>', methods=['POST'])
-def resolve_duplicate(rid, dup_id, action):
-    """The same ride recorded twice: use the other recording, keep both as separate rides, or discard the other one."""
-    from services import duplicates
-    db = get_db()
-    d = db.execute("SELECT primaryId FROM ActivityDuplicate WHERE id=? AND status='parked'", [dup_id]).fetchone()
-    if not d or str(d['primaryId']) != str(rid):
-        abort(404)
-    new_main = rid
-    if action == 'swap':
-        new_main = duplicates.swap(db, dup_id) or rid
-    elif action == 'keep':
-        duplicates.keep_both(db, dup_id)
-    elif action == 'discard':
-        duplicates.discard(db, dup_id)
-    else:
-        abort(400)
-    db.commit()
-    return redirect(url_for('rides.detail', rid=new_main))
 _DUP_SERIES = (('heartrate', 'Heart rate', 'bpm'), ('watts', 'Power', 'W'), ('cadence', 'Cadence', 'rpm'),
                ('velocity_smooth', 'Speed', None), ('altitude', 'Elevation', None))
 
@@ -552,3 +623,22 @@ def view_duplicate(rid, dup_id=None):
                            colours=['#fc4c02', '#3b82f6'][-len(recs):], series_meta=_DUP_SERIES)
 
 
+@bp.route('/<rid>/duplicate/<dup_id>/<action>', methods=['POST'])
+def resolve_duplicate(rid, dup_id, action):
+    """The same ride recorded twice: use the other recording, keep both as separate rides, or discard the other one."""
+    from services import duplicates
+    db = get_db()
+    d = db.execute("SELECT primaryId FROM ActivityDuplicate WHERE id=? AND status='parked'", [dup_id]).fetchone()
+    if not d or str(d['primaryId']) != str(rid):
+        abort(404)
+    new_main = rid
+    if action == 'swap':
+        new_main = duplicates.swap(db, dup_id) or rid
+    elif action == 'keep':
+        duplicates.keep_both(db, dup_id)
+    elif action == 'discard':
+        duplicates.discard(db, dup_id)
+    else:
+        abort(400)
+    db.commit()
+    return redirect(url_for('rides.detail', rid=new_main))
