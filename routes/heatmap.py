@@ -1,24 +1,25 @@
-import json
 
 import requests as _requests
-from flask import Blueprint, Response, abort, jsonify, render_template, request
-from database import query_db
+from flask import Blueprint, Response, abort, render_template, request
+from database import get_db, query_db
+from services import tracks as _tracks
 
 bp = Blueprint('heatmap', __name__)
 
-_SAMPLE     = 50   # points per activity for the live map
-_SAMPLE_HD  = 250  # points per activity for HD export
+# The lines drawn are worked out once per activity (services/tracks.py: SAMPLE points for the live map, SAMPLE_HD for the HD export), not from
+# every ride's streams on each request.
+_WITH_LINE = 'FROM Ride a JOIN ActivityTrack t ON t.activityId = a.id WHERE t.line IS NOT NULL'
 
 
 @bp.route('/heatmap')
 def index():
+    _tracks.fill(get_db())                     # anything new since start-up
     bounds = query_db(
-        "SELECT MIN(date(startDateLocal)) as min_d, MAX(date(startDateLocal)) as max_d "
-        "FROM Ride WHERE streams IS NOT NULL AND streams != ''",
+        f"SELECT MIN(date(a.startDateLocal)) as min_d, MAX(date(a.startDateLocal)) as max_d {_WITH_LINE}",
         one=True
     )
     sport_types = query_db(
-        'SELECT DISTINCT sportType FROM Ride WHERE sportType IS NOT NULL AND streams IS NOT NULL AND streams != "" ORDER BY sportType'
+        f'SELECT DISTINCT a.sportType {_WITH_LINE} AND a.sportType IS NOT NULL ORDER BY a.sportType'
     )
     return render_template('heatmap.html',
                            min_date=bounds['min_d'] or '',
@@ -77,39 +78,24 @@ def data():
     to_date   = request.args.get('to', '')
     sport     = request.args.get('sport', '').strip()
 
-    where = "WHERE streams IS NOT NULL AND streams != ''"
+    hd = request.args.get('hd') == '1'
+    col = 't.lineHd' if hd else 't.line'
+    where = f"WHERE {col} IS NOT NULL"
     params = []
     if from_date and to_date:
-        where += " AND date(startDateLocal) BETWEEN ? AND ?"
+        where += " AND date(a.startDateLocal) BETWEEN ? AND ?"
         params.extend([from_date, to_date])
     elif from_date:
-        where += " AND date(startDateLocal) >= ?"
+        where += " AND date(a.startDateLocal) >= ?"
         params.append(from_date)
     elif to_date:
-        where += " AND date(startDateLocal) <= ?"
+        where += " AND date(a.startDateLocal) <= ?"
         params.append(to_date)
     if sport:
-        where += " AND lower(sportType) LIKE ?"
+        where += " AND lower(a.sportType) LIKE ?"
         params.append(f'%{sport.lower()}%')
 
-    rows = query_db(f"SELECT streams FROM Ride {where}", params)
-
-    hd     = request.args.get('hd') == '1'
-    sample = _SAMPLE_HD if hd else _SAMPLE
-    places = 5 if hd else 4
-
-    tracks = []
-    for row in rows:
-        try:
-            s = json.loads(row['streams'])
-            latlng = (s.get('latlng') or {}).get('data') or []
-            if len(latlng) < 2:
-                continue
-            step = max(1, len(latlng) // sample)
-            pts = [[round(p[0], places), round(p[1], places)] for p in latlng[::step]]
-            if len(pts) >= 2:
-                tracks.append(pts)
-        except Exception:
-            pass
-
-    return jsonify({'tracks': tracks, 'count': len(tracks)})
+    _tracks.fill(get_db())                     # anything new since start-up
+    lines = [r[0] for r in query_db(f"SELECT {col} FROM Ride a JOIN ActivityTrack t ON t.activityId = a.id {where}", params)]
+    # Each line is stored as JSON already: joined as they are, rather than parsed and written out again.
+    return Response('{"count":%d,"tracks":[%s]}' % (len(lines), ','.join(lines)), mimetype='application/json')

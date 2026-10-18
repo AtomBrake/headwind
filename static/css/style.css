@@ -461,6 +461,7 @@ details[open] > .tree-month-summary::before { transform: rotate(90deg); }
 .tree-month { padding-left: 0.5rem; }
 
 .tree-day { padding-left: 1rem; margin-bottom: 0.25rem; }
+.tree-days-pending { padding: 0.35rem 1rem; font-size: 0.8125rem; color: var(--text-muted); }
 
 .tree-day-header {
   display: flex;

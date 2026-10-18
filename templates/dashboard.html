@@ -382,47 +382,8 @@ function dismissFlagged(id) {
           <a class="tree-list-link" href="{{ list_url(mo.from, mo.to) }}" title="List every activity in {{ mo.name }} {{ yr.year }}">List</a>
         </summary>
 
-        {% for day in mo.days %}
-        <div class="tree-day">
-          <div class="tree-day-header">
-            <a href="{{ list_url(day.from, day.from) }}" class="dash-link">{{ day.label }}</a>
-            <span class="tree-meta">{{ day.count }} activit{% if day.count != 1 %}ies{% else %}y{% endif %} &middot; {{ day.dist | fmt_dist if sf.group else day.secs | fmt_duration }}</span>
-          </div>
-          <div>
-              {% for a in day.activities %}
-              <a href="/rides/{{ a.id }}" class="dash-link" data-pick="{{ a.id }}"
-                   style="display:flex; align-items:center; gap:0.75rem; padding:0.55rem 0.25rem;
-                          border-bottom:1px solid rgba(22,51,82,0.4); cursor:pointer;
-                          transition:background 0.1s;"
-                   onmouseover="this.style.background='rgba(255,255,255,0.025)'"
-                   onmouseout="this.style.background=''">
-                <div style="flex:1; min-width:0;">
-                  <div style="font-size:0.9375rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                    {{ a.sportType | sport_icon }} {{ a.name }}
-                    {% if a.aiKudos %}<span style="font-size:0.7rem; color:var(--accent); margin-left:0.3rem; font-weight:400;">AI</span>{% endif %}
-                    {% if a.sportType == 'Run' %}<span style="font-size:0.65rem; color:#a78bfa; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">RUN</span>{% endif %}{% if a.id.startswith('garmin_') %}<span style="font-size:0.65rem; color:#5bb8d4; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">GARMIN</span>{% elif a.id.startswith('imp_') %}<span style="font-size:0.65rem; color:#c9a84c; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">IMPORT</span>{% endif %}
-                  </div>
-                  <div style="font-size:0.775rem; color:var(--text-muted); margin-top:0.15rem; font-variant-numeric:tabular-nums;">
-                    <span style="color:var(--text);">{{ a.distance | fmt_dist }}</span>
-                    &nbsp;·&nbsp;{{ a.movingTime | fmt_duration }}
-                    &nbsp;·&nbsp;{{ a.averageSpeed | fmt_rate(a.sportType) }}
-                    {% if a.totalElevationGain %}&nbsp;·&nbsp;{{ a.totalElevationGain | fmt_elev }}{% endif %}
-                  </div>
-                </div>
-                {% if a.riderName %}
-                <div style="flex-shrink:0;">
-                  {% if a.riderAvatar %}
-                    <img src="{{ url_for('static', filename='avatars/' + a.riderAvatar) }}" class="rider-avatar" alt="{{ a.riderName }}" title="{{ a.riderName }}" data-rider-id="{{ a.riderId }}" style="width:24px;height:24px;cursor:pointer;">
-                  {% else %}
-                    <span class="rider-initial" title="{{ a.riderName }}" style="width:24px;height:24px;font-size:0.6875rem;">{{ a.riderName[0] | upper }}</span>
-                  {% endif %}
-                </div>
-                {% endif %}
-              </a>
-              {% endfor %}
-          </div>
-        </div>
-        {% endfor %}
+        {% if mo.is_current %}{% with days = mo.days %}{% include '_history_days.html' %}{% endwith %}
+        {% else %}<div class="tree-days-pending" data-history-from="{{ mo.from }}" data-history-to="{{ mo.to }}"></div>{% endif %}
 
       </details>
       {% endfor %}
@@ -448,6 +409,28 @@ function dismissFlagged(id) {
   var el = document.getElementById('greetingText');
   if (el) el.textContent = word + ', {{ (active_rider.name if active_rider else "rider") | replace("'", "") }}';
 })();
+
+// The history tree carries only the open month's activities; any other month's are fetched the first time it is opened (routes/dashboard.history).
+document.addEventListener('toggle', function (e) {
+  var det = e.target;
+  if (!det.open || !det.classList || !det.classList.contains('tree-month')) return;
+  var slot = det.querySelector(':scope > .tree-days-pending');
+  if (!slot || slot.dataset.loading) return;
+  slot.dataset.loading = '1';
+  slot.textContent = 'Loading…';
+  var q = (riderQuery ? riderQuery + '&' : '') + 'from=' + slot.dataset.historyFrom + '&to=' + slot.dataset.historyTo;
+  fetch('/dashboard/history?' + q).then(function (r) {
+    if (!r.ok) throw new Error(r.status);
+    return r.text();
+  }).then(function (html) {
+    slot.insertAdjacentHTML('beforebegin', html);
+    slot.remove();
+    document.dispatchEvent(new Event('pick-list-changed'));   // static/js/bulk.js marks rows already picked
+  }).catch(function () {
+    delete slot.dataset.loading;
+    slot.textContent = 'Could not load this month. Close it and open it again to retry, or use List.';
+  });
+}, true);
 
 const weeklyData   = {{ weekly | tojson }};
 const yearSpeedData = {{ year_speed | tojson }};

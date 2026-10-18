@@ -1,3 +1,4 @@
+import logging
 import os
 import sqlite3
 from flask import current_app, g
@@ -42,6 +43,91 @@ def _drop_merge_leftovers(db):
     for kind, name in left:                             # looked up first, so a start-up with nothing to drop writes nothing
         db.execute(f'DROP {kind.upper()} "{name}"')
     return [name for kind, name in left if kind == 'table']
+
+
+# Columns that can hold most of a megabyte, kept at the end of their table. SQLite stores a large row as a chain of overflow pages and reads its
+# columns in order, so reading any column that comes after a large one means reading the whole chain: `source` or `bikeId` for every activity read
+# every activity's GPS streams. A column added later with ALTER TABLE lands after these, and the next start moves it in front (heavy_last).
+HEAVY_COLUMNS = {
+    'Activity':    ['summaryPolyline', 'description', 'notes', 'aiKudos', 'rawData', 'streams'],
+    'GarminDaily': ['hrStream', 'bodyBatteryStream'],
+}
+_HEAVY_BATCH = 50       # rows moved per commit: a big activity's streams are ~1 MB
+
+
+def _coldef(col, fks, one_pk):
+    _, name, typ, notnull, dflt, pk = col
+    s = f'"{name}" {typ}'.rstrip()
+    if pk and one_pk:
+        s += ' PRIMARY KEY'
+    if notnull:
+        s += ' NOT NULL'
+    if dflt is not None:
+        s += f' DEFAULT ({dflt})'
+    if name in fks:
+        s += f' REFERENCES {fks[name][0]}({fks[name][1]})'
+    return s
+
+
+def heavy_last(db, table, heavy):
+    """Rebuild `table` with the `heavy` columns (in that order) after every other one, when they aren't already. Rows move to <table>_new
+    _HEAVY_BATCH at a time, each batch one commit (the copy and the delete together), so a start-up stopped halfway carries on from there next
+    time and the file never holds two copies: the pages a batch frees take the next one. The swap at the end (drop the empty old table, rename,
+    indexes, triggers, the views over it) is one transaction. Returns the rows moved, or None when nothing needed doing. Commits."""
+    new = f'{table}_new'
+    cols = db.execute(f'PRAGMA table_info({table})').fetchall()
+    if not cols:
+        return None
+    names = [c[1] for c in cols]
+    heavy = [h for h in heavy if h in names]
+    resuming = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", [new]).fetchone()
+    if not resuming and names[len(names) - len(heavy):] == heavy:
+        return None
+    if not resuming:
+        fks = {r[3]: (r[2], r[4]) for r in db.execute(f'PRAGMA foreign_key_list({table})')}
+        order = [c for c in cols if c[1] not in heavy] + [c for h in heavy for c in cols if c[1] == h]
+        pk = [c[1] for c in sorted((c for c in cols if c[5]), key=lambda c: c[5])]
+        defs = [_coldef(c, fks, len(pk) == 1) for c in order] + ([f"PRIMARY KEY ({', '.join(pk)})"] if len(pk) > 1 else [])
+        db.execute(f"CREATE TABLE {new} ({', '.join(defs)})")
+        db.commit()
+    keep = [c[1] for c in db.execute(f'PRAGMA table_info({new})').fetchall()]
+    keep = ', '.join(f'"{c}"' for c in keep if c in names)
+    # Triggers on the old table would fire on every row moved (services/tracks.py drops a track summary on delete); its ensure_schema makes them
+    # again on the new table. Kept with the indexes and views, put back at the swap.
+    triggers = db.execute("SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=?", [table]).fetchall()
+    for name, _ in triggers:
+        db.execute(f'DROP TRIGGER "{name}"')
+    db.commit()
+    log = logging.getLogger(__name__)
+    moved, total = 0, db.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+    while True:
+        ids = [r[0] for r in db.execute(f'SELECT rowid FROM {table} ORDER BY rowid LIMIT ?', [_HEAVY_BATCH])]
+        if not ids:
+            break
+        marks = ','.join('?' * len(ids))
+        db.execute(f'INSERT INTO {new} (rowid, {keep}) SELECT rowid, {keep} FROM {table} WHERE rowid IN ({marks})', ids)
+        db.execute(f'DELETE FROM {table} WHERE rowid IN ({marks})', ids)
+        db.commit()
+        moved += len(ids)
+        if moved % (_HEAVY_BATCH * 20) < _HEAVY_BATCH:
+            log.warning('%s: large columns moved to the end of the row, %d of %d rows', table, moved, total)
+    others = db.execute("SELECT type, name, sql FROM sqlite_master WHERE type IN ('index', 'trigger') AND tbl_name=? AND sql IS NOT NULL",
+                        [table]).fetchall()
+    views = db.execute("SELECT name, sql FROM sqlite_master WHERE type='view'").fetchall()   # any of them can read the table
+    db.execute('BEGIN IMMEDIATE')
+    for name, _ in views:
+        db.execute(f'DROP VIEW "{name}"')
+    db.execute(f'DROP TABLE {table}')
+    db.execute(f'ALTER TABLE {new} RENAME TO {table}')
+    for _, _, sql in others:
+        db.execute(sql)
+    for _, sql in triggers:
+        db.execute(sql)
+    for _, sql in views:
+        db.execute(sql)
+    db.commit()
+    db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+    return moved
 
 
 def migrate_db():
@@ -609,6 +695,11 @@ def migrate_db():
             db.execute(f'DROP VIEW IF EXISTS {name}')
             db.execute(sql)
     db.execute('CREATE INDEX IF NOT EXISTS idx_activity_rider_date ON Activity(riderId, startDateLocal)')
+    # SegmentEffort's own index starts with segmentId, so an activity's efforts (re-matching or deleting it, its page) scanned the whole table;
+    # the food and water logs are read by rider and day and had no index at all.
+    db.execute('CREATE INDEX IF NOT EXISTS idx_effort_activity ON SegmentEffort(activityId)')
+    db.execute('CREATE INDEX IF NOT EXISTS idx_foodlog_rider_date ON FoodLog(riderId, logDate)')
+    db.execute('CREATE INDEX IF NOT EXISTS idx_hydration_rider_date ON HydrationLog(riderId, logDate)')
     # Phone sensor recordings kept beside rides (see services/sensors.py): one row per recording, attached to the overlapping ride by time.
     db.execute('''
         CREATE TABLE IF NOT EXISTS RideSensor (
@@ -642,6 +733,13 @@ def migrate_db():
     _dup_schema(db)
     from services.gear import ensure_schema as _gear_schema
     _gear_schema(db)
+    db.commit()
+    # Every Activity column is there now: put the large ones last (heavy_last), then the track summaries and their triggers (services/tracks.py).
+    rebuilt = {t: heavy_last(db, t, cols) for t, cols in HEAVY_COLUMNS.items()}
+    from services.tracks import ensure_schema as _tracks_schema
+    _tracks_schema(db)
+    from services.data_version import ensure_schema as _data_version_schema
+    _data_version_schema(db)
     from services.feed_tokens import ensure_schema as _feed_tokens_schema
     _feed_tokens_schema(db)
 
@@ -726,6 +824,11 @@ def migrate_db():
     _tasks.ensure_schema(db)
     _tasks.close_orphans(db)
     db.commit()
+    if rebuilt.get('Activity'):
+        _tasks.record(db, 'startup:heavy_last', 'Activities stored for faster pages',
+                      f"{rebuilt['Activity']:,} activit{'y' if rebuilt['Activity'] == 1 else 'ies'} rewritten with their GPS data at the end of the row, "
+                      "so lists and totals no longer read it")
+        db.commit()
 
     # ── Backfill corrupted distance data (mm vs m) ──────────────────
     settings = db.execute("SELECT distanceBackfillDone FROM Settings WHERE id=1").fetchone()
@@ -816,6 +919,11 @@ def get_db():
         )
         g.db.row_factory = sqlite3.Row
         g.db.execute('PRAGMA journal_mode = WAL')
+        # With WAL, NORMAL can't corrupt the database: a power cut can only lose the last commits, and it saves an fsync per commit (slow on
+        # an SD card). The sorts behind the badges and leaderboards use temporary tables, kept in memory; 8 MB of page cache per connection.
+        g.db.execute('PRAGMA synchronous = NORMAL')
+        g.db.execute('PRAGMA temp_store = MEMORY')
+        g.db.execute('PRAGMA cache_size = -8000')
     return g.db
 
 
