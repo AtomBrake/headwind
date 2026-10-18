@@ -296,6 +296,15 @@ textarea {
   transition: border-color 0.12s, box-shadow 0.12s;
 }
 
+::placeholder { color: var(--text-muted); opacity: 1; }   /* a placeholder must not read as a value already typed */
+/* Safari shows today's date in an empty date field (app.js marks them), and colours each part on its own */
+input[type="date"].is-empty,
+input[type="date"].is-empty::-webkit-datetime-edit,
+input[type="date"].is-empty::-webkit-datetime-edit-day-field,
+input[type="date"].is-empty::-webkit-datetime-edit-month-field,
+input[type="date"].is-empty::-webkit-datetime-edit-year-field,
+input[type="date"].is-empty::-webkit-datetime-edit-text { color: var(--text-muted); opacity: 0.7; }
+
 /* Safari draws a native <select> that ignores padding, so it came out shorter than the inputs beside it. Draw our own, with a chevron. */
 select {
   -webkit-appearance: none;
