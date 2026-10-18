@@ -84,10 +84,10 @@ def db(tmp_path):
         yield d
 
 
-def _add(db, rid, local, dist=33000, hr=None, notes=None, streams=None):
+def _add(db, rid, local, dist=33000, hr=None, notes=None, streams=None, name=None):
     db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,totalElevationGain,averageSpeed,maxSpeed,"
                "averageHeartrate,notes,streams,riderId,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,'n','n')",
-               [rid, rid, 'Ride', 'Ride', local, local, dist, 6500, 6600, 0, 5, 9, hr, notes, streams])
+               [rid, name or rid, 'Ride', 'Ride', local, local, dist, 6500, 6600, 0, 5, 9, hr, notes, streams])
     db.commit()
 
 
@@ -103,6 +103,30 @@ def test_resolve_parks_the_loser_and_keeps_notes(db):
     assert _live(db) == ['garmin_1']
     assert db.execute("SELECT notes FROM Activity WHERE id='garmin_1'").fetchone()[0] == 'felt great'      # nothing the user typed is lost
     assert dup.exists_anywhere(db, 'imp_phone') and not dup.find_duplicates(db, db.execute("SELECT * FROM Activity WHERE id='garmin_1'").fetchone())
+
+
+@pytest.mark.parametrize('name', ['Morning Ride', 'Lunch Weight Training', 'evening  walk', 'London Cycling', 'Royal Tunbridge Wells Road Cycling',
+                                  'Indoor Rowing', 'Walking', 'Garmin Activity', 'Ride Activity', 'Imported Ride', 'Ride', '', None])
+def test_made_up_names(name):
+    assert dup.default_name(name)
+
+
+@pytest.mark.parametrize('name', ['Box Hill loop', 'Morning ride with Dave', 'Commute', 'Tour of the Peaks', 'Ride to the coast'])
+def test_names_someone_chose(name):
+    assert not dup.default_name(name)
+
+
+@pytest.mark.parametrize('garmin, phone, kept', [
+    ('London Cycling', 'Box Hill loop', 'Box Hill loop'),       # the only name someone chose wins, whichever recording is kept
+    ('Club run', 'Morning Ride', 'Club run'),                   # the kept one's own chosen name stays
+    ('Sunday spin', 'Box Hill loop', 'Sunday spin'),            # both chosen: the kept recording's
+    ('London Cycling', 'Morning Ride', 'London Cycling'),       # both made up: the kept recording's
+])
+def test_merging_keeps_a_name_someone_chose(db, garmin, phone, kept):
+    _add(db, 'imp_phone', '2026-10-05T10:29:38+00:00', name=phone)
+    _add(db, 'garmin_1', '2026-10-05T11:30:53', hr=140, name=garmin)
+    assert dup.resolve(db, 'garmin_1')['kept'] == 'garmin_1'; db.commit()
+    assert db.execute("SELECT name FROM Activity WHERE id='garmin_1'").fetchone()[0] == kept
 
 
 def test_a_later_worse_copy_is_parked_instead_of_added(db):

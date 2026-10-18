@@ -92,6 +92,33 @@ def same_ride(a, b):
     return overlap >= OVERLAP_MIN * shorter
 
 
+# Names nobody chose: what Strava ("Morning Ride", "Lunch Weight Training"), Garmin ("London Cycling", "Indoor Rowing") and the importers
+# ("Imported Ride", "Ride Activity", "Garmin Activity") give an activity on their own, and Headwind's own "Morning walk" label.
+_PARTS_OF_DAY = {'morning', 'lunch', 'afternoon', 'evening', 'night'}
+_STRAVA_SPORTS = {'ride', 'run', 'walk', 'hike', 'swim', 'workout', 'training', 'yoga', 'pilates', 'row', 'ski', 'skate', 'paddling', 'climbing',
+                  'stepper', 'stair-stepper', 'elliptical', 'kayaking', 'canoeing', 'surfing', 'golf', 'crossfit', 'activity'}
+_GARMIN_SPORTS = {'cycling', 'biking', 'e-bike', 'running', 'walking', 'hiking', 'swimming', 'strength', 'cardio', 'yoga', 'pilates', 'rowing',
+                  'elliptical', 'stepper', 'hiit', 'breathwork', 'multisport', 'kayaking', 'paddling', 'climbing', 'skiing', 'snowboarding', 'training',
+                  'activity'}
+_BARE_SPORTS = {'ride', 'run', 'walk', 'hike', 'swim', 'workout', 'virtualride', 'new ride', 'imported ride'}
+
+
+def default_name(name):
+    """True if an activity's name is one a device, a service or an importer made up, not one the user chose."""
+    n = ' '.join(str(name or '').lower().split())
+    if not n or n in _BARE_SPORTS:
+        return True
+    words = n.split(' ')
+    if words[0] in _PARTS_OF_DAY and 2 <= len(words) <= 5 and words[-1] in _STRAVA_SPORTS:
+        return True
+    return len(words) <= 5 and words[-1] in _GARMIN_SPORTS          # "<where> <sport>", or the sport alone
+
+
+def _name_rank(name):
+    """2 = a name someone chose, 1 = a made-up one, 0 = none at all."""
+    return 0 if not str(name or '').strip() else (1 if default_name(name) else 2)
+
+
 def source_label(row):
     return 'Garmin' if str(row['id']).startswith('garmin_') else ('Manual entry' if str(row['id']).startswith('man_') else 'Phone or file')
 
@@ -197,6 +224,8 @@ def park(db, loser_id, primary_id, reason):
         for col in ('notes', 'description') + (('bikeId',) if is_ride(winner['sportType']) else ()):
             if col in row.keys() and row[col] and not winner[col]:
                 db.execute(f'UPDATE Activity SET {col}=? WHERE id=?', [row[col], primary_id])
+        if _name_rank(row['name']) > _name_rank(winner['name']):     # "Box Hill loop" on the phone copy beats Garmin's "London Cycling"
+            db.execute('UPDATE Activity SET name=? WHERE id=?', [row['name'], primary_id])
     db.execute('INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson) VALUES (?,?,?,?,?,?,?)',
                [loser_id, primary_id, row['riderId'], source_label(row), reason, 'parked', json.dumps(dict(row))])
     seg_ids = _drop_derived(db, loser_id)
