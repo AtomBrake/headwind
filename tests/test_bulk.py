@@ -112,6 +112,9 @@ def test_options_and_the_lists_offer_select_mode(client):
     d = client.get('/rides/bulk/options').get_json()
     assert [r['name'] for r in d['riders']] == ['Tom', 'Sam'] and d['riders'][0]['bikes'] == [{'id': 1, 'name': 'Road bike'}]
     assert {'value': 'VirtualRide', 'label': 'Indoor ride'} in d['sports']
-    for url, row in (('/dashboard', 'data-pick="r1"'), ('/workouts', 'data-pick="wk1"'), ('/riders/1', 'data-pick="r1"')):
+    for url, row in (('/dashboard', 'data-history-from="2026-07-01"'), ('/workouts', 'data-pick="wk1"'), ('/riders/1', 'data-pick="r1"')):
         html = client.get(url).get_data(as_text=True)
         assert 'data-pick-toggle' in html and row in html and 'id="bulkBar"' in html, url
+    # The dashboard draws only the open month; July's rows come from /dashboard/history when it is opened, ready to pick.
+    html = client.get('/dashboard/history?from=2026-07-01&to=2026-07-31').get_data(as_text=True)
+    assert 'data-pick="r1"' in html and 'data-pick="wk1"' in html

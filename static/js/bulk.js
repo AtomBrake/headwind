@@ -73,6 +73,7 @@
   document.addEventListener('keydown', function (e) {
     if (on && e.key === 'Escape') setMode(false);
   });
+  document.addEventListener('pick-list-changed', function () { render(); });   // rows added later (the dashboard's months, loaded when opened)
   document.querySelectorAll('[data-pick-toggle]').forEach(function (b) {
     b.addEventListener('click', function (e) { e.preventDefault(); setMode(!on); });
   });

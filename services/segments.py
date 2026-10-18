@@ -1,7 +1,9 @@
 import json
 import logging
+from functools import lru_cache
 from math import atan2, ceil, cos, isfinite, radians, sin, sqrt
 
+from services import tracks
 from services.sports import FAMILIES, class_of, ebike_sql, family_of, segment_family
 
 log = logging.getLogger(__name__)
@@ -13,6 +15,7 @@ MIN_SPEED_MPS = {'ride': 2.0, 'foot': 0.5}   # slower than this is a false match
 CLOSE_TOL_M = 75        # a ride counts as "on the shape" within this many metres (GPS drift, a different lane, a cycle path beside the road)
 CLOSE_COVER = 0.85      # share of the segment's length the ride must follow, in order, to count as a close (approximate) match
 CLOSE_DETOUR = 1.35     # the ride's own path over that stretch may be at most this much longer than the segment (no loops / wandering)
+_BATCH = 50             # activities whose streams are read at a time in a full scan (~1 MB each)
 
 
 def seg_sport(seg):
@@ -43,6 +46,91 @@ def _haversine(lat1, lon1, lat2, lon2):
     dp, dl  = radians(lat2 - lat1), radians(lon2 - lon1)
     a = sin(dp / 2) ** 2 + cos(p1) * cos(p2) * sin(dl / 2) ** 2
     return 2 * R * atan2(sqrt(a), sqrt(1 - a))
+
+
+_M_PER_DEG = 6_371_000 * 3.141592653589793 / 180       # a degree of latitude, on _haversine's sphere
+
+
+def _window(lat, lng, tol_m):
+    """(lat, lng, d_lat, d_lng): a point further than d_lat degrees of latitude or d_lng of longitude from (lat, lng) is more than tol_m metres
+    from it by _haversine, so the matchers skip the haversine for it. Exact, not an approximation: the great-circle distance is at least the
+    latitude difference, and at least the longitude difference times the cosine of the larger latitude (the 0.99 covers rounding)."""
+    d_lat = tol_m / _M_PER_DEG
+    c = cos(radians(min(89.9, abs(lat) + d_lat)))
+    return lat, lng, d_lat, tol_m / (_M_PER_DEG * c * 0.99)
+
+
+def _near(win, lat, lng, tol_m):
+    """The distance from the window's point to (lat, lng) when it is within tol_m, else None."""
+    la, ln, d_lat, d_lng = win
+    if abs(lat - la) >= d_lat or abs(lng - ln) >= d_lng:
+        return None
+    d = _haversine(lat, lng, la, ln)
+    return d if d < tol_m else None
+
+
+def _parsed(streams):
+    """An activity's streams as a dict, from JSON text or already parsed, so a scan parses each activity once. {} when it doesn't parse."""
+    if isinstance(streams, dict):
+        return streams
+    try:
+        out = json.loads(streams or '{}')
+    except Exception:
+        return {}
+    return out if isinstance(out, dict) else {}
+
+
+@lru_cache(maxsize=4096)
+def _poly(polyline_json):
+    """A segment's stored shape, parsed once however many activities it is matched against. Read-only: the list is shared."""
+    try:
+        pts = json.loads(polyline_json) if polyline_json else []
+    except Exception:
+        return []
+    return pts if isinstance(pts, list) else []
+
+
+@lru_cache(maxsize=4096)
+def _seg_reach(start_lat, start_lng, end_lat, end_lng, polyline_json):
+    raw = _poly(polyline_json)
+    poly = [p[:2] for p in raw if isinstance(p, list) and len(p) >= 2]
+    if len(poly) != len(raw):                           # a shape with a bad point: don't skip anything on its account
+        return None, None, None
+    try:
+        start, end = (float(start_lat), float(start_lng)), (float(end_lat), float(end_lng))
+        poly = [(float(a), float(b)) for a, b in poly]
+        box = tracks.box_of([start, end] + poly, CLOSE_TOL_M)
+        head, tail = [start], [end]
+        if len(poly) >= 4:                              # match_segment_close needs a shape this long
+            shape, cum = _close_shape(poly)
+            length = cum[-1]
+            head += [q for q, c in zip(shape, cum) if not length or c <= (1 - CLOSE_COVER + 0.05) * length]
+            tail += [q for q, c in zip(shape, cum) if not length or c >= (CLOSE_COVER - 0.05) * length]
+        head, tail = tracks.cells_near(head), tracks.cells_near(tail)
+        return box, (frozenset(head) if head else None), (frozenset(tail) if tail else None)
+    except (TypeError, ValueError, IndexError):
+        return None, None, None
+
+
+def seg_reach(seg):
+    """(box, head, tail): where an activity's track must go to have any chance on this segment, by either matcher. Both need GPS points within
+    CLOSE_TOL_M (the larger tolerance) of the segment, near both of its ends: match_segment within TOLERANCE_M of the start and of the finish,
+    match_segment_close of shape samples in the first and the last 1 - CLOSE_COVER of its length (it must cover CLOSE_COVER of it). So the track's
+    box must overlap the segment's, widened by CLOSE_TOL_M, and its points must be in a cell next to one of `head` (around the start) and one
+    of `tail` (around the finish; services/tracks.cells_near). Any is None when the segment has no usable position, and then nothing is skipped
+    on its account."""
+    keys = seg.keys() if hasattr(seg, 'keys') else []
+    return _seg_reach(seg['startLat'], seg['startLng'], seg['endLat'], seg['endLng'], seg['polyline'] if 'polyline' in keys else None)
+
+
+def can_reach(box, cells, reach):
+    """Can a track with this box and these cells (a set, or None if unknown) be on the segment with this seg_reach? False only when it can't."""
+    sbox, head, tail = reach
+    if box and sbox and not tracks.overlaps(box, sbox):
+        return False
+    if cells is not None and head is not None and tail is not None and (head.isdisjoint(cells) or tail.isdisjoint(cells)):
+        return False
+    return True
 
 
 def valid_coord(lat, lng):
@@ -139,10 +227,7 @@ def recover_polyline(db, seg):
 
 def _sample_checkpoints(polyline_json, n=CHECKPOINT_N):
     """Return n evenly-spaced interior points from a segment polyline, skipping endpoints."""
-    try:
-        pts = json.loads(polyline_json) if polyline_json else []
-    except Exception:
-        pts = []
+    pts = _poly(polyline_json)
     if len(pts) < 4:
         return []
     interior = pts[1:-1]
@@ -153,7 +238,7 @@ def _sample_checkpoints(polyline_json, n=CHECKPOINT_N):
 def match_segment(activity_streams_json, seg):
     """
     Returns elapsed_secs (int) for the fastest valid effort on this segment,
-    or None if the activity never traverses it.
+    or None if the activity never traverses it. The streams are JSON text or already parsed (_parsed).
 
     Finds every entry into the start-zone (outside→inside TOLERANCE_M
     transition), tries each as a candidate start, then looks for the closest
@@ -163,11 +248,7 @@ def match_segment(activity_streams_json, seg):
       - Direction is enforced (end must follow start in the GPS stream)
       - Multiple laps of the same segment return the fastest lap
     """
-    try:
-        streams = json.loads(activity_streams_json or '{}')
-    except Exception:
-        return None
-
+    streams = _parsed(activity_streams_json)
     latlng = (streams.get('latlng') or {}).get('data') or []
     times  = (streams.get('time')   or {}).get('data') or []
 
@@ -178,7 +259,9 @@ def match_segment(activity_streams_json, seg):
     times  = times[:n]
 
     dist_m      = seg['distanceM'] or 0
-    checkpoints = _sample_checkpoints(seg['polyline']) if seg['polyline'] else []
+    checkpoints = [_window(cp[0], cp[1], CHECKPOINT_M) for cp in _sample_checkpoints(seg['polyline'])] if seg['polyline'] else []
+    start_win   = _window(seg['startLat'], seg['startLng'], TOLERANCE_M)
+    end_win     = _window(seg['endLat'], seg['endLng'], TOLERANCE_M)
     best_elapsed = None
 
     def _try_start(start_idx):
@@ -189,8 +272,8 @@ def match_segment(activity_streams_json, seg):
         in_end_zone = False
         end_idx, end_dist = None, float('inf')
         for j in range(start_idx + 1, len(latlng)):
-            d = _haversine(latlng[j][0], latlng[j][1], seg['endLat'], seg['endLng'])
-            if d < TOLERANCE_M:
+            d = _near(end_win, latlng[j][0], latlng[j][1], TOLERANCE_M)
+            if d is not None:
                 in_end_zone = True
                 if d < end_dist:
                     end_dist = d
@@ -220,10 +303,10 @@ def match_segment(activity_streams_json, seg):
         # where start ≈ end, so the endpoint check alone is not enough).
         if checkpoints:
             cp_cursor = start_idx
-            for cp_lat, cp_lng in checkpoints:
+            for cp in checkpoints:
                 hit = False
                 for j in range(cp_cursor + 1, end_idx):
-                    if _haversine(latlng[j][0], latlng[j][1], cp_lat, cp_lng) < CHECKPOINT_M:
+                    if _near(cp, latlng[j][0], latlng[j][1], CHECKPOINT_M) is not None:
                         cp_cursor = j
                         hit = True
                         break
@@ -239,8 +322,8 @@ def match_segment(activity_streams_json, seg):
     zone_best_d  = float('inf')
 
     for i, (lat, lng) in enumerate(latlng):
-        d = _haversine(lat, lng, seg['startLat'], seg['startLng'])
-        if d < TOLERANCE_M:
+        d = _near(start_win, lat, lng, TOLERANCE_M)
+        if d is not None:
             if not in_zone:
                 in_zone = True
             if d < zone_best_d:
@@ -260,6 +343,16 @@ def match_segment(activity_streams_json, seg):
     return best_elapsed
 
 
+def _close_shape(poly):
+    """The samples of a segment's shape match_segment_close follows (~120 is plenty for a 75 m margin), and the distance along them to each."""
+    step = max(1, len(poly) // 120)
+    shape = poly[::step] + ([poly[-1]] if (len(poly) - 1) % step else [])
+    cum = [0.0]
+    for a, b in zip(shape, shape[1:]):
+        cum.append(cum[-1] + _fast_m(a[0], a[1], b[0], b[1]))
+    return shape, cum
+
+
 def _fast_m(lat1, lng1, lat2, lng2):
     """Equirectangular distance in metres: ~0.1% off at these ranges and several times cheaper than haversine."""
     x = radians(lng2 - lng1) * cos(radians((lat1 + lat2) / 2))
@@ -275,13 +368,10 @@ def match_segment_close(activity_streams_json, seg):
     The ride must run along the stored shape in the right order, within CLOSE_TOL_M of it, for at least CLOSE_COVER of its
     length, without wandering (CLOSE_DETOUR) and at a believable speed. The time is the time over the part followed, scaled up
     to the whole segment, so it is an estimate: callers store it with approx=1 and never let it take a PR.
-    Segments with no stored shape cannot be matched this way.
+    Segments with no stored shape cannot be matched this way. The streams are JSON text or already parsed (_parsed).
     """
-    try:
-        poly = json.loads(seg['polyline']) if seg['polyline'] else []
-        streams = json.loads(activity_streams_json or '{}')
-    except Exception:
-        return None
+    poly = _poly(seg['polyline'])
+    streams = _parsed(activity_streams_json)
     if len(poly) < 4:
         return None
     ll = (streams.get('latlng') or {}).get('data') or []
@@ -292,19 +382,14 @@ def match_segment_close(activity_streams_json, seg):
     seg_len = float(seg['distanceM'] or 0) or _path_length_m(poly)
     if seg_len <= 0:
         return None
-    step = max(1, len(poly) // 120)                       # ~120 shape samples is plenty for a 75 m margin
-    shape = poly[::step] + ([poly[-1]] if (len(poly) - 1) % step else [])
-    cum = [0.0]
-    for a, b in zip(shape, shape[1:]):
-        cum.append(cum[-1] + _fast_m(a[0], a[1], b[0], b[1]))
+    shape, cum = _close_shape(poly)
     shape_len = cum[-1] or 1.0
     cell = 0.0015                                          # ~170 m grid: only ride points near the shape matter
-    grid = {(int(q[0] / cell), int(q[1] / cell)) for q in shape}
+    grid = {(int(q[0] / cell) + di, int(q[1] / cell) + dj) for q in shape for di in (-1, 0, 1) for dj in (-1, 0, 1)}   # each cell and its 8 neighbours
     near = []                                              # (ride index, lat, lng) in ride order
     for i in range(n):
         la, ln = ll[i][0], ll[i][1]
-        ci, cj = int(la / cell), int(ln / cell)
-        if any((ci + di, cj + dj) in grid for di in (-1, 0, 1) for dj in (-1, 0, 1)):
+        if (int(la / cell), int(ln / cell)) in grid:
             near.append((i, la, ln))
     if len(near) < 5:
         return None
@@ -356,19 +441,33 @@ def _refresh_prs(db, segment_id):
         db.execute('UPDATE SegmentEffort SET isPR=1 WHERE id=?', [eid])
 
 
-def scan_activity_against_segments(db, activity, segments):
-    """Scan one activity against a list of segments. Commits nothing."""
+def scan_activity_against_segments(db, activity, segments, track=None):
+    """Scan one activity against a list of segments. Commits nothing. The streams are parsed once, and a segment the track doesn't reach
+    (seg_reach) is skipped without looking at a single point. `track`: (box, cells) when the caller already has them (ActivityTrack)."""
     matched = 0
     fam = _activity_family(db, activity)
     if fam is None:                                     # an indoor ride, a swim, ...: no segments
         return 0
+    segments = [s for s in segments if seg_sport(s) == fam]    # rides (pedal and e-bike) only match ride segments, walks, runs and hikes foot ones
+    if not segments:
+        return 0
+    streams = _parsed(activity['streams'])
+    if track:
+        box, cells = track
+    else:
+        ll = (streams.get('latlng') or {}).get('data') or []
+        try:
+            box = tracks.box_of(ll)
+        except (TypeError, ValueError, IndexError):
+            box = None                                  # a bad point somewhere: no box, so nothing is skipped and the matchers decide as before
+        cells = tracks.cells_of(ll) if box and len(segments) > 1 else None   # for one segment, the box alone is cheaper than the cells
     for seg in segments:
-        if seg_sport(seg) != fam:                       # rides (pedal and e-bike) only match ride segments, walks, runs and hikes foot segments
+        if not can_reach(box, cells, seg_reach(seg)):
             continue
-        elapsed = match_segment(activity['streams'], seg)
+        elapsed = match_segment(streams, seg)
         approx = 0
         if elapsed is None:
-            close = match_segment_close(activity['streams'], seg)      # not perfectly on it, but clearly rode it
+            close = match_segment_close(streams, seg)                  # not perfectly on it, but clearly rode it
             if close is None:
                 continue
             elapsed, approx = close[0], 1
@@ -397,7 +496,10 @@ def scan_activity_against_segments(db, activity, segments):
 def scan_all_activities(db, segment_ids=None):
     """
     Scan every activity against all (or specific) segments.
-    Returns number of activities scanned.
+    Returns the number of activities with a GPS track (all of them were considered).
+
+    Only the activities whose track box (services/tracks.py) reaches one of the segments, and of a family that has segments among them, have their
+    streams read, _BATCH at a time: a new segment on a big history reads a few dozen rides, not all of them.
     """
     if segment_ids:
         placeholders = ','.join('?' * len(segment_ids))
@@ -416,20 +518,35 @@ def scan_all_activities(db, segment_ids=None):
     placeholders = ','.join('?' * len(seg_ids))
     db.execute(f'DELETE FROM SegmentEffort WHERE segmentId IN ({placeholders})', seg_ids)
 
-    activities = db.execute(                              # every sport: rides and runs alike are Activity rows
-        "SELECT id, startDateLocal, streams, sportType FROM Activity "
-        "WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')"
-    ).fetchall()
+    db.commit()
+    tracks.fill(db)                                       # every sport: rides and runs alike are Activity rows
+    by_fam = {}
+    for seg in segments:
+        by_fam.setdefault(seg_sport(seg), []).append(seg_reach(seg))
+    with_gps, todo = 0, {}
+    for r in db.execute('SELECT t.activityId, t.minLat, t.maxLat, t.minLng, t.maxLng, t.cells, a.sportType FROM ActivityTrack t '
+                        'JOIN Activity a ON a.id = t.activityId WHERE t.minLat IS NOT NULL').fetchall():
+        with_gps += 1
+        reaches = by_fam.get(segment_family(r['sportType']))
+        if not reaches:
+            continue
+        box = (r['minLat'], r['maxLat'], r['minLng'], r['maxLng'])
+        cells = set(r['cells'].split()) if r['cells'] else None
+        if any(can_reach(box, cells, reach) for reach in reaches):
+            todo[r['activityId']] = (box, cells)
 
-    for act in activities:
-        scan_activity_against_segments(db, act, segments)
+    ids_all = list(todo)
+    for i in range(0, len(ids_all), _BATCH):
+        ids = ids_all[i:i + _BATCH]
+        for act in db.execute(f"SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall():
+            scan_activity_against_segments(db, act, segments, track=todo[act['id']])
 
     for seg in segments:
         _refresh_prs(db, seg['id'])
 
     db.commit()
-    log.warning('Segment scan complete — %d activities, %d segments', len(activities), len(segments))
-    return len(activities)
+    log.warning('Segment scan complete — %d activities with GPS, %d near enough to read, %d segments', with_gps, len(todo), len(segments))
+    return with_gps
 
 
 def scan_new_ride(db, act_id):
@@ -440,9 +557,9 @@ def scan_new_ride(db, act_id):
         if not act or not act['streams'] or not segments:
             return 0
         n = scan_activity_against_segments(db, act, segments)
-        if n:
-            for seg in segments:
-                _refresh_prs(db, seg['id'])
+        if n:                                           # only the segments it is on can have a new PR
+            for (sid,) in db.execute('SELECT segmentId FROM SegmentEffort WHERE activityId=?', [act_id]).fetchall():
+                _refresh_prs(db, sid)
         return n
     except Exception:
         return 0

@@ -1,4 +1,7 @@
+import copy
 import os
+import threading
+from collections import OrderedDict
 
 from flask import Blueprint, abort, redirect, render_template, request, url_for, current_app
 
@@ -10,7 +13,44 @@ bp = Blueprint('riders', __name__)
 _ALLOWED = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'}
 
 
+_BADGES = OrderedDict()     # the last few results of _compute_badges, by everything they depend on (_badge_key)
+_BADGES_KEEP = 16
+_BADGES_LOCK = threading.Lock()   # page threads and the MQTT heartbeat share it
+
+
+def _badge_key(rid, totals):
+    """What a rider's badges depend on: the database, the rider, the totals passed in, the units they're worded in, and the version of the tables
+    they are counted from (services/data_version.py). None when the version can't be read: then nothing is kept."""
+    from services import data_version, units
+    v = data_version.current(get_db())
+    if v is None:
+        return None
+    return (current_app.config.get('DATABASE'), rid, tuple(totals[k] for k in ('rides', 'dist', 'elev')), units.current(), v)
+
+
 def _compute_badges(rid, totals):
+    """Every badge category for a rider, earned or not. Counting them takes about 80 queries over the rider's whole history, and the ride page
+    wants them on every view (to show the badges that ride earned), so a result is kept until a ride, segment, effort or bike changes."""
+    try:
+        key = _badge_key(rid, totals)
+    except Exception:
+        key = None
+    with _BADGES_LOCK:
+        hit = _BADGES.get(key) if key is not None else None
+        if hit is not None:
+            _BADGES.move_to_end(key)
+    if hit is not None:
+        return copy.deepcopy(hit)
+    out = _count_badges(rid, totals)
+    if key is not None:
+        with _BADGES_LOCK:
+            _BADGES[key] = copy.deepcopy(out)
+            while len(_BADGES) > _BADGES_KEEP:
+                _BADGES.popitem(last=False)
+    return out
+
+
+def _count_badges(rid, totals):
     total_rides   = totals['rides'] or 0
     total_dist_m  = totals['dist']  or 0
     total_elev_m  = totals['elev']  or 0
