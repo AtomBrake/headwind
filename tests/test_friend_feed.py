@@ -5,6 +5,7 @@ import pytest
 from flask import Flask
 
 import database
+from services import feed_tokens
 
 TOKEN = 'feed-token-abc'
 
@@ -19,8 +20,7 @@ def client(tmp_path):
     with app.app_context():
         database.migrate_db()
         d = database.get_db()
-        d.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
-        d.execute("UPDATE Settings SET feedToken=? WHERE id=1", [TOKEN])
+        d.execute("INSERT INTO FeedToken (name, tokenHash) VALUES ('Friend', ?)", [feed_tokens._hash(TOKEN)])
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Rob', 1)")
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (2, 'Sam', 0)")       # a second rider living here
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (3, 'Alice', 0)")     # created by syncing a friend
@@ -68,9 +68,5 @@ def test_token_in_query_string_is_not_accepted(client, path):
     assert client.get(path + '?token=' + TOKEN).status_code == 403
 
 
-def test_empty_stored_token_never_matches(client):
-    with client.application.app_context():
-        d = database.get_db()
-        d.execute("UPDATE Settings SET feedToken='' WHERE id=1")
-        d.commit()
+def test_empty_token_never_matches(client):
     assert client.get('/api/feed', headers={'X-Feed-Token': ''}).status_code == 403

@@ -9,29 +9,107 @@
 
 {% block content %}
 
-<!-- Your feed token -->
-<div class="card" style="margin-bottom:1.5rem;">
-  <div class="card-title">Your Feed Token</div>
+<!-- Who can read your feed: one token per friend -->
+{% set field = 'background:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060; border-radius:6px; padding:0.45rem 0.7rem; font-size:0.875rem;' %}
+<div class="card" id="feed-tokens" style="margin-bottom:1.5rem;">
+  <div class="card-title">Who Can Read Your Feed</div>
   <p style="color:var(--text-muted); font-size:0.875rem; margin:0 0 0.75rem;">
-    Share this token with friends so they can add your instance. Keep it private — anyone with it can read your rides.
+    Give each friend their own token, so you can choose what they see and revoke one person without touching the others.
+    A token is shown once — lose it and make a new one.
   </p>
-  <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-    <code id="feedToken" style="background:var(--surface2,#0d2135); border:1px solid #1e4060; border-radius:6px;
-                                padding:0.5rem 0.9rem; font-size:0.9rem; letter-spacing:0.03em; flex:1; word-break:break-all;">
-      {{ feed_token }}
-    </code>
-    <button onclick="copyToken('{{ feed_token }}', this)"
-            class="btn btn-secondary" style="white-space:nowrap;">Copy</button>
+
+  <form id="token-form" style="display:flex; flex-wrap:wrap; gap:0.75rem; align-items:end;">
+    <div style="flex:1 1 10rem;">
+      <label style="font-size:0.8rem; color:var(--text-muted); display:block; margin-bottom:0.3rem;">Friend</label>
+      <input name="name" type="text" placeholder="Sam" required maxlength="60" style="width:100%; {{ field }}">
+    </div>
+    <div style="display:flex; gap:0.9rem; font-size:0.875rem; padding-bottom:0.45rem; flex-wrap:wrap;">
+      <label><input type="checkbox" name="shareRides" value="1" checked> Rides</label>
+      <label><input type="checkbox" name="shareSegments" value="1" checked> Segments</label>
+      <label><input type="checkbox" name="shareFoods" value="1" checked> Foods</label>
+    </div>
+    <div>
+      <label style="font-size:0.8rem; color:var(--text-muted); display:block; margin-bottom:0.3rem;">Rides from</label>
+      <input name="sinceDate" type="date" style="{{ field }}">
+    </div>
+    <div>
+      <label style="font-size:0.8rem; color:var(--text-muted); display:block; margin-bottom:0.3rem;">to</label>
+      <input name="untilDate" type="date" style="{{ field }}">
+    </div>
+    <button type="submit" class="btn btn-primary" style="white-space:nowrap;">Create Token</button>
+  </form>
+
+  <div id="new-token" style="display:none; margin-top:1rem; padding:0.9rem; border:1px solid #1e4060; border-radius:8px;">
+    <div style="font-size:0.85rem; margin-bottom:0.5rem;">Token for <b id="new-token-name"></b> — copy it now, it won't be shown again:</div>
+    <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+      <code id="new-token-value" style="background:var(--surface2,#0d2135); border:1px solid #1e4060; border-radius:6px;
+                                        padding:0.5rem 0.9rem; font-size:0.9rem; flex:1; word-break:break-all;"></code>
+      <button type="button" class="btn btn-secondary" onclick="copyToken(document.getElementById('new-token-value').textContent, this)">Copy</button>
+      <button type="button" class="btn btn-secondary" onclick="location.reload()">Done</button>
+    </div>
   </div>
-  <div style="display:flex; align-items:center; justify-content:space-between; margin-top:0.6rem; flex-wrap:wrap; gap:0.5rem;">
-    <p style="color:var(--text-muted); font-size:0.8rem; margin:0;">
-      Feed URL: <code>{{ request.host_url.rstrip('/') }}/api/feed</code> — token sent as <code>X-Feed-Token</code> header
-    </p>
-    <form method="POST" action="{{ url_for('friends.regenerate_token') }}"
-          onsubmit="return confirm('Regenerate token? All existing friends will need updating.')">
-      <button type="submit" class="btn btn-secondary" style="padding:0.25rem 0.6rem; font-size:0.8rem;">Regenerate Token</button>
-    </form>
+
+  <p style="color:var(--text-muted); font-size:0.8rem; margin:0.75rem 0 0;">
+    Feed URL: <code>{{ request.host_url.rstrip('/') }}/api/feed</code> — token sent as <code>X-Feed-Token</code> header.
+    Revoking a token or narrowing what it shares stops future syncs; rides a friend already pulled stay on their instance.
+  </p>
+
+  {% if feed_tokens %}
+  <div style="overflow-x:auto; margin-top:1rem;">
+  <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+    <thead>
+      <tr style="border-bottom:1px solid #1e4060; color:var(--text-muted); font-size:0.75rem; text-align:left;">
+        <th style="padding:0.5rem 0.5rem 0.5rem 0;">Friend</th>
+        <th style="padding:0.5rem;">Shares</th>
+        <th style="padding:0.5rem;">Rides between</th>
+        <th style="padding:0.5rem;">Last used</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in feed_tokens %}
+      <tr style="border-bottom:1px solid #1e4060;{% if t.revokedAt %} opacity:0.5;{% endif %}">
+        <td style="padding:0.6rem 0.5rem 0.6rem 0; font-weight:500;">{{ t.name }}</td>
+        <td style="padding:0.6rem 0.5rem; color:var(--text-muted);">
+          {% set shared = [] %}
+          {% if t.shareRides %}{% set _ = shared.append('Rides') %}{% endif %}
+          {% if t.shareSegments %}{% set _ = shared.append('Segments') %}{% endif %}
+          {% if t.shareFoods %}{% set _ = shared.append('Foods') %}{% endif %}
+          {{ shared | join(', ') if shared else 'Nothing' }}
+        </td>
+        <td style="padding:0.6rem 0.5rem; color:var(--text-muted);">
+          {% if t.sinceDate or t.untilDate %}{{ t.sinceDate or 'start' }} – {{ t.untilDate or 'now' }}{% else %}All{% endif %}
+        </td>
+        <td style="padding:0.6rem 0.5rem; color:var(--text-muted);">
+          {% if t.revokedAt %}Revoked {{ t.revokedAt[:10] }}{% elif t.lastUsedAt %}{{ t.lastUsedAt[:16] }}{% else %}Never{% endif %}
+        </td>
+        <td style="padding:0.6rem 0; text-align:right; white-space:nowrap;">
+          {% if not t.revokedAt %}
+          <details style="display:inline-block; text-align:left;">
+            <summary class="btn btn-secondary" style="padding:0.25rem 0.6rem; font-size:0.8rem; list-style:none; cursor:pointer;">Edit</summary>
+            <form method="POST" action="{{ url_for('friends.update_token', tid=t.id) }}"
+                  style="position:absolute; right:1.5rem; z-index:5; margin-top:0.4rem; padding:0.8rem; background:var(--card-bg);
+                         border:1px solid #1e4060; border-radius:8px; display:grid; gap:0.5rem;">
+              <label><input type="checkbox" name="shareRides" value="1" {% if t.shareRides %}checked{% endif %}> Rides</label>
+              <label><input type="checkbox" name="shareSegments" value="1" {% if t.shareSegments %}checked{% endif %}> Segments</label>
+              <label><input type="checkbox" name="shareFoods" value="1" {% if t.shareFoods %}checked{% endif %}> Foods</label>
+              <label style="font-size:0.8rem; color:var(--text-muted);">Rides from <input type="date" name="sinceDate" value="{{ t.sinceDate or '' }}" style="{{ field }}"></label>
+              <label style="font-size:0.8rem; color:var(--text-muted);">to <input type="date" name="untilDate" value="{{ t.untilDate or '' }}" style="{{ field }}"></label>
+              <button type="submit" class="btn btn-primary" style="padding:0.3rem 0.7rem; font-size:0.8rem;">Save</button>
+            </form>
+          </details>
+          <form method="POST" action="{{ url_for('friends.revoke_token', tid=t.id) }}" style="display:inline;"
+                data-confirm="Revoke {{ t.name }}'s token? Their instance stops syncing from you." onsubmit="return confirm(this.dataset.confirm)">
+            <button type="submit" class="btn btn-secondary" style="padding:0.25rem 0.6rem; font-size:0.8rem;">Revoke</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
   </div>
+  {% endif %}
 </div>
 
 <!-- Add a friend -->
@@ -142,6 +220,12 @@
           <div style="display:flex; gap:0.5rem; justify-content:flex-end; align-items:center;">
             <button onclick="syncFriend({{ f.id }}, this)"
                     class="btn btn-secondary" style="padding:0.3rem 0.7rem; font-size:0.8125rem;">Sync</button>
+            <form method="POST" action="{{ url_for('friends.set_friend_token', fid=f.id) }}" style="display:inline;"
+                  onsubmit="var t = prompt('New feed token from {{ f.name }}:'); if (!t) return false; this.token.value = t; return true;">
+              <input type="hidden" name="token">
+              <button type="submit" class="btn btn-secondary" style="padding:0.3rem 0.7rem; font-size:0.8125rem;"
+                      title="Paste a new token this friend gave you; their rides stay">Token</button>
+            </form>
             <form method="POST" action="{{ url_for('friends.delete', fid=f.id) }}"
                   data-confirm="Remove {{ f.name }} and all their rides?" onsubmit="return confirm(this.dataset.confirm)" style="display:inline;">
               <button type="submit"
@@ -184,6 +268,20 @@ function copyToken(text, btn) {
     setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
   }
 }
+
+document.getElementById('token-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var form = this;
+  fetch('{{ url_for('friends.create_token') }}', { method: 'POST', body: new FormData(form) })
+    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(d) {
+      document.getElementById('new-token-name').textContent = form.elements.name.value;
+      document.getElementById('new-token-value').textContent = d.token;
+      document.getElementById('new-token').style.display = 'block';
+      form.reset();
+    })
+    .catch(function(err) { alert('Could not create the token: ' + err.message); });
+});
 
 function probeInstance() {
   var url   = document.getElementById('probe-url').value.trim().replace(/\/+$/, '');

@@ -1,7 +1,5 @@
-import hmac
 import json
 import logging
-import secrets
 import threading
 import time
 import urllib.parse
@@ -16,6 +14,7 @@ from database import get_db, query_db
 from services.segments import scan_activity_against_segments, _refresh_prs
 from services.limits import bounded_lines
 from services.peer_http import open_peer
+from services import feed_tokens
 
 bp = Blueprint('friends', __name__)
 
@@ -26,35 +25,36 @@ BATCH = 50
 OWN_RIDERS_SQL = 'id NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)'
 
 
-def _feed_token_ok():
-    """Header only: a token in the query string would end up in proxy access logs. Constant-time comparison."""
-    token = request.headers.get('X-Feed-Token', '')
-    settings = query_db('SELECT feedToken FROM Settings WHERE id=1', one=True)
-    return bool(settings and settings['feedToken'] and token
-                and hmac.compare_digest(str(settings['feedToken']).encode(), token.encode()))
+def _feed_token():
+    """The friend's FeedToken row (what they may read), or 403. Header only: a token in the query string would end up in proxy
+    access logs. Looked up by its hash, so there's no secret to compare in constant time."""
+    row = feed_tokens.lookup(request.headers.get('X-Feed-Token', ''))
+    if not row:
+        abort(403)
+    return row
 
 
 @bp.route('/api/riders')
 def riders_list():
     """Token-authenticated rider list — lets a friend's instance discover who's here."""
-    if not _feed_token_ok():
-        abort(403)
+    if not _feed_token()['shareRides']:
+        return jsonify([])
     riders = query_db(f'SELECT id, name, isDefault FROM Rider WHERE {OWN_RIDERS_SQL} ORDER BY isDefault DESC, name ASC')
     return jsonify([dict(r) for r in riders])
 
 
 @bp.route('/api/foods-feed')
 def foods_feed():
-    """Token-authenticated NDJSON of this instance's own user-made foods (see services/shared_foods.py)."""
-    if not _feed_token_ok():
-        abort(403)
+    """Token-authenticated NDJSON of this instance's own user-made foods (see services/shared_foods.py). A token that doesn't
+    share foods gets a complete, empty feed, so the friend's copy of our foods is cleared on their next sync."""
+    share = _feed_token()['shareFoods']
     from services import shared_foods
 
     def generate():
         owner = query_db('SELECT name FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
         yield json.dumps({'type': 'meta', 'name': owner['name'] if owner else 'Unknown'}) + '\n'
         n = 0
-        for rec in shared_foods.feed_records():
+        for rec in (shared_foods.feed_records() if share else ()):
             n += 1
             yield json.dumps(rec) + '\n'
         yield json.dumps({'type': 'end', 'count': n}) + '\n'      # lets the receiver know the feed arrived whole
@@ -65,7 +65,7 @@ def foods_feed():
 @bp.route('/api/food-image/<ref>')
 def food_image(ref):
     """A photo referenced by /api/foods-feed ('<sha1>.<ext>')."""
-    if not _feed_token_ok():
+    if not _feed_token()['shareFoods']:
         abort(403)
     from services import food_cache
     food_cache.init_path()
@@ -79,10 +79,10 @@ def food_image(ref):
 def feed():
     """Token-authenticated NDJSON stream — no session required.
     Each line is a JSON object with a 'type' field: meta | segment | ride.
-    Accepts ?since=YYYY-MM-DD and ?rider=<name> to filter.
+    Accepts ?since=YYYY-MM-DD and ?rider=<name> to filter. The token decides whether segments and rides are sent at all, and
+    its date window (inclusive) narrows the rides.
     """
-    if not _feed_token_ok():
-        abort(403)
+    scope = dict(_feed_token())
 
     since = request.args.get('since')
     rider_name = request.args.get('rider')
@@ -97,32 +97,32 @@ def feed():
             rider = db.execute('SELECT * FROM Rider WHERE isDefault=1').fetchone()
         yield json.dumps({'type': 'meta', 'name': rider['name'] if rider else 'Unknown'}) + '\n'
 
-        for s in db.execute('SELECT id, name, startLat, startLng, endLat, endLng, '
-                            "distanceM, elevationGainM, polyline, COALESCE(sport, 'ride') AS sport FROM Segment WHERE friendId IS NULL"):
-            yield json.dumps({'type': 'segment', **dict(s)}) + '\n'
+        if scope['shareSegments']:
+            for s in db.execute('SELECT id, name, startLat, startLng, endLat, endLng, '
+                                "distanceM, elevationGainM, polyline, COALESCE(sport, 'ride') AS sport FROM Segment WHERE friendId IS NULL"):
+                yield json.dumps({'type': 'segment', **dict(s)}) + '\n'
 
         owner_id = rider['id'] if rider else None
-        if owner_id:
+        if owner_id and scope['shareRides']:
+            where, args = ['riderId=?'], [owner_id]
             if since:
-                cur = db.execute('''
-                    SELECT id, name, type, sportType, startDate, startDateLocal, distance, movingTime,
-                           elapsedTime, totalElevationGain, averageSpeed, maxSpeed,
-                           averageHeartrate, maxHeartrate, averageWatts, weightedAvgWatts,
-                           averageCadence, calories, startLat, startLng, streams,
-                           weatherTempC, weatherWindKph, weatherGustKph, weatherWindDir,
-                           weatherHumidity, weatherRainMm, weatherCode, weatherSummary, weatherWindRel
-                    FROM Activity WHERE riderId=? AND startDateLocal > ? ORDER BY startDateLocal DESC
-                ''', [owner_id, since])
-            else:
-                cur = db.execute('''
-                    SELECT id, name, type, sportType, startDate, startDateLocal, distance, movingTime,
-                           elapsedTime, totalElevationGain, averageSpeed, maxSpeed,
-                           averageHeartrate, maxHeartrate, averageWatts, weightedAvgWatts,
-                           averageCadence, calories, startLat, startLng, streams,
-                           weatherTempC, weatherWindKph, weatherGustKph, weatherWindDir,
-                           weatherHumidity, weatherRainMm, weatherCode, weatherSummary, weatherWindRel
-                    FROM Activity WHERE riderId=? ORDER BY startDateLocal DESC
-                ''', [owner_id])
+                where.append('startDateLocal > ?')
+                args.append(since)
+            if scope['sinceDate']:
+                where.append('substr(startDateLocal, 1, 10) >= ?')
+                args.append(scope['sinceDate'])
+            if scope['untilDate']:
+                where.append('substr(startDateLocal, 1, 10) <= ?')
+                args.append(scope['untilDate'])
+            cur = db.execute(f'''
+                SELECT id, name, type, sportType, startDate, startDateLocal, distance, movingTime,
+                       elapsedTime, totalElevationGain, averageSpeed, maxSpeed,
+                       averageHeartrate, maxHeartrate, averageWatts, weightedAvgWatts,
+                       averageCadence, calories, startLat, startLng, streams,
+                       weatherTempC, weatherWindKph, weatherGustKph, weatherWindDir,
+                       weatherHumidity, weatherRainMm, weatherCode, weatherSummary, weatherWindRel
+                FROM Activity WHERE {' AND '.join(where)} ORDER BY startDateLocal DESC
+            ''', args)
             for row in cur:
                 d = dict(row)
                 d.pop('type', None)  # avoid collision with the NDJSON routing key
@@ -133,16 +133,8 @@ def feed():
 
 @bp.route('/friends')
 def index():
-    settings = query_db('SELECT feedToken, friendSyncInterval FROM Settings WHERE id=1', one=True)
-    feed_token = settings['feedToken'] if settings else None
+    settings = query_db('SELECT friendSyncInterval FROM Settings WHERE id=1', one=True)
     sync_interval = settings['friendSyncInterval'] if settings and settings['friendSyncInterval'] is not None else 15
-
-    if not feed_token:
-        db = get_db()
-        feed_token = secrets.token_urlsafe(24)
-        db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
-        db.execute('UPDATE Settings SET feedToken=? WHERE id=1', [feed_token])
-        db.commit()
 
     friends = query_db('''
         SELECT f.*, r.name AS rider_name, r.avatarPath AS rider_avatar
@@ -151,7 +143,7 @@ def index():
         ORDER BY f.name
     ''')
 
-    return render_template('friends.html', friends=friends, feed_token=feed_token,
+    return render_template('friends.html', friends=friends, feed_tokens=feed_tokens.tokens(),
                            sync_interval=sync_interval)
 
 
@@ -167,13 +159,23 @@ def set_sync_interval():
     return redirect(url_for('friends.index'))
 
 
-@bp.route('/friends/regenerate-token', methods=['POST'])
-def regenerate_token():
-    db = get_db()
-    db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
-    db.execute('UPDATE Settings SET feedToken=? WHERE id=1', [secrets.token_urlsafe(24)])
-    db.commit()
-    return redirect(url_for('friends.index'))
+@bp.route('/friends/tokens', methods=['POST'])
+def create_token():
+    """Returns the new token once, as JSON (only its hash is kept)."""
+    token, tid = feed_tokens.create(request.form.get('name'), request.form)
+    return jsonify({'id': tid, 'token': token})
+
+
+@bp.route('/friends/tokens/<int:tid>', methods=['POST'])
+def update_token(tid):
+    feed_tokens.update(tid, request.form)
+    return redirect(url_for('friends.index') + '#feed-tokens')
+
+
+@bp.route('/friends/tokens/<int:tid>/revoke', methods=['POST'])
+def revoke_token(tid):
+    feed_tokens.revoke(tid)
+    return redirect(url_for('friends.index') + '#feed-tokens')
 
 
 @bp.route('/friends/probe', methods=['POST'])
@@ -237,6 +239,17 @@ def _bg_sync(app, friend_id):
 def sync(fid):
     count, err = _do_sync(fid)
     return jsonify({'ok': err is None, 'synced': count, 'error': err})
+
+
+@bp.route('/friends/<int:fid>/token', methods=['POST'])
+def set_friend_token(fid):
+    """Swap in a new token a friend gave us (e.g. their own per-friend token in place of the old shared one), keeping their rides."""
+    token = (request.form.get('token') or '').strip()
+    if token:
+        db = get_db()
+        db.execute('UPDATE Friend SET token=? WHERE id=?', [token, fid])
+        db.commit()
+    return redirect(url_for('friends.index'))
 
 
 @bp.route('/friends/<int:fid>/delete', methods=['POST'])
