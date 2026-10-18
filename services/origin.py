@@ -2,6 +2,7 @@
 'garmin_<Garmin activity id>', a Strava export saves Strava's own activity id, a number. Every other source (files, the phone, friends, typed in) has an
 id of its own. Changing a ride into a workout or back gives it a new id, so the one it came in with is kept in originId (services/convert.py)."""
 import hashlib
+import json
 import re
 
 
@@ -16,6 +17,27 @@ def link(activity_id, origin_id=None):
     if re.fullmatch(r'\d+', aid):
         return {'name': 'Strava', 'url': f'https://www.strava.com/activities/{aid}'}
     return None
+
+
+def links(db, activity_id, origin_id=None):
+    """Every place this activity can be opened: its own link, then those of recordings merged into it (services/duplicates.py) — the same ride
+    imported from Garmin and from Strava gets a button for each. A discarded recording still counts: only its data is gone here, not on Garmin or
+    Strava. One link per service, the main recording's first."""
+    from services import duplicates
+    duplicates.ensure_schema(db)
+    found = [link(activity_id, origin_id)]
+    for d in db.execute("SELECT id, rowJson FROM ActivityDuplicate WHERE primaryId=? AND status IN ('parked','discarded') ORDER BY parkedAt",
+                        [str(activity_id)]):
+        try:
+            row = json.loads(d['rowJson'] or '{}')
+        except ValueError:
+            row = {}
+        found.append(link(d['id'], row.get('originId')))
+    out = []
+    for l in found:
+        if l and l['name'] not in {o['name'] for o in out}:
+            out.append(l)
+    return out
 
 
 def backfill(db):

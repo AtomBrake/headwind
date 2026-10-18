@@ -190,6 +190,19 @@ def test_link_to_where_it_came_from(aid, origin_id, url):
     assert (origin.link(aid, origin_id) or {}).get('url') == url
 
 
+def test_a_ride_from_garmin_and_strava_links_to_both(db):
+    add_ride(db, 'garmin_123')
+    add_ride(db, '4567890')
+    add_ride(db, 'imp_0123456789abcd')
+    duplicates.park(db, '4567890', 'garmin_123', 'same ride')
+    duplicates.park(db, 'imp_0123456789abcd', 'garmin_123', 'same ride')
+    assert [l['name'] for l in origin.links(db, 'garmin_123')] == ['Garmin', 'Strava']
+    duplicates.discard(db, '4567890')                                              # gone from here, still on Strava
+    assert [l['url'] for l in origin.links(db, 'garmin_123')] == ['https://connect.garmin.com/modern/activity/123', 'https://www.strava.com/activities/4567890']
+    assert duplicates.swap(db, 'imp_0123456789abcd')
+    assert sorted(l['name'] for l in origin.links(db, 'imp_0123456789abcd')) == ['Garmin', 'Strava']     # the merged ones follow the main recording
+
+
 def test_a_ride_changed_to_a_run_and_back_keeps_its_strava_link(db):
     add_ride(db, '4567890', dist=8000)
     wid = convert.change_sport(db, 'ride', '4567890', 'Run')['id']
