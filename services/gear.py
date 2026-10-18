@@ -163,6 +163,10 @@ def delete_bike(db, bike_id):
     db.execute('DELETE FROM Part WHERE bikeId=?', [bike_id])
     db.execute('DELETE FROM ServiceLog WHERE bikeId=?', [bike_id])
     db.execute('UPDATE Rider SET defaultBikeId=NULL WHERE defaultBikeId=?', [bike_id])
+    try:                                                    # a Strava bike matched to it waits to be matched again (services/strava_gear.py)
+        db.execute("UPDATE StravaBike SET bikeId=NULL, status='new' WHERE bikeId=?", [bike_id])
+    except Exception:                                       # no StravaBike table (a bare test database)
+        pass
     db.execute('DELETE FROM Bike WHERE id=?', [bike_id])
 
 
@@ -222,6 +226,18 @@ def set_ride_bike(db, act_id, bike_id):
     db.execute('UPDATE Activity SET bikeId=? WHERE id=?', [bike_id, act_id])
     _repick_moved(db, before)
     return True
+
+
+def set_rides_bike(db, act_ids, bike_id):
+    """Put many rides on one bike (or clear them, with None) at once, picking again the PRs of any that moved between pedal and e-bike.
+    The caller checks the rides and the bike belong to the same rider. Does not commit."""
+    ids = list(act_ids)
+    before = _classes(db, ids)
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        db.execute(f"UPDATE Activity SET bikeId=? WHERE id IN ({','.join('?' * len(chunk))})", [bike_id] + chunk)
+    _repick_moved(db, before)
+    return len(ids)
 
 
 def stamp_new_ride(db, act_id):
@@ -298,9 +314,10 @@ def ride_span(db, rider_id):
     return {'first': r[0], 'last': r[1], 'unassigned': r[2] or 0, 'total': r[3] or 0, 'first_unassigned': fu}
 
 
-def on_ride_added(db, act_id):
+def on_ride_added(db, act_id, stamp=True):
     """One call for every place a ride can arrive (Garmin sync, file / zip import, phone upload, typed in): give it the default bike, then see whether
-    that pushed any part over a threshold. Never raises: gear must not be able to break an import. Does not commit."""
+    that pushed any part over a threshold. stamp=False leaves the bike alone (a Strava export ride that names its own bike: services/strava_gear.py).
+    Never raises: gear must not be able to break an import. Does not commit."""
     try:
         from services import sensors            # a waiting phone-sensor sidecar that overlaps this ride attaches to it, whichever arrived first
         sensors.attach_for_ride(db, act_id)
@@ -308,7 +325,7 @@ def on_ride_added(db, act_id):
         log.warning('sensor attach for ride %s failed (non-fatal): %s', act_id, e)
     try:
         before = _classes(db, [act_id])
-        if stamp_new_ride(db, act_id):
+        if stamp and stamp_new_ride(db, act_id):
             _repick_moved(db, before)           # its PRs may have been picked before it had its bike: an e-bike makes it an e-bike effort
         a = db.execute('SELECT bikeId, riderId FROM Activity WHERE id=?', [act_id]).fetchone()
         if a and a['bikeId']:

@@ -60,6 +60,14 @@
   <a href="/dashboard" class="btn btn-primary" style="margin-top:1rem;display:inline-flex;">View Dashboard</a>
 </div>
 
+{% if strava_pending %}
+<div class="card" style="max-width:600px;margin-top:1.25rem;">
+  <div class="card-title">{{ strava_pending }} bike{{ 's' if strava_pending != 1 }} from Strava to match</div>
+  <p style="font-size:0.875rem;color:var(--text-muted);line-height:1.6;margin:0 0 0.75rem;">Your Strava export says which bike rode each ride. Say which of your bikes each one is, or add it as a new one, and its rides go on it.</p>
+  <a class="btn btn-primary" href="{{ url_for('gear.strava_page') }}">Match Strava bikes</a>
+</div>
+{% endif %}
+
 {% if changes %}
 <div class="card" id="changes" style="margin-top:1.25rem;">
   <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
@@ -205,7 +213,9 @@ function handleEvent(d) {
       `<strong style="color:var(--success)">${d.imported}</strong> rides imported<br>` +
       `<span style="color:var(--text-muted)">${d.skipped} already existed / skipped</span>` +
       (d.errors ? `<br><span style="color:var(--danger)">${d.errors} files could not be parsed</span>` : '') +
-      (d.changed ? `<br><a href="/import#changes" onclick="location.reload()" style="color:var(--accent)">${d.changed} differ from what's saved: review them</a>` : '');
+      (d.changed ? `<br><a href="/import#changes" onclick="location.reload()" style="color:var(--accent)">${d.changed} differ from what's saved: review them</a>` : '') +
+      (d.bikes_filled ? `<br><span style="color:var(--text-muted)">${d.bikes_filled} rides put on their Strava bike</span>` : '') +
+      (d.bikes_to_match ? `<br><a href="${d.bikes_url}" style="color:var(--accent)">${d.bikes_to_match} bike${d.bikes_to_match === 1 ? '' : 's'} from Strava to match to yours</a>` : '');
   }
 }
 </script>
