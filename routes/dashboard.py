@@ -6,26 +6,63 @@ from urllib.parse import urlencode
 from flask import Blueprint, redirect, render_template, request
 
 from database import get_db, query_db
+from services import sports
 from services.dates import day_month
+from services.sport_filter import SportFilter, chart_groups, speed_sql
 
 bp = Blueprint('dashboard', __name__)
 
 
-def _weekly_data(rider_id):
+def _weekly_data(rider_id, sf=None):
+    """The last 12 weeks of the sports the filter leaves in: totals, and the same per stat group ('by') for the stacked bars. Without a filter, rides
+    only (the phone app's weekly bars). The week's own distance is None when the sports don't share one: a swim's doesn't add to a ride's."""
     today  = date.today()
     monday = today - timedelta(days=today.weekday())
-    weeks  = []
+    first  = monday - timedelta(weeks=11)
+    clause, cparams = sf.sql() if sf else (sports.RIDE_SQL, [])
+    rows = query_db(
+        f"SELECT date(startDateLocal) AS d, sportType, distance, movingTime, totalElevationGain, calories FROM Activity "
+        f"WHERE riderId=? AND date(startDateLocal) >= ? AND date(startDateLocal) < ? AND {clause}",
+        [rider_id, first.isoformat(), (monday + timedelta(days=7)).isoformat()] + cparams,
+    )
+    keys = ('dist_m', 'secs', 'elev_m', 'cals')
+    weeks = []
     for i in range(11, -1, -1):
         ws = monday - timedelta(weeks=i)
-        we = ws + timedelta(days=7)
-        row = query_db(
-            "SELECT SUM(distance) as total, SUM(totalElevationGain) as elev, SUM(calories) as cals FROM Ride "
-            "WHERE riderId=? AND date(startDateLocal) >= ? AND date(startDateLocal) < ?",
-            [rider_id, ws.isoformat(), we.isoformat()], one=True,
-        )
-        weeks.append({'label': day_month(ws), 'from': ws.isoformat(), 'to': (we - timedelta(days=1)).isoformat(),   # metres: the page shows them in the rider's units
-                      'dist_m': round(row['total'] or 0), 'elev_m': round(row['elev'] or 0), 'cals': round(row['cals'] or 0), 'current': i == 0})
+        weeks.append({'label': day_month(ws), 'from': ws.isoformat(), 'to': (ws + timedelta(days=6)).isoformat(),   # metres: the page shows them in the rider's units
+                      'current': i == 0, 'by': {}, **dict.fromkeys(keys, 0)})
+    for r in rows:
+        w = weeks[(date.fromisoformat(r['d']) - first).days // 7]
+        g = w['by'].setdefault(sports.stat_group(r['sportType']), dict.fromkeys(keys, 0))
+        for k, v in zip(keys, (r['distance'], r['movingTime'], r['totalElevationGain'], r['calories'])):
+            g[k] += v or 0
+            w[k] += v or 0
+    for w in weeks:
+        for t in [w] + list(w['by'].values()):
+            for k in keys:
+                t[k] = round(t[k])
+        if sf and not sf.group:
+            w['dist_m'] = None
     return weeks
+
+
+def _name(a):
+    """A walk or run without a name of its own gets "Morning walk", as on the Workouts page."""
+    if (a['name'] or '').strip() or sports.is_ride(a['sportType']):
+        return a['name']
+    from services.workouts import label
+    return label({'name': None, 'sport': a['sportType'], 'startDateLocal': a['startDateLocal']})
+
+
+def _group_totals(where, params, sf, link):
+    """Each stat group's activities, distance and time under the same filters, for the "every sport" headline (no one mixed distance)."""
+    out = {}
+    for r in query_db(f"SELECT a.sportType, COUNT(*) AS n, SUM(a.distance) AS dist, SUM(a.movingTime) AS secs FROM Activity a "
+                      f"WHERE {' AND '.join(where)} GROUP BY a.sportType", params):
+        g = out.setdefault(sports.stat_group(r['sportType']), {'n': 0, 'dist': 0, 'secs': 0})
+        g['n'] += r['n']; g['dist'] += r['dist'] or 0; g['secs'] += r['secs'] or 0
+    return [dict(v, group=k, label=sports.stat_label(k), icon=sports.STAT_ICONS.get(k, ''), href=link(sf.only(k)))
+            for k, v in sorted(out.items(), key=lambda kv: -kv[1]['secs'])]
 
 
 def dist_filters(args):
@@ -65,10 +102,12 @@ def _group_activities(activities):
         for mo in sorted(tree[year], reverse=True):
             mo_rides = mo_dist = mo_elev = 0
             days = []
+            mo_secs = 0
             for dy in sorted(tree[year][mo], reverse=True):
                 acts = tree[year][mo][dy]
                 d_dist = sum(a['distance'] or 0 for a in acts)
                 d_elev = sum(a['totalElevationGain'] or 0 for a in acts)
+                d_secs = sum(a['movingTime'] or 0 for a in acts)
                 dt_day = datetime(year, mo, dy)
                 days.append({
                     'label':      day_month(dt_day),
@@ -77,10 +116,12 @@ def _group_activities(activities):
                     'count':      len(acts),
                     'dist':       d_dist,
                     'elev':       d_elev,
+                    'secs':       d_secs,
                 })
                 mo_rides += len(acts)
                 mo_dist  += d_dist
                 mo_elev  += d_elev
+                mo_secs  += d_secs
             months.append({
                 'name':       month_name[mo],
                 'from':       date(year, mo, 1).isoformat(),
@@ -90,6 +131,7 @@ def _group_activities(activities):
                 'count':      mo_rides,
                 'dist':       mo_dist,
                 'elev':       mo_elev,
+                'secs':       mo_secs,
                 'is_current': year == today.year and mo == today.month,
             })
             yr_rides += mo_rides
@@ -101,6 +143,7 @@ def _group_activities(activities):
             'count':      yr_rides,
             'dist':       yr_dist,
             'elev':       yr_elev,
+            'secs':       sum(m['secs'] for m in months),
             'is_current': year == today.year,
         })
     return result
@@ -129,9 +172,12 @@ def dashboard():
     date_from = request.args.get('from', '').strip()
     date_to   = request.args.get('to', '').strip()
     min_dist, max_dist, min_m, max_m = dist_filters(request.args)
-    sport     = request.args.get('sport', '').strip()
-    skip      = [x for x in dict.fromkeys(request.args.getlist('skip')) if x][:50]   # sports left out of the list (every sport is shown by default)
-    is_filtered = any([q, date_from, date_to, min_dist, max_dist, sport])
+    sf        = SportFilter(get_db(), rid, request.args)     # the sports left in, for the totals, the chart and the list alike
+    is_filtered = any([q, date_from, date_to, min_dist, max_dist])
+
+    rider_args = [] if not active_rider or active_rider['isDefault'] else [('rider', active_rider['id'])]
+    def link(skip):
+        return '/dashboard' + ('?' + urlencode(rider_args + sf.args(skip)) if rider_args or skip else '')
 
     where  = ['a.riderId=?']
     params = [rid]
@@ -145,23 +191,22 @@ def dashboard():
         where.append('a.distance >= ?'); params.append(min_m)
     if max_m is not None:
         where.append('a.distance <= ?'); params.append(max_m)
-    if sport:
-        where.append('lower(a.sportType) LIKE ?'); params.append(f'%{sport.lower()}%')
-    if skip:
-        where.append(f"COALESCE(a.sportType, '') NOT IN ({','.join('?' * len(skip))})"); params += skip
+    clause, cparams = sf.sql('a.sportType')
+    where.append(clause); params += cparams
 
-    # The headline numbers are the rides' (a swim's distance doesn't add to a ride's), unless one sport is picked: then that sport's own.
+    # The headline numbers are for the sports left in. A distance only when they all share one (sf.group): a swim's doesn't add to a ride's.
     totals = query_db(f'''
         SELECT COUNT(*) as rides, SUM(a.distance) as dist,
                SUM(a.totalElevationGain) as elev, SUM(a.movingTime) as secs,
                SUM(a.calories) as cals
-        FROM {'Activity' if sport else 'Ride'} a
+        FROM Activity a
         WHERE {' AND '.join(where)}
     ''', params, one=True)
+    group_totals = [] if sf.group else _group_totals(where, params, sf, link)
 
     activities = query_db(f'''
         SELECT a.id, a.name, a.sportType, a.startDateLocal, a.distance, a.movingTime,
-               a.totalElevationGain, a.averageSpeed, a.averageWatts, a.averageHeartrate,
+               a.totalElevationGain, {speed_sql('a.')} AS averageSpeed, a.averageWatts, a.averageHeartrate,
                a.city, a.country, a.aiKudos,
                r.name AS riderName, r.avatarPath AS riderAvatar, r.isDefault AS riderIsDefault,
                r.id AS riderId
@@ -171,27 +216,21 @@ def dashboard():
         ORDER BY a.startDateLocal DESC
     ''', params)
 
-    from services.sports import is_ride
-    from services.workouts import label
-    activities = [dict(a, name=a['name'] if (a['name'] or '').strip() or is_ride(a['sportType']) else label({'name': None, 'sport': a['sportType'], 'startDateLocal': a['startDateLocal']}))
-                  for a in activities]                  # a walk or run without a name of its own gets "Morning walk", as on the Workouts page
+    activities = [dict(a, name=_name(a)) for a in activities]
 
-    year_speed_rows = query_db(
-        "SELECT id, date(startDateLocal) as d, averageSpeed, name "
-        "FROM Ride "
-        "WHERE riderId=? AND strftime('%Y', startDateLocal) = strftime('%Y', 'now') "
-        "AND averageSpeed > 0 ORDER BY startDateLocal",
-        [rid],
-    )
-    year_speed = [
-        {'id': r['id'], 'd': r['d'], 'mps': float(r['averageSpeed']), 'name': r['name']}
-        for r in year_speed_rows
-    ]
-
-    sport_types = query_db(
-        "SELECT DISTINCT sportType FROM Activity WHERE riderId=? AND sportType IS NOT NULL AND sportType <> '' ORDER BY sportType",
-        [rid]
-    )
+    # Speed (or pace) per activity this year: only when the sports left in share one, so a walk's pace never sits on a line of ride speeds.
+    year_speed = []
+    if sf.group:
+        fclause, fparams = sf.sql()
+        year_speed = [
+            {'id': r['id'], 'd': r['d'], 'mps': float(r['mps']), 'name': _name(r)}
+            for r in query_db(
+                f"SELECT id, date(startDateLocal) as d, {speed_sql()} AS mps, name, sportType, startDateLocal FROM Activity "
+                f"WHERE riderId=? AND strftime('%Y', startDateLocal) = strftime('%Y', 'now') AND {speed_sql()} > 0 AND {fclause} "
+                f"ORDER BY startDateLocal",
+                [rid] + fparams,
+            )
+        ]
 
     recovery = None
     if active_rider and active_rider['isDefault']:
@@ -238,19 +277,22 @@ def dashboard():
         sport_choices=[('Ride', 'Ride'), ('VirtualRide', 'Indoor ride'), ('Walk', 'Walk'), ('Run', 'Run'), ('Hike', 'Hike')],
         athlete=athlete,
         totals=totals,
+        group_totals=group_totals,
         activities=activities,
         grouped=_group_activities(activities) if not is_filtered else [],
         search_results=activities if is_filtered else [],
         is_filtered=is_filtered,
-        weekly=_weekly_data(rid),
+        weekly=_weekly_data(rid, sf),
         year_speed=year_speed,
+        chart_groups=chart_groups(sf.groups),
         now=date.today(),
         q=q, date_from=date_from, date_to=date_to,
-        min_dist=min_dist, max_dist=max_dist, sport=sport, skip=skip,
-        sport_types=sport_types,
+        min_dist=min_dist, max_dist=max_dist,
+        sf=sf,
+        sport_links=[(label, icon, link(skip), active) for label, icon, skip, active in sf.shortcuts()],
         all_riders=all_riders,
         active_rider=active_rider,
-        rider_query='' if not active_rider or active_rider['isDefault'] else f"rider={active_rider['id']}",   # kept on every link the page makes
+        rider_query=urlencode(rider_args + sf.args()),     # kept on every link the page makes: the rider and the sports left out
         recovery=recovery,
         weather=weather,
     )

@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.4-beta] - 2026-10-18
 
 Migration, at the first start: 0.7.3's e-bike segments become ride segments (`Segment.sport` is `ride` or `foot` again), and ride segment PRs are picked again (below). `Settings` gains `segmentBikesMergedDone`; the `SegActivity` view gains `bikeId`. No Android or iOS change. A friend on 0.7.3 who sends e-bike segments has them saved as ride segments.
 
@@ -13,6 +13,23 @@ Migration, at the first start: 0.7.3's e-bike segments become ride segments (`Se
 - **Comparisons stay within the kind of bike.** A ride's "faster / slower than last time" on its segments, and Home Assistant's best time, rank and tries for the last ride, compare e-bike rides with e-bike efforts and pedal rides with pedal ones.
 
 `services/sports.py` (`segment_family`, `segment_class`, `class_of`, `ebike_sql`, `class_sql`), `services/segments.py` (`_refresh_prs`, `reclassed`, `merge_bikes`), `services/gear.py`, `services/convert.py`, `services/mqtt._ride_route_payloads`, `routes/segments.py`, `routes/rides.detail`, `routes/riders._compute_badges`, `routes/friends.py`, `database.py`, `templates/segments.html`, `templates/segment.html`, `tests/test_segment_families.py`, `tests/test_segments_close.py`.
+
+**The dashboard's headline numbers change.** They used to count rides only. They now count every sport, so with walks, runs or swims in the history the top row shows time, calories and climbing, and each kind's distance sits underneath on its own. "Only rides" gives the old numbers back.
+
+### Added
+- **A sport filter on the dashboard and the Analytics (Data) page.** The sport chips that 0.7.1 put on the dashboard list now sit at the top of both pages and set everything: the totals, the Performance chart, the activity history and every chart on the Data page. Every sport is in to start with; untick one to leave it out, or use "Only rides", "Only on foot" or "Only swims". The dashboard's links keep the choice: to the Data page, from the week bars, and the month and year "List" links. Old links with `?sport=Run` still work.
+- **No more mixed distances.** Distances only add up within a kind: rides (indoor and e-bike too), on foot (walks, runs and hikes), swims, and each other sport on its own. When the sports left in are of several kinds, the dashboard shows time, calories and climbing, and each kind's distance on its own (each opens that kind alone). The Performance chart's bars stack by kind for time, calories and climbing. On the Data page, monthly, year-on-year and the heatmap count hours or minutes, and the histogram groups by duration. The history tree shows time instead of distance.
+- **Speed for rides, pace on foot and per 100 m for swims** in the dashboard's lists and on both pages' charts. A pace chart puts faster at the top. The Performance chart's Speed tab becomes Pace on foot and in the water, and a walk or run saved without an average speed gets one from its distance and moving time.
+- **Charts that fit the sport.** On foot, the Data page's histogram goes 0–2 mi up to marathon length (0–3 km to 42+ km); for swims, 0–500 m up to 5+ km. The heatmap's colour steps are smaller on foot and in the water.
+
+### Changed
+- **The records and weather sections say "rides only"** when other sports are in the filter, and leave out the rides you untick. They are hidden when no ride is left in. Personal records per sport come later.
+- The Data page is called Analytics, as in the menu, and its charts say "per activity" rather than "per ride".
+
+### Fixed
+- **The Data page drew no charts at all until "Compute Achievements" had been run.** The achievements script stopped the page's scripts when there were no efforts yet.
+
+The phone app's weekly bars stay rides only. `services/sport_filter.py` (new), `services/sports.py` (`stat_group`, `rate_style`), `services/units.py` (`fmt_swim_pace`, `fmt_rate`), `services/weather.fog_candidates`, `routes/dashboard.py`, `routes/data.py`, `templates/_sport_filter.html` (new), `templates/dashboard.html`, `templates/data.html`, `templates/base.html` (`UNITS.toPace`), `tests/test_sport_filter.py`.
 
 ## [0.7.3-beta] - 2026-10-18
 

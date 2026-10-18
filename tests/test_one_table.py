@@ -160,7 +160,7 @@ def test_the_history_shows_every_sport_and_can_leave_some_out(tmp_path, monkeypa
     assert 'data-sport value="Walk" checked' in page and 'data-sport value="Ride" checked' in page      # every sport included to start with
     page = c.get('/dashboard?skip=Walk').get_data(as_text=True)
     assert '/rides/r1' in page and '/rides/w1' not in page
-    assert re.search(r'data-sport value="Walk"\s+onchange', page) and 'data-sport value="Ride" checked' in page and 'Tick all' in page    # the left-out one is unticked
+    assert re.search(r'data-sport value="Walk"\s+onchange', page) and 'data-sport value="Ride" checked' in page and 'Every sport' in page    # the left-out one is unticked
 
 
 def test_the_phone_and_the_days_burn_read_every_sport_once(tmp_path, monkeypatch):

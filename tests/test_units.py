@@ -101,7 +101,7 @@ def test_numbers_are_converted_not_just_relabelled(client):
     html = client.get('/dashboard').get_data(as_text=True)
     assert 'window.UNITS = {"dist": "km"' in html or '"dist": "km"' in html
     week = json.loads(re.search(r'const weeklyData\s+=\s+(.*);', html).group(1))
-    assert week[-1]['dist_m'] in (19900, 39800, 0)                  # metres go to the page, which converts with UNITS
+    assert week[-1]['by'].get('ride', {}).get('dist_m', 0) in (19900, 39800, 0)     # metres go to the page, which converts with UNITS
 
 
 def test_distance_filter_is_in_the_riders_unit(client):
