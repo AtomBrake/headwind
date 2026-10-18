@@ -87,7 +87,7 @@
 </div>
 
 <!-- Achievements -->
-<div class="card" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">
+<div class="card" id="records" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">
   <div style="padding:1rem 1.25rem; border-bottom:1px solid #1e4060; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
     <div class="card-title" style="margin:0;">Achievements</div>
     <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
@@ -138,7 +138,7 @@
 
 <!-- Climbing Records -->
 {% if climbing_by_year %}
-<div class="card" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">
+<div class="card" id="climbing" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">
   <div style="padding:1rem 1.25rem; border-bottom:1px solid #1e4060; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
     <div class="card-title" style="margin:0;">Climbing Records</div>
     <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
@@ -183,7 +183,7 @@
 </div>
 
 <!-- Calendar Heatmap -->
-<div class="card" style="margin-bottom:1.5rem;">
+<div class="card" id="calendar" style="margin-bottom:1.5rem;">
   <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem; margin-bottom:1rem;">
     <div class="card-title" style="margin:0;">Activity Heatmap</div>
     <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.875rem; color:var(--text-muted);">
@@ -206,7 +206,7 @@
 </div>
 
 <!-- Monthly + Year-on-Year -->
-<div class="chart-grid-2">
+<div class="chart-grid-2" id="distance">
   <div class="card">
     <div class="card-title">Monthly Distance (mi)</div>
     <div class="cbox cbox-half"><canvas id="monthlyChart"></canvas></div>
@@ -218,7 +218,7 @@
 </div>
 
 <!-- Calories over time -->
-<div class="card" style="margin-bottom:1.5rem;">
+<div class="card" id="calories" style="margin-bottom:1.5rem;">
   <div class="card-title">Calories Burned Per Ride</div>
   <div class="cbox cbox-wide"><canvas id="calChart"></canvas></div>
 </div>
@@ -237,7 +237,7 @@
 
 {% if wx_temp_x %}
 <!-- Weather & Performance -->
-<div class="card-title" style="margin-bottom:1rem; font-size:1rem;">Weather &amp; Performance</div>
+<div class="card-title" id="weather" style="margin-bottom:1rem; font-size:1rem;">Weather &amp; Performance</div>
 
 <div class="chart-grid-2" style="margin-bottom:1.5rem;">
   <div class="card">

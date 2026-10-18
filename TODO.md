@@ -24,6 +24,17 @@ From the project-wide security review, 2026-10-17.
 
 - [x] **MQTT heartbeat thread can die** — fixed in 0.5.4-beta: module-level `log` in `app.py`. (`app.py` `_mqtt_heartbeat`). Its gear-alert `except` handler calls `log.warning`, but `log` isn't defined there or at module level. If `gear.evaluate_alerts` raises, the resulting `NameError` kills the thread, which stops MQTT pushes, Home Assistant and weather sync, and goal auto-update until a restart. Add `log = logging.getLogger(__name__)` at module level.
 - [x] **Old APK path default** — fixed in 0.5.4-beta: `headwind.apk` beside the database, or `HEADWIND_APK`. `routes/phones.py` defaults `APK_PATH` to `/home/rob/headwind-android/dist/headwind.apk`. Replace it with a path under the data directory, or require `HEADWIND_APK`.
+- [ ] **Units ignore the metric setting in many places.** `Settings.units` is honoured by the `fmt_dist`, `fmt_elev` and `fmt_speed` filters in `app.py`, but a lot of the app converts to miles, feet and mph by hand (`1609.344`, `3.28084`, `2.23694`), so a metric user still sees imperial. Known spots:
+  - [ ] Dashboard: the Performance chart (`_weekly_data` and `year_speed` in `routes/dashboard.py` only send `mi`, `ft` and `mph`, and the chart labels in `templates/dashboard.html` are fixed), and the search form's "Min mi / Max mi" filters.
+  - [ ] Ride page (`templates/ride.html`): the "Speed (mph)" chart, the distance axis in miles, segment effort speeds, and climb by barometer in ft.
+  - [ ] Segment page (`templates/segment.html`): elevation in ft, speeds in mph, and run pace through `pace_mi`, which has no per-km twin. Effort speeds on the rider page (`templates/rider.html`).
+  - [ ] Data page (`templates/data.html`, `routes/data.py`): the average speed charts, speed vs temperature and wind, and the climb records in ft.
+  - [ ] Also check `templates/ai.html`, `route_builder.html`, `roughness.html`, `routes/segments.py`, `routes/riders.py` (achievement thresholds), the Home Assistant sensors in `services/mqtt.py`, and the AI coach's context (`services/context.py`, `services/ai.py`) so the coach answers in the rider's units too.
+  - [ ] Hand the unit choice to the page scripts once (e.g. a `UNITS` object in `base.html` with factors and labels) instead of each page doing its own sums.
+  - [ ] Add a test that renders the main pages with metric set and fails on "mph", " mi" or " ft".
+- [x] **Long-term stats after a delete** — investigated in 0.5.8-beta: the web pages were already right, but Home Assistant wasn't. The dashboard's Performance chart looked the same after the 1000x-too-long Strava rides from 0.5.7-beta were deleted. Every web page and phone endpoint works its numbers out from `Activity` on each load, and a test that deletes rides and re-reads the dashboard, Data page, rider page, heatmap, `/api/v1/overview`, `/perform` and `/rides` saw every one change at once (`tests/test_dashboard_links.py`). The chart only covers the last 12 weeks, and the speed line only this year, so deleting older rides doesn't move it.
+  - [x] The web delete (`delete` in `routes/rides.py`) didn't re-publish the Home Assistant sensors, so their totals stayed wrong until the next ride. It now calls `after_ride_removed` in `services/ingest.py`. Deleting a rider or friend doesn't need it: the sensors only cover the owner, who can't be deleted.
+  - [ ] If it happens again, note which rides, where they were deleted from (web or phone) and which page still showed them. The browser's back button can show a page from before the delete.
 
 ### iOS and watchOS app
 
@@ -65,6 +76,21 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
   - [ ] `services/ai.py` `_get_client_and_model` returns an OpenAI client for every provider, and callers (`services/food_vision.py` included) use `client.chat.completions.create`. Either use Anthropic's OpenAI-compatible endpoint, or wrap the Anthropic SDK behind one small `chat()` helper that all callers go through.
   - [ ] Check the food-screenshot and recipe readers still work, since they send images.
   - [ ] Store the API key with the others, and update the "add an OpenAI key in Settings" errors to name whichever provider is missing.
+
+## Dashboard and activity lists
+
+- [x] **Clickable dashboard** — done in 0.5.8-beta, apart from the other lists. Most of the home page is read-only: the stat tiles, the fun stats, the Performance chart, the recovery numbers and the weather. Make nearly everything a way into the data behind it.
+  - [x] Performance chart: clicking a weekly bar (distance, elevation, calories) opens the activity list for that week, `/dashboard?from=<Monday>&to=<Sunday>`, which the search form already supports. A point on the speed line opens that ride, so `year_speed` in `routes/dashboard.py` needs to send each ride's ID. Use Chart.js `onClick`, with a pointer cursor on hover.
+  - [x] Lifetime tiles (Activities, Total Distance, Total Elevation, Total Time) and the fun stats go to the full history (`#ride-history`), or to the Data page section that breaks them down.
+  - [x] Recovery Today values open `/recovery`. The weather chip opens the weather analysis on the Data page.
+  - [x] Year, month and day headings in the Activities history open the list filtered to that period.
+  - [x] Turn the `onclick="location.href=..."` rows on the dashboard into real `<a>` links, so middle-click, open in new tab and keyboard focus work.
+  - [ ] The same for the lists that copy the pattern: `templates/rider.html`, `workouts.html` and `setup.html`.
+- [ ] **Select and edit many activities at once.** The only bulk action today is "Change the type of all N results" (`/rides/bulk-sport` in `routes/rides.py`), which only appears after a search and always takes every result.
+  - [ ] Add a select mode to the activity lists (dashboard history and search results, Workouts, a rider's page): a checkbox on each row, select all / none, shift-click for a range, and a bar that stays in view showing how many are picked.
+  - [ ] Actions on the picked activities: delete, change type (`convert.change_sport`, as `bulk-sport` does), set the bike (`set_ride_bike` in `services/gear.py`), change the rider, rename, dismiss sanity flags, and download them as a zip.
+  - [ ] Delete each ride through `duplicates.delete_activity` so tombstones, segment PRs and best efforts stay right. Ask for confirmation with the count, and commit once.
+  - [ ] Keep the 5,000 cap from `bulk-sport`, and refresh the Home Assistant sensors once at the end rather than for every ride.
 
 ## Training and analysis
 
