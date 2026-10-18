@@ -77,7 +77,7 @@
   <label style="font-size:0.75rem; color:var(--text-muted); display:block; margin-bottom:0.5rem;">Sport</label>
   <form method="GET" action="/data" style="display:flex; gap:0.5rem;">
     {% if not active_rider.isDefault %}<input type="hidden" name="rider" value="{{ active_rider.id }}">{% endif %}
-    <select name="sport" onchange="this.form.submit()" style="width:100%; max-width:200px; box-sizing:border-box; background:#0f2535; color:var(--text); border:1px solid var(--border); border-radius:5px; padding:0.35rem 0.6rem; font-size:0.875rem;">
+    <select name="sport" onchange="this.form.submit()" style="width:100%; max-width:200px; box-sizing:border-box; background-color:#0f2535; color:var(--text); border:1px solid var(--border); border-radius:5px; padding:0.35rem 0.6rem; font-size:0.875rem;">
       <option value="">All Sports</option>
       {% for st in sport_types %}
       <option value="{{ st.sportType }}" {% if sport == st.sportType %}selected{% endif %}>{{ st.sportType }}</option>
@@ -91,12 +91,12 @@
   <div style="padding:1rem 1.25rem; border-bottom:1px solid #1e4060; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
     <div class="card-title" style="margin:0;">Achievements</div>
     <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-      <select id="recYear" onchange="renderRecords()" style="background:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
+      <select id="recYear" onchange="renderRecords()" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
         {% for yr in records_by_year | sort(reverse=true) %}
         <option value="{{ yr }}">{{ yr }}</option>
         {% endfor %}
       </select>
-      <select id="recMonth" onchange="renderRecords()" style="background:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
+      <select id="recMonth" onchange="renderRecords()" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
         <option value="all">All months</option>
       </select>
       {% if not has_efforts %}
@@ -142,12 +142,12 @@
   <div style="padding:1rem 1.25rem; border-bottom:1px solid #1e4060; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
     <div class="card-title" style="margin:0;">Climbing Records</div>
     <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-      <select id="climbYear" onchange="renderClimbing()" style="background:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
+      <select id="climbYear" onchange="renderClimbing()" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
         {% for yr in climbing_by_year | sort(reverse=true) %}
         <option value="{{ yr }}">{{ yr }}</option>
         {% endfor %}
       </select>
-      <select id="climbMonth" onchange="renderClimbing()" style="background:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
+      <select id="climbMonth" onchange="renderClimbing()" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
         <option value="all">All months</option>
       </select>
     </div>
@@ -187,9 +187,9 @@
   <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem; margin-bottom:1rem;">
     <div class="card-title" style="margin:0;">Activity Heatmap</div>
     <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.875rem; color:var(--text-muted);">
-      <select id="heatFrom" onchange="renderHeatmap()" style="background:var(--surface);color:var(--text);border:1px solid var(--border,#1e4060);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.8125rem;"></select>
+      <select id="heatFrom" onchange="renderHeatmap()" style="background-color:var(--surface);color:var(--text);border:1px solid var(--border,#1e4060);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.8125rem;"></select>
       <span>→</span>
-      <select id="heatTo" onchange="renderHeatmap()" style="background:var(--surface);color:var(--text);border:1px solid var(--border,#1e4060);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.8125rem;"></select>
+      <select id="heatTo" onchange="renderHeatmap()" style="background-color:var(--surface);color:var(--text);border:1px solid var(--border,#1e4060);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.8125rem;"></select>
     </div>
   </div>
   <div id="heatmapContainer"></div>

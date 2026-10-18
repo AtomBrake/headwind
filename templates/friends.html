@@ -67,7 +67,7 @@
       <div>
         <label style="font-size:0.8rem; color:var(--text-muted); display:block; margin-bottom:0.3rem;">Rider</label>
         <select name="riderName" id="rider-select"
-                style="width:100%; background:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060;
+                style="width:100%; background-color:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060;
                        border-radius:6px; padding:0.5rem 0.75rem; font-size:0.875rem;">
         </select>
       </div>
@@ -94,7 +94,7 @@
   <form method="POST" action="{{ url_for('friends.set_sync_interval') }}"
         style="display:flex; align-items:center; gap:0.6rem;">
     <select name="interval" onchange="this.form.submit()"
-            style="background:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060;
+            style="background-color:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060;
                    border-radius:6px; padding:0.4rem 0.65rem; font-size:0.875rem;">
       {% for val, label in [(0,'Off'),(15,'Every 15 min'),(30,'Every 30 min'),(60,'Every hour'),(120,'Every 2 hours')] %}
       <option value="{{ val }}" {% if sync_interval == val %}selected{% endif %}>{{ label }}</option>
