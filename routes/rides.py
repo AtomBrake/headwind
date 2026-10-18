@@ -493,3 +493,62 @@ def resolve_duplicate(rid, dup_id, action):
         abort(400)
     db.commit()
     return redirect(url_for('rides.detail', rid=new_main))
+_DUP_SERIES = (('heartrate', 'Heart rate', 'bpm'), ('watts', 'Power', 'W'), ('cadence', 'Cadence', 'rpm'),
+               ('velocity_smooth', 'Speed', None), ('altitude', 'Elevation', None))
+
+
+def _recording(row, label, t0):
+    """One recording (a live ride or a set-aside one) for the duplicate view: its numbers, GPS track and streams against minutes since `t0`."""
+    from services import units
+    from services.duplicates import instant, source_label
+    row = dict(row)
+    try:
+        streams = json.loads(row.get('streams') or '{}') or {}
+    except (ValueError, TypeError):
+        streams = {}
+    coords = (streams.get('latlng') or {}).get('data') or []
+    if not coords and row.get('summaryPolyline'):
+        try:
+            import polyline as pl
+            coords = pl.decode(row['summaryPolyline'])
+        except Exception:
+            pass
+    start = instant(row.get('startDateLocal') or row.get('startDate'))
+    offset = (start - t0).total_seconds() if start and t0 else 0
+    times = (streams.get('time') or {}).get('data') or []
+    conv = {'velocity_smooth': lambda v: units.speed(v), 'altitude': lambda v: units.elev(v)}
+    series = {}
+    for key, _, _ in _DUP_SERIES:
+        raw = (streams.get(key) or {}).get('data') or []
+        if not raw:
+            continue
+        step = max(1, len(raw) // _SAMPLE)
+        series[key] = [{'x': round(((times[i] if i < len(times) else i) + offset) / 60, 2),
+                        'y': round(conv[key](raw[i]), 1) if key in conv and raw[i] is not None else raw[i]} for i in range(0, len(raw), step)]
+    return {'label': label, 'source': source_label(row), 'row': row, 'start': start, 'offset': offset, 'gps_points': len(coords),
+            'coords': _sample(coords, 1500), 'series': series, 'streams': sorted(k for k in streams if k not in ('latlng',))}
+
+
+@bp.route('/<rid>/duplicate')
+@bp.route('/<rid>/duplicate/<dup_id>')
+def view_duplicate(rid, dup_id=None):
+    """A recording set aside as a duplicate of this ride: on its own, or (?compare=1) side by side with the one that was kept."""
+    from services import duplicates
+    from services.duplicates import instant
+    db = get_db()
+    parked = duplicates.parked_for(db, rid)
+    d = next((p for p in parked if dup_id is None or str(p['id']) == str(dup_id)), None)
+    main = db.execute('SELECT * FROM Activity WHERE id=?', [rid]).fetchone()
+    if not d or not main:
+        abort(404)
+    other = json.loads(d['rowJson'] or '{}')
+    compare = request.args.get('compare') == '1'
+    starts = [s for s in (instant(r.get('startDateLocal') or r.get('startDate')) for r in (dict(main), other)) if s]
+    t0 = min(starts) if starts else None
+    recs = [_recording(other, 'Set aside', t0)]
+    if compare:
+        recs.insert(0, _recording(main, 'Kept', t0))
+    return render_template('ride_duplicate.html', activity=main, dup=d, others=[p['id'] for p in parked], recs=recs, compare=compare,
+                           colours=['#fc4c02', '#3b82f6'][-len(recs):], series_meta=_DUP_SERIES)
+
+

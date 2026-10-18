@@ -22,11 +22,14 @@ def _kg(rider_id):
         return 70.0
 
 
-def _ride_to_workout(db, row, sport):
+def _ride_to_workout(db, row, sport, discard_parked=False):
     from services import duplicates
     from services.workouts import estimate_calories
-    if db.execute("SELECT 1 FROM ActivityDuplicate WHERE primaryId=? AND status='parked' LIMIT 1", [row['id']]).fetchone():
+    parked = [d['id'] for d in duplicates.parked_for(db, row['id'])]
+    if parked and not discard_parked:
         raise ValueError('this ride has another recording set aside under it: settle that first (open the ride and choose which recording to keep)')
+    for dup_id in parked:                                # another device's copy of the same session: not a ride either, so it goes (its id stays remembered)
+        duplicates.discard(db, dup_id)
     wid = 'wk_' + hashlib.sha1(f"{row['riderId']}|conv|{row['id']}".encode()).hexdigest()[:16]
     dist, secs, gain = row['distance'] or 0, int(row['movingTime'] or 0), row['totalElevationGain'] or 0
     from services.calorie_adjust import pair as _kcal_pair
@@ -70,8 +73,9 @@ def _workout_to_ride(db, row, sport):
     return {'kind': 'ride', 'id': aid, 'sport': sport}
 
 
-def change_sport(db, kind, act_id, sport):
-    """Returns {'kind', 'id', 'sport', 'changed'} (the id changes when the activity moves between the two families). Raises ValueError with a readable reason."""
+def change_sport(db, kind, act_id, sport, discard_parked=False):
+    """Returns {'kind', 'id', 'sport', 'changed'} (the id changes when the activity moves between the two families). Raises ValueError with a readable reason.
+    A ride with another recording set aside under it is refused unless `discard_parked`, which throws those recordings away as it moves the ride."""
     if sport not in SPORTS:
         raise ValueError('pick one of: ' + ', '.join(SPORTS))
     if kind == 'ride':
@@ -83,7 +87,7 @@ def change_sport(db, kind, act_id, sport):
         if sport in RIDES:                               # Ride <-> VirtualRide (or an e-bike / MTB ride becoming a plain Ride): just the label
             db.execute('UPDATE Activity SET sportType=?, type=? WHERE id=?', [sport, sport, act_id])
             return {'kind': 'ride', 'id': act_id, 'sport': sport, 'changed': True}
-        return dict(_ride_to_workout(db, row, sport), changed=True)
+        return dict(_ride_to_workout(db, row, sport, discard_parked), changed=True)
     if kind == 'workout':
         row = db.execute('SELECT * FROM Workout WHERE id=?', [act_id]).fetchone()
         if not row:
