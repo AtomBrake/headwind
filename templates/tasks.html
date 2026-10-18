@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+
+{% block title %}Tasks{% endblock %}
+{% block page_title %}Tasks{% endblock %}
+
+{% block content %}
+{% set badge = {'running': ('Running', '#3b82f6'), 'waiting': ('Waiting', '#f59e0b'), 'done': ('OK', 'var(--success)'), 'failed': ('Failed', '#ef4444'),
+                'off': ('Off', 'var(--text-muted)'), 'idle': ('Not yet', 'var(--text-muted)')} %}
+<p style="color:var(--text-muted); font-size:0.875rem; margin:0 0 1rem;">What Headwind is doing in the background, and what changed when it last started up.
+  {% if jobs | selectattr('state', 'in', ['running', 'waiting']) | list %}This page refreshes itself while something is running.{% endif %}</p>
+
+<div class="card" style="margin-bottom:1.25rem;">
+  <div class="card-title">Background jobs</div>
+  {% for j in jobs %}
+  <div style="display:flex; align-items:flex-start; gap:0.75rem; padding:0.65rem 0; border-top:1px solid var(--border); flex-wrap:wrap;">
+    <span style="min-width:4.8rem; font-size:0.75rem; font-weight:600; color:{{ badge[j.state][1] }};">● {{ badge[j.state][0] }}</span>
+    <div style="flex:1 1 16rem; min-width:0;">
+      <div style="font-weight:600;">{{ j.name }}</div>
+      <div style="font-size:0.8125rem; color:var(--text-muted); line-height:1.45;">{{ j.detail }}{% if j.when %} · <span data-when="{{ j.when }}">{{ j.when }}</span>{% endif %}</div>
+    </div>
+    {% if j.action %}
+      {% if j.action.url.startswith('/tasks/run/') %}
+      <form method="POST" action="{{ j.action.url }}" style="margin:0;"><button class="btn btn-secondary" style="padding:0.25rem 0.8rem; font-size:0.8125rem;">{{ j.action.label }}</button></form>
+      {% else %}
+      <a class="btn btn-secondary" style="padding:0.25rem 0.8rem; font-size:0.8125rem;" href="{{ j.action.url }}">{{ j.action.label }}</a>
+      {% endif %}
+    {% endif %}
+  </div>
+  {% else %}
+  <p style="color:var(--text-muted); font-size:0.875rem;">Nothing runs in the background yet: connect Garmin, Home Assistant or a friend in Settings.</p>
+  {% endfor %}
+</div>
+
+<div class="card" style="margin-bottom:1.25rem;">
+  <div class="card-title">Start-up repairs</div>
+  <p style="color:var(--text-muted); font-size:0.8125rem; margin:0 0 0.5rem;">One-off fixes to stored data that an update runs when Headwind starts. They finish before any page opens.</p>
+  {% for r in startup %}
+  <div style="padding:0.5rem 0; border-top:1px solid var(--border); font-size:0.875rem;">
+    <span style="color:{{ badge[r.status][1] }};">●</span> <strong>{{ r.label }}</strong> · <span data-when="{{ r.finishedAt }}">{{ r.finishedAt }}</span>
+    <div style="color:var(--text-muted); font-size:0.8125rem;">{{ r.error or r.result }}</div>
+  </div>
+  {% else %}
+  <p style="color:var(--text-muted); font-size:0.875rem;">None have needed to run.</p>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <div class="card-title">Recent runs</div>
+  {% for r in history %}
+  <div style="display:flex; gap:0.75rem; padding:0.4rem 0; border-top:1px solid var(--border); font-size:0.8125rem; flex-wrap:wrap;">
+    <span style="color:{{ badge[r.status][1] }}; min-width:4.5rem;">● {{ badge[r.status][0] }}</span>
+    <span style="min-width:7rem;">{{ r.label }}</span>
+    <span style="color:var(--text-muted); min-width:9rem;" data-when="{{ r.startedAt }}">{{ r.startedAt }}</span>
+    <span style="color:var(--text-muted); flex:1 1 14rem;">{{ r.error or r.result or '' }}</span>
+  </div>
+  {% else %}
+  <p style="color:var(--text-muted); font-size:0.875rem;">No runs recorded yet.</p>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// times are stored in UTC: show them in this browser's time, as "today 14:05" or "3 Oct 14:05"
+document.querySelectorAll('[data-when]').forEach(function (el) {
+  var d = new Date(el.dataset.when);
+  if (isNaN(d)) return;
+  var t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  el.textContent = (d.toDateString() === new Date().toDateString() ? 'today ' : d.getDate() + ' ' + _MONTHS[d.getMonth()] + ' ') + t;
+});
+{% if jobs | selectattr('state', 'in', ['running', 'waiting']) | list %}
+setTimeout(function () { location.reload(); }, 20000);
+{% endif %}
+</script>
+{% endblock %}

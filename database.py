@@ -674,25 +674,43 @@ def migrate_db():
             db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {defn}')
     db.commit()
 
+    # Start-up repairs below record what they did for the Tasks page (services/tasks.py)
+    from services import tasks as _tasks
+    _tasks.ensure_schema(db)
+    _tasks.close_orphans(db)
+    db.commit()
+
     # ── Backfill corrupted distance data (mm vs m) ──────────────────
     settings = db.execute("SELECT distanceBackfillDone FROM Settings WHERE id=1").fetchone()
     if not settings or not settings[0]:
-        db.execute("""
+        n_mm = db.execute("""
             UPDATE Activity SET distance = distance / 1000
             WHERE distance > 500000
               AND (lower(sportType) LIKE '%walk%'
                 OR lower(sportType) LIKE '%hike%'
                 OR lower(sportType) LIKE '%run%')
-        """)
+        """).rowcount
         db.execute("UPDATE Settings SET distanceBackfillDone=1 WHERE id=1")
+        if settings and n_mm:
+            _tasks.record(db, 'startup:mm_distances', 'Walk, run and hike distances stored in mm', f'{n_mm} divided by 1,000')
         db.commit()
 
     # ── Top speeds that are one GPS spike (old Garmin syncs): recomputed from the ride's streams, then re-checked ──
     from services.max_stats import fix_spiky_max_speed
-    if fix_spiky_max_speed(db):
+    n_spiky = fix_spiky_max_speed(db)
+    if n_spiky:
+        _tasks.record(db, 'startup:spiky_top_speeds', 'Top speeds that were a GPS spike',
+                      f"{n_spiky} ride{'s' if n_spiky != 1 else ''} recomputed from their own GPS and speed data, and re-checked")
         db.commit()
     from services.start_times import fix_utc_starts
-    fix_utc_starts(db)
+    res = fix_utc_starts(db)
+    if res.get('ran') and (res['moved'] or db.execute('SELECT 1 FROM Activity LIMIT 1').fetchone()):     # a new, empty install has nothing to report
+        _tasks.record(db, 'startup:utc_starts', 'Start times of imported rides',
+                      f"{res['moved']} ride{'s' if res['moved'] != 1 else ''} moved from UTC to UK time; "
+                      f"{res['duplicates']} turned out to be a ride already here (the weaker copy was set aside)" if res['moved'] else 'Nothing needed moving')
+        db.commit()
+    from services.reimport import ensure_schema as _reimport_schema
+    _reimport_schema(db)
     from services.sport_fix import ensure_schema as _sport_fix_schema
     _sport_fix_schema(db)
     db.commit()

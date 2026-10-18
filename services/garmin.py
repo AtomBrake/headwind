@@ -440,6 +440,7 @@ HISTORY_FLOOR = date(2005, 1, 1)
 HISTORY_EMPTY_STOP = 13        # 'all' stops after ~a year of windows with no steps and no weigh-ins
 HISTORY_RETRY_MINS = 60        # wait after a rate limit or outage
 HISTORY_WAKE = threading.Event()   # set to start the backfill thread now instead of at its next check
+SYNC_WAKE = threading.Event()      # set to run the regular Garmin sync now instead of after its interval (the Tasks page's "Sync now")
 
 
 def history_from(choice, today=None):

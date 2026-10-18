@@ -42,7 +42,7 @@
 
 {% macro wo_row(w) %}
   {% set secs = w.movingTime or 0 %}
-  <div class="wo-line" onclick="location.href='{{ url_for('rides.detail', rid=w.id) }}'"
+  <div class="wo-line" data-pick="{{ w.id }}" onclick="location.href='{{ url_for('rides.detail', rid=w.id) }}'"
        style="display:flex; align-items:center; gap:0.75rem; padding:0.55rem 0.25rem; border-bottom:1px solid rgba(22,51,82,0.4); cursor:pointer; transition:background 0.1s;"
        onmouseover="this.style.background='rgba(255,255,255,0.025)'" onmouseout="this.style.background=''">
     <div style="flex:1; min-width:0;">
@@ -97,8 +97,9 @@
   </div>
 </form>
 
-<div class="card" id="workout-history">
-  <div class="card-title">Workouts{% if is_filtered %}<span style="font-size:0.8125rem; font-weight:400; color:var(--text-muted); margin-left:0.5rem;">{{ workouts | length }} result{{ 's' if workouts | length != 1 }}</span>{% endif %}</div>
+<div class="card" id="workout-history" data-pick-list>
+  <div class="card-title" style="display:flex; align-items:center; gap:0.5rem;">Workouts{% if is_filtered %}<span style="font-size:0.8125rem; font-weight:400; color:var(--text-muted); margin-left:0.5rem;">{{ workouts | length }} result{{ 's' if workouts | length != 1 }}</span>{% endif %}
+    {% if workouts %}<button type="button" class="btn btn-secondary pick-toggle" data-pick-toggle>Select</button>{% endif %}</div>
   <p style="color:var(--text-muted);font-size:0.8125rem;margin:0 0 0.6rem;">Your complete history of walks, runs and hikes, from the Headwind phone app or added by hand. Runs also appear in the dashboard's activity list. Workouts are kept apart from rides so they never change your ride stats; their calories count toward the day's burn.</p>
   {% if not workouts %}
     <p style="color:var(--text-muted)">{{ 'No workouts match your filters.' if is_filtered else 'Nothing yet. Pair a phone under Phones and record a walk, or add one above.' }}</p>
@@ -129,4 +130,5 @@
     {% endfor %}
   {% endif %}
 </div>
+{% include '_bulk_bar.html' %}
 {% endblock %}

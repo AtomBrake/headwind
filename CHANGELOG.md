@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.0-beta] - 2026-10-18
+
+Migration: new `TaskLog` and `ImportChange` tables, added automatically at startup. No Android change.
+
+### Added
+- **Select and edit many activities at once.** "Select" on the dashboard's activity history and search results, the Workouts page and a rider's page. Click rows to pick them (shift-click for a range, All / None), then use the bar at the bottom: delete, change type, set the bike, move to another rider, rename, mark flagged rides as right, or download them as a zip of GPX files. Rides and workouts can be mixed. Each action goes through the same code as a single activity, so deleted rides stay deleted on the next sync and segment PRs are re-picked, and Home Assistant is updated once at the end. `services/bulk.py`, `POST /rides/bulk`, `tests/test_bulk.py`.
+- **A Tasks page** (sidebar) showing what Headwind does in the background:
+  - the Garmin sync (last run, or the error it keeps failing on), with "Sync now";
+  - the Garmin health and weight history, with "Try now" while one waits after a rate limit;
+  - friend sync, the Home Assistant / MQTT link, and an import in progress;
+  - the start-up repairs an update runs, and what each one changed;
+  - the latest runs.
+
+  After an update's repairs have run, every page shows a notice until you open the page. `services/tasks.py`, `routes/tasks.py`, `tests/test_tasks.py`.
+- **Re-importing a ride that's already saved repairs it, if you want.** Importing a Strava export, zip or file again used to skip every ride it already had, so one that came in broken stayed broken. Now each one is compared with the saved ride. If they're the same, it's skipped as before. If they differ, it's listed on the Import page with the saved and file values side by side, and you choose: **Use import** (the file's values wherever it has one), **Fill in gaps** (only what the saved ride is missing, e.g. a GPS track), or **Keep saved**, for each ride or all at once. Names, bikes, notes, the activity type and a ride you marked as right are never changed, and best efforts, segments and the sanity check are redone for any ride that changes. `services/reimport.py`, `tests/test_reimport.py`.
+
+### Fixed
+- **GPX exports were an hour out all summer.** Track times were the local start time labelled as UTC. They now use the stored UTC start, so an exported ride re-imports on top of its original. `routes/rides.gpx_for`.
+
 ## [0.5.9-beta] - 2026-10-18
 
 Migration: a new `SportFix` table, four new `Settings` columns (`utcStartFixDone`, `garminWeights*`), and one-off repairs of top speeds and imported rides' start times at start-up (all automatic). No Android change.

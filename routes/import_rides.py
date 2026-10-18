@@ -25,8 +25,36 @@ bp = Blueprint('import_rides', __name__)
 @bp.route('/import')
 def index():
     from database import query_db
+    from services import reimport
     riders = query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name ASC')
-    return render_template('import.html', riders=riders)
+    return render_template('import.html', riders=riders, changes=reimport.pending(get_db()))
+
+
+@bp.route('/import/changes/<path:ride_id>/<choice>', methods=['POST'])
+def resolve_change(ride_id, choice):
+    """Settle a re-imported ride that differs from the saved one: keep | replace | fill (services/reimport.py). ride_id 'all' settles every one."""
+    from flask import flash, redirect, url_for
+    from services import reimport
+    db = get_db()
+    ids = [c['rideId'] for c in reimport.pending(db)] if ride_id == 'all' else [ride_id]
+    try:
+        changed = sum(1 for i in ids if reimport.resolve(db, i, choice))
+    except ValueError as e:
+        db.rollback()
+        flash(str(e), 'error')
+        return redirect(url_for('import_rides.index'))
+    db.commit()
+    if changed:
+        try:
+            from services.mqtt import push_update
+            push_update(background=True)
+        except Exception:
+            pass
+    n = len(ids)
+    flash({'keep': f"Kept the saved version of {n} ride{'s' if n != 1 else ''}.",
+           'replace': f"Updated {changed} ride{'s' if changed != 1 else ''} from the import.",
+           'fill': f"Filled in missing data on {changed} ride{'s' if changed != 1 else ''}."}[choice], 'success')
+    return redirect(url_for('import_rides.index') + '#changes')
 
 
 @bp.route('/import/upload', methods=['POST'])
@@ -248,9 +276,11 @@ def _process_single_file(path, original_name, rider_id=None):
 
         from services import duplicates
         if duplicates.exists_anywhere(db, act['id']):
-            log.warning('Single file import: already exists id=%s', act['id'])
-            yield _progress(1, 1, 0, 1, 0)
-            yield _event({'complete': True, 'imported': 0, 'skipped': 1, 'errors': 0, 'activity': act_summary})
+            differs = _offer_change(db, act, original_name)
+            db.commit()
+            log.warning('Single file import: already exists id=%s%s', act['id'], ' (differs: waiting for review)' if differs else '')
+            yield _progress(1, 1, 0, 0 if differs else 1, 0)
+            yield _event({'complete': True, 'imported': 0, 'skipped': 0 if differs else 1, 'changed': 1 if differs else 0, 'errors': 0, 'activity': act_summary})
             return
 
         _insert(db, act, rider_id)
@@ -336,7 +366,7 @@ def _process_strava_export(zf, names, rider_id=None):
     yield _event({'total': total, 'source': 'strava'})
 
     db = get_db()
-    imported = skipped = errors = 0
+    imported = skipped = errors = changed = 0
 
     for i, row in enumerate(rows):
         act_id = str(row.get('Activity ID', '')).strip()
@@ -345,10 +375,7 @@ def _process_strava_export(zf, names, rider_id=None):
             yield _progress(i + 1, total, imported, skipped, errors)
             continue
 
-        if db.execute('SELECT id FROM Activity WHERE id = ?', [act_id]).fetchone():
-            skipped += 1
-            yield _progress(i + 1, total, imported, skipped, errors)
-            continue
+        already = bool(db.execute('SELECT id FROM Activity WHERE id = ?', [act_id]).fetchone())      # read it anyway: it may differ from what's saved
 
         act = {}
         filename = row.get('Filename', '').strip()
@@ -400,6 +427,18 @@ def _process_strava_export(zf, names, rider_id=None):
             if d:
                 act['distance'] = d
 
+        if already:
+            try:
+                differs = _offer_change(db, act, 'Strava export')
+                db.commit()
+            except Exception as e:
+                log.error('Re-import compare failed for %s: %s', act_id, e)
+                differs = False
+            changed += bool(differs)
+            skipped += not differs
+            yield _progress(i + 1, total, imported, skipped, errors)
+            continue
+
         try:
             _insert(db, act, rider_id)
             from services.best_efforts import save_best_efforts
@@ -418,9 +457,9 @@ def _process_strava_export(zf, names, rider_id=None):
 
         yield _progress(i + 1, total, imported, skipped, errors)
 
-    log.warning('Strava import done — imported=%d skipped=%d errors=%d',
-                imported, skipped, errors)
-    yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'errors': errors})
+    log.warning('Strava import done — imported=%d skipped=%d changed=%d errors=%d',
+                imported, skipped, changed, errors)
+    yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'changed': changed, 'errors': errors})
 
 
 def _process_generic_zip(zf, names, rider_id=None):
@@ -432,7 +471,7 @@ def _process_generic_zip(zf, names, rider_id=None):
     yield _event({'total': total, 'source': 'files'})
 
     db = get_db()
-    imported = skipped = errors = 0
+    imported = skipped = errors = changed = 0
 
     for i, name in enumerate(activity_files):
         try:
@@ -443,8 +482,11 @@ def _process_generic_zip(zf, names, rider_id=None):
             if act and act.get('startDateLocal'):
                 from services import duplicates as _d
                 if _d.exists_anywhere(db, act['id']):
-                    log.info('Import skip (duplicate): %s', name)
-                    skipped += 1
+                    differs = _offer_change(db, act, name)
+                    db.commit()
+                    log.info('Import %s: %s', 'differs from the saved ride' if differs else 'skip (duplicate)', name)
+                    changed += bool(differs)
+                    skipped += not differs
                 else:
                     _insert(db, act, rider_id)
                     from services.best_efforts import save_best_efforts
@@ -468,7 +510,7 @@ def _process_generic_zip(zf, names, rider_id=None):
 
     log.warning('Generic import done — imported=%d skipped=%d errors=%d',
                 imported, skipped, errors)
-    yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'errors': errors})
+    yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'changed': changed, 'errors': errors})
 
 
 def _split_start(act):
@@ -484,6 +526,18 @@ def _split_start(act):
         return raw, raw
     utc = instant(raw)
     return utc.strftime('%Y-%m-%dT%H:%M:%S'), utc.astimezone(LOCAL).strftime('%Y-%m-%dT%H:%M:%S')
+
+
+def _offer_change(db, act, source):
+    """A ride with this id is already saved: compare the import with it (services/reimport.py). Returns True if it differs (it now waits on the
+    Import page), False if it is the same ride, None if nothing is saved under that id (so import it as new)."""
+    saved = db.execute('SELECT * FROM Activity WHERE id=?', [act.get('id')]).fetchone()
+    if not saved:
+        return None
+    from services import reimport
+    norm = dict(act)
+    norm['startDate'], norm['startDateLocal'] = _split_start(act)
+    return reimport.propose(db, saved, norm, source)
 
 
 def _insert(db, act, rider_id=None):
