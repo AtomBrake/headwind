@@ -12,6 +12,7 @@ log = logging.getLogger(__name__)
 
 from database import get_db, query_db
 from services.segments import scan_activity_against_segments, _refresh_prs
+from services.sports import FAMILIES
 from services.limits import bounded_lines
 from services.peer_http import open_peer
 from services import feed_tokens
@@ -99,8 +100,9 @@ def feed():
 
         if scope['shareSegments']:
             for s in db.execute('SELECT id, name, startLat, startLng, endLat, endLng, '
-                                "distanceM, elevationGainM, polyline, COALESCE(sport, 'ride') AS sport FROM Segment WHERE friendId IS NULL"):
-                yield json.dumps({'type': 'segment', **dict(s)}) + '\n'
+                                "distanceM, elevationGainM, polyline, COALESCE(sport, 'ride') AS family FROM Segment WHERE friendId IS NULL"):
+                # `sport` is what a friend on a version before 0.7.3 reads: 'run' for anything on foot, else 'ride'. `family` is the whole answer.
+                yield json.dumps({'type': 'segment', **dict(s), 'sport': 'run' if s['family'] == 'foot' else 'ride'}) + '\n'
 
         owner_id = rider['id'] if rider else None
         if owner_id and scope['shareRides']:
@@ -374,17 +376,20 @@ def _do_ride_sync(friend_id):
                 _ec = valid_coord(obj.get('endLat'), obj.get('endLng'))
                 if not _sc or not _ec:
                     continue                       # a friend's segment with impossible coordinates is ignored
+                _fam = obj.get('family') if obj.get('family') in FAMILIES else ('foot' if obj.get('sport') == 'run' else 'ride')
                 _shape = clean_polyline(obj.get('polyline'))
                 _poly = json.dumps(_shape) if _shape else None
                 existing = db.execute(
-                    'SELECT id FROM Segment WHERE friendId=? AND sourceSegId=?',
+                    "SELECT id, COALESCE(sport, 'ride') FROM Segment WHERE friendId=? AND sourceSegId=?",
                     [friend_id, obj['id']]
                 ).fetchone()
                 if existing:
+                    if existing[1] != _fam:                # now another family's segment: its efforts are matched again below
+                        db.execute('DELETE FROM SegmentEffort WHERE segmentId=?', [existing[0]])
                     db.execute('''UPDATE Segment SET name=?, startLat=?, startLng=?, endLat=?, endLng=?,
                                       distanceM=?, elevationGainM=?, polyline=?, sport=? WHERE id=?''', [
                         obj.get('name'), _sc[0], _sc[1], _ec[0], _ec[1],
-                        obj.get('distanceM'), obj.get('elevationGainM'), _poly, 'run' if obj.get('sport') == 'run' else 'ride',
+                        obj.get('distanceM'), obj.get('elevationGainM'), _poly, _fam,
                         existing[0],
                     ])
                     imported_seg_ids.append(existing[0])
@@ -394,7 +399,7 @@ def _do_ride_sync(friend_id):
                                   VALUES (?,?,?,?,?,?,?,?,?,?,?)''', [
                         obj.get('name'), _sc[0], _sc[1], _ec[0], _ec[1],
                         obj.get('distanceM'), obj.get('elevationGainM'), _poly,
-                        friend_id, obj['id'], 'run' if obj.get('sport') == 'run' else 'ride',
+                        friend_id, obj['id'], _fam,
                     ])
                     imported_seg_ids.append(db.execute('SELECT last_insert_rowid()').fetchone()[0])
                 remote_seg_count += 1
@@ -491,8 +496,8 @@ def _do_ride_sync(friend_id):
         ).fetchall()
         owner = db.execute('SELECT id FROM Rider WHERE isDefault=1').fetchone()
         if owner:
-            owner_acts = db.execute(
-                "SELECT id, startDateLocal, streams FROM Ride "
+            owner_acts = db.execute(                      # every sport: a friend's foot segments are for the owner's walks and runs
+                "SELECT id, startDateLocal, streams, sportType FROM Activity "
                 "WHERE riderId=? AND streams IS NOT NULL AND streams NOT IN ('null', '{}')",
                 [owner[0]]
             ).fetchall()

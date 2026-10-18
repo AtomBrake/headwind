@@ -67,7 +67,7 @@
         id="typeForm" data-current="{{ activity.sportType }}">
     <select name="sport" id="typeSelect" aria-label="What kind of activity was this?" onchange="typeChanged(this)">
       {% if activity.sportType not in sports %}<option value="" selected>{{ activity.sportType or 'Not set' }}</option>{% endif %}
-      {% for sp in sports %}<option value="{{ sp }}" {{ 'selected' if activity.sportType == sp }}>{{ 'Indoor ride' if sp == 'VirtualRide' else sp }}</option>{% endfor %}
+      {% for sp in sports %}<option value="{{ sp }}" {{ 'selected' if activity.sportType == sp }}>{{ sp | sport_label }}</option>{% endfor %}
     </select>
   </form>
   <span style="color:var(--text-muted);font-size:.8rem;">Recorded as the wrong thing? Pick the right type. A walk, run or hike moves to Workouts; a ride moves back to your rides.</span>
@@ -457,7 +457,7 @@ function typeChanged(sel) {
   <div id="segForm" style="display:none; background:var(--card-bg); border:1px solid #1e4060; border-radius:10px; padding:1.25rem;">
     <form method="POST" action="{{ url_for('segments.create') }}">
       <input type="hidden" name="activityId" value="{{ activity.id }}">
-      <input type="hidden" name="sport"      value="{{ 'run' if is_run else 'ride' }}">
+      <input type="hidden" name="sport"      value="{{ seg_family or 'ride' }}">
       <input type="hidden" name="startLat"   id="segStartLat">
       <input type="hidden" name="startLng"   id="segStartLng">
       <input type="hidden" name="endLat"     id="segEndLat">
@@ -504,12 +504,14 @@ function typeChanged(sel) {
 {% if coords %}
 <div class="card" style="margin-top:1rem;" id="segmentsCard">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
-    <div class="card-title" style="margin:0;">Segments</div>
+    <div class="card-title" style="margin:0;">Segments{% if seg_family_label %} <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">{{ seg_family_label }}</span>{% endif %}</div>
+    {% if seg_family %}
     <div style="display:flex;gap:0.5rem;align-items:center;">
       <button class="btn btn-secondary" style="font-size:0.8125rem;" onclick="enterSegmentMode()">+ Create Segment</button>
       <button class="btn btn-secondary" style="font-size:0.8125rem;" id="scanBtn" onclick="scanSegments('{{ activity.id }}')">Scan for segments</button>
       <span id="scanResult" style="font-size:0.8125rem;color:var(--text-muted);display:none;"></span>
     </div>
+    {% endif %}
   </div>
 
   {% if seg_efforts %}
@@ -518,7 +520,7 @@ function typeChanged(sel) {
       <tr style="border-bottom:1px solid #1e4060;">
         <th style="padding:0.5rem 0; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Segment</th>
         <th style="padding:0.5rem 0; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Time</th>
-        <th style="padding:0.5rem 0; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Speed</th>
+        <th style="padding:0.5rem 0; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">{{ 'Pace' if seg_family == 'foot' else 'Speed' }}</th>
         <th style="padding:0.5rem 0; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Trend</th>
         <th style="padding:0.5rem 0; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;"></th>
       </tr>
@@ -556,7 +558,7 @@ function typeChanged(sel) {
           </div>
         </td>
         <td style="padding:0.6rem 0; text-align:right; color:var(--text-muted); font-size:0.875rem; vertical-align:middle;">
-          {% if e.avgSpeedMps %}{{ e.avgSpeedMps | fmt_speed }}{% else %}—{% endif %}
+          {% if e.avgSpeedMps %}{% if seg_family == 'foot' %}{{ e.avgSpeedMps | fmt_pace }}{% else %}{{ e.avgSpeedMps | fmt_speed }}{% endif %}{% else %}—{% endif %}
         </td>
         <td style="padding:0.6rem 0; text-align:right; vertical-align:middle; white-space:nowrap;">
           <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.25rem;">
@@ -610,7 +612,7 @@ function typeChanged(sel) {
     </tbody>
   </table>
   {% else %}
-  <p style="color:var(--text-muted); font-size:0.875rem; margin:0 0 0.5rem;">No segment efforts on this ride yet.</p>
+  <p style="color:var(--text-muted); font-size:0.875rem; margin:0 0 0.5rem;">{% if seg_family %}No segment efforts on this {{ 'activity' if is_workout else 'ride' }} yet.{% else %}Segments are only for outdoor rides, e-bike rides, walks, runs and hikes.{% endif %}</p>
   {% endif %}
 </div>
 {% endif %}

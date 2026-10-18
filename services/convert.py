@@ -20,7 +20,7 @@ def _kg(rider_id):
 
 def _ride_to_workout(db, row, sport, discard_parked=False):
     """Same row, new sport: what only a ride has goes (best efforts, ride segment efforts, the AI's ride memory, the bike), calories are re-estimated
-    for the new sport, and a run gets its best times and run-segment efforts."""
+    for the new sport, and a run gets its best times, and a walk, run or hike its foot-segment efforts."""
     from services import duplicates
     from services.segments import _refresh_prs
     from services.workouts import estimate_calories
@@ -53,7 +53,7 @@ def _workout_to_ride(db, row, sport):
     if kcal is None:                                     # no estimate possible: keep the workout's figure
         kcal_raw, kcal = row['caloriesRaw'], row['calories']
     name = row['name'] if (row['name'] or '').strip() else workouts.label({'name': None, 'sport': row['sportType'], 'startDateLocal': row['startDateLocal']})
-    workouts.forget(db, row['id'])                       # run best times and run-segment efforts
+    workouts.forget(db, row['id'])                       # run best times and foot-segment efforts
     db.execute("UPDATE Activity SET type=?, sportType=?, name=?, calories=?, caloriesRaw=?, updatedAt=datetime('now') WHERE id=?",
                [sport, sport, name, kcal, kcal_raw, row['id']])
     duplicates.rebuild_derived(db, row['id'])           # best efforts + segment efforts, now that it is a ride
@@ -76,8 +76,13 @@ def change_sport(db, kind, act_id, sport, discard_parked=False):
         raise ValueError('that ride was not found' if kind == 'ride' else 'that activity was not found')
     if (row['sportType'] or '') == sport:
         return {'kind': kind, 'id': act_id, 'sport': sport, 'changed': False}
-    if kind == 'ride' and sport in RIDES:                # Ride <-> VirtualRide (or an e-bike / MTB ride becoming a plain Ride): just the label
+    if kind == 'ride' and sport in RIDES:                # Ride <-> VirtualRide <-> EBikeRide (or an MTB ride becoming a plain Ride): the label,
+        from services.segments import rescan_activity   # and the segments it is matched against (services/sports.segment_family)
+        from services.sports import family_of
+        before = family_of(db, act_id)
         db.execute('UPDATE Activity SET sportType=?, type=? WHERE id=?', [sport, sport, act_id])
+        if family_of(db, act_id) != before:
+            rescan_activity(db, act_id)
         return {'kind': 'ride', 'id': act_id, 'sport': sport, 'changed': True}
     if kind == 'ride':
         return dict(_ride_to_workout(db, row, sport, discard_parked), changed=True)
@@ -85,7 +90,7 @@ def change_sport(db, kind, act_id, sport, discard_parked=False):
         return dict(_workout_to_ride(db, row, sport), changed=True)
     db.execute('UPDATE Activity SET sportType=?, type=? WHERE id=?', [sport, sport, act_id])
     from services import workouts as _wk
-    _wk.refresh_derived(db, act_id)                      # a walk has no run segments or best times; a run needs them
+    _wk.refresh_derived(db, act_id)                      # walks, runs and hikes share foot segments; a swim has none, and only a run has best times
     from services.workouts import estimate_calories
     from services.calorie_adjust import pair as _kcal_pair
     kcal_raw, kcal = _kcal_pair(estimate_calories(sport, row['distance'] or 0, int(row['movingTime'] or 0), row['totalElevationGain'] or 0, _kg(row['riderId'])))

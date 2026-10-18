@@ -299,6 +299,11 @@ def create_app():
         from services.homeassistant import weather_icon as _wi
         return _wi(condition)
 
+    @app.template_filter('sport_label')
+    def sport_label(t):
+        from services.sports import label
+        return label(t)
+
     @app.template_filter('sport_icon')
     def sport_icon(t):
         t = (t or '').lower()
