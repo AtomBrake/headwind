@@ -33,7 +33,7 @@
     <span class="btn btn-secondary" style="opacity:0.3;cursor:default;">Next ›</span>
   {% endif %}
   {% if not is_workout %}<a href="{{ url_for('rides.export_gpx', rid=activity.id) }}" class="btn btn-secondary" title="Download GPX">GPX</a>{% endif %}
-  {% if source_link %}<a href="{{ source_link.url }}" class="btn btn-secondary" target="_blank" rel="noopener" title="Open this activity on {{ source_link.name }}">{{ source_link.name }} ↗</a>{% endif %}
+  {% for l in source_links %}<a href="{{ l.url }}" class="btn btn-secondary" target="_blank" rel="noopener" title="Open this activity on {{ l.name }}">{{ l.name }} ↗</a>{% endfor %}
   <a href="{{ url_for('workouts_ui.workouts_page') if is_workout else url_for('dashboard.dashboard') }}" class="btn btn-secondary">← Back</a>
   <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=activity.id) if is_workout else url_for('rides.delete', rid=activity.id) }}" style="display:inline;" onsubmit="return confirm('Delete this activity? This cannot be undone.')">
     <button type="submit" class="btn" style="background:var(--danger,#ef4444);color:#fff;border:none;">Delete</button>
