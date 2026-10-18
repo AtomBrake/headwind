@@ -121,7 +121,7 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
   - [ ] The same for the lists that copy the pattern: `templates/rider.html`, `workouts.html` and `setup.html`.
 - [ ] **All activities from the menu.** The sidebar has Dashboard and Workouts, but no direct way to the full activity list: today it's the history at the bottom of the dashboard (`#ride-history`), and workouts are on a separate page. Add an "Activities" entry that opens one list of rides and workouts together, newest first, with the existing search and the "Select" bulk actions.
 - [ ] **More filters on the activity lists.** The dashboard search (`routes/dashboard.py`) filters by name, dates, distance and sport only. Add:
-  - [ ] activity type (ride, run, walk, swim, other workouts), several at once
+  - [ ] sports to leave out (ride, run, walk, swim, other workouts), several at once: every activity is shown until the rider leaves some out (decided 2026-10-18, see **One table for every activity**)
   - [ ] gear (bike or shoes)
   - [ ] sensors and data the activity has: power, heart rate, cadence, GPS or indoor
   - [ ] source (Garmin, Strava, import, phone) and rider
@@ -130,8 +130,16 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
 
 ## Multi-sport
 
-Headwind started as a cycling app and is becoming one for every sport. Today rides live in `Activity` and everything else in `Workout` (walk, run, hike, and since 0.5.9 swim, surf, paddle, row, ski, skate, golf, climb, other). The split is deliberate (about 100 ride queries assume `Activity` is rides), but most of the app outside the Workouts page still only sees rides.
+Headwind started as a cycling app and is becoming one for every sport. Today rides live in `Activity` and everything else in `Workout` (walk, run, hike, and since 0.5.9 swim, surf, paddle, row, ski, skate, golf, climb, other). The split was deliberate (most of the 241 queries on `Activity` assume it is rides), but it no longer holds and is to be undone (the first item). Most of the app outside the Workouts page still only sees rides.
 
+- [ ] **One table for every activity.** The split between `Activity` (rides) and `Workout` (the rest) no longer holds. A Strava export puts walks and runs in `Activity` (`_insert` in `routes/import_rides.py` stores whatever "Activity Type" says), so they count as rides, while the Garmin sync puts them in `Workout` (`_save_workout` in `services/garmin.py`). The duplicate check (`services/duplicates.py`) only searches `Activity`, so a Garmin run and its Strava copy are both kept: 0.6.6-beta fixed the time-zone cause of duplicates, not this one. The split also needs workarounds: `services/convert.py` moves rows between the tables and gives them new ids (`wk_` / `conv_`, `originId`, tombstones), `services/sport_fix.py` exists to move old Garmin rows, segments read both tables through the `SegActivity` view (`database.py`), and the dashboard adds runs in by hand (`routes/dashboard.py`).
+  - [ ] Release 1, storage only. Back up first. At start-up: add `steps` and `source` to `Activity`, check that no `Workout` id is also an `Activity` id, copy the rows in (`sport` becomes `type` / `sportType`), and keep the old table renamed as a backup.
+  - [ ] A `Ride` view: `Activity` limited to ride sports (Ride, VirtualRide, EBikeRide, ...). The 241 `Activity` statements are sorted in `docs/ONE-TABLE-PLAN.md`: 83 ride-only reads move to `Ride`, 17 that also read `Workout` or pick the table by kind need fixing first, and the rest (by id, writes, every sport) stay on `Activity`. Strava walks and runs then leave the ride totals; say so in the changelog.
+  - [ ] Replace `Workout` with a view over the non-ride rows that keeps its old column names, so its ~42 reads keep working, and point its writers at `Activity`: 12 statements in 8 files, listed in `docs/ONE-TABLE-PLAN.md`.
+  - [ ] Duplicate check for every sport: run `duplicates.resolve` after a Garmin workout or a phone walk or run is saved, and once at start-up for every non-ride activity (as `recheck_away_starts` in `services/start_times.py` does), so existing pairs such as a Garmin run and its Strava copy are set aside.
+  - [ ] The phone API (`routes/api_v1.py`) keeps its shape, so the Android and iOS apps need no change.
+  - [ ] Release 2, remove the workarounds: a sport change in `convert.py` becomes a label change (same id, no tombstone), and so does `sport_fix.apply`; `SegActivity` becomes a query on `Activity`; the dashboard's run merge goes; no new `originId`s. Move the `Workout` view's readers onto `Activity` one at a time, then drop the view and the backup table.
+  - [ ] History list (decided 2026-10-18): every activity by default, and the rider picks sports to leave out. This replaces the dashboard's runs-only merge; see **More filters on the activity lists**.
 - [ ] **Gear for every sport, starting with shoes.** Gear is bikes only (`Bike` and its `Part`s in `services/gear.py`), and `Workout` has no gear field.
   - [ ] A gear item that isn't a bike: shoes first (name, brand, model, bought on, starting distance, a "replace at" distance; running shoes are usually retired around 500-800 km), then other kinds as needed (wetsuit, skis, kayak, board).
   - [ ] A `gearId` on `Workout`, a default pair per rider and sport (runs, walks, hikes), changeable on the activity page and through "Set gear" in the bulk-edit bar (`services/bulk.py`).
@@ -139,7 +147,7 @@ Headwind started as a cycling app and is becoming one for every sport. Today rid
   - [ ] The Gear page shows bikes and other gear side by side; retiring a pair keeps its history.
   - [ ] Phone app and Garmin: Garmin Connect has its own gear (shoes included) and the activity list says which was used. Map it on sync as the Strava import does.
 - [ ] **Every sport in the dashboard and stats.** The dashboard's history merges in runs only (`routes/dashboard.py`), and the totals, Performance chart, Data page, badges and Home Assistant sensors are rides only.
-  - [ ] A sport filter (All / Rides / Runs / ...) on the dashboard and Data page, with totals and charts for the chosen sport. A swim's distance shouldn't add to a ride total, so "All" shows time and calories, not one mixed distance.
+  - [ ] A sport filter on the dashboard and Data page: every sport by default, with the rider picking sports to leave out, and totals and charts for what's left. A swim's distance shouldn't add to a ride total, so "All" shows time and calories, not one mixed distance.
   - [ ] Speed for rides, pace for runs and walks (per km or mile, from `services/units.py`), and per 100 m for swims.
   - [ ] Personal records per sport: run best efforts exist (`services/run_stats.py`); add swims and the rest where they make sense.
   - [ ] Badges per sport, not only cycling milestones (`routes/riders.py`).
