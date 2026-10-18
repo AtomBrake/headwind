@@ -202,10 +202,18 @@
 {% if flagged %}
 <div class="card" id="flaggedCard" style="margin-bottom:1rem; border-color:#b45309; background:rgba(180,83,9,0.10);">
   <div class="card-title">Rides that look wrong ({{ flagged|length }})</div>
-  <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0 0 0.5rem;">These broke a sanity limit (an impossible speed, a tiny blip, a climb that does not fit the distance). They are left out of the speed and weather analytics until you decide: keep one if it is genuinely right, or delete it.</p>
+  <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0 0 0.5rem;">These broke a sanity limit (an impossible speed, a tiny blip, a climb that does not fit the distance). They are left out of the speed and weather analytics until you decide: keep one if it is genuinely right, or delete it.{% if garmin_full %} A swim or run listed here was probably saved as a ride by an older Garmin sync: <a href="{{ url_for('garmin.sports_page') }}" style="color:var(--accent);">check activity types with Garmin</a>.{% endif %}</p>
+  {% set blips = flagged | selectattr('isBlip') | list %}
+  {% if blips %}
+  <form method="POST" action="{{ url_for('rides.delete_blips') }}" style="margin:0 0 0.5rem;"
+        onsubmit="return confirm('Delete the {{ blips | length }} flagged ride{{ 's' if blips | length != 1 }} shorter than 160 m? This cannot be undone.')">
+    {% if not active_rider.isDefault %}<input type="hidden" name="rider" value="{{ active_rider.id }}">{% endif %}
+    <button class="btn btn-secondary" type="submit" style="padding:0.25rem 0.8rem; font-size:0.8125rem;">Delete all {{ blips | length }} blip{{ 's' if blips | length != 1 }} (under 160 m)</button>
+  </form>
+  {% endif %}
   {% for f in flagged %}
   <div id="flag_{{ f.id }}" style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; padding:0.4rem 0; border-top:1px solid rgba(22,51,82,0.6); font-size:0.8125rem;">
-    <a href="/rides/{{ f.id }}" style="flex:1 1 14rem;">{{ f.startDateLocal | fmt_date }} · {{ f.name or 'Ride' }}<br><span style="color:var(--text-muted);">{{ f.flagReason }}</span></a>
+    <a href="/rides/{{ f.id }}" class="dash-link" style="flex:1 1 14rem;"><span style="color:var(--accent);">{{ f.startDateLocal | fmt_date }} · {{ f.name or 'Ride' }}</span><br><span style="color:var(--text-muted);">{{ f.flagReason }}</span></a>
     <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;" onclick="dismissFlagged('{{ f.id }}')">It's right</button>
   </div>
   {% endfor %}
@@ -235,12 +243,12 @@ function dismissFlagged(id) {
     <input type="date" name="to" value="{{ date_to }}">
   </div>
   <div class="form-group-sm" style="flex:1; min-width:80px;">
-    <label>Min mi</label>
-    <input type="number" name="min_mi" value="{{ min_mi }}" placeholder="0" min="0" step="1">
+    <label>Min {{ U.dist }}</label>
+    <input type="number" name="min_dist" value="{{ min_dist }}" placeholder="0" min="0" step="1">
   </div>
   <div class="form-group-sm" style="flex:1; min-width:80px;">
-    <label>Max mi</label>
-    <input type="number" name="max_mi" value="{{ max_mi }}" placeholder="&infin;" min="0" step="1">
+    <label>Max {{ U.dist }}</label>
+    <input type="number" name="max_dist" value="{{ max_dist }}" placeholder="&infin;" min="0" step="1">
   </div>
   <div class="form-group-sm" style="flex:1; min-width:110px;">
     <label>Sport</label>
@@ -408,14 +416,14 @@ function baseScales(yUnit) {
 }
 
 const METRICS = {
-  distance:  { type: 'bar',  label: 'mi',  color: 'rgb(252,76,2)',  sub: 'Last 12 weeks',
-               labels: weeklyData.map(w => w.label), data: weeklyData.map(w => w.mi), links: weekLinks, hint: 'Click to see this week\'s activities' },
-  elevation: { type: 'bar',  label: 'ft',  color: 'rgb(16,185,129)', sub: 'Last 12 weeks',
-               labels: weeklyData.map(w => w.label), data: weeklyData.map(w => w.ft), links: weekLinks, hint: 'Click to see this week\'s activities' },
+  distance:  { type: 'bar',  label: UNITS.dist,  color: 'rgb(252,76,2)',  sub: 'Last 12 weeks',
+               labels: weeklyData.map(w => w.label), data: weeklyData.map(w => +UNITS.toDist(w.dist_m).toFixed(1)), links: weekLinks, hint: 'Click to see this week\'s activities' },
+  elevation: { type: 'bar',  label: UNITS.elev,  color: 'rgb(16,185,129)', sub: 'Last 12 weeks',
+               labels: weeklyData.map(w => w.label), data: weeklyData.map(w => Math.round(UNITS.toElev(w.elev_m))), links: weekLinks, hint: 'Click to see this week\'s activities' },
   calories:  { type: 'bar',  label: 'kcal', color: 'rgb(168,85,247)', sub: 'Last 12 weeks',
                labels: weeklyData.map(w => w.label), data: weeklyData.map(w => w.cals), links: weekLinks, hint: 'Click to see this week\'s activities' },
-  speed:     { type: 'line', label: 'mph', color: 'rgb(252,76,2)', sub: 'This year, per ride',
-               labels: yearSpeedData.map(r => fmtDate(r.d)), data: yearSpeedData.map(r => r.mph),
+  speed:     { type: 'line', label: UNITS.speed, color: 'rgb(252,76,2)', sub: 'This year, per ride',
+               labels: yearSpeedData.map(r => fmtDate(r.d)), data: yearSpeedData.map(r => +UNITS.toSpeed(r.mps).toFixed(1)),
                names: yearSpeedData.map(r => r.name), links: yearSpeedData.map(r => '/rides/' + encodeURIComponent(r.id)), hint: 'Click to open this ride' },
 };
 

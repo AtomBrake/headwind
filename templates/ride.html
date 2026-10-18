@@ -124,10 +124,7 @@ function typeChanged(sel) {
     <div class="stat-value">{{ activity.distance | fmt_dist }}</div>
     <div class="stat-label">Distance</div>
     {% if activity.distance and activity.movingTime %}
-      {% set pace_secs = (activity.movingTime / (activity.distance / 1609.344)) | int %}
-      {% set pace_m = pace_secs // 60 %}
-      {% set pace_s = pace_secs % 60 %}
-      <div class="stat-sub">{{ pace_m }}:{% if pace_s < 10 %}0{% endif %}{{ pace_s }} /mi pace</div>
+      <div class="stat-sub">{{ (activity.distance / activity.movingTime) | fmt_pace }} pace</div>
     {% endif %}
   </div>
 
@@ -150,8 +147,8 @@ function typeChanged(sel) {
   <div class="stat-card">
     <div class="stat-value">{{ activity.totalElevationGain | fmt_elev }}</div>
     <div class="stat-label">Elevation Gain</div>
-    {% if elev_loss_ft %}
-      <div class="stat-sub">↓ {{ elev_loss_ft | int }} ft loss</div>
+    {% if elev_loss_m %}
+      <div class="stat-sub">↓ {{ elev_loss_m | fmt_elev }} loss</div>
     {% endif %}
   </div>
 
@@ -373,7 +370,7 @@ function typeChanged(sel) {
     {% endif %}
     {% if charts.speed %}
     <div class="card">
-      <div class="card-title">Speed (mph)</div>
+      <div class="card-title">Speed ({{ U.speed }})</div>
       <canvas id="speedChart"></canvas>
     </div>
     {% endif %}
@@ -412,7 +409,7 @@ function typeChanged(sel) {
       <div style="background:rgba(16,185,129,0.1); border:1px solid #10b981; border-radius:6px; padding:0.75rem;">
         <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.25rem; text-transform:uppercase; font-weight:600;">Start</div>
         <div style="font-size:1.25rem; font-weight:600; color:#10b981; margin-bottom:0.5rem;">
-          <span id="segStartDist">0.0</span> mi
+          <span id="segStartDist">0.0</span> {{ U.dist }}
         </div>
         <input type="range" id="segStartSlider" min="0" max="100" value="0" style="width:100%; height:5px; margin-bottom:0.5rem;" oninput="updateSegmentFromSliders()">
         <div style="display:flex; gap:0.3rem; justify-content:center; margin-bottom:0.5rem;">
@@ -426,10 +423,10 @@ function typeChanged(sel) {
       <div style="background:rgba(59,130,246,0.1); border:1px solid #3b82f6; border-radius:6px; padding:0.75rem;">
         <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.25rem; text-transform:uppercase; font-weight:600;">Segment</div>
         <div style="font-size:1.25rem; font-weight:600; color:#3b82f6; margin-bottom:0.25rem;">
-          <span id="segLength">0.0</span> mi
+          <span id="segLength">0.0</span> {{ U.dist }}
         </div>
         <div style="font-size:0.9rem; color:var(--text-muted); text-align:center;">
-          ↑ <span id="segElevation">0</span> ft
+          ↑ <span id="segElevation">0</span> {{ U.elev }}
         </div>
       </div>
 
@@ -437,7 +434,7 @@ function typeChanged(sel) {
       <div style="background:rgba(239,68,68,0.1); border:1px solid #ef4444; border-radius:6px; padding:0.75rem;">
         <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.25rem; text-transform:uppercase; font-weight:600;">End</div>
         <div style="font-size:1.25rem; font-weight:600; color:#ef4444; margin-bottom:0.5rem;">
-          <span id="segEndDist">0.0</span> mi
+          <span id="segEndDist">0.0</span> {{ U.dist }}
         </div>
         <input type="range" id="segEndSlider" min="0" max="100" value="100" style="width:100%; height:5px; margin-bottom:0.5rem;" oninput="updateSegmentFromSliders()">
         <div style="display:flex; gap:0.3rem; justify-content:center; margin-bottom:0.5rem;">
@@ -487,7 +484,7 @@ function typeChanged(sel) {
     {% if ps.rough_p95 is defined %}<div class="stat-box"><div class="stat-value">{{ ps.rough_p95 }}</div><div class="stat-label">Rough 5% of the ride</div></div>{% endif %}
     {% if ps.peak_max is defined %}<div class="stat-box"><div class="stat-value">{{ ps.peak_max }}</div><div class="stat-label">Biggest shock (m/s²)</div></div>{% endif %}
     {% if ps.tilt_max is defined %}<div class="stat-box"><div class="stat-value">{{ ps.tilt_max }}°</div><div class="stat-label">Max tilt</div></div>{% endif %}
-    {% if ps.baro_climb_m is defined %}<div class="stat-box"><div class="stat-value">{{ (ps.baro_climb_m * 3.28084) | round | int }} ft</div><div class="stat-label">Climb by barometer</div></div>{% endif %}
+    {% if ps.baro_climb_m is defined %}<div class="stat-box"><div class="stat-value">{{ ps.baro_climb_m | fmt_elev }}</div><div class="stat-label">Climb by barometer</div></div>{% endif %}
     {% if ps.cad_avg is defined %}<div class="stat-box"><div class="stat-value">{{ ps.cad_avg }} rpm</div><div class="stat-label">Cadence, estimated</div></div>{% endif %}
     {% if ps.coast_pct is defined %}<div class="stat-box"><div class="stat-value">{{ ps.coast_pct }}%</div><div class="stat-label">Time coasting</div></div>{% endif %}
     {% if ps.hard_brakes is defined %}<div class="stat-box"><div class="stat-value">{{ ps.hard_brakes }}</div><div class="stat-label">Hard braking events</div></div>{% endif %}
@@ -556,7 +553,7 @@ function typeChanged(sel) {
           </div>
         </td>
         <td style="padding:0.6rem 0; text-align:right; color:var(--text-muted); font-size:0.875rem; vertical-align:middle;">
-          {% if e.avgSpeedMps %}{{ (e.avgSpeedMps * 2.23694) | round(1) }} mph{% else %}—{% endif %}
+          {% if e.avgSpeedMps %}{{ e.avgSpeedMps | fmt_speed }}{% else %}—{% endif %}
         </td>
         <td style="padding:0.6rem 0; text-align:right; vertical-align:middle; white-space:nowrap;">
           <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.25rem;">
@@ -850,7 +847,7 @@ function updateSegmentFromSliders() {
     var a = Math.sin(dlat/2)*Math.sin(dlat/2) + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dlng/2)*Math.sin(dlng/2);
     dist += 2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   }
-  var distMi = dist / 1609.344;
+  var distMi = UNITS.toDist(dist);              // in the rider's unit, despite the name
 
   // Calculate elevation gain
   var elevGain = 0;
@@ -869,14 +866,14 @@ function updateSegmentFromSliders() {
     var dlat = (coords[i+1][0]-coords[i][0])*Math.PI/180;
     var dlng = (coords[i+1][1]-coords[i][1])*Math.PI/180;
     var a = Math.sin(dlat/2)*Math.sin(dlat/2) + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dlng/2)*Math.sin(dlng/2);
-    startDistMi += 2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) / 1609.344;
+    startDistMi += UNITS.toDist(2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
   }
   var endDistMi = startDistMi + distMi;
 
   document.getElementById('segStartDist').textContent = startDistMi.toFixed(1);
   document.getElementById('segEndDist').textContent = endDistMi.toFixed(1);
   document.getElementById('segLength').textContent = distMi.toFixed(2);
-  document.getElementById('segElevation').textContent = Math.round(elevGain * 3.28084);
+  document.getElementById('segElevation').textContent = Math.round(UNITS.toElev(elevGain));
 
   if (timeData[si] !== undefined) {
     document.getElementById('segStartTime').textContent = Math.round(timeData[si]/60) + 'm in';
@@ -977,7 +974,7 @@ function makeChart(id, data, color) {
       maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: {
         mode: 'index', intersect: false,
-        callbacks: { title: ctx => ctx[0].label + ' mi' }
+        callbacks: { title: ctx => ctx[0].label + ' ' + UNITS.dist }
       }},
       scales: {
         x: { ticks: { color: '#4d7d95', font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false } },
@@ -993,7 +990,7 @@ function makeElevHrChart(id, elevData, hrData) {
     data: {
       labels: elevData.labels,
       datasets: [
-        { label: 'Elev (ft)', data: elevData.values, borderColor: 'rgb(16,185,129)', borderWidth: 1.5,
+        { label: 'Elev (' + UNITS.elev + ')', data: elevData.values, borderColor: 'rgb(16,185,129)', borderWidth: 1.5,
           pointRadius: 0, fill: true, backgroundColor: 'rgba(16,185,129, 0.08)', yAxisID: 'yElev' },
         { label: 'HR (bpm)',  data: hrData.values,   borderColor: 'rgb(239,68,68)',  borderWidth: 1.5,
           pointRadius: 0, fill: false, yAxisID: 'yHr' }
@@ -1005,7 +1002,7 @@ function makeElevHrChart(id, elevData, hrData) {
       plugins: {
         legend: { display: true, labels: { color: '#4d7d95', font: { size: 10 }, boxWidth: 10, padding: 12 } },
         tooltip: { mode: 'index', intersect: false,
-          callbacks: { title: ctx => ctx[0].label + ' mi' } }
+          callbacks: { title: ctx => ctx[0].label + ' ' + UNITS.dist } }
       },
       scales: {
         x: { ticks: { color: '#4d7d95', font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false } },

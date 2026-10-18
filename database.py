@@ -282,6 +282,10 @@ def migrate_db():
         ('garminHistoryDone',    'INTEGER DEFAULT 0'),
         ('garminHistoryStatus',  'TEXT'),
         ('garminHistoryRetryAt', 'TEXT'),      # after a rate limit or outage, don't try again before this (UTC ISO)
+        ('utcStartFixDone',      'INTEGER DEFAULT 0'),
+        ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
+        ('garminWeightsRetryAt', 'TEXT'),
+        ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
         ('haUrl',                'TEXT'),
         ('haToken',              'TEXT'),
         ('haEntityMap',          'TEXT'),
@@ -682,6 +686,16 @@ def migrate_db():
         """)
         db.execute("UPDATE Settings SET distanceBackfillDone=1 WHERE id=1")
         db.commit()
+
+    # ── Top speeds that are one GPS spike (old Garmin syncs): recomputed from the ride's streams, then re-checked ──
+    from services.max_stats import fix_spiky_max_speed
+    if fix_spiky_max_speed(db):
+        db.commit()
+    from services.start_times import fix_utc_starts
+    fix_utc_starts(db)
+    from services.sport_fix import ensure_schema as _sport_fix_schema
+    _sport_fix_schema(db)
+    db.commit()
 
 
 def get_db():

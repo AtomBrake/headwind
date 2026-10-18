@@ -136,12 +136,12 @@
           {% if dist in best_by_dist %}
           {% set e = best_by_dist[dist] %}
           <tr style="border-bottom:1px solid var(--border);">
-            <td style="padding:0.6rem 0; font-weight:600;">{{ dist }} mi</td>
+            <td style="padding:0.6rem 0; font-weight:600;">{{ (dist * 1609.344) | fmt_dist(0 if units != 'metric' else 1) }}</td>
             <td style="padding:0.6rem 0; text-align:right; font-weight:600; color:var(--accent); font-variant-numeric:tabular-nums;">
               {{ e.elapsedSecs | fmt_duration }}
             </td>
             <td style="padding:0.6rem 0; text-align:right; color:var(--text-muted); font-size:0.8125rem;">
-              {% if e.avgSpeedMps %}{{ (e.avgSpeedMps * 2.23694) | round(1) }} mph{% endif %}
+              {% if e.avgSpeedMps %}{{ e.avgSpeedMps | fmt_speed }}{% endif %}
             </td>
           </tr>
           {% endif %}

@@ -22,8 +22,10 @@ MAX_KCAL = 15000
 SANE_SQL = "(flagReason IS NULL OR flagDismissed = 1)"      # for charts: rides nobody has flagged, or that the rider cleared
 
 
-def reasons(r):
-    """List of readable reasons a ride looks wrong (empty = fine). `r` is a mapping with the Activity columns."""
+def reasons(r, system=None):
+    """List of readable reasons a ride looks wrong (empty = fine), worded in the rider's units. `r` is a mapping with the Activity columns.
+    The limits themselves are in mph and miles."""
+    from services import units
     sport = str(r['sportType'] or '').lower()
     if 'ride' not in sport and 'cycl' not in sport:
         return []
@@ -34,20 +36,21 @@ def reasons(r):
     top = float(r['maxSpeed'] or 0) * 2.23694
     elev = float(r['totalElevationGain'] or 0)
     out = []
+    spd = lambda mps: units.fmt_speed(mps, system, places=0)
     if avg > MAX_AVG_MPH:
-        out.append('average speed of %s mph is not possible on a bike' % f'{avg:,.0f}')
+        out.append('average speed of %s is not possible on a bike' % spd(r['averageSpeed']))
     if top > MAX_TOP_MPH:
-        out.append('top speed of %s mph is a GPS glitch' % f'{top:,.0f}')
+        out.append('top speed of %s is a GPS glitch' % spd(r['maxSpeed']))
     if 0 < dist < MIN_DIST_M:
         out.append('only %d m long' % round(dist))
     elif dist >= 1000 and 0 < avg < MIN_AVG_MPH:
-        out.append('barely moved (%.1f mph average over %.1f mi)' % (avg, dist / MI))
+        out.append('barely moved (%s average over %s)' % (units.fmt_speed(r['averageSpeed'], system), units.fmt_dist(dist, system)))
     if dist >= 1000 and 0 < moving < 60:
-        out.append('moving time of %d s against %.1f mi' % (moving, dist / MI))
+        out.append('moving time of %d s against %s' % (moving, units.fmt_dist(dist, system)))
     if dist / MI > MAX_DIST_MI:
-        out.append('%s miles is beyond any ride' % f'{dist / MI:,.0f}')
+        out.append('%s is beyond any ride' % units.fmt_dist(dist, system, places=0))
     if elev > MAX_ELEV_M or (dist >= 1000 and elev / dist > MAX_GRADE):
-        out.append('climb of %s m does not fit %.1f mi' % (f'{elev:,.0f}', dist / MI))
+        out.append('climb of %s does not fit %s' % (units.fmt_elev(elev, system), units.fmt_dist(dist, system)))
     if elapsed > MAX_HOURS * 3600:
         out.append('lasts %d hours' % round(elapsed / 3600))
     if float(r['calories'] or 0) > MAX_KCAL:
@@ -81,5 +84,10 @@ def dismiss(db, act_id):
 
 
 def flagged(db, rider_id):
-    return [dict(r) for r in db.execute(
+    """The rider's flagged rides, newest first. `isBlip`: shorter than MIN_DIST_M, a start-stop by mistake (the dashboard offers to delete them all)."""
+    return [dict(r, isBlip=bool(r['distance'] is not None and 0 < r['distance'] < MIN_DIST_M)) for r in db.execute(
         'SELECT id, name, startDateLocal, distance, averageSpeed, flagReason FROM Activity WHERE riderId=? AND flagReason IS NOT NULL AND COALESCE(flagDismissed,0)=0 ORDER BY startDateLocal DESC', [rider_id]).fetchall()]
+
+
+def blip_ids(db, rider_id):
+    return [f['id'] for f in flagged(db, rider_id) if f['isBlip']]

@@ -5,6 +5,13 @@ import re
 from math import atan2, cos, radians, sin, sqrt
 
 
+def _utc_iso(dt):
+    """A start time as an ISO string that says it is UTC. FIT timestamps are always UTC and GPX times are UTC by the spec, but fitparse (and gpxpy for
+    a time without a 'Z') hand them back with no timezone, which the importer would then take for UK local time: an hour early all summer."""
+    from datetime import timezone
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).isoformat()
+
+
 def _stable_id(start_dt, distance_m):
     key = f"{start_dt.isoformat()}:{int(distance_m)}"
     return 'imp_' + hashlib.sha1(key.encode()).hexdigest()[:14]
@@ -231,7 +238,7 @@ def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
         'id':                 _stable_id(start, distance),
         'name':               name,
         'sportType':          sport_type,
-        'startDateLocal':     start.isoformat(),
+        'startDateLocal':     _utc_iso(start),
         'distance':           round(distance, 1),
         'movingTime':         int(moving_time),
         'elapsedTime':        int(elapsed_s),
@@ -345,7 +352,7 @@ def parse_fit(data: bytes):
         'id':                 _stable_id(start, distance),
         'name':               sport_type + ' Activity',
         'sportType':          sport_type,
-        'startDateLocal':     start.isoformat(),
+        'startDateLocal':     _utc_iso(start),
         'distance':           round(distance, 1),
         'movingTime':         moving_time,
         'elapsedTime':        int(s.get('total_elapsed_time') or moving_time),

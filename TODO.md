@@ -10,6 +10,21 @@ Project-wide list of planned work. Tick items off as they land and note the vers
   - [ ] heatmap exports
 - [ ] **One token per friend** instead of the single shared feed token, so one person can be revoked on their own and each friend can be given a chosen subset: rides, segments, foods, or a date window.
 
+## Users
+
+- [ ] **Proper multi-user support, with roles.** Today there is one login (`services/credentials.py` `admin_login`: a single username and password from the environment or `.admin_login`), and the session is just `logged_in`. Other riders (`Rider` rows) are profiles that whoever is logged in can see and edit, and many routes assume the owner: about 26 queries pick `Rider WHERE isDefault=1`, including the phone API's `_rider()` (`routes/api_v1.py`), so every paired phone records as the owner.
+  - [ ] A `User` table: username, password hash, role, the rider it belongs to, disabled flag. Move the existing admin login into it on upgrade, keeping the environment override for recovery. Sessions carry the user's ID, and changing a user's password or role ends that user's sessions (as `auth_version` does today).
+  - [ ] Two roles. **Admin**: every rider, all Settings (Garmin, Home Assistant, MQTT, AI keys, backups, units default), users and invites, friends. **Standard user**: their own rider's rides, workouts, nutrition, gear, goals and their own preferences (units, AI personality), with no instance settings and no other riders' data unless an admin shares it.
+  - [ ] Scope every page and API by the logged-in user's rider instead of `isDefault`, and check ownership on every write (ride delete, bulk edits, gear, nutrition entries). A test should log in as a standard user and get a 403 or 404 on another rider's ride, workout and nutrition URLs.
+  - [ ] Phone pairing per user: `DeviceToken` gets a `userId`, so a paired phone records as its owner, not the instance owner.
+  - [ ] Per-user connections where it makes sense: Garmin and Home Assistant are set once per instance now; each user needs their own Garmin account, or this stays admin-only, decided per feature.
+  - [ ] Admin page: invite a user (one-time link), reset a password, change a role, disable a user. Keep at least one admin at all times.
+- [ ] **Choose which riders' data friends can see.** The friend feed shares every local rider: `OWN_RIDERS_SQL` in `routes/friends.py` only leaves out riders synced from friends, so `/api/riders` lists, and `/api/feed` serves, every person on this instance to anyone with the feed token.
+  - [ ] A per-rider "share with friends" choice, off by default for new riders. A standard user decides for their own rider, and an admin can't switch it on for someone else.
+  - [ ] When a friend is linked (and when a new rider is added), show which riders will be visible and ask for confirmation before anything is served.
+  - [ ] Combine this with **One token per friend** (Privacy, above), so the choice can be per friend: rider X to friend A only.
+  - [ ] Tests: a rider who isn't shared is missing from `/api/riders`, and `/api/feed?rider=<name>` returns nothing for them.
+
 ## Security
 
 From the project-wide security review, 2026-10-17.
@@ -24,14 +39,12 @@ From the project-wide security review, 2026-10-17.
 
 - [x] **MQTT heartbeat thread can die** — fixed in 0.5.4-beta: module-level `log` in `app.py`. (`app.py` `_mqtt_heartbeat`). Its gear-alert `except` handler calls `log.warning`, but `log` isn't defined there or at module level. If `gear.evaluate_alerts` raises, the resulting `NameError` kills the thread, which stops MQTT pushes, Home Assistant and weather sync, and goal auto-update until a restart. Add `log = logging.getLogger(__name__)` at module level.
 - [x] **Old APK path default** — fixed in 0.5.4-beta: `headwind.apk` beside the database, or `HEADWIND_APK`. `routes/phones.py` defaults `APK_PATH` to `/home/rob/headwind-android/dist/headwind.apk`. Replace it with a path under the data directory, or require `HEADWIND_APK`.
-- [ ] **Units ignore the metric setting in many places.** `Settings.units` is honoured by the `fmt_dist`, `fmt_elev` and `fmt_speed` filters in `app.py`, but a lot of the app converts to miles, feet and mph by hand (`1609.344`, `3.28084`, `2.23694`), so a metric user still sees imperial. Known spots:
-  - [ ] Dashboard: the Performance chart (`_weekly_data` and `year_speed` in `routes/dashboard.py` only send `mi`, `ft` and `mph`, and the chart labels in `templates/dashboard.html` are fixed), and the search form's "Min mi / Max mi" filters.
-  - [ ] Ride page (`templates/ride.html`): the "Speed (mph)" chart, the distance axis in miles, segment effort speeds, and climb by barometer in ft.
-  - [ ] Segment page (`templates/segment.html`): elevation in ft, speeds in mph, and run pace through `pace_mi`, which has no per-km twin. Effort speeds on the rider page (`templates/rider.html`).
-  - [ ] Data page (`templates/data.html`, `routes/data.py`): the average speed charts, speed vs temperature and wind, and the climb records in ft.
-  - [ ] Also check `templates/ai.html`, `route_builder.html`, `roughness.html`, `routes/segments.py`, `routes/riders.py` (achievement thresholds), the Home Assistant sensors in `services/mqtt.py`, and the AI coach's context (`services/context.py`, `services/ai.py`) so the coach answers in the rider's units too.
-  - [ ] Hand the unit choice to the page scripts once (e.g. a `UNITS` object in `base.html` with factors and labels) instead of each page doing its own sums.
-  - [ ] Add a test that renders the main pages with metric set and fails on "mph", " mi" or " ft".
+- [x] **Units ignore the metric setting** — fixed in 0.5.9-beta. Every distance, climb, speed and pace now goes through `services/units.py`: the template filters in `app.py`, `window.UNITS` in `base.html` for page scripts, and the search forms' distance filters (`min_dist` / `max_dist`, old `min_mi` links still work). That covers the dashboard, ride, segment, rider, Data, AI, planner, Workouts and roughness pages, the "looks wrong" reasons (re-worded when the setting changes), gear alerts, workout notifications and badge wording. The AI coach is given the ride and its history in the rider's units. `tests/test_units.py` renders the main pages in metric and fails on any mile, mph or foot a reader would see.
+  - [ ] **Home Assistant sensors** are still published in miles, mph and feet (`services/mqtt.py`, `services/live.py`). Changing a sensor's unit breaks its long-term statistics in HA, so it needs a plan: new sensor IDs, or a one-off migration. (HA can already show a sensor in other units from its own settings.)
+  - [ ] **Best efforts and badges are defined in miles.** Best efforts are timed over 1, 5, 10 mi and so on, and shown converted ("16.1 km"). Badge limits are miles and mph and only their wording is converted ("25 miles" becomes "40 km"). Metric riders would want 5 / 10 / 20 / 40 / 100 km efforts and round-kilometre badges, which means recomputing the stored efforts.
+  - [ ] **Weather is always metric** (°C, km/h wind and gusts), so an imperial rider sees km/h wind next to mph speeds. Follow the setting there too, or add a separate choice for temperature.
+  - [ ] `RideMemory` stores miles, mph and feet. It's only read through the converters now, but storing metres and m/s like everything else would remove the special case.
+
 - [x] **Long-term stats after a delete** — investigated in 0.5.8-beta: the web pages were already right, but Home Assistant wasn't. The dashboard's Performance chart looked the same after the 1000x-too-long Strava rides from 0.5.7-beta were deleted. Every web page and phone endpoint works its numbers out from `Activity` on each load, and a test that deletes rides and re-reads the dashboard, Data page, rider page, heatmap, `/api/v1/overview`, `/perform` and `/rides` saw every one change at once (`tests/test_dashboard_links.py`). The chart only covers the last 12 weeks, and the speed line only this year, so deleting older rides doesn't move it.
   - [x] The web delete (`delete` in `routes/rides.py`) didn't re-publish the Home Assistant sensors, so their totals stayed wrong until the next ride. It now calls `after_ride_removed` in `services/ingest.py`. Deleting a rider or friend doesn't need it: the sensors only cover the owner, who can't be deleted.
   - [ ] If it happens again, note which rides, where they were deleted from (web or phone) and which page still showed them. The browser's back button can show a page from before the delete.
@@ -110,6 +123,11 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
   - [ ] Optional ones that need an API key, entered in Settings and stored with `services/credentials.py`: **Thunderforest** OpenCycleMap / Outdoors, and **OS Maps** (Ordnance Survey leisure maps for Great Britain, with bridleways and rights of way).
   - [ ] Follow each provider's usage policy (attribution, a proper user agent through the tile proxy, no bulk downloading). Check the free tiers allow this use.
   - [ ] Support the new types in the heatmap HD export. `routes/heatmap.py` `tile_proxy` only proxies Esri layers, and each layer's maximum zoom differs.
+- [ ] **Zwift maps** — a Zwift ride's GPS track is drawn on the normal map tiles, and nothing treats virtual rides differently (`templates/ride.html`, `heatmap.html`). Worlds that copy a real place (London, Richmond, Innsbruck, New York, Yorkshire, Paris) land roughly in the right spot. Watopia, Makuri Islands and the other made-up worlds sit on open sea near the Solomon Islands, so the ride is a line over the ocean.
+  - [ ] Work out the Zwift world from the track's bounding box (each world has a fixed box). Fall back to the normal map for anything that doesn't match, e.g. another virtual platform.
+  - [ ] Show the ride over that world's map, as an image overlay fitted to the world's box. Check whether Zwift's map images (or the community ones, e.g. from ZwiftMap or zwifthacks) may be used, and with what credit.
+  - [ ] Keep virtual rides off the heatmap by default, with a switch to show them, so Watopia doesn't add a patch of ocean to it.
+  - [ ] Show the world (and the route, where it can be found) on the ride page, and let the ride list filter by world.
 - [ ] **Clickable heatmap** — click a track on the heatmap to go straight to that ride's page (`/rides/<id>`).
   - [ ] `/heatmap/data` (`routes/heatmap.py`) selects only `streams` and returns bare point lists, so send each track's ride ID, name and date with it.
   - [ ] In `templates/heatmap.html` the polylines are `interactive: false`. Make them clickable, with a wider invisible hit line so thin tracks are easy to tap on a phone.

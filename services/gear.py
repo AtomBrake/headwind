@@ -412,7 +412,8 @@ def service_log(db, bike_id, limit=200):
 
 # ---------- alerts ----------
 def _headline(bike, part, st, what, level):
-    unit_m = lambda m: f'{m / MI:,.0f} mi'
+    from services import units
+    unit_m = lambda m: units.fmt_dist(m, places=0)
     iv_m = part['replaceEveryM'] if what == 'replace' else part['checkEveryM']
     iv_d = part['replaceEveryDays'] if what == 'replace' else part['checkEveryDays']
     done = st['meters'] if what == 'replace' else st['meters_since_check']

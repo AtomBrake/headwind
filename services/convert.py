@@ -8,7 +8,8 @@ import hashlib
 import json
 
 RIDES = ('Ride', 'VirtualRide')
-WORKOUTS = ('Walk', 'Run', 'Hike')
+OTHER = ('Swim', 'Surf', 'Paddle', 'Row', 'Ski', 'Skate', 'Golf', 'Climb', 'Other')   # Garmin activities that are neither rides nor walk/run/hike
+WORKOUTS = ('Walk', 'Run', 'Hike') + OTHER
 SPORTS = RIDES + WORKOUTS
 _GENERIC_NAMES = {'', 'ride', 'walk', 'run', 'hike', 'virtualride', 'garmin activity', 'ride activity'}
 
@@ -63,8 +64,7 @@ def _workout_to_ride(db, row, sport):
                 row['totalElevationGain'] or 0, row['averageSpeed'] or 0, row['maxSpeed'] or 0, row['averageHeartrate'], kcal, row['startLat'], row['startLng'], row['streams'], '{}',
                 row['riderId'], row['weatherSummary'], kcal_raw])
     from services import workouts as _wk
-    _wk.forget(db, row['id'])
-    db.execute('DELETE FROM Workout WHERE id=?', [row['id']])
+    _wk.delete(db, row['id'], row['riderId'])           # a Garmin workout is remembered, so a re-sync does not bring it back beside the ride
     duplicates.rebuild_derived(db, aid)                 # best efforts + segment efforts, now that it is a ride
     gear.on_ride_added(db, aid)                         # the rider's default bike
     return {'kind': 'ride', 'id': aid, 'sport': sport}

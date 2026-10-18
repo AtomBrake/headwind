@@ -16,9 +16,11 @@ _MW_KEYS = {
     'Precip':           'precip',
 }
 
-def _to_mph(text):
-    text = re.sub(r'(\d+\.?\d*)\s*m/s',  lambda m: f'{float(m.group(1)) * 2.23694:.1f} mph', text)
-    text = re.sub(r'(\d+\.?\d*)\s*km/h', lambda m: f'{float(m.group(1)) / 1.60934:.1f} mph', text)
+def _to_speed(text):
+    """myWindsock writes speeds in m/s or km/h: show them in the rider's units."""
+    from services import units
+    text = re.sub(r'(\d+\.?\d*)\s*m/s',  lambda m: units.fmt_speed(float(m.group(1))), text)
+    text = re.sub(r'(\d+\.?\d*)\s*km/h', lambda m: units.fmt_speed(float(m.group(1)) / 3.6), text)
     return text
 
 def _parse_mywindsock(description):
@@ -39,7 +41,7 @@ def _parse_mywindsock(description):
             if key:
                 value = value.strip()
                 if key in ('headwind', 'air_speed'):
-                    value = _to_mph(value)
+                    value = _to_speed(value)
                 data[key] = value
     return data or None
 
@@ -54,6 +56,7 @@ def _sample(data, n=_SAMPLE):
 
 
 def _stream_series(streams, key, dist_key='distance', transform=None):
+    from services import units
     raw  = (streams.get(key) or {}).get('data') or []
     dist = (streams.get(dist_key) or {}).get('data') or []
     if not raw:
@@ -64,7 +67,7 @@ def _stream_series(streams, key, dist_key='distance', transform=None):
     for i in range(0, len(raw), step):
         v = raw[i]
         values.append(round(transform(v) if transform else v, 2))
-        labels.append(round(dist[i] / 1609.344, 2) if i < len(dist) else i)
+        labels.append(round(units.dist(dist[i]), 2) if i < len(dist) else i)      # distance along the ride, in the rider's unit
     return {'values': values, 'labels': labels}
 
 
@@ -115,11 +118,12 @@ def detail(rid):
         except Exception:
             pass
 
+    from services import units
     charts = {
-        'elevation': _stream_series(streams, 'altitude', transform=lambda v: round(v * 3.28084)),
+        'elevation': _stream_series(streams, 'altitude', transform=lambda v: round(units.elev(v))),
         'heartrate': _stream_series(streams, 'heartrate'),
         'power':     _stream_series(streams, 'watts'),
-        'speed':     _stream_series(streams, 'velocity_smooth', transform=lambda v: round(v * 2.23694, 1)),
+        'speed':     _stream_series(streams, 'velocity_smooth', transform=lambda v: round(units.speed(v), 1)),
         'cadence':   _stream_series(streams, 'cadence'),
     }
 
@@ -207,11 +211,11 @@ def detail(rid):
 
     alt_raw = (streams.get('altitude') or {}).get('data') or []
 
-    elev_loss_ft = 0
+    elev_loss_m = 0
     for i in range(1, len(alt_raw)):
         d = alt_raw[i] - alt_raw[i - 1]
         if d < 0:
-            elev_loss_ft += -d * 3.28084
+            elev_loss_m += -d
 
     sport = (activity['sportType'] or '').lower()
     from services import weather as _wx
@@ -248,7 +252,7 @@ def detail(rid):
                            seg_efforts=seg_efforts, alt_raw=alt_raw,
                            co_riders=co_riders, seg_rivals=seg_rivals,
                            seg_trends=seg_trends, rival_trends=rival_trends,
-                           elev_loss_ft=int(elev_loss_ft),
+                           elev_loss_m=elev_loss_m,
                            prev_ride=prev_ride, next_ride=next_ride,
                            is_ride=is_ride, is_run=is_run, is_workout=is_workout,
                            wx_categories=list(_wx.CATEGORIES), wx_condition=_wx.bucket(activity['weatherCode'] if not is_workout else None),
@@ -406,6 +410,21 @@ def delete(rid):
     from services.ingest import after_ride_removed
     after_ride_removed()
     return redirect(url_for('dashboard.dashboard'))
+
+
+@bp.route('/flagged/delete-blips', methods=['POST'])
+def delete_blips():
+    """Delete every flagged ride shorter than the sanity limit (an accidental start-stop) for one rider, each through the normal delete."""
+    from services import duplicates, sanity
+    from services.ingest import after_ride_removed
+    db = get_db()
+    rider = request.form.get('rider')
+    rid = int(rider) if rider and rider.isdigit() else (query_db('SELECT id FROM Rider WHERE isDefault=1', one=True) or {'id': -1})['id']
+    for act_id in sanity.blip_ids(db, rid):
+        duplicates.delete_activity(db, act_id)
+    db.commit()
+    after_ride_removed()
+    return redirect(url_for('dashboard.dashboard', rider=rider) if rider and rider.isdigit() else url_for('dashboard.dashboard'))
 
 
 @bp.route('/<rid>/sport', methods=['POST'])

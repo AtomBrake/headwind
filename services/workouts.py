@@ -13,14 +13,14 @@ from database import get_db, query_db
 
 log = logging.getLogger(__name__)
 SPORTS = ('Walk', 'Run', 'Hike')
-_ICON = {'Walk': '🚶', 'Run': '🏃', 'Hike': '🥾'}
+_ICON = {'Walk': '🚶', 'Run': '🏃', 'Hike': '🥾', 'Swim': '🏊', 'Surf': '🏄', 'Paddle': '🛶', 'Row': '🚣', 'Ski': '⛷️', 'Skate': '⛸️', 'Golf': '⛳', 'Climb': '🧗'}
 MI = 1609.344
 
 
 def estimate_calories(sport, distance_m, moving_s, gain_m, kg):
     """Gross kcal from the ACSM walking / running equations (the same "gross" meaning as a watch's activity calories, i.e. it
     includes resting burn; day_burn subtracts that). Returns None when there isn't enough to go on."""
-    if not (distance_m and moving_s and kg and moving_s > 60):
+    if sport not in SPORTS or not (distance_m and moving_s and kg and moving_s > 60):     # the equations are for walking / running only (not a swim)
         return None
     minutes = moving_s / 60.0
     speed = distance_m / minutes                       # metres per minute
@@ -94,19 +94,19 @@ def label(w):
 
 def summary(w, rider_name):
     """(title, message) for the push notification when a workout is saved."""
-    mi = (w.get('distance') or 0) / MI
+    from services import units
+    dist = units.fmt_dist(w.get('distance'))
     secs = int(w.get('movingTime') or 0)
     h, r = divmod(secs, 3600)
     dur = f"{h}h {r // 60:02d}m" if h else f"{r // 60}m"
-    title = f"{_ICON.get(w['sport'], '🏃')} {rider_name}: {label(w)} · {mi:.1f} mi"
-    line1 = f"{mi:.1f} mi · {dur}"
+    title = f"{_ICON.get(w['sport'], '🏃')} {rider_name}: {label(w)} · {dist}"
+    line1 = f"{dist} · {dur}"
     if secs and w.get('distance'):
-        pace = secs / (w['distance'] / MI)                        # seconds per mile
-        line1 += f" · {int(pace // 60)}:{int(pace % 60):02d} /mi"
+        line1 += f" · {units.fmt_pace(w['distance'] / secs)}"
     lines = [line1]
     extras = []
     if w.get('totalElevationGain'):
-        extras.append(f"⛰ {round(w['totalElevationGain'] * 3.28084):,} ft")
+        extras.append(f"⛰ {units.fmt_elev(w['totalElevationGain'])}")
     if w.get('calories'):
         extras.append(f"🔥 {round(w['calories']):,} kcal")
     if w.get('steps'):
@@ -140,8 +140,8 @@ def recent(rider_id, days=30):
     return [dict(r) for r in rows]
 
 
-def search(rider_id, q='', date_from='', date_to='', min_mi='', max_mi='', sport=''):
-    """The complete workout history (no 90-day cut-off), newest first, with the same filters as the activity list on the dashboard."""
+def search(rider_id, q='', date_from='', date_to='', min_m=None, max_m=None, sport=''):
+    """The complete workout history (no 90-day cut-off), newest first, with the same filters as the activity list on the dashboard (distances in metres)."""
     where, args = ['riderId=?'], [rider_id]
     if q:
         where.append("COALESCE(name, sport) LIKE ?"); args.append(f'%{q}%')
@@ -149,12 +149,9 @@ def search(rider_id, q='', date_from='', date_to='', min_mi='', max_mi='', sport
         where.append('date(startDateLocal) >= ?'); args.append(date_from)
     if date_to:
         where.append('date(startDateLocal) <= ?'); args.append(date_to)
-    for val, op in ((min_mi, '>='), (max_mi, '<=')):
-        if val:
-            try:
-                where.append(f'distance {op} ?'); args.append(float(val) * MI)
-            except ValueError:
-                pass
+    for val, op in ((min_m, '>='), (max_m, '<=')):
+        if val is not None:
+            where.append(f'distance {op} ?'); args.append(val)
     if sport:
         where.append('sport = ?'); args.append(sport)
     return query_db(f'''SELECT id, sport, name, startDateLocal, distance, movingTime, totalElevationGain, averageSpeed, calories, steps, weatherSummary, source
@@ -170,6 +167,19 @@ def forget(db, wid):
     db.execute('UPDATE RideSensor SET rideKind=NULL, rideId=NULL WHERE rideId=?', [wid])
     for sid in seg_ids:
         _refresh_prs(db, sid)
+
+
+def delete(db, wid, rider_id):
+    """Delete one of this rider's workouts with everything derived from it. One that came from Garmin is remembered (only its id), so the next sync
+    does not bring it back. Returns True if it existed. Does not commit."""
+    if not db.execute('SELECT 1 FROM Workout WHERE id=? AND riderId=?', [wid, rider_id]).fetchone():
+        return False
+    forget(db, wid)
+    db.execute('DELETE FROM Workout WHERE id=?', [wid])
+    if str(wid).startswith('garmin_'):
+        from services import duplicates
+        duplicates.tombstone(db, wid, rider_id)
+    return True
 
 
 def refresh_derived(db, wid):
