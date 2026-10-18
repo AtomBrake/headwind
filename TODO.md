@@ -171,6 +171,13 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
 
 ## Housekeeping
 
+- [ ] **Tasks page** — one place to see what Headwind is doing in the background and when it has finished. Today it is spread out or invisible: imports show in the top bar (`/import/progress`), the Garmin health and weight history show a line in Settings (`garminHistoryStatus`, `garminWeightsStatus`), the Garmin sync's `garminLastOk` / `garminLastError` aren't shown anywhere, and the start-up repairs (`services/start_times.py`, `max_stats.fix_spiky_max_speed`, the mm-distance backfill in `database.py`) only write a line to the server log.
+  - [ ] A small `TaskLog` table: task, started, finished, status (running / waiting / done / failed), a one-line result ("moved 37 rides to local time; 18 were duplicates") and the error if any. Each start-up repair writes a row when it runs, so what it changed can be seen after the event, not only in `docker logs`.
+  - [ ] A card for each background job, with its current state and its last run: the Garmin activity and health sync (`_mqtt_heartbeat` / `_garmin_heartbeat` in `app.py`), the health-history and weigh-in backfills (including "waiting after a rate limit until 14:20"), friend auto-sync, the Home Assistant / MQTT push, and any import in progress.
+  - [ ] Where it makes sense, a "Run now" button (wake the job, as `HISTORY_WAKE` does) and a "Retry" button on a failed one.
+  - [ ] Extend the top-bar indicator from imports to anything still running, linking to the page, and show a one-off notice after an upgrade's repairs have run ("3 start-up repairs ran: see Tasks").
+  - [ ] Admin-only once multi-user support lands (see Users).
+
 - [ ] **Date of birth instead of age** — the Settings and Nutrition profile forms (`pfAge` in `templates/settings.html`, `sgAge` in `templates/nutrition.html`) ask for an age. `routes/nutrition.py` `goal-profile` stores it as `Settings.birthYear` (this year minus the age), and `services/goal_model.py` `profile()` turns it back into this year minus `birthYear`. So the age used for BMR can be a year out, depending on when the birthday falls.
   - [ ] Add a `birthDate` column to `Settings`. Fill it from `birthYear` for existing installs (1 January of that year), then ask for the real date.
   - [ ] Swap both age fields for a date input, and send and validate `birth_date` in `goal-profile`.
