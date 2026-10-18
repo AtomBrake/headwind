@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2-beta] - 2026-10-18
+
+No migration. No Android or iOS change.
+
+### Fixed
+- **0.7.1-beta wouldn't start on a large install ("database or disk is full").** The one-time name check for merged activities sorted every copy set aside, each a whole activity with its GPS track, in a single query. SQLite's temporary space for that sort filled the disk, and the start failed again on every restart. The check now sorts only the ids and reads one copy at a time. Nothing had been changed when it failed, so it simply runs on the next start. `services/duplicates.recover_names`, `tests/test_duplicates.py`.
+
 ## [0.7.1-beta] - 2026-10-18
 
 Migration, at the first start: the `Workout` view and the `WorkoutPreMerge` table that 0.7.0 kept are dropped. Nothing reads them any more, and the way back is still the whole-database copy `bike.db.pre-0.7.0` made by 0.7.0. An install coming straight from 0.6 is merged as before, then drops its old `Workout` table in the same step as the copy, so there is no `WorkoutPreMerge` (the `.pre-0.7.0` copy is still made first). `Settings` gains `dupNameFixDone`, for the one-time name check below. No Android or iOS change: the phone API keeps its shape.
