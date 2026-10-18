@@ -52,7 +52,7 @@ Self-hosted cycling analytics, nutrition and body tracking — no cloud, no subs
 
 Headwind is a single self-hosted web app that brings together the things most riders spread across four or five services:
 
-- **Ride analytics** — import from Garmin Connect, FIT/GPX files or a Strava export; see maps, streams, weather, wind, personal bests, segments and a GPS heatmap of everywhere you've ridden.
+- **Ride analytics** — import from Garmin Connect, FIT/GPX/TCX files or a Strava export; see maps, streams, weather, wind, personal bests, segments and a GPS heatmap of everywhere you've ridden.
 - **Gear and maintenance** — your bikes with photos, a default bike per rider (changeable per ride), a calendar to say which bike rode which rides, and mileage on the parts that wear out (chains, cassettes, tyres, bar tape, sealant...) with service log and "due" alerts.
 - **Nutrition and body tracking** — a fast food diary with barcode scanning, per-meal "recent foods", saved meals, hydration, weight trend and calorie goals that account for your riding.
 - **Coaching and automation** — optional AI ride analysis with your own key (or local Ollama), Home Assistant sensors over MQTT, and push notifications.
@@ -224,7 +224,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 
 <img src="docs/screenshots/workouts.jpg" alt="Walks, runs and hikes are kept separate from rides so they never change your ride stats." width="800">
 
-**Import: drop in .fit / .gpx files or a full Strava export zip.**
+**Import: drop in .fit / .gpx / .tcx files or a full Strava export zip.**
 
 <img src="docs/screenshots/import.jpg" alt="Import: drop in .fit / .gpx files or a full Strava export zip." width="800">
 
@@ -438,7 +438,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 
 ### Ride tracking and import
 - **Garmin Connect sync** — activities *and* daily recovery data; MFA-capable connect flow in the browser (no command line); incremental sync that re-scans the last day so a second same-day ride is never missed and failed downloads are retried.
-- **File import** — `.fit`, `.gpx` (and gzipped variants), or a **Strava data-export zip**, with a live progress bar. Duplicate detection is time-aware.
+- **File import** — `.fit`, `.gpx`, `.tcx` (and gzipped variants), or a **Strava data-export zip**, with a live progress bar. Duplicate detection is time-aware.
 - **GPX export** of any ride.
 - **Phone recording** — the Android app records rides and uploads them (work in progress; see [The Android app](#the-android-app)).
 - **Upload endpoint** — `POST /import/api/upload-ride` with an `X-Upload-Token` header (set `RIDE_UPLOAD_TOKEN`) lets a script, a Pi attached to a bike computer, or an automation push GPX files in.
@@ -582,7 +582,7 @@ A new install walks you through six short steps. Everything except step 1 is ski
 5. **Telemetry** — the exact text of the one-time anonymous ping is shown with a permanent opt-out.
 6. **Done** — you land on the dashboard.
 
-No Garmin? Go to **Import** and drop in `.fit` / `.gpx` files or a Strava export zip.
+No Garmin? Go to **Import** and drop in `.fit` / `.gpx` / `.tcx` files or a Strava export zip.
 
 ---
 
