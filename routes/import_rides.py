@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, Response, current_app, render_template, request, stream_with_context
 
 from database import get_db, query_db
-from services.parser import parse_fit, parse_gpx
+from services.parser import ACTIVITY_EXTENSIONS, parse_activity_file
 from services.limits import safe_gunzip, safe_zip_read, check_zip
 
 log = logging.getLogger(__name__)
@@ -73,10 +73,9 @@ def upload():
         rider_id = default['id'] if default else None
 
     name_lower = f.filename.lower()
-    is_single = name_lower.endswith('.fit') or name_lower.endswith('.gpx') \
-                or name_lower.endswith('.fit.gz') or name_lower.endswith('.gpx.gz')
+    is_single = name_lower.endswith(ACTIVITY_EXTENSIONS)
 
-    suffix = '.fit' if '.fit' in name_lower else ('.gpx' if '.gpx' in name_lower else '.zip')
+    suffix = next((e for e in ACTIVITY_EXTENSIONS if name_lower.endswith(e)), '.zip')
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
     f.save(tmp)
     tmp.close()
@@ -208,7 +207,7 @@ _current_job = None
 def api_upload_ride():
     """Token-authenticated ride upload for headless senders (e.g. the Raspberry Pi that sees a Garmin plugged in).
 
-    POST multipart: `file` (.fit / .gpx, optionally .gz) and `rider` (a Rider name, case-insensitive — required, so a ride can never
+    POST multipart: `file` (.fit / .gpx / .tcx, optionally .gz) and `rider` (a Rider name, case-insensitive — required, so a ride can never
     land on the wrong rider by default). Auth: header `X-Upload-Token` must equal RIDE_UPLOAD_TOKEN from .env (endpoint is disabled
     when the variable is unset). Goes through the same pipeline as the web import, so it is idempotent: a file already imported
     (same start time + distance) is reported as skipped, never duplicated.
@@ -228,8 +227,8 @@ def api_upload_ride():
     if not rider:
         return {'status': 'error', 'error': f'unknown rider {name!r}'}, 400
     suffix = '.gz' if f.filename.lower().endswith('.gz') else os.path.splitext(f.filename)[1].lower()
-    if suffix not in ('.fit', '.gpx', '.gz'):
-        return {'status': 'error', 'error': 'only .fit / .gpx files'}, 400
+    if suffix not in ('.fit', '.gpx', '.tcx', '.gz'):
+        return {'status': 'error', 'error': 'only .fit / .gpx / .tcx files'}, 400
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         f.save(tmp.name)
     try:
@@ -260,13 +259,10 @@ def _process_single_file(path, original_name, rider_id=None):
         name_lower = original_name.lower()
         if name_lower.endswith('.gz'):
             data = safe_gunzip(data)
-        if 'gpx' in name_lower:
-            act = parse_gpx(data)
-        elif 'fit' in name_lower:
-            act = parse_fit(data)
-        else:
+        if not name_lower.endswith(ACTIVITY_EXTENSIONS):
             yield _event({'error': 'Unsupported file type'})
             return
+        act = parse_activity_file(name_lower, data)
 
         if not act or not act.get('startDateLocal'):
             yield _event({'error': 'Could not parse activity from file'})
@@ -384,12 +380,9 @@ def _process_strava_export(zf, names, rider_id=None):
                 data = safe_zip_read(zf, filename)
                 if filename.endswith('.gz'):
                     data = safe_gunzip(data)
-                if 'gpx' in filename.lower():
-                    act = parse_gpx(data) or {}
-                elif 'fit' in filename.lower():
-                    act = parse_fit(data) or {}
-            except Exception:
-                pass
+                act = parse_activity_file(filename, data) or {}
+            except Exception as e:
+                log.warning('Strava import: could not read %s (%s); using activities.csv only', filename, e)
 
         act['id'] = act_id
         act['name'] = row.get('Activity Name', 'Imported Activity').strip() or 'Imported Activity'
@@ -465,7 +458,7 @@ def _process_strava_export(zf, names, rider_id=None):
 def _process_generic_zip(zf, names, rider_id=None):
     activity_files = [
         n for n in names
-        if n.lower().endswith(('.gpx', '.fit', '.gpx.gz', '.fit.gz'))
+        if n.lower().endswith(ACTIVITY_EXTENSIONS)
     ]
     total = len(activity_files)
     yield _event({'total': total, 'source': 'files'})
@@ -478,7 +471,7 @@ def _process_generic_zip(zf, names, rider_id=None):
             data = safe_zip_read(zf, name)
             if name.lower().endswith('.gz'):
                 data = safe_gunzip(data)
-            act = parse_gpx(data) if 'gpx' in name.lower() else parse_fit(data)
+            act = parse_activity_file(name, data)
             if act and act.get('startDateLocal'):
                 from services import duplicates as _d
                 if _d.exists_anywhere(db, act['id']):
