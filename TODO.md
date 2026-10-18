@@ -214,6 +214,12 @@ Headwind started as a cycling app and is becoming one for every sport. Today rid
   - [ ] Two ways to scan: a "Scan QR code" button in Add a Friend (camera in the browser, via `BarcodeDetector` or a small JS decoder), and the phone app, which opens a `headwind://friend?u=…&c=…` link and asks the friend's own server to add us. Phone pairing already does the same with `headwind://pair` (`routes/phones.py`, `qrcode`).
   - [ ] After scanning, carry on as now: probe the instance, pick the rider, name them, Add & Sync.
 
+- [ ] **Share profile pictures with friends.** A friend's rider is created with no picture (`INSERT INTO Rider (name, isDefault)` in the `meta` branch of `_do_ride_sync`, `routes/friends.py`), so friends only ever show as an initial, even when they've uploaded a photo.
+  - [ ] Send the picture's version in the feed's `meta` line (`/api/feed`, `routes/friends.py`): a hash of the file, or nothing for the default `custard_cream.svg`, which every instance has already. Serve the file from a new `/api/avatar?rider=<name>` with the same `X-Feed-Token` check as `/api/food-image/<ref>`, and only for riders that token can see.
+  - [ ] On sync, download it only when the hash differs from the last one (a new `avatarHash` on `Rider` or `Friend`). Limit the size like `_fetch_photo` in `services/shared_foods.py`, then decode and re-save it as a 256px JPEG, as `upload_avatar` in `routes/riders.py` does. Never store the friend's raw bytes: an SVG can carry script and would be served from our own site.
+  - [ ] When the friend removes their photo, clear ours. Delete the file when the friend is removed (`delete` in `routes/friends.py`), and leave the picture alone when syncing from an older instance whose `meta` has no picture field.
+  - [ ] Browsers cache `rider_<id>.jpg` under the same name after it changes (`rider.html` adds `?v={{ rider.id }}`, which never changes). Put the hash in the URL instead.
+
 - [ ] **Ride photos**, with EXIF location stripped.
 - [ ] **Peer-to-peer kudos and comments** between linked instances. (The existing `routes/kudos.py` is the AI coach, not social kudos.)
 - [ ] *Longer term:* **ActivityPub federation**, so Headwind can talk to the Fediverse, not only to other Headwinds.
