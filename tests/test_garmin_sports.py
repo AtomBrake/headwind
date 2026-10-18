@@ -6,7 +6,7 @@ import pytest
 from flask import Flask
 
 import database
-from services import duplicates, sanity, sport_fix, workouts
+from services import convert, duplicates, origin, sanity, sport_fix, workouts
 from services.garmin import _save_workout, garmin_sport
 from services.max_stats import fix_spiky_max_speed
 
@@ -78,6 +78,7 @@ def test_check_lists_the_wrong_sports_and_apply_moves_them(db):
     assert not db.execute("SELECT 1 FROM Activity WHERE id IN ('garmin_1','garmin_3')").fetchone()
     assert duplicates.is_deleted(db, 'garmin_1')                                   # a Garmin re-sync won't bring the swim back as a ride
     assert all(f['id'] != 'garmin_1' for f in sanity.flagged(db, 1))                # and it's off the "looks wrong" list
+    assert origin.link(swim['id'], swim['originId'])['url'] == 'https://connect.garmin.com/modern/activity/1'    # still links to Garmin
 
     sport_fix.scan(db, api, 1)
     assert sport_fix.pending(db, 1) == []                                          # the one left alone isn't suggested again
@@ -176,3 +177,30 @@ def test_changing_one_ride_by_hand_still_asks_to_settle_its_copy_first(db):
     _park_phone_copy(db, 'garmin_21')
     with pytest.raises(ValueError, match='set aside'):
         convert.change_sport(db, 'ride', 'garmin_21', 'Other')
+
+
+@pytest.mark.parametrize('aid, origin_id, url', [
+    ('garmin_123', None, 'https://connect.garmin.com/modern/activity/123'),
+    ('4567890', None, 'https://www.strava.com/activities/4567890'),                 # a Strava export keeps Strava's id
+    ('conv_garmin_123', None, 'https://connect.garmin.com/modern/activity/123'),
+    ('wk_0123456789abcdef', '4567890', 'https://www.strava.com/activities/4567890'),
+    ('imp_0123456789abcd', None, None), ('f2_99', None, None), ('man_abc', None, None), ('garmin_x', None, None),
+])
+def test_link_to_where_it_came_from(aid, origin_id, url):
+    assert (origin.link(aid, origin_id) or {}).get('url') == url
+
+
+def test_a_ride_changed_to_a_run_and_back_keeps_its_strava_link(db):
+    add_ride(db, '4567890', dist=8000)
+    wid = convert.change_sport(db, 'ride', '4567890', 'Run')['id']
+    assert db.execute('SELECT originId FROM Workout WHERE id=?', [wid]).fetchone()[0] == '4567890'
+    aid = convert.change_sport(db, 'workout', wid, 'Ride')['id']
+    assert db.execute('SELECT originId FROM Activity WHERE id=?', [aid]).fetchone()[0] == '4567890'
+
+
+def test_workouts_converted_before_the_origin_was_kept_are_matched_up(db):
+    add_ride(db, 'garmin_7', dist=8000)
+    wid = convert.change_sport(db, 'ride', 'garmin_7', 'Run')['id']
+    db.execute('UPDATE Workout SET originId=NULL'); db.commit()                    # as an older version left it
+    assert origin.backfill(db) == 1
+    assert db.execute('SELECT originId FROM Workout WHERE id=?', [wid]).fetchone()[0] == 'garmin_7'

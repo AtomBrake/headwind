@@ -1,9 +1,12 @@
 import json
+import logging
+import threading
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 from database import get_db, query_db
 
 bp = Blueprint('garmin', __name__)
+log = logging.getLogger(__name__)
 
 
 @bp.route('/garmin/connect', methods=['POST'])
@@ -142,28 +145,49 @@ def sync_activities():
 def sports_page():
     """Review what an older Garmin sync saved with the wrong sport (see services/sport_fix.py)."""
     from flask import render_template
-    from services import sport_fix
+    from services import sport_fix, tasks
     rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
-    return render_template('garmin_sports.html', fixes=sport_fix.pending(get_db(), rider['id']) if rider else [], msg=request.args.get('msg', ''))
+    return render_template('garmin_sports.html', fixes=sport_fix.pending(get_db(), rider['id']) if rider else [], msg=request.args.get('msg', ''),
+                           check=tasks.last(get_db(), sport_fix.TASK))
+
+
+_sports_lock = threading.Lock()
 
 
 @bp.route('/garmin/sports/check', methods=['POST'])
 def sports_check():
-    from flask import redirect, url_for
-    from services import sport_fix
-    from services.garmin import _client
+    """Start the check in the background: paging through Garmin can take minutes, and it must not stop when the browser leaves the page.
+    Its progress and result are in TaskLog, shown here and on the Tasks page."""
+    from flask import current_app, redirect, url_for
     s = query_db('SELECT garminEmail, garminPassword FROM Settings WHERE id=1', one=True)
     rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
     if not s or not s['garminEmail'] or not s['garminPassword'] or not rider:
         return redirect(url_for('garmin.sports_page', msg='Connect Garmin in Settings first.'))
+    if _sports_lock.acquire(blocking=False):            # already running: the page shows that one
+        threading.Thread(target=_bg_sports_check, args=(current_app._get_current_object(), rider['id']), daemon=True).start()
+    return redirect(url_for('garmin.sports_page'))
+
+
+def _bg_sports_check(app, rider_id):
+    from services import sport_fix, tasks
+    from services.garmin import _client
     try:
-        res = sport_fix.scan(get_db(), _client(s['garminEmail'], s['garminPassword']), rider['id'])
-    except Exception as e:
-        return redirect(url_for('garmin.sports_page', msg=f'Could not reach Garmin: {e}'))
-    missing = res['checked'] - res['found']
-    msg = (f"Checked {res['found']} of your {res['checked']} Garmin rides: {res['proposed']} "
-           f"{'has' if res['proposed'] == 1 else 'have'} the wrong sport.") + (f' {missing} are no longer on Garmin and were left alone.' if missing else '')
-    return redirect(url_for('garmin.sports_page', msg=msg))
+        with app.app_context():
+            db = get_db()
+            with tasks.run(db, sport_fix.TASK, 'Activity type check') as t:
+                s = db.execute('SELECT garminEmail, garminPassword FROM Settings WHERE id=1').fetchone()
+                try:
+                    res = sport_fix.scan(db, _client(s['garminEmail'], s['garminPassword']), rider_id)
+                except Exception as e:
+                    raise RuntimeError(f'Could not reach Garmin: {e}') from e
+                missing = res['checked'] - res['found']
+                t.result = (f"Checked {res['found']} of your {res['checked']} Garmin rides: {res['proposed']} "
+                            f"{'has' if res['proposed'] == 1 else 'have'} the wrong sport.") + \
+                           (f' {missing} are no longer on Garmin and were left alone.' if missing else '')
+    except Exception as e:                              # already logged as failed by tasks.run
+        log.warning('Activity type check failed: %s', e)
+    finally:
+        _sports_lock.release()
 
 
 @bp.route('/garmin/sports/apply', methods=['POST'])

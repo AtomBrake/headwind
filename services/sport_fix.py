@@ -5,6 +5,7 @@ call), each wrong one is written down as a proposal, and nothing moves until the
 import logging
 
 log = logging.getLogger(__name__)
+TASK = 'sport_check'        # its TaskLog rows (the check runs in the background: routes/garmin.py)
 
 
 def ensure_schema(db):

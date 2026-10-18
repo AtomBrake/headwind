@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.2-beta] - 2026-10-18
+
+Migration: an `originId` column on `Activity` and `Workout`, added automatically at startup. Workouts already changed from rides get theirs filled in once. No Android change.
+
+### Added
+- **Open an activity on Garmin or Strava.** A ride or workout that came from the Garmin sync or a Strava export now has a **Garmin ↗** or **Strava ↗** button at the top of its page, which opens it on Garmin Connect or Strava. It still works after you change the activity between a ride and a workout (for example with the activity type check), which gives it a new id: the id it came in with is now kept in `originId`. `services/origin.py`, `tests/test_garmin_sports.py`.
+
+### Fixed
+- **The activity type check stopped when you left the page, and never showed on the Tasks page.** "Check with Garmin" ran inside the page request, so the result was lost if you browsed away, and nothing recorded that it was running. It now runs in the background: the Tasks page shows it running, then its result or error, and the Activity types page shows that it's running, updates itself when it's done, and then shows the last result. `routes/garmin.sports_check`, `tests/test_tasks.py`.
+
 ## [0.6.1-beta] - 2026-10-18
 
 Migration: a new `FeedToken` table and two `Settings` columns (`claudeKey`, `claudeModel`), added automatically at startup. The old shared feed token moves into the new table. New Python dependency: `anthropic` (included in the Docker image). No Android change.
