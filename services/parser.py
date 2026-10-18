@@ -60,7 +60,7 @@ def _ext_value(extensions, local_name):
 
 
 _SPORT_MAP = {
-    '1': 'Ride', 'ride': 'Ride', 'cycling': 'Ride', 'bike': 'Ride',
+    '1': 'Ride', 'ride': 'Ride', 'cycling': 'Ride', 'bike': 'Ride', 'biking': 'Ride',
     '9': 'Run', 'run': 'Run', 'running': 'Run',
     'swim': 'Swim', 'swimming': 'Swim',
     'walk': 'Walk', 'walking': 'Walk',
@@ -377,6 +377,178 @@ def parse_fit(data: bytes):
         'averageCadence':     round(float(avg_cad), 1) if avg_cad else None,
         **extremes,
         'calories':           round(float(calories), 1) if calories else None,
+        'startLat':           latlng[0][0] if latlng else None,
+        'startLng':           latlng[0][1] if latlng else None,
+        'streams':            json.dumps(streams),
+    }
+
+
+ACTIVITY_EXTENSIONS = ('.gpx', '.fit', '.tcx', '.gpx.gz', '.fit.gz', '.tcx.gz')
+
+
+def parse_activity_file(name, data: bytes):
+    """Parse an activity file by its extension (data already gunzipped). None if the name isn't a .gpx / .fit / .tcx (optionally .gz)."""
+    n = name.lower()
+    if n.endswith('.gz'):
+        n = n[:-3]
+    if n.endswith('.gpx'):
+        return parse_gpx(data)
+    if n.endswith('.fit'):
+        return parse_fit(data)
+    if n.endswith('.tcx'):
+        return parse_tcx(data)
+    return None
+
+
+def _tag(el):
+    return el.tag.rsplit('}', 1)[-1] if isinstance(el.tag, str) else ''
+
+
+def _num(el):
+    try:
+        return float(el.text) if el is not None and el.text else None
+    except ValueError:
+        return None
+
+
+def _tcx_time(s):
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat((s or '').strip().upper().replace('Z', '+00:00'))
+    except ValueError:
+        return None
+
+
+def _carried(vals):
+    """A stream with gaps (a sensor that dropped out for a few points) as one value per point: the last reading is carried forward, and the first one
+    back over any leading gap. Segments, best efforts and the charts all index every stream by the same point."""
+    first = next(v for v in vals if v is not None)
+    out, last = [], first
+    for v in vals:
+        last = v if v is not None else last
+        out.append(last)
+    return out
+
+
+def parse_tcx(data: bytes):
+    """Garmin Training Center XML (.tcx): older Garmins (the Edge 705), TrainerRoad and Strava's own exports. Laps hold the device's totals
+    (timer time, distance, calories, maxima); trackpoints hold time, position, altitude, distance, heart rate, cadence, and speed / power / run
+    cadence in the ActivityExtension. Only the first <Activity> is read. Unlike GPX/FIT, every stream gets one value per kept point."""
+    import xml.etree.ElementTree as ET
+    from gpxpy.geo import calculate_uphill_downhill
+
+    data = data.lstrip().removeprefix(b'\xef\xbb\xbf').lstrip()     # Strava's TCX files start with spaces before <?xml, which XML forbids
+    root = ET.fromstring(data)
+    activity = next((el for el in root.iter() if _tag(el) == 'Activity'), None)
+    if activity is None:
+        return None
+    sport_type = _map_sport(activity.get('Sport', 'Biking'))
+
+    laps = [el for el in activity if _tag(el) == 'Lap']
+    lap_time = lap_dist = calories = 0.0
+    dev_max = {'maxSpeed': None, 'maxHeartrate': None}
+    points = []
+    for lap in laps:
+        for el in lap:
+            name = _tag(el)
+            if name == 'TotalTimeSeconds':
+                lap_time += _num(el) or 0
+            elif name == 'DistanceMeters':
+                lap_dist += _num(el) or 0
+            elif name == 'Calories':
+                calories += _num(el) or 0
+            elif name in ('MaximumSpeed', 'MaximumHeartRateBpm'):
+                key = 'maxSpeed' if name == 'MaximumSpeed' else 'maxHeartrate'
+                v = _num(el) if key == 'maxSpeed' else _num(next((c for c in el if _tag(c) == 'Value'), None))
+                if v is not None:
+                    dev_max[key] = max(dev_max[key] or 0, v)
+        for tp in lap.iter():
+            if _tag(tp) != 'Trackpoint':
+                continue
+            p = {}
+            for el in tp:
+                name = _tag(el)
+                if name == 'Time':
+                    p['time'] = _tcx_time(el.text)
+                elif name == 'Position':
+                    ll = {_tag(c): _num(c) for c in el}
+                    if ll.get('LatitudeDegrees') is not None and ll.get('LongitudeDegrees') is not None:
+                        p['latlng'] = [ll['LatitudeDegrees'], ll['LongitudeDegrees']]
+                elif name == 'AltitudeMeters':
+                    p['altitude'] = _num(el)
+                elif name == 'DistanceMeters':
+                    p['distance'] = _num(el)
+                elif name == 'HeartRateBpm':
+                    p['heartrate'] = _num(next((c for c in el if _tag(c) == 'Value'), None))
+                elif name == 'Cadence':
+                    p['cadence'] = _num(el)
+                elif name == 'Extensions':
+                    for c in el.iter():
+                        ext = _tag(c)
+                        if ext == 'Speed':
+                            p['velocity_smooth'] = _num(c)
+                        elif ext == 'Watts':
+                            p['watts'] = _num(c)
+                        elif ext == 'RunCadence' and p.get('cadence') is None:
+                            p['cadence'] = _num(c)
+            if p.get('time'):
+                points.append(p)
+
+    if not points:
+        return None
+    times = [p['time'] for p in points]
+    first_lap = _tcx_time(laps[0].get('StartTime')) if laps else None
+    start = min(first_lap or times[0], times[0])
+    elapsed_s = (max(times) - start).total_seconds()
+
+    timed, prev = [], None                       # drop repeated or backwards timestamps, and (outdoors) the points with no position
+    has_gps = any(p.get('latlng') for p in points)
+    for p in points:
+        if (prev is None or p['time'] > prev) and (p.get('latlng') or not has_gps):
+            timed.append(p)
+            prev = p['time']
+
+    streams = {'time': {'data': [int((p['time'] - start).total_seconds()) for p in timed]}}
+    for key, nd in (('latlng', None), ('altitude', 1), ('heartrate', 0), ('cadence', 0), ('watts', 0), ('velocity_smooth', 3), ('distance', 1)):
+        vals = [p.get(key) for p in timed]
+        if any(v is not None for v in vals):
+            vals = _carried(vals)
+            streams[key] = {'data': vals if nd is None else [round(v, nd) if nd else int(v) for v in vals]}
+    if 'distance' not in streams and 'latlng' in streams:
+        ll, acc, dist = streams['latlng']['data'], 0.0, [0.0]
+        for a, b in zip(ll, ll[1:]):
+            acc += _haversine(a[0], a[1], b[0], b[1])
+            dist.append(round(acc, 1))
+        streams['distance'] = {'data': dist}
+
+    track_dist = ((streams.get('distance') or {}).get('data') or [0])[-1]
+    distance = lap_dist if lap_dist >= track_dist / 2 else track_dist      # an Edge 25 wrote a 100 km ride's lap as 42 m; its trackpoints were right
+    moving_time = int(lap_time or elapsed_s)
+    alts = (streams.get('altitude') or {}).get('data') or []
+    raw = lambda key, keep=lambda v: True: [p[key] for p in timed if p.get(key) is not None and keep(p[key])]
+    hr, watts, cad = raw('heartrate'), raw('watts'), raw('cadence', lambda v: v > 0)     # Garmin's average cadence leaves out coasting
+
+    extremes = extremes_from_streams(streams)
+    for k, v in dev_max.items():
+        if v and 0 < v <= {'maxSpeed': _MAX_PLAUSIBLE['speed'], 'maxHeartrate': _MAX_PLAUSIBLE['hr']}[k]:
+            extremes[k] = round(v, 3) if k == 'maxSpeed' else round(v, 1)
+    latlng = (streams.get('latlng') or {}).get('data') or []
+
+    return {
+        'id':                 _stable_id(start, distance),
+        'name':               sport_type + ' Activity',
+        'sportType':          sport_type,
+        'startDateLocal':     _utc_iso(start),
+        'distance':           round(distance, 1),
+        'movingTime':         moving_time,
+        'elapsedTime':        int(elapsed_s),
+        'totalElevationGain': round(calculate_uphill_downhill(alts)[0] if alts else 0, 1),     # gpxpy's, as GPX rides get: within 1% of Strava's median on Edge 705 files
+        'averageSpeed':       round(distance / moving_time, 4) if distance and moving_time else None,
+        'averageHeartrate':   round(sum(hr) / len(hr), 1) if hr else None,
+        'averageWatts':       round(sum(watts) / len(watts), 1) if watts else None,
+        'averageCadence':     round(sum(cad) / len(cad), 1) if cad else None,
+        **extremes,
+        'calories':           round(calories, 1) if calories else None,
         'startLat':           latlng[0][0] if latlng else None,
         'startLng':           latlng[0][1] if latlng else None,
         'streams':            json.dumps(streams),
