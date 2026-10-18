@@ -65,15 +65,15 @@ def test_repair_moves_old_imports_and_sets_their_twins_aside(db):
     add(db, 'imp_ok', '2026-07-01T08:00:00', '2026-07-01T09:00:00', dist=25000)         # already right
     add(db, 'man_1', '2026-07-02T10:00:00', '2026-07-02T10:00:00', dist=10000)          # typed in by hand: local already
     res = fix_utc_starts(db)
-    assert res == {'moved': 1, 'duplicates': 1}
+    assert res == {'moved': 1, 'duplicates': 1, 'ran': True}
     assert db.execute("SELECT 1 FROM Activity WHERE id='555'").fetchone() is None
     assert db.execute("SELECT startDateLocal FROM ActivityDuplicate d JOIN Activity a ON a.id=d.primaryId WHERE d.id='555'").fetchone()[0] == '2026-10-17T18:30:00'
     times = dict(db.execute("SELECT id, startDateLocal FROM Activity").fetchall())
     assert times == {'garmin_1': '2026-10-17T18:30:00', 'imp_win': '2026-01-10T09:00:00', 'imp_ok': '2026-07-01T09:00:00', 'man_1': '2026-07-02T10:00:00'}
-    assert fix_utc_starts(db) == {'moved': 0, 'duplicates': 0}                          # once only
+    assert fix_utc_starts(db) == {'moved': 0, 'duplicates': 0, 'ran': False}                          # once only
 
 
 def test_an_import_with_no_twin_just_gets_the_right_time(db):
     add(db, '777', '2026-08-03T06:15:00', '2026-08-03T06:15:00')
-    assert fix_utc_starts(db) == {'moved': 1, 'duplicates': 0}
+    assert fix_utc_starts(db) == {'moved': 1, 'duplicates': 0, 'ran': True}
     assert db.execute("SELECT startDate, startDateLocal FROM Activity WHERE id='777'").fetchone()[:] == ('2026-08-03T06:15:00', '2026-08-03T07:15:00')

@@ -99,11 +99,26 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
   - [x] Year, month and day headings in the Activities history open the list filtered to that period.
   - [x] Turn the `onclick="location.href=..."` rows on the dashboard into real `<a>` links, so middle-click, open in new tab and keyboard focus work.
   - [ ] The same for the lists that copy the pattern: `templates/rider.html`, `workouts.html` and `setup.html`.
-- [ ] **Select and edit many activities at once.** The only bulk action today is "Change the type of all N results" (`/rides/bulk-sport` in `routes/rides.py`), which only appears after a search and always takes every result.
-  - [ ] Add a select mode to the activity lists (dashboard history and search results, Workouts, a rider's page): a checkbox on each row, select all / none, shift-click for a range, and a bar that stays in view showing how many are picked.
-  - [ ] Actions on the picked activities: delete, change type (`convert.change_sport`, as `bulk-sport` does), set the bike (`set_ride_bike` in `services/gear.py`), change the rider, rename, dismiss sanity flags, and download them as a zip.
-  - [ ] Delete each ride through `duplicates.delete_activity` so tombstones, segment PRs and best efforts stay right. Ask for confirmation with the count, and commit once.
-  - [ ] Keep the 5,000 cap from `bulk-sport`, and refresh the Home Assistant sensors once at the end rather than for every ride.
+- [x] **Select and edit many activities at once** — done in 0.6.0-beta. "Select" on the dashboard history and search results, Workouts and a rider's page: click to pick, shift-click for a range, All / None, and a bar with delete, change type, set bike, move to rider, rename, "It's right" and download (GPX zip). `services/bulk.py`, `POST /rides/bulk`.
+
+## Multi-sport
+
+Headwind started as a cycling app and is becoming one for every sport. Today rides live in `Activity` and everything else in `Workout` (walk, run, hike, and since 0.5.9 swim, surf, paddle, row, ski, skate, golf, climb, other). The split is deliberate (about 100 ride queries assume `Activity` is rides), but most of the app outside the Workouts page still only sees rides.
+
+- [ ] **Gear for every sport, starting with shoes.** Gear is bikes only (`Bike` and its `Part`s in `services/gear.py`), and `Workout` has no gear field.
+  - [ ] A gear item that isn't a bike: shoes first (name, brand, model, bought on, starting distance, a "replace at" distance; running shoes are usually retired around 500-800 km), then other kinds as needed (wetsuit, skis, kayak, board).
+  - [ ] A `gearId` on `Workout`, a default pair per rider and sport (runs, walks, hikes), changeable on the activity page and through "Set gear" in the bulk-edit bar (`services/bulk.py`).
+  - [ ] Distance and time on each item added up from its activities, with alerts as bike parts have: the dashboard's "Gear needs attention" banner and the Home Assistant gear alerts (`gear.evaluate_alerts`).
+  - [ ] The Gear page shows bikes and other gear side by side; retiring a pair keeps its history.
+  - [ ] Phone app and Garmin: Garmin Connect has its own gear (shoes included) and the activity list says which was used. Map it on sync as the Strava import does.
+- [ ] **Every sport in the dashboard and stats.** The dashboard's history merges in runs only (`routes/dashboard.py`), and the totals, Performance chart, Data page, badges and Home Assistant sensors are rides only.
+  - [ ] A sport filter (All / Rides / Runs / ...) on the dashboard and Data page, with totals and charts for the chosen sport. A swim's distance shouldn't add to a ride total, so "All" shows time and calories, not one mixed distance.
+  - [ ] Speed for rides, pace for runs and walks (per km or mile, from `services/units.py`), and per 100 m for swims.
+  - [ ] Personal records per sport: run best efforts exist (`services/run_stats.py`); add swims and the rest where they make sense.
+  - [ ] Badges per sport, not only cycling milestones (`routes/riders.py`).
+  - [ ] Home Assistant sensors per sport, or a combined weekly-training sensor.
+- [ ] **Sport-specific detail pages.** The ride page (`templates/ride.html`) is used for workouts too (`_workout_as_activity`). Show what fits each sport: splits and pace for runs, lengths and stroke data for pool swims (Garmin FIT has them), runs and lift time for skiing. Hide what doesn't fit (power, bike, the wind-relative speed).
+- [ ] **AI coach for other sports.** `services/ai.py` and `services/context.py` coach rides only. Give runs and other sports their own context and history, and let ride analysis take the rest of the training week into account. It already sees "Other training (last 30 days)".
 
 ## Training and analysis
 
@@ -154,12 +169,14 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
 - [x] **Pull weight from Garmin Connect** — weigh-ins from a Garmin Index scale (or entered in Garmin Connect) land in `WeightLog`, so the Nutrition weight trend fills itself in. `sync_garmin` in `services/garmin.py` already pulls daily metrics into `GarminDaily`; add the weigh-ins to the same sync.
   - [x] Fetch the weigh-ins for the sync window (garminconnect `get_weigh_ins` / `get_body_composition`) and convert grams to kg.
   - [x] Upsert into `WeightLog` with `source='garmin'`, one row per day (the table is `UNIQUE(riderId, logDate)`). Take the day's last weigh-in, and never overwrite a manual entry, the way `routes/nutrition.py` asks before replacing one.
-- [ ] **Re-import rides that changed** — today a ride whose ID is already in the database is skipped outright (`_process_strava_export` in `routes/import_rides.py`), so a ride that first came in broken can't be repaired by importing again. Found when 11 Strava rides came in 1000x too long: 10 Trailforks GPX files whose lower-case `z` timestamps failed to parse (fixed in `fb101a2`) and a TCX file, all of which fell back to a CSV distance read in the wrong units.
-  - [ ] When the ID matches, parse the file anyway and compare it with the saved ride: distance, moving and elapsed time, climb, start time, and whether it has a GPS track and streams.
-  - [ ] Identical, or within rounding: skip as now.
-  - [ ] Different: don't overwrite on the spot. Collect the differences and, once the import finishes, list them on the Import page with old and new values side by side. For each one (or all at once) offer: keep the saved ride, replace it with the import, or fill in only what's missing (e.g. add the GPS track but keep a renamed title).
-  - [ ] Never lose the rider's own edits (name, description, bike, a dismissed sanity flag) on replace, and re-run `services/sanity.py`, the segment scan and `after_ride_added` for any ride that changes.
-  - [ ] Works for the generic zip and single-file imports too, not only Strava exports.
+- [x] **Re-import rides that changed** — done in 0.6.0-beta for Strava exports, zips and single files. An import that meets a saved ride compares them; the same ride is skipped, a different one is listed on the Import page (saved vs file) with Use import / Fill in gaps / Keep saved, one by one or all at once. Names, bikes, notes, type and a dismissed flag are never changed. `services/reimport.py`.
+  - [ ] File imports (not Strava) take their id from the start time and distance, so a file that now reads differently gets a new id and is handled by the duplicate check instead (the better recording is kept). Match those on the start time alone to offer the same review.
+- [ ] **Bikes from a Strava export.** The export names the gear on each activity ("Activity Gear" in `activities.csv`) and lists the bikes in `bikes.csv` (name, brand, model, default sport types) and shoes in `shoes.csv`. `_process_strava_export` (`routes/import_rides.py`) reads none of it, so every imported ride gets the rider's default bike (`gear.on_ride_added`), whatever it was ridden on. Check these column and file names against a real export first.
+  - [ ] Read `bikes.csv` and create a Headwind bike (`gear.create_bike`) for each one the rider doesn't have yet, matched by name (ignoring case and spacing), with its brand and model. List what was created in the import summary.
+  - [ ] Set each imported ride's bike from "Activity Gear" (`gear.set_ride_bike`), falling back to the default bike when it's blank or not a bike (shoes on a run).
+  - [ ] On a re-import, fill in the bike on rides that have none, but never change a bike the rider set themselves. This can go through the "Fill in gaps" review in `services/reimport.py`.
+  - [ ] Since bikes from Strava come with no fitted parts, mention on the bike page that its distance comes from the imported rides, and offer to add parts.
+  - [ ] Shoes from `shoes.csv` onto runs and walks, once shoe tracking exists (see **Gear for every sport** under Multi-sport).
 - [ ] **TCX import.**
 - [ ] **Fuller exports** — FIT/TCX and a full JSON/CSV dump (only GPX export exists today).
 
@@ -171,12 +188,9 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
 
 ## Housekeeping
 
-- [ ] **Tasks page** — one place to see what Headwind is doing in the background and when it has finished. Today it is spread out or invisible: imports show in the top bar (`/import/progress`), the Garmin health and weight history show a line in Settings (`garminHistoryStatus`, `garminWeightsStatus`), the Garmin sync's `garminLastOk` / `garminLastError` aren't shown anywhere, and the start-up repairs (`services/start_times.py`, `max_stats.fix_spiky_max_speed`, the mm-distance backfill in `database.py`) only write a line to the server log.
-  - [ ] A small `TaskLog` table: task, started, finished, status (running / waiting / done / failed), a one-line result ("moved 37 rides to local time; 18 were duplicates") and the error if any. Each start-up repair writes a row when it runs, so what it changed can be seen after the event, not only in `docker logs`.
-  - [ ] A card for each background job, with its current state and its last run: the Garmin activity and health sync (`_mqtt_heartbeat` / `_garmin_heartbeat` in `app.py`), the health-history and weigh-in backfills (including "waiting after a rate limit until 14:20"), friend auto-sync, the Home Assistant / MQTT push, and any import in progress.
-  - [ ] Where it makes sense, a "Run now" button (wake the job, as `HISTORY_WAKE` does) and a "Retry" button on a failed one.
-  - [ ] Extend the top-bar indicator from imports to anything still running, linking to the page, and show a one-off notice after an upgrade's repairs have run ("3 start-up repairs ran: see Tasks").
+- [x] **Tasks page** — done in 0.6.0-beta. `/tasks` (sidebar): a card per background job (Garmin sync with "Sync now", health and weight history with "Try now" while waiting, friend sync, Home Assistant / MQTT, an import), the start-up repairs with what each changed, and recent runs. After an update's repairs run, every page shows a notice until the Tasks page is opened. `services/tasks.py`, `TaskLog`.
   - [ ] Admin-only once multi-user support lands (see Users).
+  - [ ] The top-bar indicator still shows imports only; show any running job there too.
 
 - [ ] **Date of birth instead of age** — the Settings and Nutrition profile forms (`pfAge` in `templates/settings.html`, `sgAge` in `templates/nutrition.html`) ask for an age. `routes/nutrition.py` `goal-profile` stores it as `Settings.birthYear` (this year minus the age), and `services/goal_model.py` `profile()` turns it back into this year minus `birthYear`. So the age used for BMR can be a year out, depending on when the birthday falls.
   - [ ] Add a `birthDate` column to `Settings`. Fill it from `birthYear` for existing installs (1 January of that year), then ask for the real date.

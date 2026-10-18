@@ -95,6 +95,10 @@
          class="nav-item {% if request.blueprint == 'import_rides' %}active{% endif %}">
         {% include 'icons/_upload.svg' %} Import
       </a>
+      <a href="{{ url_for('tasks.index') }}"
+         class="nav-item {% if request.blueprint == 'tasks' %}active{% endif %}">
+        {% include 'icons/_pulse.svg' %} Tasks{% if startup_unseen %} <span class="nav-badge">{{ startup_unseen }}</span>{% endif %}
+      </a>
       <a href="{{ url_for('settings.index') }}"
          class="nav-item {% if request.blueprint == 'settings' %}active{% endif %}">
         {% include 'icons/_gear.svg' %} Settings
@@ -125,6 +129,10 @@
       </div>
     </div>
     <div class="content">
+      {% if startup_unseen %}
+      <div class="flash flash-success" style="margin-bottom:1rem;">Headwind ran {{ startup_unseen }} start-up repair{{ 's' if startup_unseen != 1 }} on your data after the update.
+        <a href="{{ url_for('tasks.index') }}" style="color:var(--accent);">See what changed</a></div>
+      {% endif %}
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% for category, message in messages %}
           <div class="flash flash-{{ category }}">{{ message }}</div>

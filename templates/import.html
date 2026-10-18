@@ -13,7 +13,8 @@
     <strong style="color:var(--text);">zip of activity files</strong>, or a full
     <strong style="color:var(--text);">Strava data export zip</strong>
     (contains <code>activities.csv</code>).
-    Already-imported activities are skipped automatically.
+    An activity that's already here is skipped, unless the file differs from what's saved (it was broken the first time, say):
+    those are listed below for you to decide.
   </p>
 
   <div id="dropZone" class="drop-zone">
@@ -57,6 +58,44 @@
   <div id="doneStats" style="font-size:0.9375rem;line-height:2;"></div>
   <a href="/dashboard" class="btn btn-primary" style="margin-top:1rem;display:inline-flex;">View Dashboard</a>
 </div>
+
+{% if changes %}
+<div class="card" id="changes" style="margin-top:1.25rem;">
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+    <div class="card-title" style="margin:0;">{{ changes | length }} ride{{ 's' if changes | length != 1 }} differ{{ 's' if changes | length == 1 }} from what's saved</div>
+    <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+      <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id='all', choice='replace') }}" style="margin:0;"
+            onsubmit="return confirm('Use the imported version of all {{ changes | length }}? Names, bikes, notes and types you set are kept.')">
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Use all imports</button></form>
+      <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id='all', choice='fill') }}" style="margin:0;">
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Fill in all gaps</button></form>
+      <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id='all', choice='keep') }}" style="margin:0;">
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Keep all saved</button></form>
+    </div>
+  </div>
+  <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0.5rem 0 0;">
+    These were imported before, and the file now reads differently, e.g. a ride that came in broken. <strong>Use import</strong> takes the file's
+    values wherever it has one; <strong>Fill in gaps</strong> only adds what the saved ride is missing (a GPS track, heart rate); <strong>Keep saved</strong>
+    leaves it as it is. Names, bikes, notes, the activity type and a ride you marked as right are never changed.</p>
+  {% for c in changes %}
+  <div style="border-top:1px solid var(--border); padding:0.75rem 0;">
+    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; margin-bottom:0.4rem;">
+      <a href="/rides/{{ c.rideId }}" style="font-weight:600; color:var(--text);">{{ c.rideName or 'Ride' }}</a>
+      <span style="color:var(--text-muted); font-size:0.8125rem;">from {{ c.source }}</span>
+      <span style="flex:1;"></span>
+      {% for choice, label in (('replace', 'Use import'), ('fill', 'Fill in gaps'), ('keep', 'Keep saved')) %}
+      <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id=c.rideId, choice=choice) }}" style="margin:0;">
+        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8125rem;">{{ label }}</button></form>
+      {% endfor %}
+    </div>
+    <table class="table-compact" style="font-size:0.8125rem;">
+      <thead><tr><th></th><th>Saved</th><th>In the file</th></tr></thead>
+      <tbody>{% for d in c.diffs %}<tr><td class="text-muted">{{ d.label }}</td><td>{{ d.old }}</td><td style="color:var(--accent);">{{ d.new }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -164,7 +203,8 @@ function handleEvent(d) {
     document.getElementById('doneStats').innerHTML =
       `<strong style="color:var(--success)">${d.imported}</strong> rides imported<br>` +
       `<span style="color:var(--text-muted)">${d.skipped} already existed / skipped</span>` +
-      (d.errors ? `<br><span style="color:var(--danger)">${d.errors} files could not be parsed</span>` : '');
+      (d.errors ? `<br><span style="color:var(--danger)">${d.errors} files could not be parsed</span>` : '') +
+      (d.changed ? `<br><a href="/import#changes" onclick="location.reload()" style="color:var(--accent)">${d.changed} differ from what's saved: review them</a>` : '');
   }
 }
 </script>

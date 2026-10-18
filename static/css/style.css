@@ -705,3 +705,33 @@ details[open] > .tree-month-summary::before { transform: rotate(90deg); }
 /* public demo banner */
 .demo-banner { background: linear-gradient(90deg,#fc4c02,#c13a00); color:#fff; font-size:.8rem; font-weight:600; letter-spacing:.02em; padding:.4rem 1rem; text-align:center; }
 .demo-banner a { color:#fff; text-decoration:underline; }
+
+/* ── Select mode on activity lists (templates/_bulk_bar.html, static/js/bulk.js) ── */
+.bulk-bar {
+  position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%); z-index: 900;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.45rem; max-width: calc(100vw - 2rem);
+  padding: 0.6rem 0.8rem; background: var(--card-bg); border: 1px solid var(--accent); border-radius: 0.75rem;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45); font-size: 0.8125rem;
+}
+.bulk-bar[hidden] { display: none; }
+.bulk-bar select, .bulk-bar .btn { font-size: 0.8125rem; padding: 0.25rem 0.6rem; width: auto; }
+.bulk-bar .bulk-count { font-weight: 600; min-width: 5.5rem; }
+.bulk-bar .bulk-link { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0.2rem 0.3rem; font-size: 0.8125rem; }
+.bulk-bar .bulk-sep { width: 1px; align-self: stretch; background: var(--border); }
+.bulk-bar .bulk-delete { border-color: #b91c1c; color: #fca5a5; }
+body.bulk-mode [data-pick-list] [data-pick] { cursor: pointer; position: relative; padding-left: 1.9rem !important; }
+body.bulk-mode [data-pick-list] [data-pick]::before {
+  content: ''; position: absolute; left: 0.45rem; top: 50%; width: 1rem; height: 1rem; margin-top: -0.5rem;
+  border: 2px solid var(--text-muted); border-radius: 0.25rem;
+}
+body.bulk-mode [data-pick-list] [data-pick].picked { background: rgba(252,76,2,0.10); }
+body.bulk-mode [data-pick-list] [data-pick].picked::before { background: var(--accent); border-color: var(--accent); }
+body.bulk-mode [data-pick-list] tr[data-pick]::before { display: none; }
+body.bulk-mode [data-pick-list] tr[data-pick] td:first-child { box-shadow: inset 4px 0 0 transparent; }
+body.bulk-mode [data-pick-list] tr[data-pick].picked td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+body.bulk-mode [data-pick-list] tr[data-pick] { padding-left: 0 !important; }
+body.bulk-mode .wo-line form { display: none; }                 /* the per-row type picker and delete give way to the bar */
+body.bulk-mode { padding-bottom: 6rem; }
+.pick-toggle { font-size: 0.75rem; padding: 0.2rem 0.7rem; margin-left: auto; }
+.nav-badge { display: inline-block; min-width: 1.1rem; padding: 0 0.3rem; margin-left: 0.35rem; border-radius: 999px; background: var(--accent); color: #fff;
+             font-size: 0.6875rem; font-weight: 700; line-height: 1.1rem; text-align: center; }

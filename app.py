@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from flask import Flask, g, jsonify, redirect, request, session, url_for, render_template
 from config import Config
-from database import close_db, migrate_db
+from database import close_db, get_db, migrate_db
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 log = logging.getLogger(__name__)
@@ -27,14 +27,28 @@ def _friends_autosync(app):
                 continue
             time.sleep(interval * 60)
             with app.app_context():
-                from database import query_db as _qdb
+                from database import query_db as _qdb, get_db as _gdb
                 from routes.friends import _do_sync
-                friends = _qdb('SELECT id FROM Friend')
+                from services import tasks
+                friends = _qdb('SELECT id, name FROM Friend')
+                task_id = tasks.start(_gdb(), 'friend_sync', 'Friend sync') if friends else None
+                failed, rides = [], 0
                 for f in (friends or []):
                     try:
-                        _do_sync(f['id'])
+                        res = _do_sync(f['id'])                   # (rides synced, error text or None)
+                        if isinstance(res, tuple) and res[1]:
+                            failed.append(f"{f['name']}: {str(res[1])[:80]}")
+                        elif isinstance(res, tuple):
+                            rides += res[0] or 0
                     except Exception as e:
+                        failed.append(f"{f['name']}: {str(e)[:80]}")
                         log.warning('Auto-sync failed for friend %s: %s', f['id'], e)
+                if task_id:
+                    n = len(friends)
+                    summary = f"{n - len(failed)} of {n} friend{'s' if n != 1 else ''} synced, {rides} new ride{'s' if rides != 1 else ''}."
+                    if failed and len(failed) < n:
+                        summary += ' Failed: ' + '; '.join(failed)
+                    tasks.finish(_gdb(), task_id, summary, '; '.join(failed) if failed and len(failed) == n else None)
         except Exception as e:
             log.warning('Friends autosync loop error: %s', e)
             time.sleep(60)
@@ -87,7 +101,10 @@ def _garmin_heartbeat(app):
                 s = query_db('SELECT garminEmail, garminPassword, garminSyncHours, garminSyncMode FROM Settings WHERE id=1', one=True)
                 if s and s['garminEmail'] and s['garminPassword']:
                     interval_hours = s['garminSyncHours'] or 0.5
+                    from services import tasks
                     from services.garmin import sync_garmin, sync_garmin_activities, fetch_ride_hr, _client
+                    task_id = tasks.start(get_db(), 'garmin_sync', 'Garmin sync')
+                    result = ['Health data synced']
                     try:
                         sync_garmin(s['garminEmail'], s['garminPassword'], days=14)
                         ok = True
@@ -99,10 +116,18 @@ def _garmin_heartbeat(app):
                         rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
                         if rider:
                             try:
-                                for _ in sync_garmin_activities(s['garminEmail'], s['garminPassword'], rider['id']):
+                                final = {}
+                                for final in sync_garmin_activities(s['garminEmail'], s['garminPassword'], rider['id']):
                                     pass
+                                if final.get('error'):
+                                    result.append(f"rides failed: {final['error']}")
+                                else:
+                                    n = final.get('imported', 0)
+                                    result.append(f"{n} new ride{'s' if n != 1 else ''} or workout{'s' if n != 1 else ''}" if n else 'no new rides')
                             except Exception as e:
                                 log.warning('Garmin activity sync failed: %s', e)
+                                result.append(f'rides failed: {str(e)[:120]}')
+                    tasks.finish(get_db(), task_id, '; '.join(result) + '.' if ok else None, None if ok else err)
 
                     # Backfill HR for owner's recent rides that landed without it (a plain GPX import has none)
                     missing = query_db('''
@@ -175,7 +200,9 @@ def _garmin_heartbeat(app):
                         interval_hours = min(interval_hours, 0.17 * min(fails, 3))   # retry after 10, 20, then 30 minutes
         except Exception as e:
             logging.getLogger(__name__).warning('Garmin heartbeat error: %s', e)
-        time.sleep(interval_hours * 3600)
+        from services.garmin import SYNC_WAKE
+        SYNC_WAKE.wait(interval_hours * 3600)       # or straight away when the Tasks page asks
+        SYNC_WAKE.clear()
 
 
 def _garmin_history(app):
@@ -391,6 +418,17 @@ def create_app():
         return {'units': _get_units(), 'U': _units.spec()}
 
     @app.context_processor
+    def inject_task_notice():
+        """How many start-up repairs ran that nobody has looked at yet (a notice on every page until the Tasks page is opened)."""
+        if not session.get('logged_in') or request.endpoint == 'tasks.index':
+            return {'startup_unseen': 0}
+        try:
+            from services import tasks
+            return {'startup_unseen': tasks.unseen_startup(get_db())}
+        except Exception:
+            return {'startup_unseen': 0}
+
+    @app.context_processor
     def inject_demo():
         return {'demo_mode': DEMO}
 
@@ -441,6 +479,8 @@ def create_app():
     app.register_blueprint(api_v1_bp)
     app.register_blueprint(workouts_ui_bp)
     app.register_blueprint(phones_bp)
+    from routes.tasks import bp as tasks_bp
+    app.register_blueprint(tasks_bp)
 
     if DEMO:                                   # no background threads that talk to the network; just the nightly reset
         from routes.demo import bp as demo_bp
