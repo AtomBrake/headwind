@@ -119,6 +119,15 @@ def _name_rank(name):
     return 0 if not str(name or '').strip() else (1 if default_name(name) else 2)
 
 
+def _take_better_name(db, primary_id, kept_name, other_name):
+    """Give the kept activity the other copy's name if that one ranks higher ("Box Hill loop" on the phone copy beats Garmin's "London Cycling").
+    True if it changed. Does not commit."""
+    if _name_rank(other_name) <= _name_rank(kept_name):
+        return False
+    db.execute('UPDATE Activity SET name=? WHERE id=?', [other_name, primary_id])
+    return True
+
+
 def source_label(row):
     return 'Garmin' if str(row['id']).startswith('garmin_') else ('Manual entry' if str(row['id']).startswith('man_') else 'Phone or file')
 
@@ -224,8 +233,7 @@ def park(db, loser_id, primary_id, reason):
         for col in ('notes', 'description') + (('bikeId',) if is_ride(winner['sportType']) else ()):
             if col in row.keys() and row[col] and not winner[col]:
                 db.execute(f'UPDATE Activity SET {col}=? WHERE id=?', [row[col], primary_id])
-        if _name_rank(row['name']) > _name_rank(winner['name']):     # "Box Hill loop" on the phone copy beats Garmin's "London Cycling"
-            db.execute('UPDATE Activity SET name=? WHERE id=?', [row['name'], primary_id])
+        _take_better_name(db, primary_id, winner['name'], row['name'])
     db.execute('INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson) VALUES (?,?,?,?,?,?,?)',
                [loser_id, primary_id, row['riderId'], source_label(row), reason, 'parked', json.dumps(dict(row))])
     seg_ids = _drop_derived(db, loser_id)
@@ -352,6 +360,33 @@ def discard(db, dup_id):
     """Delete a parked recording for good. Its id stays remembered (so a Garmin re-sync does not bring it back)."""
     n = db.execute("UPDATE ActivityDuplicate SET rowJson='{}', status='discarded' WHERE id=? AND status='parked'", [dup_id]).rowcount
     return bool(n)
+
+
+def recover_names(db):
+    """Run once (Settings.dupNameFixDone): before park() looked at names, a merge kept the kept recording's own name even when it was made up
+    (Garmin's "London Cycling") and the copy set aside had one the user chose. That copy is still whole in rowJson, so its name is taken back by
+    the same rule. Discarded copies have no data left; friends' activities are left alone. Commits. Returns {'checked', 'renamed', 'ran'}."""
+    ensure_schema(db)
+    s = db.execute('SELECT dupNameFixDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['dupNameFixDone']:
+        return {'checked': 0, 'renamed': 0, 'ran': False}
+    rows = db.execute("""SELECT d.primaryId, d.rowJson FROM ActivityDuplicate d JOIN Activity a ON a.id=d.primaryId
+                          WHERE d.status='parked' AND a.riderId NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)
+                          ORDER BY d.parkedAt""").fetchall()
+    renamed = set()
+    for r in rows:
+        try:
+            other = json.loads(r['rowJson']).get('name')
+        except (ValueError, TypeError, AttributeError):
+            continue
+        kept = db.execute('SELECT name FROM Activity WHERE id=?', [r['primaryId']]).fetchone()
+        if _take_better_name(db, r['primaryId'], kept['name'], other):
+            renamed.add(r['primaryId'])
+    db.execute('UPDATE Settings SET dupNameFixDone=1 WHERE id=1')
+    db.commit()
+    if renamed:
+        log.warning('Duplicates: %d merged activit%s took back the name chosen on the copy set aside', len(renamed), 'y' if len(renamed) == 1 else 'ies')
+    return {'checked': len(rows), 'renamed': len(renamed), 'ran': True}
 
 
 def recheck_workouts(db):
