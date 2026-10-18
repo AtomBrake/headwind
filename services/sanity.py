@@ -26,8 +26,8 @@ def reasons(r, system=None):
     """List of readable reasons a ride looks wrong (empty = fine), worded in the rider's units. `r` is a mapping with the Activity columns.
     The limits themselves are in mph and miles."""
     from services import units
-    sport = str(r['sportType'] or '').lower()
-    if 'ride' not in sport and 'cycl' not in sport:
+    from services.sports import is_ride
+    if not is_ride(r['sportType']):
         return []
     dist = float(r['distance'] or 0)
     moving = float(r['movingTime'] or 0)

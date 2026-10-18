@@ -43,7 +43,7 @@ def links(db, activity_id, origin_id=None):
 def backfill(db):
     """At start-up: workouts changed from rides before originId existed. Their id is a hash of the ride's id, and the ride's id was remembered when it
     was removed (ActivityDuplicate), so the pair can be matched up again. Does not commit."""
-    todo = {r['id'] for r in db.execute("SELECT id FROM Workout WHERE source='converted' AND originId IS NULL")}
+    todo = {r['id'] for r in db.execute("SELECT id FROM Activity WHERE source='converted' AND originId IS NULL")}
     if not todo:
         return 0
     n = 0

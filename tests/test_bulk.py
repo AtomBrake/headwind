@@ -9,6 +9,7 @@ import app as app_module
 import config
 import database
 from services import credentials, duplicates
+from services.sports import RIDE_SQL
 
 TRACK = json.dumps({'latlng': {'data': [[51.5 + i * 1e-4, -2.6] for i in range(50)]}, 'time': {'data': list(range(0, 500, 10))},
                     'altitude': {'data': [10.0] * 50}})
@@ -61,7 +62,7 @@ def test_delete_mixes_rides_and_workouts_and_refreshes_once(client):
     r = bulk(client, 'delete', ['r1', 'r2', 'wk1', 'garmin_9', 'nope'])
     assert r.status_code == 302 and r.headers['Location'].endswith('/dashboard')
     assert [x[0] for x in q(client, 'SELECT id FROM Activity ORDER BY id')] == ['r3', 'r4']
-    assert q(client, 'SELECT COUNT(*) FROM Workout')[0][0] == 0
+    assert q(client, f'SELECT COUNT(*) FROM Activity WHERE NOT {RIDE_SQL}')[0][0] == 0
     with client.application.app_context():
         db = database.get_db()
         assert duplicates.is_deleted(db, 'r1') and duplicates.is_deleted(db, 'garmin_9')     # a re-sync won't bring them back

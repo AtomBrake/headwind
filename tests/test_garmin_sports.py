@@ -71,9 +71,9 @@ def test_check_lists_the_wrong_sports_and_apply_moves_them(db):
 
     res = sport_fix.apply(db, 1, ['garmin_1', 'garmin_3', 'garmin_4'])               # garmin_5 left as it is
     assert res == {'changed': 3, 'failed': 0, 'kept': 1}
-    swim = db.execute("SELECT * FROM Workout WHERE sport='Swim'").fetchone()
+    swim = db.execute("SELECT * FROM Activity WHERE sportType='Swim'").fetchone()
     assert swim and swim['calories'] == 210                                        # the watch's calories, not a walking estimate
-    assert db.execute("SELECT COUNT(*) FROM Workout WHERE sport='Run'").fetchone()[0] == 1
+    assert db.execute("SELECT COUNT(*) FROM Activity WHERE sportType='Run'").fetchone()[0] == 1
     assert db.execute("SELECT sportType FROM Activity WHERE id='garmin_4'").fetchone()[0] == 'VirtualRide'
     assert not db.execute("SELECT 1 FROM Ride WHERE id IN ('garmin_1','garmin_3')").fetchone()
     assert swim['id'] == 'garmin_1' and duplicates.exists_anywhere(db, 'garmin_1')  # same id: a Garmin re-sync finds it and won't bring it back as a ride
@@ -97,7 +97,7 @@ def test_check_stops_paging_once_past_the_oldest_garmin_ride(db):
 def test_a_garmin_workout_saves_with_its_own_sport_and_stays_deleted(db):
     parsed = {'distance': 1500.0, 'movingTime': 1800, 'elapsedTime': 2000, 'calories': 300, 'averageSpeed': 0.8, 'streams': '{}'}
     _save_workout(db, 'garmin_42', 1, 'Swim', 'Pool Swimming', '2026-10-01T07:00:00Z', '2026-10-01T08:00:00', parsed, 1.2)
-    w = db.execute("SELECT sport, calories, source FROM Workout WHERE id='garmin_42'").fetchone()
+    w = db.execute("SELECT sportType, calories, source FROM Activity WHERE id='garmin_42'").fetchone()
     assert tuple(w) == ('Swim', 300, 'garmin')
     assert workouts.delete(db, 'garmin_42', 1)
     assert duplicates.is_deleted(db, 'garmin_42')
@@ -141,7 +141,7 @@ def test_sync_puts_a_swim_in_workouts_and_a_ride_in_rides_with_a_sane_top_speed(
 
     events = list(garmin.sync_garmin_activities('e', 'p', 1))
     assert events[-1]['imported'] == 2
-    assert db.execute("SELECT sport FROM Workout WHERE id='garmin_11'").fetchone()[0] == 'Swim'
+    assert db.execute("SELECT sportType FROM Activity WHERE id='garmin_11'").fetchone()[0] == 'Swim'
     assert not db.execute("SELECT 1 FROM Ride WHERE id='garmin_11'").fetchone()
     assert db.execute("SELECT maxSpeed FROM Activity WHERE id='garmin_12'").fetchone()[0] == 14.0
 
@@ -164,7 +164,7 @@ def test_apply_moves_a_ride_with_a_copy_set_aside_and_throws_the_copy_away(db):
     assert [p['parked'] for p in sport_fix.pending(db, 1)] == [1]                  # the review list says a copy goes with it
 
     assert sport_fix.apply(db, 1, ['garmin_20']) == {'changed': 1, 'failed': 0, 'kept': 0}
-    assert db.execute("SELECT sport FROM Workout").fetchone()[0] == 'Other'
+    assert db.execute("SELECT sportType FROM Activity").fetchone()[0] == 'Other'
     assert not db.execute("SELECT 1 FROM Ride").fetchone()
     d = db.execute("SELECT status, rowJson FROM ActivityDuplicate WHERE id='imp_hiit'").fetchone()
     assert tuple(d) == ('discarded', '{}')
@@ -217,4 +217,4 @@ def test_workouts_converted_before_the_origin_was_kept_are_matched_up(db):
     db.execute("INSERT INTO Activity (id, riderId, type, sportType, startDateLocal, distance, movingTime, source) VALUES (?, 1, 'Run', 'Run', '2026-10-01T08:00:00', 8000, 2400, 'converted')", [wid])
     duplicates.tombstone(db, 'garmin_7', 1); db.commit()                       # the ride's id, remembered when it was removed
     assert origin.backfill(db) == 1
-    assert db.execute('SELECT originId FROM Workout WHERE id=?', [wid]).fetchone()[0] == 'garmin_7'
+    assert db.execute('SELECT originId FROM Activity WHERE id=?', [wid]).fetchone()[0] == 'garmin_7'

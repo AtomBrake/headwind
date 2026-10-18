@@ -1,5 +1,5 @@
-"""Walks, runs and hikes recorded by the phone app. They are Activity rows like every other activity; the Workout view (database.migrate_db) shows
-the ones that are not rides, under their old column names.
+"""Walks, runs and hikes recorded by the phone app, and the other activities that are not rides. They are Activity rows like every other
+activity; what is a ride is services/sports.is_ride. A workout is handed around as a dict with `sport` (Activity's sportType), see COLS.
 
 A workout arrives as a GPX file (the app records the track); we reuse the GPX parser, store our own row, estimate calories when the
 phone gave none, and stay idempotent: the same `client_id` (a UUID the app makes per recording) can be re-sent any number of times.
@@ -12,9 +12,12 @@ from zoneinfo import ZoneInfo
 
 from database import get_db, query_db
 from services import tz
+from services.sports import ON_FOOT as SPORTS, RIDE_SQL
 
 log = logging.getLogger(__name__)
-SPORTS = ('Walk', 'Run', 'Hike')
+# A workout as the phone API and the Workouts page have always seen it (before 0.7 it had a table of its own, with `sport` for sportType)
+COLS = ('id, riderId, sportType AS sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, averageSpeed, maxSpeed, '
+        'averageHeartrate, calories, steps, startLat, startLng, streams, weatherSummary, source, createdAt, caloriesRaw, originId')
 _ICON = {'Walk': '🚶', 'Run': '🏃', 'Hike': '🥾', 'Swim': '🏊', 'Surf': '🏄', 'Paddle': '🛶', 'Row': '🚣', 'Ski': '⛷️', 'Skate': '⛸️', 'Golf': '⛳', 'Climb': '🧗'}
 MI = 1609.344
 
@@ -54,9 +57,9 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
     local, utc = _local(act['startDateLocal'])
     key = client_id or f"{local}|{round(act.get('distance') or 0)}"
     wid = 'wk_' + hashlib.sha1(f'{rider_id}|{key}'.encode()).hexdigest()[:16]
-    existing = query_db('SELECT * FROM Workout WHERE id=?', [wid], one=True)
-    if existing:
-        return dict(existing), False
+    existing = _get(wid)
+    if existing:                                       # sent again (or since changed to another sport: it is still that recording)
+        return existing, False
     kept = _kept_instead(wid)
     if kept:                                           # set aside as a copy of another recording: a retried upload gets that one back
         return kept, False
@@ -92,14 +95,19 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
     db.commit()
     if dup and dup['parked'] == wid:
         return _kept_instead(wid), False
-    return dict(query_db('SELECT * FROM Workout WHERE id=?', [wid], one=True)), True
+    return _get(wid), True
+
+
+def _get(act_id):
+    """One activity shaped like a workout (COLS), whatever its sport, or None."""
+    row = query_db(f'SELECT {COLS} FROM Activity WHERE id=?', [act_id], one=True)
+    return dict(row) if row else None
 
 
 def _kept_instead(wid):
     """The activity a set-aside recording was a copy of, shaped like a workout (sport, ...), or None."""
     d = query_db("SELECT primaryId FROM ActivityDuplicate WHERE id=? AND status='parked'", [wid], one=True)
-    row = query_db('SELECT * FROM Activity WHERE id=?', [d['primaryId']], one=True) if d else None
-    return dict(row, sport=row['sportType']) if row else None
+    return _get(d['primaryId']) if d else None
 
 
 def label(w):
@@ -136,31 +144,18 @@ def summary(w, rider_name):
     return title, '\n'.join(lines)
 
 
-def calories_on(rider_id, date_iso):
-    """Gross workout kcal on a local date (added to the daily burn wherever activity calories are summed)."""
-    r = query_db('SELECT COALESCE(SUM(calories), 0) AS t FROM Workout WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL',
-                 [rider_id, date_iso], one=True)
-    return int(r['t']) if r else 0
-
-
-def net_calories_on(rider_id, date_iso, bmr):
-    """Workout kcal above the resting burn during the workout — the same "net" basis goal_model.day_burn uses for rides."""
-    rows = query_db('SELECT calories, movingTime FROM Workout WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL', [rider_id, date_iso])
-    return sum(max(0.0, (r['calories'] or 0) - bmr * (r['movingTime'] or 0) / 86400) for r in rows)
-
-
 def recent(rider_id, days=30):
     since = (tz.today() - timedelta(days=days)).isoformat()
-    rows = query_db('''SELECT id, sport, name, startDateLocal, distance, movingTime, totalElevationGain, calories, steps, weatherSummary, source
-                       FROM Workout WHERE riderId=? AND date(startDateLocal)>=? ORDER BY startDateLocal DESC''', [rider_id, since])
+    rows = query_db(f'''SELECT id, sportType AS sport, name, startDateLocal, distance, movingTime, totalElevationGain, calories, steps, weatherSummary, source
+                        FROM Activity WHERE riderId=? AND NOT {RIDE_SQL} AND date(startDateLocal)>=? ORDER BY startDateLocal DESC''', [rider_id, since])
     return [dict(r) for r in rows]
 
 
 def search(rider_id, q='', date_from='', date_to='', min_m=None, max_m=None, sport=''):
     """The complete workout history (no 90-day cut-off), newest first, with the same filters as the activity list on the dashboard (distances in metres)."""
-    where, args = ['riderId=?'], [rider_id]
+    where, args = ['riderId=?', f'NOT {RIDE_SQL}'], [rider_id]
     if q:
-        where.append("COALESCE(name, sport) LIKE ?"); args.append(f'%{q}%')
+        where.append("COALESCE(name, sportType) LIKE ?"); args.append(f'%{q}%')
     if date_from:
         where.append('date(startDateLocal) >= ?'); args.append(date_from)
     if date_to:
@@ -169,9 +164,9 @@ def search(rider_id, q='', date_from='', date_to='', min_m=None, max_m=None, spo
         if val is not None:
             where.append(f'distance {op} ?'); args.append(val)
     if sport:
-        where.append('sport = ?'); args.append(sport)
-    return query_db(f'''SELECT id, sport, name, startDateLocal, distance, movingTime, totalElevationGain, averageSpeed, calories, steps, weatherSummary, source
-                        FROM Workout WHERE {' AND '.join(where)} ORDER BY startDateLocal DESC''', args)
+        where.append('sportType = ?'); args.append(sport)
+    return query_db(f'''SELECT id, sportType AS sport, name, startDateLocal, distance, movingTime, totalElevationGain, averageSpeed, calories, steps, weatherSummary, source
+                        FROM Activity WHERE {' AND '.join(where)} ORDER BY startDateLocal DESC''', args)
 
 
 def forget(db, wid):
@@ -188,7 +183,7 @@ def forget(db, wid):
 def delete(db, wid, rider_id):
     """Delete one of this rider's workouts with everything derived from it. One that came from Garmin is remembered (only its id), so the next sync
     does not bring it back. Returns True if it existed. Does not commit."""
-    if not db.execute('SELECT 1 FROM Workout WHERE id=? AND riderId=?', [wid, rider_id]).fetchone():
+    if not db.execute(f'SELECT 1 FROM Activity WHERE id=? AND riderId=? AND NOT {RIDE_SQL}', [wid, rider_id]).fetchone():
         return False
     forget(db, wid)
     db.execute('DELETE FROM Activity WHERE id=?', [wid])
@@ -203,7 +198,7 @@ def refresh_derived(db, wid):
     from services import run_stats
     from services.segments import scan_activity_against_segments, _refresh_prs
     forget(db, wid)
-    w = db.execute('SELECT id, sport, startDateLocal, streams FROM Workout WHERE id=?', [wid]).fetchone()
+    w = db.execute('SELECT id, sportType AS sport, startDateLocal, streams FROM Activity WHERE id=?', [wid]).fetchone()
     if not w or w['sport'] != 'Run' or not w['streams']:
         return
     run_stats.index_run(db, wid, w['startDateLocal'], w['streams'])

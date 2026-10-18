@@ -1,8 +1,10 @@
-"""POST /api/v1/rides (phone-recorded cycling ride -> real Activity, not Workout) end to end. Throwaway instance only:
+"""POST /api/v1/rides (phone-recorded cycling ride -> a ride, not a workout) end to end. Throwaway instance only:
   d=$(mktemp -d); printf "DATABASE_URL=$d/t.db\nSECRET_KEY=x\nAPP_USERNAME=t\nAPP_PASSWORD=t\n" > $d/env; HEADWIND_ENV=$d/env PYTHONPATH=. python3 scripts/smoke_ride_upload.py"""
 import sqlite3
 import time
 from app import create_app
+from services.sports import RIDE_SQL
+WK = f"(SELECT * FROM Activity WHERE NOT {RIDE_SQL})"     # walks, runs, ...
 
 a = create_app()
 c = a.test_client()
@@ -50,7 +52,7 @@ ride1 = j.get('ride')
 ok('ride payload present with id/name/distance', ride1 and ride1.get('id') and ride1.get('name') == 'Ride' and ride1.get('distance', 0) > 0, ride1)
 
 row = con.execute("SELECT sportType, riderId, distance, calories FROM Activity WHERE id=?", [ride1['id']]).fetchone()
-ok('landed in Activity (not Workout) with sportType=Ride', row is not None and row[0] == 'Ride' and row[1] == rider_id, row)
+ok('landed as a ride (not a workout) with sportType=Ride', row is not None and row[0] == 'Ride' and row[1] == rider_id, row)
 ok('calories estimated (GPX has none of its own, but the rider has a weigh-in on file)', row[3] is not None and row[3] > 0, row[3])
 
 # --- day_burn() must actually see this ride, not just the Activity row existing — this was the whole point of
@@ -61,8 +63,8 @@ con.commit()
 with a.app_context():
     burn = day_burn(rider_id, '2026-09-29')
 ok('day_burn sees the ride (not silently dropped)', burn is not None and burn[1] == 'daily burn + activity', burn)
-n_workouts = con.execute("SELECT COUNT(*) FROM Workout").fetchone()[0]
-ok('Workout table untouched', n_workouts == 0, n_workouts)
+n_workouts = con.execute(f"SELECT COUNT(*) from {WK}").fetchone()[0]
+ok('no workout saved', n_workouts == 0, n_workouts)
 
 # --- retry the exact same file (network drop before the app deleted its local copy) -> idempotent, not duplicated ---
 r2 = c.post('/api/v1/rides', headers=auth, data={'file': (__import__('io').BytesIO(gpx1), 'ride.gpx')}, content_type='multipart/form-data')

@@ -1,6 +1,6 @@
 """Put right the sport of activities an older Garmin sync saved as rides. That sync turned every Garmin type it did not know into a ride, so swims, surf
-sessions, trail and treadmill runs sit in Activity, count in the ride totals and get flagged by the ride sanity checks; and runs, walks and hikes it did
-know were still kept in Activity rather than Workout. The original Garmin type was never stored, so it is fetched again (the activity list gives 100 per
+sessions, trail and treadmill runs were saved as rides, count in the ride totals and get flagged by the ride sanity checks; and runs, walks and hikes it did
+know were still kept with the rides rather than the workouts. The original Garmin type was never stored, so it is fetched again (the activity list gives 100 per
 call), each wrong one is written down as a proposal, and nothing moves until the rider has looked at the list and applied it."""
 import logging
 
@@ -26,7 +26,7 @@ def ensure_schema(db):
 def scan(db, api, rider_id):
     """Ask Garmin for the type of every Garmin activity this rider has as a ride, and record the ones that are wrong. Commits.
     Returns {'checked', 'found', 'proposed'}."""
-    from services.convert import RIDES
+    from services.sports import RIDES
     from services.garmin import garmin_sport
     rows = {r['id']: r for r in db.execute("SELECT id, name, startDateLocal, distance, sportType FROM Activity WHERE riderId=? AND id LIKE 'garmin\\_%' ESCAPE '\\'",
                                             [rider_id]).fetchall()}
