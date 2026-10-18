@@ -303,21 +303,15 @@ def _gather_nutrition():
         [rid, today], one=True,
     )
     garmin = query_db('SELECT totalCalories FROM GarminDaily WHERE date=?', [today], one=True)
-    rides  = query_db('''
-        SELECT COALESCE(SUM(calories),0) as cal FROM Ride
-        WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL
-    ''', [rid, today], one=True)
-    from services import workouts as _wk
-    wk_cal = _wk.calories_on(rid, today)                          # recorded walks / runs count toward today's burn
     settings = query_db(
         'SELECT nutritionCalGoal, nutritionProteinGoal, nutritionCarbGoal, nutritionFatGoal, nutritionWaterGoalMl, nutritionWeightEmaAlpha, nutritionBmrKcal, nutritionSugarGoal, nutritionAlcoholWeekGoal FROM Settings WHERE id=1',
         one=True,
     )
     # Same priority as the Nutrition page (routes/nutrition.py day_log), so HA and Headwind always agree:
     #   1. manual BMR + today's ride calories   2. Garmin daily total   3. ride calories only
-    ride_cal = (int(rides['cal']) if rides and rides['cal'] else 0) + wk_cal
-    bmr = int(settings['nutritionBmrKcal']) if settings and settings['nutritionBmrKcal'] else 0
     from services import goal_model
+    ride_cal = goal_model.activity_calories(rid, today)           # every sport: rides, walks, runs, ...
+    bmr = int(settings['nutritionBmrKcal']) if settings and settings['nutritionBmrKcal'] else 0
     est = goal_model.day_burn(rid, today)
     if est:
         burned = est[0]

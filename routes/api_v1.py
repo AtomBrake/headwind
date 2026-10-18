@@ -5,7 +5,7 @@
   POST /api/v1/workouts    upload a recorded walk/run (multipart: file=GPX, optional sport, name, client_id, steps) — idempotent
   GET  /api/v1/workouts    recent workouts
   DELETE /api/v1/workouts/<id>
-  POST /api/v1/rides       upload a recorded cycling ride (multipart: file=GPX) — lands in Activity, not Workout, via the
+  POST /api/v1/rides       upload a recorded cycling ride (multipart: file=GPX) — saved as a ride, not a workout, via the
                             same pipeline as the web's single-file import (best efforts, segment matching, MQTT, weather)
 The nutrition endpoints the app also uses (/nutrition/api/log, /water, /search, /lookup/<barcode> ...) accept the same token.
 """
@@ -14,10 +14,11 @@ import os
 import tempfile
 from datetime import datetime, timedelta
 
-from flask import abort, redirect, Blueprint, current_app, jsonify, render_template, request
+from flask import abort, redirect, Blueprint, current_app, jsonify, render_template, request, url_for
 
 from database import get_db, query_db
 from services import tz
+from services.sports import KIND_SQL, RIDE_SQL, kind as sport_kind, kind_of
 
 log = logging.getLogger(__name__)
 bp = Blueprint('api_v1', __name__, url_prefix='/api/v1')
@@ -111,25 +112,30 @@ def overview():
     rid = rider['id']
     today = tz.today()
 
-    def tot(since=None):
-        q = 'SELECT COUNT(*) n, SUM(distance) d, SUM(totalElevationGain) e, SUM(movingTime) t, SUM(calories) c FROM Ride WHERE riderId=?'     # workouts: wk() below
+    def sums(since=None):
+        """{'ride': row, 'workout': row} over every activity since a date: one query, split by services/sports."""
+        q = f'SELECT {KIND_SQL} kind, COUNT(*) n, SUM(distance) d, SUM(totalElevationGain) e, SUM(movingTime) t, SUM(calories) c FROM Activity WHERE riderId=?'
         a = [rid]
         if since:
             q += ' AND date(startDateLocal)>=?'; a.append(since.isoformat())
-        r = query_db(q, a, one=True)
+        got = {r['kind']: r for r in query_db(q + ' GROUP BY kind', a)}
+        return {k: got.get(k) or {'n': 0, 'd': 0, 'e': 0, 't': 0, 'c': 0} for k in ('ride', 'workout')}
+
+    def tot(r):
         return {'rides': r['n'] or 0, 'distance_m': round(r['d'] or 0), 'elev_m': round(r['e'] or 0), 'moving_s': int(r['t'] or 0), 'calories': round(r['c'] or 0)}
 
-    def wk(since):
-        r = query_db('SELECT COUNT(*) n, SUM(distance) d, SUM(calories) c FROM Workout WHERE riderId=? AND date(startDateLocal)>=?', [rid, since.isoformat()], one=True)
+    def wk(r):
         return {'count': r['n'] or 0, 'distance_m': round(r['d'] or 0), 'calories': round(r['c'] or 0)}
+
+    period = {k: sums(_period_start(k, today)) for k in ('week', 'month', 'year')}
 
     weekly = [{'label': w['label'], 'distance_m': w['dist_m'], 'elev_m': w['elev_m'], 'calories': w['cals'], 'current': w['current']} for w in _weekly_data(rid)]
     rec = query_db('SELECT date, restingHR, hrv, sleepHours, sleepScore, bodyBattery, steps FROM GarminDaily ORDER BY date DESC LIMIT 1', one=True)
     sports = [r['sportType'] for r in query_db('SELECT DISTINCT sportType FROM Ride WHERE riderId=? AND sportType IS NOT NULL ORDER BY sportType', [rid])]
     return jsonify({
-        'rider': rider['name'], 'all': tot(),
-        'week': tot(_period_start('week', today)), 'month': tot(_period_start('month', today)), 'year': tot(_period_start('year', today)),
-        'workouts': {k: wk(_period_start(k, today)) for k in ('week', 'month', 'year')},
+        'rider': rider['name'], 'all': tot(sums()['ride']),
+        'week': tot(period['week']['ride']), 'month': tot(period['month']['ride']), 'year': tot(period['year']['ride']),
+        'workouts': {k: wk(period[k]['workout']) for k in ('week', 'month', 'year')},
         'weekly': weekly, 'sports': sports, 'recovery': dict(rec) if rec else None,
     })
 
@@ -193,7 +199,7 @@ def perform():
 
 @bp.route('/rides', methods=['POST'])
 def upload_ride():
-    """Upload a phone-recorded cycling ride as a real Activity (not a Workout) — full treatment: parsed the same
+    """Upload a phone-recorded cycling ride as a ride (not a workout) — full treatment: parsed the same
     way as any single-file GPX import (services/parser.parse_gpx), best-efforts scan, segment matching + PR
     refresh, weather, MQTT push. Multipart: file=GPX. Idempotent for free: parse_gpx's activity id is content-
     addressed (sha1 of start time + distance) and _process_single_file also guards near-duplicates (same rider,
@@ -241,7 +247,7 @@ def upload_ride():
 
 @bp.route('/rides')
 def rides():
-    """Rides (Activity) and phone-recorded walks/runs (Workout) as one newest-first list, paged: ?offset=0&limit=30&sport=Ride&q=text"""
+    """Every activity, rides and the rest, as one newest-first list, paged: ?offset=0&limit=30&sport=Ride&q=text"""
     rider = _rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
@@ -253,11 +259,9 @@ def rides():
     sport = (request.args.get('sport') or '').strip().lower()
     q = (request.args.get('q') or '').strip()
     src = (
-        "SELECT 'ride' kind, CAST(id AS TEXT) id, name, sportType sport, startDateLocal, distance, movingTime, totalElevationGain elev, averageSpeed spd, "
-        "averageHeartrate hr, calories, city FROM Ride WHERE riderId=? "
-        "UNION ALL SELECT 'workout', id, name, sport, startDateLocal, distance, movingTime, totalElevationGain, averageSpeed, averageHeartrate, calories, NULL "
-        "FROM Workout WHERE riderId=?")
-    where, args = [], [rid, rid]
+        f"SELECT {KIND_SQL} kind, CAST(id AS TEXT) id, name, sportType sport, startDateLocal, distance, movingTime, totalElevationGain elev, averageSpeed spd, "
+        "averageHeartrate hr, calories, city FROM Activity WHERE riderId=?")
+    where, args = [], [rid]
     if sport:
         where.append('lower(sport)=?'); args.append(sport)
     if q:
@@ -265,11 +269,11 @@ def rides():
     w = (' WHERE ' + ' AND '.join(where)) if where else ''
     total = query_db(f'SELECT COUNT(*) n FROM ({src}){w}', args, one=True)['n']
     rows = query_db(f'SELECT * FROM ({src}){w} ORDER BY startDateLocal DESC LIMIT ? OFFSET ?', args + [limit, offset])
-    def preview(kind, rid_):
+    def preview(rid_):
         # ~28-point route outline for the list thumbnail (stream if there is one, else the summary polyline)
         import json as _json
         try:
-            row = query_db('SELECT streams, summaryPolyline FROM Ride WHERE id=?' if kind == 'ride' else 'SELECT streams, NULL summaryPolyline FROM Workout WHERE id=?', [rid_], one=True)
+            row = query_db('SELECT streams, summaryPolyline FROM Activity WHERE id=?', [rid_], one=True)
             pts = ((_json.loads(row['streams']) if row and row['streams'] else {}).get('latlng') or {}).get('data') or []
             if not pts and row and row['summaryPolyline']:
                 import polyline as pl
@@ -278,7 +282,7 @@ def rides():
         except Exception:
             return []
 
-    items = [{'kind': r['kind'], 'id': r['id'], 'preview': preview(r['kind'], r['id']), 'name': r['name'], 'sport': r['sport'], 'date': str(r['startDateLocal'])[:19],
+    items = [{'kind': r['kind'], 'id': r['id'], 'preview': preview(r['id']), 'name': r['name'], 'sport': r['sport'], 'date': str(r['startDateLocal'])[:19],
               'distance_m': round(r['distance'] or 0), 'moving_s': int(r['movingTime'] or 0), 'elev_m': round(r['elev'] or 0),
               'avg_speed_mps': round(r['spd'] or 0, 2), 'avg_hr': round(r['hr']) if r['hr'] else None,
               'calories': round(r['calories']) if r['calories'] else None, 'city': r['city']} for r in rows]
@@ -325,20 +329,19 @@ def live():
 
 @bp.route('/rides/<kind>/<rid>')
 def ride_detail(kind, rid):
-    """One ride (Activity) or phone workout: all the stats, a route for the map and small elevation/speed/heart-rate series."""
+    """One activity, a ride or a workout: all the stats, a route for the map and small elevation/speed/heart-rate series. The kind in the URL is
+    what the app had in hand; the answer carries the activity's own kind (services/sports), so a stale one still finds it."""
     import json as _json
     rider = _rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
-    if kind == 'ride':
-        row = query_db('SELECT * FROM Ride WHERE id=? AND riderId=?', [rid, rider['id']], one=True)
-    elif kind == 'workout':
-        row = query_db('SELECT * FROM Workout WHERE id=? AND riderId=?', [rid, rider['id']], one=True)
-    else:
+    if kind not in ('ride', 'workout'):
         return jsonify({'error': 'bad kind'}), 400
+    row = query_db('SELECT * FROM Activity WHERE id=? AND riderId=?', [rid, rider['id']], one=True)
     if not row:
         return jsonify({'error': 'not found'}), 404
     r = dict(row)
+    kind = sport_kind(r['sportType'])
     try:
         streams = _json.loads(r.get('streams') or '{}')
     except Exception:
@@ -377,7 +380,7 @@ def ride_detail(kind, rid):
 
     return jsonify({
         'duplicates': dups,
-        'kind': kind, 'id': str(r['id']), 'name': r.get('name'), 'sport': r.get('sportType') or r.get('sport'),
+        'kind': kind, 'id': str(r['id']), 'name': r.get('name'), 'sport': r.get('sportType'),
         'date': str(r.get('startDateLocal'))[:19], 'city': r.get('city'), 'source': r.get('source'),
         'distance_m': num('distance', 0), 'moving_s': r.get('movingTime'), 'elapsed_s': r.get('elapsedTime'), 'elev_m': num('totalElevationGain', 0),
         'avg_speed_mps': num('averageSpeed', 2), 'max_speed_mps': num('maxSpeed', 2),
@@ -494,7 +497,7 @@ def delete_workout(wid):
 @bp.route('/activities', methods=['POST'])
 def post_activity():
     """Add an activity by hand (JSON): {sport, date 'YYYY-MM-DD', time 'HH:MM', duration_s, distance_m, elev_m?, calories?, name?, notes?, client_id?}.
-    Walk/Run/Hike -> Workout, Ride/VirtualRide -> Activity. Idempotent per client_id."""
+    Walk/Run/Hike or Ride/VirtualRide. Idempotent per client_id."""
     from services import manual_activity
     rider = _rider()
     if not rider:
@@ -529,12 +532,11 @@ def change_sport(kind, rid):
     from services import convert
     rider = _rider()
     db = get_db()
-    tbl = {'ride': 'Ride', 'workout': 'Workout'}.get(kind)
-    row = db.execute(f'SELECT riderId FROM {tbl} WHERE id=?', [rid]).fetchone() if tbl else None
+    row = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone() if kind in ('ride', 'workout') else None
     if not rider or not row or row['riderId'] != rider['id']:
         return jsonify({'error': 'not found'}), 404
     try:
-        res = convert.change_sport(db, kind, rid, (request.get_json(silent=True) or {}).get('sport'))
+        res = convert.change_sport(db, None, rid, (request.get_json(silent=True) or {}).get('sport'))
         db.commit()
     except ValueError as e:
         db.rollback()
@@ -569,20 +571,21 @@ def resolve_duplicate(rid, dup_id, action):
 
 @bp.route('/rides/<kind>/<rid>', methods=['DELETE'])
 def delete_ride(kind, rid):
-    """Delete a ride (Activity) or a workout from the phone. A deleted ride is remembered so a Garmin re-sync does not bring it back."""
+    """Delete a ride or a workout from the phone. A deleted ride is remembered so a Garmin re-sync does not bring it back."""
     from services import duplicates
     rider = _rider()
     db = get_db()
+    if kind not in ('ride', 'workout'):
+        return jsonify({'error': 'kind must be ride or workout'}), 400
+    kind = kind_of(db, rid) or kind                      # the activity's own kind, not the one the app had in hand
     if kind == 'workout':
         from services import workouts as _wk
         n = _wk.delete(db, rid, rider['id'] if rider else -1)
-    elif kind == 'ride':
-        row = db.execute('SELECT riderId FROM Ride WHERE id=?', [rid]).fetchone()
+    else:
+        row = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone()
         n = 1 if (row and rider and row['riderId'] == rider['id'] and duplicates.delete_activity(db, rid)) else 0
         if n:
             db.execute('DELETE FROM RideMemory WHERE rideId=?', [rid])
-    else:
-        return jsonify({'error': 'kind must be ride or workout'}), 400
     db.commit()
     if n:
         _refresh_after_change(kind)
@@ -601,7 +604,7 @@ def workouts_page():
     rows = workouts.search(rider['id'], f['q'], f['from'], f['to'], min_m, max_m, f['sport']) if rider else []
     totals = {'count': len(rows), 'dist': sum(r['distance'] or 0 for r in rows), 'secs': sum(r['movingTime'] or 0 for r in rows),
               'elev': sum(r['totalElevationGain'] or 0 for r in rows), 'kcal': sum(r['calories'] or 0 for r in rows), 'steps': sum(r['steps'] or 0 for r in rows)}
-    sports = [r[0] for r in query_db('SELECT DISTINCT sport FROM Workout WHERE riderId=? AND sport IS NOT NULL ORDER BY sport', [rider['id']])] if rider else []
+    sports = [r[0] for r in query_db(f'SELECT DISTINCT sportType FROM Activity WHERE riderId=? AND NOT {RIDE_SQL} ORDER BY sportType', [rider['id']])] if rider else []
     st = query_db('SELECT units FROM Settings WHERE id=1', one=True)
     return render_template('workouts.html', workouts=rows, grouped=_group_activities(rows) if not is_filtered else [], totals=totals, sports=sports, f=f, is_filtered=is_filtered,
                            units=(st['units'] if st and st['units'] else 'imperial'), today=_today(),
@@ -623,7 +626,7 @@ def workouts_new():
     except (ValueError, TypeError) as e:
         from urllib.parse import quote
         return redirect('/workouts?error=' + quote(str(e)))
-    _refresh_after_change('workout' if f.get('sport') in ('Walk', 'Run', 'Hike') else 'ride')
+    _refresh_after_change(sport_kind(f.get('sport')))
     return redirect('/workouts')
 
 
@@ -632,7 +635,7 @@ def workouts_sport(wid):
     from services import convert
     rider = _rider()
     db = get_db()
-    row = db.execute('SELECT riderId FROM Workout WHERE id=?', [wid]).fetchone()
+    row = db.execute('SELECT riderId FROM Activity WHERE id=?', [wid]).fetchone()
     if not rider or not row or row['riderId'] != rider['id']:
         abort(404)
     try:

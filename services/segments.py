@@ -27,7 +27,7 @@ def sport_family(sport_type):
 
 
 def _activity_family(db, activity):
-    """'ride' / 'run' for an activity or workout row, or None for a workout that is not a run (walks and hikes have no segments)."""
+    """'ride' / 'run' for an activity row (or a dict with its sportType or sport), see sport_family."""
     try:
         keys = activity.keys()
     except AttributeError:
@@ -35,15 +35,9 @@ def _activity_family(db, activity):
     st = activity['sportType'] if 'sportType' in keys else (activity['sport'] if 'sport' in keys else None)
     if st is None:
         r = db.execute('SELECT sportType FROM Activity WHERE id=?', [activity['id']]).fetchone()
-        if r:
-            st = r[0]
-        else:
-            w = db.execute('SELECT sport FROM Workout WHERE id=?', [activity['id']]).fetchone()
-            if not w:
-                return 'ride'
-            if (w[0] or '').lower() not in RUN_SPORTS:
-                return None
-            st = w[0]
+        if not r:
+            return 'ride'
+        st = r[0]
     return sport_family(st)
 
 
@@ -139,7 +133,7 @@ def recover_polyline(db, seg):
         if not aid or aid in tried:
             continue
         tried.add(aid)
-        row = db.execute('SELECT streams FROM Activity WHERE id=?', [aid]).fetchone() or db.execute('SELECT streams FROM Workout WHERE id=?', [aid]).fetchone()
+        row = db.execute('SELECT streams FROM Activity WHERE id=?', [aid]).fetchone()
         if row and row[0]:
             shape = _slice_between(row[0], seg)
             if shape:
@@ -371,7 +365,7 @@ def scan_activity_against_segments(db, activity, segments):
     matched = 0
     fam = _activity_family(db, activity)
     for seg in segments:
-        if fam is None or seg_sport(seg) != fam:        # runs only match run segments, rides only ride segments
+        if seg_sport(seg) != fam:                       # runs only match run segments, rides only ride segments
             continue
         elapsed = match_segment(activity['streams'], seg)
         approx = 0

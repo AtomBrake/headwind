@@ -297,14 +297,14 @@ def _build_weather_context(activity):
 
 
 def _build_other_training_context(rider_id, exclude_id):
-    rows = query_db('''
+    from services.sports import RIDE_SQL
+    rows = query_db(f'''
         SELECT name, sportType, startDateLocal, distance, movingTime, totalElevationGain
         FROM Activity
         WHERE riderId = ?
           AND id != ?
           AND date(startDateLocal) >= date('now', '-30 days')
-          AND lower(sportType) NOT LIKE '%ride%'
-          AND lower(sportType) NOT LIKE '%cycling%'
+          AND NOT {RIDE_SQL}
           AND distance > 0
         ORDER BY startDateLocal DESC
     ''', [rider_id, exclude_id])

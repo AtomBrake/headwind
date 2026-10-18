@@ -18,7 +18,6 @@ from services.gear_catalog import BY_KIND
 
 log = logging.getLogger(__name__)
 MI = 1609.344
-RIDE_SQL = "(lower(a.sportType) LIKE '%ride%' OR lower(a.sportType) LIKE '%cycl%')"
 BIKE_KINDS = [('road', 'Road'), ('gravel', 'Gravel'), ('mtb', 'Mountain'), ('commuter', 'Commuter / hybrid'), ('tt', 'Time trial / triathlon'),
               ('track', 'Track / fixed'), ('ebike', 'E-bike'), ('turbo', 'Indoor / turbo'), ('other', 'Other')]
 ACTIONS = [('replaced', 'Replaced'), ('serviced', 'Serviced'), ('inspected', 'Inspected / measured'), ('cleaned', 'Cleaned / lubed'),
@@ -188,11 +187,6 @@ def bike_stats(db, bike_id):
 
 
 # ---------- which bike rode which ride ----------
-def is_ride_row(row):
-    s = (row['sportType'] or '').lower()
-    return 'ride' in s or 'cycl' in s
-
-
 def set_ride_bike(db, act_id, bike_id):
     """Set (or clear, with None) the bike on one ride. The bike must belong to the ride's rider."""
     a = db.execute('SELECT id, riderId, sportType FROM Activity WHERE id=?', [act_id]).fetchone()
@@ -209,7 +203,8 @@ def set_ride_bike(db, act_id, bike_id):
 def stamp_new_ride(db, act_id):
     """Called when a ride is added by any route: give it the rider's default bike, if they have one and the ride has none."""
     a = db.execute('SELECT id, riderId, sportType, bikeId FROM Activity WHERE id=?', [act_id]).fetchone()
-    if not a or a['bikeId'] or not a['riderId'] or not is_ride_row(a):
+    from services.sports import is_ride
+    if not a or a['bikeId'] or not a['riderId'] or not is_ride(a['sportType']):
         return None
     d = db.execute('SELECT defaultBikeId FROM Rider WHERE id=?', [a['riderId']]).fetchone()
     if d and d[0] and not (get_bike(db, d[0]) or {'archived': 1})['archived']:
@@ -241,12 +236,12 @@ def assign_rides(db, rider_id, bike_id, dates=None, date_from=None, date_to=None
         if not b or b['riderId'] != rider_id:
             raise ValueError('that bike is not available')
     sel, args = _selection_sql(dates, date_from, date_to)
-    base = f'FROM Ride a WHERE a.riderId=? AND {RIDE_SQL} AND {sel}'
+    base = f'FROM Ride a WHERE a.riderId=? AND {sel}'
     matched = db.execute(f'SELECT COUNT(*) {base}', [rider_id] + args).fetchone()[0]
     skip = ' AND a.bikeId IS NULL' if only_unassigned and bike_id is not None else ''
     already = ' AND (a.bikeId IS NOT ?)'
     changing = db.execute(f'SELECT COUNT(*) {base}{skip}{already}', [rider_id] + args + [bike_id]).fetchone()[0]
-    prev = db.execute(f'SELECT a.bikeId, COUNT(*) FROM Ride a WHERE a.riderId=? AND {RIDE_SQL} AND {sel}{skip}{already} GROUP BY a.bikeId', [rider_id] + args + [bike_id]).fetchall()
+    prev = db.execute(f'SELECT a.bikeId, COUNT(*) FROM Ride a WHERE a.riderId=? AND {sel}{skip}{already} GROUP BY a.bikeId', [rider_id] + args + [bike_id]).fetchall()
     out = {'matched': matched, 'changed': changing, 'previous': {str(r[0]) if r[0] is not None else 'none': r[1] for r in prev}}
     if not dry_run and changing:
         db.execute(f'UPDATE Activity SET bikeId=? WHERE id IN (SELECT a.id {base}{skip}{already})', [bike_id, rider_id] + args + [bike_id])
@@ -258,7 +253,7 @@ def calendar_month(db, rider_id, year, month):
     first = date(year, month, 1)
     last = (date(year + (month == 12), (month % 12) + 1, 1) - timedelta(days=1))
     rows = db.execute(f'''SELECT substr(a.startDateLocal,1,10) d, a.bikeId b, COUNT(*) n FROM Ride a
-                          WHERE a.riderId=? AND {RIDE_SQL} AND substr(a.startDateLocal,1,10) BETWEEN ? AND ? GROUP BY d, b''', [rider_id, first.isoformat(), last.isoformat()]).fetchall()
+                          WHERE a.riderId=? AND substr(a.startDateLocal,1,10) BETWEEN ? AND ? GROUP BY d, b''', [rider_id, first.isoformat(), last.isoformat()]).fetchall()
     out = {}
     for r in rows:
         d = out.setdefault(r['d'], {'n': 0, 'unassigned': 0, 'bikes': {}})
@@ -272,8 +267,8 @@ def calendar_month(db, rider_id, year, month):
 
 def ride_span(db, rider_id):
     """First / last ride date, how many rides have no bike, the oldest such ride, and the total, so the calendar can open somewhere useful."""
-    r = db.execute(f"SELECT MIN(substr(a.startDateLocal,1,10)), MAX(substr(a.startDateLocal,1,10)), SUM(a.bikeId IS NULL), COUNT(*) FROM Ride a WHERE a.riderId=? AND {RIDE_SQL}", [rider_id]).fetchone()
-    fu = db.execute(f"SELECT MIN(substr(a.startDateLocal,1,10)) FROM Ride a WHERE a.riderId=? AND {RIDE_SQL} AND a.bikeId IS NULL", [rider_id]).fetchone()[0]
+    r = db.execute("SELECT MIN(substr(a.startDateLocal,1,10)), MAX(substr(a.startDateLocal,1,10)), SUM(a.bikeId IS NULL), COUNT(*) FROM Ride a WHERE a.riderId=?", [rider_id]).fetchone()
+    fu = db.execute("SELECT MIN(substr(a.startDateLocal,1,10)) FROM Ride a WHERE a.riderId=? AND a.bikeId IS NULL", [rider_id]).fetchone()[0]
     return {'first': r[0], 'last': r[1], 'unassigned': r[2] or 0, 'total': r[3] or 0, 'first_unassigned': fu}
 
 

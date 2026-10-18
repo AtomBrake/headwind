@@ -154,20 +154,25 @@ def auto_update():
 
 
 def day_burn(rider_id, date_iso):
-    """Estimated calories burned on a day: everyday movement (BMR x activity) plus that day's detected activities
-    (Garmin/imported rides), net of the resting burn during them. Returns (kcal, source_label) or None if the
+    """Estimated calories burned on a day: everyday movement (BMR x activity) plus that day's activities of every sport
+    (rides, walks, runs, ...), net of the resting burn during them. Returns (kcal, source_label) or None if the
     profile isn't filled in yet (callers then fall back to the old BMR/Garmin rules)."""
     p = profile()
     kg = current_weight_kg(rider_id)
     if not (p['sex'] and p['age'] and p['height_cm'] and kg):
         return None
     bmr = bmr_mifflin(kg, p['height_cm'], p['age'], p['sex'])
-    rides = query_db('SELECT calories, movingTime FROM Ride WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL',
-                     [rider_id, date_iso])
-    net = sum(max(0.0, (r['calories'] or 0) - bmr * (r['movingTime'] or 0) / 86400) for r in rides)
-    from services import workouts
-    wnet = workouts.net_calories_on(rider_id, date_iso, bmr)          # recorded walks / runs count too
-    return int(round(bmr * p['activity'] + net + wnet)), ('daily burn + activity' if (rides or wnet) else 'est. daily burn')
+    acts = query_db('SELECT calories, movingTime FROM Activity WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL',     # every sport
+                    [rider_id, date_iso])
+    net = sum(max(0.0, (r['calories'] or 0) - bmr * (r['movingTime'] or 0) / 86400) for r in acts)
+    return int(round(bmr * p['activity'] + net)), ('daily burn + activity' if acts else 'est. daily burn')
+
+
+def activity_calories(rider_id, date_iso):
+    """Gross kcal of the day's activities, every sport (rides, walks, runs, swims, ...), as the watch or the estimate gave them."""
+    r = query_db('SELECT COALESCE(SUM(calories), 0) AS t FROM Activity WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL',
+                 [rider_id, date_iso], one=True)
+    return int(r['t']) if r else 0
 
 
 APPLY_DRIFT = 20   # kcal — auto_update only rewrites the saved goal when the plan has moved this far

@@ -1,4 +1,4 @@
-"""Every sport in one table: an old install's Workout rows move into Activity, the Ride and Workout views split them, and the duplicate check now
+"""Every sport in one table: an old install's Workout rows move into Activity, services/sports decides what is a ride, and the duplicate check now
 compares walks and runs too (a Garmin run and its Strava copy were both kept while they lived in different tables). Throwaway DB."""
 import re
 import sqlite3
@@ -8,6 +8,9 @@ from flask import Flask
 
 import database
 from services import duplicates, workouts
+from services.sports import RIDE_SQL
+
+WORKOUTS = f'SELECT id FROM Activity WHERE NOT {RIDE_SQL} ORDER BY id'
 
 OLD_WORKOUT = '''CREATE TABLE Workout (
     id TEXT PRIMARY KEY, riderId INTEGER NOT NULL, sport TEXT NOT NULL, name TEXT, startDate TEXT, startDateLocal TEXT NOT NULL,
@@ -36,7 +39,6 @@ def ride(db, rid, start_utc, start_local, sport='Ride', dist=30000.0, secs=4000,
 
 def as_old_install(db):
     """Put the database back the way 0.6 left it: Workout a table of its own, the merge and the workout recheck not done."""
-    db.execute('DROP VIEW Workout')
     db.execute('DROP VIEW SegActivity')
     db.execute(OLD_WORKOUT)
     db.execute('UPDATE Settings SET workoutDupCheckDone=0 WHERE id=1')
@@ -54,17 +56,16 @@ def test_an_old_install_moves_its_workouts_in_and_its_twins_are_set_aside(app):
     db.commit()
 
     database.migrate_db()
-    assert db.execute("SELECT type FROM sqlite_master WHERE name='Workout'").fetchone()[0] == 'view'
-    assert db.execute('SELECT COUNT(*) FROM WorkoutPreMerge').fetchone()[0] == 2                       # the old table, untouched
+    assert not db.execute("SELECT name FROM sqlite_master WHERE name LIKE 'Workout%'").fetchall()          # no table, view or backup of it left
     copy = database.get_db().execute('PRAGMA database_list').fetchone()[2] + '.pre-0.7.0'
     old = sqlite3.connect(copy)
     assert old.execute("SELECT type FROM sqlite_master WHERE name='Workout'").fetchone()[0] == 'table'   # the whole database, as 0.6 left it
     assert old.execute('SELECT COUNT(*) FROM Workout').fetchone()[0] == 2 and old.execute('SELECT COUNT(*) FROM Activity').fetchone()[0] == 2
     old.close()
     assert [r[0] for r in db.execute('SELECT id FROM Ride')] == ['garmin_1']
-    assert sorted(r[0] for r in db.execute('SELECT id FROM Workout')) == ['garmin_2', 'wk_1']           # the Strava run is a copy of garmin_2: set aside
-    w = db.execute("SELECT * FROM Workout WHERE id='garmin_2'").fetchone()
-    assert (w['sport'], w['name'], w['steps'], w['source']) == ('Run', 'Vancouver Running', 12000, 'garmin')
+    assert [r[0] for r in db.execute(WORKOUTS)] == ['garmin_2', 'wk_1']                                # the Strava run is a copy of garmin_2: set aside
+    w = db.execute("SELECT * FROM Activity WHERE id='garmin_2'").fetchone()
+    assert (w['sportType'], w['name'], w['steps'], w['source']) == ('Run', 'Vancouver Running', 12000, 'garmin')
     assert tuple(db.execute("SELECT primaryId, status FROM ActivityDuplicate WHERE id='555'").fetchone()) == ('garmin_2', 'parked')
     tasks = [r[0] for r in db.execute('SELECT task FROM TaskLog')]
     assert 'startup:merge_workouts' in tasks and 'startup:workout_duplicates' in tasks
@@ -81,7 +82,23 @@ def test_the_same_id_in_both_tables_keeps_the_activity_row(app):
     db.commit()
     database.migrate_db()
     assert db.execute("SELECT distance FROM Activity WHERE id='garmin_3'").fetchone()[0] == 1500.0
-    assert db.execute("SELECT distance FROM WorkoutPreMerge WHERE id='garmin_3'").fetchone()[0] == 1400.0
+    old = sqlite3.connect(db.execute('PRAGMA database_list').fetchone()[2] + '.pre-0.7.0')
+    assert old.execute("SELECT distance FROM Workout WHERE id='garmin_3'").fetchone()[0] == 1400.0     # the other copy is in the database as it was
+    old.close()
+
+
+def test_what_0_7_0_kept_is_dropped(app):
+    """0.7.0 left a Workout view over Activity and the old table as WorkoutPreMerge; the next start drops both and keeps every activity."""
+    db = database.get_db()
+    ride(db, 'r1', '2026-07-20T16:00:00', '2026-07-20T17:00:00')
+    ride(db, 'w1', '2026-07-21T15:00:00', '2026-07-21T16:00:00', sport='Walk', dist=4000.0)
+    db.execute(f"CREATE VIEW Workout AS SELECT id, riderId, sportType AS sport FROM Activity WHERE NOT {RIDE_SQL}")
+    db.execute(OLD_WORKOUT.replace('TABLE Workout', 'TABLE WorkoutPreMerge'))
+    db.execute("INSERT INTO WorkoutPreMerge (id, riderId, sport, startDateLocal) VALUES ('w1', 1, 'Walk', '2026-07-21T16:00:00')")
+    db.commit()
+    database.migrate_db()
+    assert not db.execute("SELECT name FROM sqlite_master WHERE name LIKE 'Workout%'").fetchall()
+    assert [r[0] for r in db.execute('SELECT id FROM Activity ORDER BY id')] == ['r1', 'w1']
 
 
 def test_a_garmin_walk_lands_on_its_strava_copy(app, monkeypatch):
@@ -92,7 +109,7 @@ def test_a_garmin_walk_lands_on_its_strava_copy(app, monkeypatch):
     parsed = {'distance': 3900.0, 'movingTime': 3689, 'elapsedTime': 3689, 'averageHeartrate': 105, 'calories': 250}
     garmin._save_workout(db, 'garmin_9', 1, 'Walk', 'Vancouver Walking', '2026-07-26T22:10:00', '2026-07-26T15:10:00', parsed, 2.0)
     db.commit()
-    assert [r[0] for r in db.execute('SELECT id FROM Workout')] == ['garmin_9']
+    assert [r[0] for r in db.execute(WORKOUTS)] == ['garmin_9']
     assert tuple(db.execute("SELECT primaryId, status FROM ActivityDuplicate WHERE id='777'").fetchone()) == ('garmin_9', 'parked')
 
 
@@ -144,3 +161,50 @@ def test_the_history_shows_every_sport_and_can_leave_some_out(tmp_path, monkeypa
     page = c.get('/dashboard?skip=Walk').get_data(as_text=True)
     assert '/rides/r1' in page and '/rides/w1' not in page
     assert re.search(r'data-sport value="Walk"\s+onchange', page) and 'data-sport value="Ride" checked' in page and 'Tick all' in page    # the left-out one is unticked
+
+
+def test_the_phone_and_the_days_burn_read_every_sport_once(tmp_path, monkeypatch):
+    """Release 2: the phone's totals and history, and the day's calorie burn, are one Activity query each, and "ride or workout" comes from the sport."""
+    import app as app_module
+    import config
+    from services import credentials, goal_model, sports, tz
+    monkeypatch.setattr(config.Config, 'DATABASE', str(tmp_path / 'full.db'))
+    monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)
+    full = app_module.create_app()
+    today = tz.today().isoformat()
+    with full.app_context():
+        db = database.get_db()
+        db.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
+        db.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
+        ride(db, 'r1', f'{today}T07:00:00', f'{today}T08:00:00')
+        ride(db, 'w1', f'{today}T11:00:00', f'{today}T12:00:00', sport='Walk', dist=4000.0)
+        ride(db, '555', f'{today}T16:00:00', f'{today}T17:00:00', sport='Run', dist=8000.0, secs=2400)      # Strava's run: a workout, not a ride
+        db.execute("UPDATE Activity SET calories = CASE id WHEN 'r1' THEN 500 WHEN 'w1' THEN 200 ELSE 450 END")
+        db.commit()
+        assert goal_model.activity_calories(1, today) == 1150                                             # every sport, each once
+        assert [sports.kind_of(db, i) for i in ('r1', 'w1', '555', 'nope')] == ['ride', 'workout', 'workout', None]
+        av = credentials.auth_version()
+    web = full.test_client()
+    with web.session_transaction() as s:
+        s['logged_in'] = True
+        s['av'] = av
+    H = {'Authorization': 'Bearer ' + web.post('/phones/create', json={'name': 'Pixel', 'server_url': 'https://h.example'}).get_json()['token']}
+    phone = full.test_client()
+
+    o = phone.get('/api/v1/overview', headers=H).get_json()
+    assert o['all']['rides'] == 1 and o['all']['distance_m'] == 30000 and o['week']['calories'] == 500
+    assert o['workouts']['week'] == {'count': 2, 'distance_m': 12000, 'calories': 650}
+    lst = phone.get('/api/v1/rides', headers=H).get_json()
+    assert lst['total'] == 3 and [(i['id'], i['kind']) for i in lst['items']] == [('555', 'workout'), ('w1', 'workout'), ('r1', 'ride')]
+    assert phone.get('/api/v1/rides?sport=walk', headers=H).get_json()['total'] == 1
+    d = phone.get('/api/v1/rides/ride/w1', headers=H)                                                     # the app's kind is stale: the walk is still found
+    assert d.status_code == 200 and d.get_json()['kind'] == 'workout' and d.get_json()['sport'] == 'Walk'
+    assert phone.get('/api/v1/rides/bike/w1', headers=H).status_code == 400
+    assert phone.delete('/api/v1/rides/ride/555', headers=H).get_json() == {'deleted': True}
+    with full.app_context():
+        assert [r[0] for r in database.get_db().execute(WORKOUTS)] == ['w1']
+    page = web.get('/workouts').get_data(as_text=True)
+    assert '/rides/w1' in page and '/rides/r1' not in page
+    assert web.get('/rides/w1').status_code == 200 and web.get('/rides/r1').status_code == 200
+    r = web.post('/workouts/w1/sport', data={'sport': 'Ride'})                                           # Workouts page: a walk that was a ride goes to its ride page
+    assert r.status_code == 302 and r.headers['Location'].endswith('/rides/w1')
