@@ -54,6 +54,21 @@ def _friends_autosync(app):
             time.sleep(60)
 
 
+def _ensure_default_avatar(app):
+    """New riders get custard_cream.svg as their picture. It ships in static/img and is copied into the avatar folder, which in
+    Docker is the /data volume (the image replaces static/avatars with a link to it) and with AVATAR_DIR is the user's data
+    folder: both start empty, so the picture was a broken image there."""
+    import shutil
+    av_dir = os.environ.get('AVATAR_DIR') or os.path.join(app.root_path, 'static', 'avatars')
+    dest = os.path.join(av_dir, 'custard_cream.svg')
+    try:
+        if not os.path.exists(dest):
+            os.makedirs(av_dir, exist_ok=True)
+            shutil.copyfile(os.path.join(app.root_path, 'static', 'img', 'custard_cream.svg'), dest)
+    except OSError as e:
+        log.warning('Could not put the default rider picture in %s: %s', av_dir, e)
+
+
 def _mqtt_heartbeat(app):
     time.sleep(10)  # let the app finish starting up
     tick = 0
@@ -243,6 +258,7 @@ def create_app():
 
     with app.app_context():
         migrate_db()
+    _ensure_default_avatar(app)
 
     # ── Template filters ─────────────────────────────────────────
     from services import units as _units

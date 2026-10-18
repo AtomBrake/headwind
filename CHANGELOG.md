@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.5-beta] - 2026-10-18
+
+No migration. No Android change.
+
+### Fixed
+- **The default rider picture was a broken image in Docker.** A new rider gets `custard_cream.svg` as their picture until they upload a photo, but the Docker image replaces `static/avatars` with a link to the `/data` volume (so uploaded photos survive upgrades), which also removed the bundled picture. Desktop installs that keep photos in `AVATAR_DIR` had the same problem. The picture now ships in `static/img` and is copied into the avatar folder at startup if it's missing. Uploaded photos were never affected.
+
 ## [0.6.4-beta] - 2026-10-18
 
 No migration. No Android change.
