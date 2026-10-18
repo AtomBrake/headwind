@@ -43,6 +43,8 @@ From the project-wide security review, 2026-10-17.
   - [ ] **Home Assistant sensors** are still published in miles, mph and feet (`services/mqtt.py`, `services/live.py`). Changing a sensor's unit breaks its long-term statistics in HA, so it needs a plan: new sensor IDs, or a one-off migration. (HA can already show a sensor in other units from its own settings.)
   - [ ] **Best efforts and badges are defined in miles.** Best efforts are timed over 1, 5, 10 mi and so on, and shown converted ("16.1 km"). Badge limits are miles and mph and only their wording is converted ("25 miles" becomes "40 km"). Metric riders would want 5 / 10 / 20 / 40 / 100 km efforts and round-kilometre badges, which means recomputing the stored efforts.
   - [ ] **Weather is always metric** (°C, km/h wind and gusts), so an imperial rider sees km/h wind next to mph speeds. Follow the setting there too, or add a separate choice for temperature.
+  - [ ] **The loss target is always in lb/week**, even when weights are shown in kg: "Loss target (lb / week)" in Settings → Profile & goals (`pfLoss`) and "Loss rate (lb/week)" on Nutrition → Goals (`sgLoss`). Show and accept kg/week when the weight unit is kg (about 0.25–1.1 kg/week for the current 0.5–2.5 lb range), and convert on save. `Settings.lossLbPerWeek`, `loss_lb_week` in the API and the 2.5 lb/week limit in `routes/nutrition.py` can stay in lb. The plan line under the form ("minus the deficit for your loss target") should name the rate in the same unit.
+  - [ ] **Height is ft/in first, with cm as a secondary "or"** (Settings → Profile & goals, `pfFt` / `pfIn` / `pfCm`). A metric rider should get cm as the main field. Pick the order from the units setting (or the weight unit), keeping the other as the alternative. Also, "Show weights as" is a separate choice from Display Preferences' metric/imperial: either default it from that setting or say on the form that it's separate.
   - [ ] `RideMemory` stores miles, mph and feet. It's only read through the converters now, but storing metres and m/s like everything else would remove the special case.
 
 - [x] **Long-term stats after a delete** — investigated in 0.5.8-beta: the web pages were already right, but Home Assistant wasn't. The dashboard's Performance chart looked the same after the 1000x-too-long Strava rides from 0.5.7-beta were deleted. Every web page and phone endpoint works its numbers out from `Activity` on each load, and a test that deletes rides and re-reads the dashboard, Data page, rider page, heatmap, `/api/v1/overview`, `/perform` and `/rides` saw every one change at once (`tests/test_dashboard_links.py`). The chart only covers the last 12 weeks, and the speed line only this year, so deleting older rides doesn't move it.
@@ -91,10 +93,15 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
   - [ ] **No double upload:** the server already ignores duplicates, so a ride arriving both ways is harmless, but cancel the queued transfer once the direct upload succeeds so the phone doesn't upload it again.
   - [ ] **Battery:** back off between retries, because cellular on the Watch is expensive.
 
-- [ ] **Apple Health as a steps source** — read the day's step count from HealthKit on the iPhone and send it to the server, so riders without a Garmin still get steps on Today, MQTT and the step goal. The Watch app already writes workouts to Apple Health (`ios/HeadwindWatch/WorkoutManager.swift`, on `ios-app`), but nothing reads steps back.
-  - [ ] Ask for HealthKit read access to `stepCount` and sum the day with an `HKStatisticsQuery` (`.cumulativeSum`), which de-duplicates iPhone and Watch samples.
-  - [ ] Post it as a `BodyMetric` (e.g. `steps_health`) and add that to `STEP_METRICS` in `services/mqtt.py`, so `_best_steps_for` takes the highest of Garmin, phone, Watch, manual and Apple Health.
-  - [ ] Keep it fresh with an `HKObserverQuery` and background delivery, plus a send on foreground, and backfill the last few days on first connect.
+- [ ] **Apple Health as a health data source** — read steps, resting heart rate, HRV, sleep, weight and calories from HealthKit on the iPhone and send them to the server, so riders without a Garmin still get steps, recovery, the weight trend and AI coaching context. The Watch app already writes workouts to Apple Health (`ios/HeadwindWatch/WorkoutManager.swift`, on `ios-app`), but nothing reads anything back.
+  - [ ] **Steps:** HealthKit read access to `stepCount`, summed per day with an `HKStatisticsQuery` (`.cumulativeSum`), which de-duplicates iPhone and Watch samples. Post it as a `BodyMetric` (e.g. `steps_health`) and add that to `STEP_METRICS` in `services/mqtt.py`, so `_best_steps_for` takes the highest of Garmin, phone, Watch, manual and Apple Health.
+  - [ ] **Resting heart rate** (`restingHeartRate`) and **HRV** (`heartRateVariabilitySDNN`). Apple's HRV is SDNN from spot readings through the day, while Garmin's is overnight RMSSD, so the numbers aren't comparable. Keep them as separate metrics, label them as Apple's, and don't compare one against the other's baseline (`hrvBalanced`).
+  - [ ] **Sleep** (`sleepAnalysis`): total asleep time per night from the asleep stages, de-duplicated across iPhone, Watch and third-party apps, and dated to the morning it ends, as Garmin's is. Apple has no sleep score or body battery, so those stay empty, and the recovery page and AI context have to cope when they're missing.
+  - [ ] **Weight** (`bodyMass`): weigh-ins into `WeightLog` with `source='apple_health'`, so smart scales that write to Apple Health fill the Nutrition weight trend. Don't overwrite a manual or Garmin entry for the same day.
+  - [ ] **Calories** (`activeEnergyBurned`, `basalEnergyBurned`) for the daily burn, where Garmin's `totalCalories` / `activeCalories` are used now. `services/calorie_adjust.py` should apply to them too.
+  - [ ] **Where it's stored:** recovery (`services/context.py`), the AI coach (`services/ai.py`) and the alcohol analysis (`services/alcohol.py`) read `GarminDaily` directly. Either write Apple Health days into it (renamed to something like `HealthDaily`, with a `source` column), or put them in `BodyMetric` and read through one helper that picks the best source per day. When both Garmin and Apple Health have data for the same day, one source should win per metric (a setting, defaulting to Garmin).
+  - [ ] Keep it fresh with an `HKObserverQuery` and background delivery for each type, plus a send when the app comes to the foreground. Backfill history on first connect with the same choice of range as Garmin's "How much of your past health data…", sent in batches through `/api/v1`.
+  - [ ] Ask for each HealthKit permission only when it's needed, and show on the phone and in Settings which types Headwind can read. The user can refuse some and keep the rest.
 
 ## AI
 
@@ -112,6 +119,13 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
   - [x] Year, month and day headings in the Activities history open the list filtered to that period.
   - [x] Turn the `onclick="location.href=..."` rows on the dashboard into real `<a>` links, so middle-click, open in new tab and keyboard focus work.
   - [ ] The same for the lists that copy the pattern: `templates/rider.html`, `workouts.html` and `setup.html`.
+- [ ] **All activities from the menu.** The sidebar has Dashboard and Workouts, but no direct way to the full activity list: today it's the history at the bottom of the dashboard (`#ride-history`), and workouts are on a separate page. Add an "Activities" entry that opens one list of rides and workouts together, newest first, with the existing search and the "Select" bulk actions.
+- [ ] **More filters on the activity lists.** The dashboard search (`routes/dashboard.py`) filters by name, dates, distance and sport only. Add:
+  - [ ] activity type (ride, run, walk, swim, other workouts), several at once
+  - [ ] gear (bike or shoes)
+  - [ ] sensors and data the activity has: power, heart rate, cadence, GPS or indoor
+  - [ ] source (Garmin, Strava, import, phone) and rider
+  - [ ] Keep the filters in the URL so a filtered list can be bookmarked and linked, as `from` / `to` already are, and use the same filters on the Workouts and rider pages.
 - [x] **Select and edit many activities at once** — done in 0.6.0-beta. "Select" on the dashboard history and search results, Workouts and a rider's page: click to pick, shift-click for a range, All / None, and a bar with delete, change type, set bike, move to rider, rename, "It's right" and download (GPX zip). `services/bulk.py`, `POST /rides/bulk`.
 
 ## Multi-sport
@@ -200,6 +214,11 @@ Headwind started as a cycling app and is becoming one for every sport. Today rid
 - [ ] *Longer term:* **ActivityPub federation**, so Headwind can talk to the Fediverse, not only to other Headwinds.
 
 ## Housekeeping
+
+- [ ] **Turn features on and off.** A Settings section to switch off the parts someone doesn't use, e.g. nutrition, steps, roughness, gear, recovery, segments, route builder, heatmap, AI. A switched-off feature leaves the sidebar and the dashboard, and its background work stops (Garmin health sync for recovery, gear alerts, roughness processing). Its data is kept, so switching it back on brings everything back.
+  - [ ] One `Settings` column (e.g. a JSON list of disabled features) and a helper the templates, routes and background threads all check. A disabled feature's pages show a "turned off in Settings" note instead of a 404.
+  - [ ] Decide what depends on what. For example, the calorie goals use steps and rides, and the AI coach uses recovery and nutrition.
+  - [ ] The phone app and `/api/v1` should hide those features too.
 
 - [x] **Tasks page** — done in 0.6.0-beta. `/tasks` (sidebar): a card per background job (Garmin sync with "Sync now", health and weight history with "Try now" while waiting, friend sync, Home Assistant / MQTT, an import), the start-up repairs with what each changed, and recent runs. After an update's repairs run, every page shows a notice until the Tasks page is opened. `services/tasks.py`, `TaskLog`.
   - [ ] Admin-only once multi-user support lands (see Users).
