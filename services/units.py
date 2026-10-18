@@ -69,6 +69,23 @@ def fmt_pace(mps, system=None):
     return f"{secs // 60}:{secs % 60:02d} {spec(system)['pace']}"
 
 
+def fmt_swim_pace(mps):
+    """Metres per second -> time per 100 m, e.g. 0.9 -> '1:51 /100 m'. Pools are measured in metres, so this is the same in both systems."""
+    if not mps or mps <= 0:
+        return '—'
+    secs = round(100 / mps)
+    return f"{secs // 60}:{secs % 60:02d} /100 m"
+
+
+def fmt_rate(mps, style, system=None):
+    """Speed, pace or swim pace (services/sports.rate_style)."""
+    if style == 'pace':
+        return fmt_pace(mps, system)
+    if style == 'swim':
+        return fmt_swim_pace(mps)
+    return fmt_speed(mps, system) if mps else '—'
+
+
 _IMPERIAL_TEXT = None
 
 
