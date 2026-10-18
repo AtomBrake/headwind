@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from flask import Blueprint, g, jsonify, render_template, request
+from flask import Blueprint, g, jsonify, render_template, request, url_for
 
 from database import get_db, query_db
 from services.best_efforts import BRACKETS_MI, scan_all_best_efforts
@@ -14,11 +14,21 @@ MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
 CLIMBING_BRACKETS_FT = [1000, 2000, 3000, 5000, 8000, 10000]
 CLIMBING_BRACKETS_M  = [300, 600, 1000, 1500, 2500, 3000]
 
-# ride-length histogram: (label, low metres, high metres) in the rider's units
+# length histogram: (label, low, high) in metres, by stat group (services/sports.stat_group) and the rider's units; seconds when the groups are mixed
 HIST_BUCKETS = {
+    ('foot', 'imperial'): [('0–2 mi', 0, 3219), ('2–4 mi', 3219, 6437), ('4–7 mi', 6437, 11265), ('7–13 mi', 11265, 20921), ('13–26 mi', 20921, 41843), ('26+ mi', 41843, 9_999_999)],
+    ('foot', 'metric'):   [('0–3 km', 0, 3000), ('3–5 km', 3000, 5000), ('5–10 km', 5000, 10000), ('10–21 km', 10000, 21098), ('21–42 km', 21098, 42195), ('42+ km', 42195, 9_999_999)],
+    'swim':               [('0–500 m', 0, 500), ('500 m–1 km', 500, 1000), ('1–2 km', 1000, 2000), ('2–3 km', 2000, 3000), ('3–5 km', 3000, 5000), ('5+ km', 5000, 9_999_999)],
     'imperial': [('0–5 mi', 0, 8047), ('5–10 mi', 8047, 16093), ('10–20 mi', 16093, 32187), ('20–30 mi', 32187, 48280), ('30–50 mi', 48280, 80467), ('50+ mi', 80467, 9_999_999)],
     'metric':   [('0–10 km', 0, 10000), ('10–20 km', 10000, 20000), ('20–40 km', 20000, 40000), ('40–60 km', 40000, 60000), ('60–100 km', 60000, 100000), ('100+ km', 100000, 9_999_999)],
 }
+DURATION_BUCKETS = [('0–30 min', 0, 1800), ('30–60 min', 1800, 3600), ('1–2 h', 3600, 7200), ('2–3 h', 7200, 10800), ('3–5 h', 10800, 18000), ('5+ h', 18000, 9_999_999)]
+
+# the heatmap's colour steps, in metres: about 10, 20 and 30 miles in a day for rides, less on foot and in the water
+HEAT_STEPS_M = {'ride': [16093, 32187, 48280], 'foot': [3219, 8047, 16093], 'swim': [1000, 2000, 3000]}
+
+# m/s outside these is a corrupt row, not an activity: (lowest, highest) for speed, pace on foot and swim pace
+SPEED_BOUNDS = {'speed': (1.0, 25), 'pace': (0.3, 7), 'swim': (0.2, 2.5)}
 
 
 @bp.route('/data')
@@ -30,108 +40,83 @@ def index():
     except (TypeError, ValueError):
         rid = owner['id'] if owner else None
     active_rider = query_db('SELECT * FROM Rider WHERE id=?', [rid], one=True) or owner
+    rider_args   = [] if not active_rider or active_rider['isDefault'] else [('rider', active_rider['id'])]
 
     from services import units
-    sport = request.args.get('sport', '').strip()
-    sport_types = query_db(
-        'SELECT DISTINCT sportType FROM Ride WHERE riderId=? AND sportType IS NOT NULL ORDER BY sportType',
-        [rid]
-    )
+    from services.sport_filter import SportFilter, speed_sql
+    sf = SportFilter(get_db(), rid, request.args)
+    fclause, fparams = sf.sql()
+    act_where, act_params = f"riderId=? AND {fclause}", [rid] + fparams       # on Activity: every sport the filter leaves in
+    dist_mode = bool(sf.group)        # the sports left in share a distance (services/sports.stat_group); otherwise the charts count time
 
-    # ── Speed over time ──────────────────────────────────────────
-    # averageSpeed < 25 (m/s, ~56mph) excludes a couple of ancient corrupt rows
-    # (movingTime=3s against a real distance, from the original 2014/15 Strava
-    # import) whose garbage averageSpeed otherwise blows out the chart's autoscale.
-    where_clause = "WHERE riderId=? AND " + SANE_SQL + " AND averageSpeed >= 1.0 AND averageSpeed < 25"
-    where_params = [rid]
-    if sport:
-        where_clause += " AND lower(sportType) LIKE ?"
-        where_params.append(f'%{sport.lower()}%')
-    speed_rows = query_db(
-        f"SELECT date(startDateLocal) as d, averageSpeed "
-        f"FROM Ride {where_clause} ORDER BY startDateLocal",
-        where_params
-    )
-    speed_labels  = [r['d'] for r in speed_rows]
-    speed_values  = [round(units.speed(r['averageSpeed']), 1) for r in speed_rows]
+    # ── Speed (or pace) over time ────────────────────────────────
+    # Only for sports that share one: a walk's pace on a line of ride speeds means nothing. The bounds leave out a few corrupt rows (a 3 s moving
+    # time against a real distance, from the original 2014/15 Strava import) whose speed otherwise blows out the chart's autoscale.
+    speed_labels, speed_values = [], []
+    if sf.group:
+        lo, hi = SPEED_BOUNDS[sf.style]
+        for r in query_db(f"SELECT date(startDateLocal) as d, {speed_sql()} AS mps FROM Activity "
+                          f"WHERE {act_where} AND {SANE_SQL} AND {speed_sql()} >= ? AND {speed_sql()} < ? ORDER BY startDateLocal",
+                          act_params + [lo, hi]):
+            speed_labels.append(r['d'])
+            speed_values.append(round(units.speed(r['mps']), 1) if sf.style == 'speed' else
+                                round((100 if sf.style == 'swim' else units.spec()['distM']) / r['mps']))      # seconds per mile / km, or per 100 m
     window = 20
     speed_rolling = []
     for i, v in enumerate(speed_values):
         chunk = speed_values[max(0, i - window + 1): i + 1]
         speed_rolling.append(round(sum(chunk) / len(chunk), 2))
 
-    # ── Monthly distance ─────────────────────────────────────────
-    monthly_where = "WHERE riderId=?"
-    monthly_params = [rid]
-    if sport:
-        monthly_where += " AND lower(sportType) LIKE ?"
-        monthly_params.append(f'%{sport.lower()}%')
+    def amount(dist, secs):
+        """A month's or a day's total: distance in the rider's unit, or hours when the sports left in don't share a distance."""
+        return round(units.dist(dist), 1) if dist_mode else round((secs or 0) / 3600, 1)
+
+    # ── Monthly distance (or time) ───────────────────────────────
     monthly_rows = query_db(
-        f"SELECT strftime('%Y-%m', startDateLocal) as ym, SUM(distance) as dist "
-        f"FROM Ride {monthly_where} GROUP BY ym ORDER BY ym",
-        monthly_params
+        f"SELECT strftime('%Y-%m', startDateLocal) as ym, SUM(distance) as dist, SUM(movingTime) as secs "
+        f"FROM Activity WHERE {act_where} GROUP BY ym ORDER BY ym",
+        act_params
     )
     monthly_labels = [r['ym'] for r in monthly_rows]
-    monthly_values = [round(units.dist(r['dist']), 1) for r in monthly_rows]
+    monthly_values = [amount(r['dist'], r['secs']) for r in monthly_rows]
 
     # ── Year-on-year ─────────────────────────────────────────────
-    yoy_where = "WHERE riderId=?"
-    yoy_params = [rid]
-    if sport:
-        yoy_where += " AND lower(sportType) LIKE ?"
-        yoy_params.append(f'%{sport.lower()}%')
     yoy_rows = query_db(
         f"SELECT strftime('%Y', startDateLocal) as yr, "
         f"CAST(strftime('%m', startDateLocal) AS INTEGER) as mo, "
-        f"SUM(distance) as dist FROM Ride {yoy_where} GROUP BY yr, mo ORDER BY yr, mo",
-        yoy_params
+        f"SUM(distance) as dist, SUM(movingTime) as secs FROM Activity WHERE {act_where} GROUP BY yr, mo ORDER BY yr, mo",
+        act_params
     )
     year_data = defaultdict(lambda: [0] * 12)
     for r in yoy_rows:
-        year_data[r['yr']][int(r['mo']) - 1] = round(units.dist(r['dist']), 1)
+        year_data[r['yr']][int(r['mo']) - 1] = amount(r['dist'], r['secs'])
     year_on_year = {y: year_data[y] for y in sorted(year_data)}
 
-    # ── Ride length histogram ─────────────────────────────────────
-    hist_buckets = HIST_BUCKETS[units.spec()['system']]
-    hist_labels, hist_values = [], []
-    for label, lo, hi in hist_buckets:
-        hist_where = "WHERE riderId=? AND distance >= ? AND distance < ?"
-        hist_params = [rid, lo, hi]
-        if sport:
-            hist_where += " AND lower(sportType) LIKE ?"
-            hist_params.append(f'%{sport.lower()}%')
-        n = query_db(
-            f"SELECT COUNT(*) as n FROM Ride {hist_where}",
-            hist_params, one=True
-        )['n']
-        hist_labels.append(label)
-        hist_values.append(n)
+    # ── Length histogram: by distance for one group, by time for several ──
+    system = units.spec()['system']
+    if dist_mode:
+        hist_buckets, hist_col = HIST_BUCKETS.get((sf.group, system)) or HIST_BUCKETS.get(sf.group) or HIST_BUCKETS[system], 'distance'
+    else:
+        hist_buckets, hist_col = DURATION_BUCKETS, 'movingTime'
+    lengths = [r[0] or 0 for r in query_db(f"SELECT {hist_col} FROM Activity WHERE {act_where}", act_params)]
+    hist_labels = [label for label, _, _ in hist_buckets]
+    hist_values = [sum(1 for v in lengths if lo <= v < hi) for _, lo, hi in hist_buckets]
 
     # ── Day of week ───────────────────────────────────────────────
-    dow_where = "WHERE riderId=?"
-    dow_params = [rid]
-    if sport:
-        dow_where += " AND lower(sportType) LIKE ?"
-        dow_params.append(f'%{sport.lower()}%')
     dow_rows = query_db(
         f"SELECT CAST(strftime('%w', startDateLocal) AS INTEGER) as dow, COUNT(*) as n "
-        f"FROM Ride {dow_where} GROUP BY dow",
-        dow_params
+        f"FROM Activity WHERE {act_where} GROUP BY dow",
+        act_params
     )
     dow_map    = {r['dow']: r['n'] for r in dow_rows}
     dow_labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
     dow_values = [dow_map.get(i, 0) for i in range(7)]
 
     # ── Calories over time ────────────────────────────────────────
-    cal_where = "WHERE riderId=? AND calories > 0"
-    cal_params = [rid]
-    if sport:
-        cal_where += " AND lower(sportType) LIKE ?"
-        cal_params.append(f'%{sport.lower()}%')
     cal_rows = query_db(
         f"SELECT date(startDateLocal) as d, calories "
-        f"FROM Ride {cal_where} ORDER BY startDateLocal",
-        cal_params
+        f"FROM Activity WHERE {act_where} AND calories > 0 ORDER BY startDateLocal",
+        act_params
     )
     cal_labels = [r['d'] for r in cal_rows]
     cal_values = [int(r['calories']) for r in cal_rows]
@@ -141,18 +126,19 @@ def index():
         chunk = cal_values[max(0, i - cal_window + 1): i + 1]
         cal_rolling.append(round(sum(chunk) / len(chunk), 1))
 
-    # ── Heatmap (all dates with distance) ────────────────────────
-    hm_where = "WHERE riderId=?"
-    hm_params = [rid]
-    if sport:
-        hm_where += " AND lower(sportType) LIKE ?"
-        hm_params.append(f'%{sport.lower()}%')
+    # ── Heatmap (every day with an activity) ─────────────────────
     heatmap_rows = query_db(
-        f"SELECT date(startDateLocal) as d, SUM(distance) as dist "
-        f"FROM Ride {hm_where} GROUP BY d",
-        hm_params
+        f"SELECT date(startDateLocal) as d, SUM(distance) as dist, SUM(movingTime) as secs "
+        f"FROM Activity WHERE {act_where} GROUP BY d",
+        act_params
     )
-    heatmap = {r['d']: round(units.dist(r['dist']), 1) for r in heatmap_rows}
+    if dist_mode:
+        heatmap = {r['d']: round(units.dist(r['dist']), 1) for r in heatmap_rows}
+        heat_steps = [round(units.dist(m), 1) for m in HEAT_STEPS_M.get(sf.group, HEAT_STEPS_M['ride'])]
+        heat_unit = units.spec()['dist']
+    else:
+        heatmap = {r['d']: round((r['secs'] or 0) / 60) or 1 for r in heatmap_rows}       # minutes; a day with an activity but no time still shows
+        heat_steps, heat_unit = [30, 60, 120], 'min'
 
     # ── Best efforts / records ────────────────────────────────────
     effort_rows = query_db('''
@@ -160,9 +146,9 @@ def index():
                e.activityId, a.name as rideName
         FROM BestEffort e
         JOIN Activity a ON a.id = e.activityId
-        WHERE a.riderId=?
+        WHERE a.riderId=? AND {ride_clause}
         ORDER BY e.distanceMi, e.elapsedSecs ASC
-    ''', [rid])
+    '''.format(ride_clause=sf.sql('a.sportType')[0] if sf.has_rides else '0'), [rid] + (fparams if sf.has_rides else []))
 
     records_by_year  = defaultdict(dict)
     records_by_month = defaultdict(dict)
@@ -194,9 +180,9 @@ def index():
                strftime('%Y', startDateLocal) as yr,
                strftime('%Y-%m', startDateLocal) as ym
         FROM Ride
-        WHERE riderId=? AND totalElevationGain > 0
+        WHERE riderId=? AND totalElevationGain > 0 AND {ride_clause}
         ORDER BY yr, totalElevationGain DESC
-    ''', [rid])
+    '''.format(ride_clause=fclause if sf.has_rides else '0'), [rid] + (fparams if sf.has_rides else []))
 
     climbing_by_year  = defaultdict(lambda: defaultdict(lambda: None))
     climbing_by_month = defaultdict(lambda: defaultdict(lambda: None))
@@ -226,10 +212,8 @@ def index():
     # ── Weather performance ───────────────────────────────────────
     # real rides only: a few corrupt old imports (a 3 s moving time against a real distance, or a 0.005-mile blip) give speeds of 2,500 mph or 0.01 mph that blow out the axes
     wx_where = "WHERE riderId=? AND " + SANE_SQL + " AND averageSpeed >= 1.0 AND averageSpeed < 20 AND distance >= 1000 AND weatherTempC IS NOT NULL AND weatherWindKph IS NOT NULL"
-    wx_params = [rid]
-    if sport:
-        wx_where += " AND lower(sportType) LIKE ?"
-        wx_params.append(f'%{sport.lower()}%')
+    wx_where += f" AND {fclause if sf.has_rides else '0'}"
+    wx_params = [rid] + (fparams if sf.has_rides else [])
     weather_scatter = query_db(
         f'''SELECT id, averageSpeed, weatherTempC, weatherWindKph, weatherWindRel, weatherCode,
                   strftime('%m', startDateLocal) as mo
@@ -271,21 +255,19 @@ def index():
 
     # condition chart: every ride with a condition counts, including ones whose temperature or wind is missing (hand-picked conditions often are)
     cond_where = "WHERE riderId=? AND " + SANE_SQL + " AND averageSpeed >= 1.0 AND averageSpeed < 20 AND distance >= 1000 AND weatherCode IS NOT NULL"
-    cond_params = [rid]
-    if sport:
-        cond_where += " AND lower(sportType) LIKE ?"
-        cond_params.append(f'%{sport.lower()}%')
+    cond_where += f" AND {fclause if sf.has_rides else '0'}"
+    cond_params = [rid] + (fparams if sf.has_rides else [])
     for r in query_db(f'SELECT averageSpeed, weatherCode FROM Ride {cond_where}', cond_params):
         b = _wmo_bucket(r['weatherCode'])
         if b:
             wx_cond_buckets[b].append(round(units.speed(r['averageSpeed']), 1))
 
     from services.weather import fog_candidates
-    wx_fog = fog_candidates(get_db(), rid, sport)
+    wx_fog = fog_candidates(get_db(), rid, (fclause, fparams)) if sf.has_rides else []
     from services import alcohol as _alcohol
     alcohol_recovery = _alcohol.recovery_comparison(get_db(), rid) if (active_rider and active_rider['isDefault']) else None      # Garmin data is the owner's
     from services import storms as _storms
-    wx_storm = _storms.storm_rides(get_db(), rid) + _storms.violent_unnamed(get_db(), rid)
+    wx_storm = (_storms.storm_rides(get_db(), rid) + _storms.violent_unnamed(get_db(), rid)) if sf.has_rides else []
     from datetime import datetime as _dt
     from services.dates import day_month_year
     for f in wx_fog:
@@ -312,6 +294,10 @@ def index():
         cal_values=cal_values,
         cal_rolling=cal_rolling,
         heatmap=heatmap,
+        heat_steps=heat_steps,
+        heat_unit=heat_unit,
+        dist_mode=dist_mode,
+        rides_only_note=sf.has_rides and len(sf.groups) > 1,      # the records and weather sections count the rides in the selection only
         records_by_year=records_by_year,
         records_by_month=records_by_month,
         effort_brackets=BRACKETS_MI,
@@ -335,8 +321,8 @@ def index():
         wx_storm=wx_storm,
         all_riders=all_riders,
         active_rider=active_rider,
-        sport_types=sport_types,
-        sport=sport,
+        sf=sf,
+        sport_links=[(label, icon, url_for('data.index', **dict(rider_args + [('skip', skip)])), active) for label, icon, skip, active in sf.shortcuts()],
     )
 
 

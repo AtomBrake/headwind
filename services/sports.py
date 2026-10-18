@@ -6,7 +6,10 @@ A sport is a ride when it contains "ride" or "cycl", ignoring case: Headwind's o
 
 Segments come in two families, and an activity is only matched against segments of its own (segment_family): rides, e-bike rides included, and
 anything on foot. Indoor rides, swims, paddles, skis and the rest have no family and no segments. On a ride segment, pedal and e-bike efforts are told
-apart by segment_class: each keeps its own PRs and badges, and the leaderboards can show either or both."""
+apart by segment_class: each keeps its own PRs and badges, and the leaderboards can show either or both.
+
+Totals and charts add distances up by stat_group, which is wider: every ride (indoor and e-bike too), everything on foot, swims, and any other sport on
+its own. A swim's distance never adds to a ride's (services/sport_filter)."""
 
 RIDE_SQL = "(sportType IS NULL OR sportType = '' OR lower(sportType) LIKE '%ride%' OR lower(sportType) LIKE '%cycl%')"
 KIND_SQL = f"(CASE WHEN {RIDE_SQL} THEN 'ride' ELSE 'workout' END)"     # the phone API's and the bulk actions' 'ride' / 'workout'
@@ -91,6 +94,38 @@ def class_sql(cls, sport='a.sportType', bike_kind='b.kind'):
     if cls == 'bike':
         return f'NOT {ebike_sql(sport, bike_kind)}'
     return '1=1'
+
+
+STAT_LABELS = {'ride': 'Rides', 'foot': 'On foot', 'swim': 'Swims'}
+STAT_ICONS = {'ride': '🚴', 'foot': '🏃', 'swim': '🏊'}
+_STAT_ORDER = {'ride': 0, 'foot': 1, 'swim': 2}
+
+
+def stat_group(sport):
+    """Which distances a sport's distance adds to: 'ride', 'foot', 'swim', or the sport itself ('Paddle', 'Ski', ...)."""
+    if is_ride(sport):
+        return 'ride'
+    s = _squash(sport)
+    if s in _FOOT:
+        return 'foot'
+    if 'swim' in s:
+        return 'swim'
+    return sport
+
+
+def stat_label(group):
+    return STAT_LABELS.get(group, group)
+
+
+def stat_order(group):
+    """Sort key: rides, on foot, swims, then the other sports by name."""
+    return (_STAT_ORDER.get(group, 3), group)
+
+
+def rate_style(sport=None, group=None):
+    """How a sport's speed reads: 'speed' (mph / km/h) for rides and the rest, 'pace' (per mile / km) on foot, 'swim' (per 100 m) for swims."""
+    g = group if group is not None else stat_group(sport)
+    return {'foot': 'pace', 'swim': 'swim'}.get(g, 'speed')
 
 
 def family_of(db, act_id):

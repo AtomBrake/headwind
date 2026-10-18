@@ -14,6 +14,10 @@
   UNITS.toDist  = function (m)   { return (m || 0) / UNITS.distM; };
   UNITS.toElev  = function (m)   { return (m || 0) * UNITS.elevPerM; };
   UNITS.toSpeed = function (mps) { return (mps || 0) * UNITS.speedPerMps; };
+  // Pace (services/sports.rate_style): seconds per mile / km for 'pace', per 100 m for 'swim'.
+  UNITS.toPace    = function (mps, style) { return mps > 0 ? (style === 'swim' ? 100 : UNITS.distM) / mps : null; };
+  UNITS.paceLabel = function (style) { return style === 'swim' ? '/100 m' : UNITS.pace; };
+  UNITS.fmtMinSec = function (s) { s = Math.round(s || 0); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   </script>
   {% block head %}{% endblock %}
 </head>
