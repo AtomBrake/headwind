@@ -70,3 +70,27 @@ def test_token_in_query_string_is_not_accepted(client, path):
 
 def test_empty_token_never_matches(client):
     assert client.get('/api/feed', headers={'X-Feed-Token': ''}).status_code == 403
+
+
+def test_second_sync_of_a_friend_waits_its_turn(monkeypatch):
+    """Two syncs of one friend at once only fight over SQLite's write lock (and lock out everything else), so the second
+    is refused while the first runs, and allowed again once it's done."""
+    import threading
+    from routes import friends
+    started, release = threading.Event(), threading.Event()
+
+    def slow(fid):
+        started.set()
+        release.wait(5)
+        return 3, None
+    monkeypatch.setattr(friends, '_do_sync_once', slow)
+    first = []
+    t = threading.Thread(target=lambda: first.append(friends._do_sync(7)))
+    t.start()
+    assert started.wait(5)
+    assert friends._do_sync(7) == (0, 'Already syncing')
+    release.set()
+    t.join(5)
+    assert first == [(3, None)]
+    monkeypatch.setattr(friends, '_do_sync_once', lambda fid: (1, None))
+    assert friends._do_sync(7) == (1, None)

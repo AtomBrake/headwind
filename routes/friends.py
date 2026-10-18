@@ -276,8 +276,24 @@ def delete(fid):
     return redirect(url_for('friends.index'))
 
 
+_syncing = set()                 # friend ids with a sync running: a second one would only fight the first for the write lock
+_syncing_lock = threading.Lock()
+
+
 def _do_sync(friend_id):
     """Rides + segments, then the friend's shared foods. A foods problem never fails the ride sync."""
+    with _syncing_lock:
+        if friend_id in _syncing:
+            return 0, 'Already syncing'
+        _syncing.add(friend_id)
+    try:
+        return _do_sync_once(friend_id)
+    finally:
+        with _syncing_lock:
+            _syncing.discard(friend_id)
+
+
+def _do_sync_once(friend_id):
     result = _do_ride_sync(friend_id)
     try:
         from services import shared_foods
@@ -425,8 +441,9 @@ def _do_ride_sync(friend_id):
                 new_ride_ids.append(remote_id)
                 synced += 1
                 if synced % BATCH == 0:
-                    db.commit()
                     log.info('Friends sync: streamed %d rides for "%s"…', synced, name)
+
+            db.commit()   # each item as it lands: never hold the write lock while waiting on the network for the next
 
         db.commit()
     except Exception as e:
@@ -460,8 +477,8 @@ def _do_ride_sync(friend_id):
         log.info('Friends sync: scanning %d rides against %d segments…', len(acts), len(all_segments))
         for i, act in enumerate(acts, 1):
             scan_activity_against_segments(db, act, all_segments)
+            db.commit()   # one ride at a time, so other writes (a token, a Garmin sync) wait milliseconds, not a minute
             if i % BATCH == 0:
-                db.commit()
                 log.info('Friends sync: segment scan %d / %d…', i, len(acts))
                 time.sleep(0.5)
         db.commit()
@@ -483,14 +500,15 @@ def _do_ride_sync(friend_id):
                      len(owner_acts), len(new_segs))
             for i, act in enumerate(owner_acts, 1):
                 scan_activity_against_segments(db, act, new_segs)
+                db.commit()
                 if i % BATCH == 0:
-                    db.commit()
                     time.sleep(0.5)
             db.commit()
 
     log.info('Friends sync: refreshing PRs…')
     for sid in affected_seg_ids:
         _refresh_prs(db, sid)
+        db.commit()
 
     db.execute("UPDATE Friend SET lastSynced=datetime('now'), name=? WHERE id=?",
                [name, friend_id])
