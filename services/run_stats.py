@@ -1,8 +1,7 @@
 """Running stats, derived from the recorded runs themselves: best times for the standard distances, pace, totals, weekly
 volume, recent runs and the latest route.
 
-A run lives in one of two tables: Workout (sport 'Run', recorded by the phone app) or Activity (sportType 'Run', e.g. from
-a Garmin). Both carry GPS+time streams, so the best-times work is the same sliding-window search the ride best-efforts use,
+A run is an Activity row with sportType 'Run', from the phone app, a Garmin or a Strava export. It carries GPS+time streams, so the best-times work is the same sliding-window search the ride best-efforts use,
 cached per run in RunEffort so publishing to Home Assistant stays cheap.
 """
 import json
@@ -65,13 +64,10 @@ def index_run(db, run_id, run_date, streams_json):
 
 
 def _runs(rid):
-    """Every run for the rider, newest first (the Workout view has every run, from any source)."""
-    rows = []
-    for r in query_db("SELECT id, name, startDateLocal d, distance, movingTime, totalElevationGain gain, averageHeartrate hr, streams, 'workout' kind "
-                      "FROM Workout WHERE riderId=? AND sport='Run' AND distance>=? AND movingTime>=?", [rid, MIN_RUN_M, MIN_RUN_S]):
-        rows.append(dict(r))
-    rows.sort(key=lambda r: r['d'] or '', reverse=True)
-    return rows
+    """Every run for the rider, newest first, from any source."""
+    return [dict(r) for r in query_db("SELECT id, name, startDateLocal d, distance, movingTime, totalElevationGain gain, averageHeartrate hr, streams, 'workout' kind "
+                                      "FROM Activity WHERE riderId=? AND sportType='Run' AND distance>=? AND movingTime>=? ORDER BY startDateLocal DESC",
+                                      [rid, MIN_RUN_M, MIN_RUN_S])]
 
 
 def _ensure_indexed(runs):

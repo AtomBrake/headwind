@@ -1,16 +1,8 @@
 """Many activities at once, picked on an activity list (rides and workouts can be mixed). Every action goes through the code a single activity uses,
-so derived data stays right: deletes leave tombstones and re-pick segment PRs, type changes move rows between rides and workouts, and so on.
+so derived data stays right: deletes leave tombstones and re-pick segment PRs, a type change between a ride and a workout drops or rebuilds what only a ride has, and so on.
 Nothing here commits; the caller commits once."""
 MAX_IDS = 5000
 ACTIONS = ('delete', 'sport', 'bike', 'rider', 'rename', 'dismiss')
-
-
-def _kind(db, act_id):
-    if db.execute('SELECT 1 FROM Ride WHERE id=?', [act_id]).fetchone():
-        return 'ride'
-    if db.execute('SELECT 1 FROM Workout WHERE id=?', [act_id]).fetchone():
-        return 'workout'
-    return None
 
 
 def own_riders(db):
@@ -21,6 +13,7 @@ def own_riders(db):
 def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None):
     """Returns {'done': n, 'skipped': n, 'kinds': {'ride', 'workout'} touched}. Raises ValueError for a bad action or missing parameter."""
     from services import convert, duplicates, gear, sanity, workouts
+    from services.sports import kind_of
     if action not in ACTIONS:
         raise ValueError('unknown action')
     if action == 'sport' and sport not in convert.SPORTS:
@@ -32,7 +25,7 @@ def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None):
     done = skipped = 0
     kinds = set()
     for act_id in list(dict.fromkeys(ids))[:MAX_IDS]:
-        kind = _kind(db, act_id)
+        kind = kind_of(db, act_id)
         if not kind:
             skipped += 1
             continue
@@ -42,7 +35,7 @@ def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None):
                     duplicates.delete_activity(db, act_id)
                     db.execute('DELETE FROM RideMemory WHERE rideId=?', [act_id])
                 else:
-                    owner = db.execute('SELECT riderId FROM Workout WHERE id=?', [act_id]).fetchone()['riderId']
+                    owner = db.execute('SELECT riderId FROM Activity WHERE id=?', [act_id]).fetchone()['riderId']
                     workouts.delete(db, act_id, owner)
             elif action == 'sport':
                 res = convert.change_sport(db, kind, act_id, sport)
@@ -51,7 +44,7 @@ def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None):
                     skipped += 1
                     continue
             elif action == 'bike':
-                if kind != 'ride' or not gear.is_ride_row(db.execute('SELECT sportType FROM Ride WHERE id=?', [act_id]).fetchone()):
+                if kind != 'ride':
                     skipped += 1                             # only rides have a bike
                     continue
                 gear.set_ride_bike(db, act_id, bike_id)

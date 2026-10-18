@@ -18,8 +18,8 @@ _SKIP_TYPES = {
 
 
 def garmin_sport(type_key):
-    """Garmin's activity type (`typeKey`, e.g. 'mountain_biking', 'lap_swimming', 'treadmill_running') -> our sport. Rides are Ride / VirtualRide and
-    go to Activity; everything else goes to Workout under its own sport. Anything not recognised is 'Other', never a ride: a ride that is really a
+    """Garmin's activity type (`typeKey`, e.g. 'mountain_biking', 'lap_swimming', 'treadmill_running') -> our sport. Rides are Ride / VirtualRide;
+    everything else is saved as a workout under its own sport. Anything not recognised is 'Other', never a ride: a ride that is really a
     swim breaks the ride totals and the sanity checks."""
     k = (type_key or '').lower()
     if 'motor' in k or 'snowmobil' in k:                      # motorcycling, motocross: 'cycl' but not a bike ride
@@ -601,7 +601,7 @@ def backfill_weigh_ins(email, password, today=None):
 
 
 def _save_workout(db, wid, rider_id, sport, name, start_utc, start_local, parsed, max_speed):
-    """Store a Garmin activity that is not a ride (a Workout row), keeping the watch's calories (the walking/running estimate would be wrong for a swim).
+    """Store a Garmin activity that is not a ride (a workout), keeping the watch's calories (the walking/running estimate would be wrong for a swim).
     Does not commit."""
     from services.calorie_adjust import pair as _kcal_pair
     from services import workouts
@@ -685,8 +685,7 @@ def sync_garmin_activities(email, password, rider_id):
             db_id = f'garmin_{activity_id}'
             # Check if Garmin ID already exists
             from services import duplicates
-            if (duplicates.exists_anywhere(db, db_id) or duplicates.is_deleted(db, db_id)        # live, parked, discarded or deleted by the user: never bring it back
-                    or db.execute('SELECT 1 FROM Workout WHERE id=?', [db_id]).fetchone()):     # or already saved as a run, swim, ...
+            if duplicates.exists_anywhere(db, db_id) or duplicates.is_deleted(db, db_id):      # live (any sport), parked, discarded or deleted by the user: never bring it back
                 skipped += 1
                 if start_date and (newest is None or start_date > newest):
                     newest = start_date
@@ -746,7 +745,8 @@ def sync_garmin_activities(email, password, rider_id):
             # The parser's max ignores impossible spikes (a raw max of the speed stream let one GPS jump make a 137 mph mountain-bike ride)
             max_speed = parsed.get('maxSpeed') or 0.0
 
-            if sport_type not in ('Ride', 'VirtualRide'):          # a run, walk, swim, ...: a workout, not a ride
+            from services.sports import is_ride
+            if not is_ride(sport_type):                             # a run, walk, swim, ...: a workout, not a ride
                 try:
                     _save_workout(db, db_id, rider_id, sport_type, a.get('activityName') or parsed.get('name'), start_utc, start_local, parsed, max_speed)
                 except Exception as e:

@@ -127,5 +127,5 @@ def test_activity_type_review_page_lists_pending_changes(client):
     assert client.post('/garmin/sports/apply', data={'ride': 'good'}).status_code == 302
     with client.application.app_context():
         db = database.get_db()
-        assert db.execute("SELECT sport FROM Workout WHERE sport='Swim'").fetchone()
+        assert db.execute("SELECT 1 FROM Activity WHERE sportType='Swim'").fetchone()
         assert not db.execute("SELECT 1 FROM Ride WHERE id='good'").fetchone()

@@ -1,6 +1,6 @@
 """Activities typed in by hand: a ride you forgot to record, a turbo session, a walk without GPS.
 
-Walk / Run / Hike go to the Workout table and Ride / VirtualRide to Activity, the same split as everything recorded by a device. A manual ride has no
+Walk / Run / Hike and Ride / VirtualRide are Activity rows like everything recorded by a device; the ride ones get a bike. A manual ride has no
 GPS track, so it has no map or best efforts, but it counts in the totals. If a real recording of the same ride arrives later (Garmin sync, phone
 upload) the duplicate logic keeps the recording and parks the typed-in copy.
 """
@@ -11,10 +11,9 @@ from zoneinfo import ZoneInfo
 
 from services import duplicates
 from services import tz
+from services.sports import ON_FOOT, RIDES, is_ride
 
-WORKOUT_SPORTS = ('Walk', 'Run', 'Hike')
-RIDE_SPORTS = ('Ride', 'VirtualRide')
-SPORTS = RIDE_SPORTS + WORKOUT_SPORTS
+SPORTS = RIDES + ON_FOOT
 MAX_DURATION_S, MAX_DISTANCE_M, MAX_ELEV_M = 48 * 3600, 1_500_000, 20_000
 
 
@@ -60,12 +59,12 @@ def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, 
     local = start.strftime('%Y-%m-%dT%H:%M:%S')
     utc = start.replace(tzinfo=tz.zone()).astimezone(ZoneInfo('UTC')).strftime('%Y-%m-%dT%H:%M:%S')
     key = client_id or f'{local}|{sport}|{round(dist)}|{secs}'
-    aid = ('man_' if sport in RIDE_SPORTS else 'wk_') + hashlib.sha1(f'{rider_id}|manual|{key}'.encode()).hexdigest()[:16]
+    aid = ('man_' if is_ride(sport) else 'wk_') + hashlib.sha1(f'{rider_id}|manual|{key}'.encode()).hexdigest()[:16]
     avg = dist / secs if secs else 0
     from services import goal_model
     kg = goal_model.current_weight_kg(rider_id) or 70.0
 
-    if sport in WORKOUT_SPORTS:
+    if not is_ride(sport):
         if duplicates.exists_anywhere(db, aid):
             return {'kind': 'workout', 'id': aid, 'created': False, 'duplicate': None}
         from services.workouts import estimate_calories

@@ -1181,13 +1181,8 @@ def day_log(date_str):
     )
     garmin_total  = garmin_row['totalCalories']  if garmin_row else None
     garmin_active = garmin_row['activeCalories'] if garmin_row else None
-    ride_row = query_db('''
-        SELECT COALESCE(SUM(calories), 0) as total FROM Ride
-        WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL
-    ''', [rider_id, date_str], one=True)
-    ride_cal = int(ride_row['total']) if ride_row else 0
-    from services import workouts as _wk
-    ride_cal += _wk.calories_on(rider_id, date_str)               # recorded walks / runs
+    from services import goal_model
+    ride_cal = goal_model.activity_calories(rider_id, date_str)   # every sport: rides, walks, runs, ...
 
     goals = _get_goals()
     bmr   = goals.get('bmr')
@@ -1196,7 +1191,6 @@ def day_log(date_str):
     #   1. Manual BMR + today's ride calories (always current, no sync lag)
     #   2. Garmin daily total (comprehensive but up to 2h stale)
     #   3. Ride calories only
-    from services import goal_model
     est = goal_model.day_burn(rider_id, date_str)
     if est:
         burned, burn_source = est
@@ -1681,13 +1675,8 @@ def week_log(date_str):
         water_ml = int(water['total']) if water else 0
 
         # Burn
-        ride_cal = query_db(
-            'SELECT COALESCE(SUM(calories),0) as total FROM Ride WHERE riderId=? AND date(startDateLocal)=?',
-            [rider_id, date_iso], one=True
-        )
-        ride_cal = int(ride_cal['total']) if ride_cal else 0
-        from services import workouts as _wk
-        ride_cal += _wk.calories_on(rider_id, date_iso)           # recorded walks / runs
+        from services import goal_model
+        ride_cal = goal_model.activity_calories(rider_id, date_iso)   # every sport: rides, walks, runs, ...
 
         garmin = query_db(
             'SELECT totalCalories FROM GarminDaily WHERE date=?',
@@ -1695,7 +1684,6 @@ def week_log(date_str):
         )
         garmin_total = garmin['totalCalories'] if garmin else None
 
-        from services import goal_model
         est = goal_model.day_burn(rider_id, date_iso)
         if est:
             burned = est[0]

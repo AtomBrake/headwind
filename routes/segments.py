@@ -188,8 +188,7 @@ def detail(sid):
     # Auto-compute elevation gain for segments created before this field existed
     if seg['elevationGainM'] is None and seg['sourceActivityId']:
         try:
-            src = (db.execute('SELECT streams FROM Activity WHERE id=?', [seg['sourceActivityId']]).fetchone()
-                   or db.execute('SELECT streams FROM Workout WHERE id=?', [seg['sourceActivityId']]).fetchone())
+            src = db.execute('SELECT streams FROM Activity WHERE id=?', [seg['sourceActivityId']]).fetchone()
             if src and src['streams']:
                 s = json.loads(src['streams'])
                 latlng = (s.get('latlng') or {}).get('data') or []

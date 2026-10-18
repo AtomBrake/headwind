@@ -19,7 +19,7 @@ MOUNTS = ('pocket', 'bars', 'frame', 'other')
 
 
 def _utc_ms(s):
-    """'YYYY-MM-DDTHH:MM:SS' (UTC, as stored in Activity/Workout.startDate) -> epoch ms, or None."""
+    """'YYYY-MM-DDTHH:MM:SS' (UTC, as stored in Activity.startDate) -> epoch ms, or None."""
     try:
         d = datetime.fromisoformat(str(s).replace('Z', '+00:00'))
     except ValueError:
@@ -182,14 +182,19 @@ def store(db, rider_id, payload):
 
 
 def _candidates(db, rider_id):
-    """(kind, id, start_ms, end_ms) for the rider's rides and workouts."""
+    """(kind, id, start_ms, end_ms) for the rider's rides and workouts; kind is 'activity' for a ride, as RideSensor.rideKind has always had it."""
     out = []
-    for kind, table, dur in (('activity', 'Ride', 'COALESCE(elapsedTime, movingTime, 0)'), ('workout', 'Workout', 'COALESCE(elapsedTime, movingTime, 0)')):     # the two views split Activity
-        for r in db.execute(f'SELECT id, startDate, {dur} AS d FROM {table} WHERE riderId=? AND startDate IS NOT NULL', [rider_id]).fetchall():
-            s = _utc_ms(r['startDate'])
-            if s is not None and r['d']:
-                out.append((kind, r['id'], s, s + int(r['d']) * 1000))
+    for r in db.execute('SELECT id, startDate, sportType, COALESCE(elapsedTime, movingTime, 0) AS d FROM Activity WHERE riderId=? AND startDate IS NOT NULL',
+                        [rider_id]).fetchall():
+        s = _utc_ms(r['startDate'])
+        if s is not None and r['d']:
+            out.append((_kind(r['sportType']), r['id'], s, s + int(r['d']) * 1000))
     return out
+
+
+def _kind(sport):
+    from services.sports import is_ride
+    return 'activity' if is_ride(sport) else 'workout'
 
 
 def _best_overlap(sensor_span, cands):
@@ -222,19 +227,17 @@ def attach(db, sensor_id):
 def attach_for_ride(db, ride_id):
     """A ride (or workout) has just arrived: attach any waiting sidecar that overlaps it. Never raises. Does not commit."""
     try:
-        for kind, table in (('activity', 'Ride'), ('workout', 'Workout')):
-            r = db.execute(f"SELECT riderId, startDate, COALESCE(elapsedTime, movingTime, 0) AS d FROM {table} WHERE id=?", [ride_id]).fetchone()
-            if not r:
-                continue
-            s0 = _utc_ms(r['startDate'])
-            if s0 is None or not r['d']:
-                return
-            span = (s0, s0 + int(r['d']) * 1000)
-            for s in db.execute('SELECT id, startUtc, endUtc FROM RideSensor WHERE riderId=? AND (rideId IS NULL OR rideId=?)', [r['riderId'], ride_id]).fetchall():
-                best = _best_overlap((_utc_ms(s['startUtc']), _utc_ms(s['endUtc'])), [(kind, ride_id, span[0], span[1])])
-                if best:
-                    db.execute('UPDATE RideSensor SET rideKind=?, rideId=? WHERE id=?', [kind, ride_id, s['id']])
+        r = db.execute("SELECT riderId, startDate, sportType, COALESCE(elapsedTime, movingTime, 0) AS d FROM Activity WHERE id=?", [ride_id]).fetchone()
+        if not r:
             return
+        s0 = _utc_ms(r['startDate'])
+        if s0 is None or not r['d']:
+            return
+        kind, span = _kind(r['sportType']), (s0, s0 + int(r['d']) * 1000)
+        for s in db.execute('SELECT id, startUtc, endUtc FROM RideSensor WHERE riderId=? AND (rideId IS NULL OR rideId=?)', [r['riderId'], ride_id]).fetchall():
+            best = _best_overlap((_utc_ms(s['startUtc']), _utc_ms(s['endUtc'])), [(kind, ride_id, span[0], span[1])])
+            if best:
+                db.execute('UPDATE RideSensor SET rideKind=?, rideId=? WHERE id=?', [kind, ride_id, s['id']])
     except Exception as e:
         log.warning('sensor attach for %s failed (non-fatal): %s', ride_id, e)
 

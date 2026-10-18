@@ -4,6 +4,8 @@ burn inclusion, revocation) against a THROWAWAY instance with a brand-new DB. Ne
 import io, json, math, re, sqlite3
 from datetime import datetime, timedelta, timezone
 from app import create_app
+from services.sports import RIDE_SQL
+WK = f"(SELECT * FROM Activity WHERE NOT {RIDE_SQL})"     # walks, runs, ...
 a = create_app(); c = a.test_client()
 db = a.config['DATABASE']
 con = sqlite3.connect(db); con.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)"); con.execute("INSERT INTO Rider (name,isDefault) VALUES ('Tester',1)"); con.commit()
@@ -41,7 +43,7 @@ ok('sport detected from GPX <type>', w['workout']['sport'] == 'Walk')
 ok('calories estimated', 80 <= (w['workout']['calories'] or 0) <= 400, w['workout']['calories'])
 r = c2.post('/api/v1/workouts', headers=H, data=files(), content_type='multipart/form-data')
 ok('same client_id again -> exists (idempotent)', r.status_code == 200 and r.get_json()['status'] == 'exists')
-ok('exactly one workout row', con.execute('select count(*) from Workout').fetchone()[0] == 1)
+ok('exactly one workout row', con.execute(f'select count(*) from {WK}').fetchone()[0] == 1)
 ok('RIDE STATS UNTOUCHED (no new ride)', con.execute('select count(*) from Ride').fetchone()[0] == acts_before)
 ok('bad file -> 422', c2.post('/api/v1/workouts', headers=H, data={'file': (io.BytesIO(b'not gpx'), 'x.gpx')}, content_type='multipart/form-data').status_code == 422)
 today = datetime.now().date().isoformat()
@@ -49,7 +51,7 @@ d = c.get('/nutrition/api/day/' + today).get_json()
 ok("workout kcal counted in the day's burn", d.get('ride_calories') == round(w['workout']['calories']) or d.get('ride_calories') is not None, {'ride_calories': d.get('ride_calories'), 'burned': d.get('burned')})
 ok('workouts page lists it', b'Test walk' in c.get('/workouts').data or b'Walk' in c.get('/workouts').data)
 ok('list api', len(c2.get('/api/v1/workouts', headers=H).get_json()['workouts']) == 1)
-ok('delete', c2.delete('/api/v1/workouts/' + w['workout']['id'], headers=H).status_code == 200 and con.execute('select count(*) from Workout').fetchone()[0] == 0)
+ok('delete', c2.delete('/api/v1/workouts/' + w['workout']['id'], headers=H).status_code == 200 and con.execute(f'select count(*) from {WK}').fetchone()[0] == 0)
 # --- revoke ---
 c.post('/phones/1/revoke'); ok('revoked token -> 401', c2.get('/api/v1/ping', headers=H).status_code == 401)
 print('ALL CHECKS PASSED')
