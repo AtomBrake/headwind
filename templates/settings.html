@@ -121,6 +121,7 @@
         <label>Provider</label>
         <select name="aiProvider" id="providerSelect" onchange="updateProvider()">
           <option value="openai" {% if not s or s.aiProvider == 'openai' %}selected{% endif %}>OpenAI</option>
+          <option value="claude" {% if s and s.aiProvider == 'claude' %}selected{% endif %}>Claude</option>
           <option value="ollama" {% if s and s.aiProvider == 'ollama' %}selected{% endif %}>Ollama (local)</option>
         </select>
       </div>
@@ -136,6 +137,22 @@
           <select name="openaiModel">
             {% for m in openai_models %}
             <option value="{{ m }}" {% if s and s.openaiModel == m %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div id="claudeFields" style="display:none;">
+        <div class="form-group" style="margin:0;">
+          <label>API Key</label>
+          <input type="password" name="claudeKey"
+                 value="{{ s.claudeKey if s and s.claudeKey else '' }}"
+                 placeholder="sk-ant-...">
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label>Model</label>
+          <select name="claudeModel">
+            {% for m in claude_models %}
+            <option value="{{ m }}" {% if s and s.claudeModel == m %}selected{% endif %}>{{ m }}</option>
             {% endfor %}
           </select>
         </div>
@@ -529,6 +546,7 @@ function checkForUpdate() {
 function updateProvider() {
   var p = document.getElementById('providerSelect').value;
   document.getElementById('openaiFields').style.display = p === 'openai' ? 'contents' : 'none';
+  document.getElementById('claudeFields').style.display = p === 'claude' ? 'contents' : 'none';
   document.getElementById('ollamaFields').style.display = p === 'ollama' ? 'block' : 'none';
 }
 updateProvider();
