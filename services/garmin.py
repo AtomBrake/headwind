@@ -19,7 +19,7 @@ _SKIP_TYPES = {
 
 def garmin_sport(type_key):
     """Garmin's activity type (`typeKey`, e.g. 'mountain_biking', 'lap_swimming', 'treadmill_running') -> our sport. Rides are Ride / VirtualRide /
-    EBikeRide (an e-bike ride races other e-bike rides on segments: services/sports.segment_family);
+    EBikeRide (an e-bike ride races other e-bike rides for segment PRs: services/sports.segment_class);
     everything else is saved as a workout under its own sport. Anything not recognised is 'Other', never a ride: a ride that is really a
     swim breaks the ride totals and the sanity checks."""
     k = (type_key or '').lower()

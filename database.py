@@ -331,7 +331,8 @@ def migrate_db():
         ('awayStartRecheckDone', 'INTEGER DEFAULT 0'),
         ('workoutDupCheckDone',  'INTEGER DEFAULT 0'),   # walks, runs, ... checked once for duplicates after the merge (services/duplicates.recheck_workouts)   # duplicates re-checked on the UTC instant for rides recorded abroad (services/start_times.py)
         ('dupNameFixDone',       'INTEGER DEFAULT 0'),   # merged activities given back the name chosen on the copy set aside (services/duplicates.recover_names)
-        ('segmentFamiliesDone',  'INTEGER DEFAULT 0'),   # segments split into ride / e-ride / on foot, efforts and PRs picked again (services/segments.regroup)
+        ('segmentFamiliesDone',  'INTEGER DEFAULT 0'),   # segments split into ride / on foot, efforts and PRs picked again (services/segments.regroup)
+        ('segmentBikesMergedDone', 'INTEGER DEFAULT 0'), # 0.7.3's e-bike segments merged into the ride ones, PRs per pedal / e-bike (services/segments.merge_bikes)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
         ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
@@ -598,8 +599,8 @@ def migrate_db():
     from services.sports import RIDE_SQL
     views = {
         'Ride': f'CREATE VIEW Ride AS SELECT * FROM Activity WHERE {RIDE_SQL}',
-        # segment leaderboards: no streams (heavy), only what they need
-        'SegActivity': f'''CREATE VIEW SegActivity AS SELECT id, name, riderId, startDateLocal, sportType,
+        # segment leaderboards: no streams (heavy), only what they need (bikeId: pedal or e-bike, services/sports.segment_class)
+        'SegActivity': f'''CREATE VIEW SegActivity AS SELECT id, name, riderId, startDateLocal, sportType, bikeId,
             CASE WHEN {RIDE_SQL} THEN 'activity' ELSE 'workout' END AS kind FROM Activity''',
     }
     for name, sql in views.items():
@@ -784,10 +785,18 @@ def migrate_db():
     from services.segments import regroup as _regroup_segments
     res = _regroup_segments(db)
     if res.get('ran') and db.execute('SELECT 1 FROM Segment LIMIT 1').fetchone():
-        _tasks.record(db, 'startup:segment_families', 'Segments split into ride, e-bike and on foot',
-                      f"{res['removed']} effort{'s' if res['removed'] != 1 else ''} by walks, hikes, e-bike and indoor rides left the ride segments; "
+        _tasks.record(db, 'startup:segment_families', 'Segments split into ride and on foot',
+                      f"{res['removed']} effort{'s' if res['removed'] != 1 else ''} by walks, hikes and indoor rides left the ride segments; "
                       f"{res['foot']} new effort{'s' if res['foot'] != 1 else ''} on foot segments from {res['scanned']} walks, runs and hikes; "
                       f"{res['prs_moved']} segment PR{'s' if res['prs_moved'] != 1 else ''} changed")
+        db.commit()
+    from services.segments import merge_bikes as _merge_bikes
+    res = _merge_bikes(db)
+    if res.get('ran') and db.execute('SELECT 1 FROM Segment LIMIT 1').fetchone():
+        _tasks.record(db, 'startup:segment_bikes', 'Bike and e-bike rides share segments',
+                      f"{res['merged']} e-bike segment{'s' if res['merged'] != 1 else ''} became ride segment{'s' if res['merged'] != 1 else ''}; "
+                      f"{res['found']} new effort{'s' if res['found'] != 1 else ''} from {res['scanned']} ride{'s' if res['scanned'] != 1 else ''}; "
+                      f"{res['prs_moved']} segment PR{'s' if res['prs_moved'] != 1 else ''} changed (pedal and e-bike PRs are kept apart)")
         db.commit()
     from services.reimport import ensure_schema as _reimport_schema
     _reimport_schema(db)
