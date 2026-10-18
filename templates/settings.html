@@ -338,7 +338,7 @@
         <div id="garminHistoryAsk" style="{% if s.garminHistoryFrom %}display:none;{% endif %}">
           <label style="display:block; font-size:0.875rem; margin:0.5rem 0;">How much of your past health data should Headwind fetch from Garmin?</label>
           <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
-            <select id="garminHistory" style="width:auto;">
+            <select id="garminHistoryRange" style="width:auto;">
               <option value="all" selected>All of it</option>
               <option value="1825">The last 5 years</option>
               <option value="730">The last 2 years</option>
@@ -774,7 +774,7 @@ function garminHistory() {
   fetch('/garmin/history', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({range: document.getElementById('garminHistory').value}),
+    body: JSON.stringify({range: document.getElementById('garminHistoryRange').value}),
   })
   .then(r => r.json())
   .then(d => {
