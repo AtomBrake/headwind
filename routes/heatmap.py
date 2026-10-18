@@ -14,11 +14,11 @@ _SAMPLE_HD  = 250  # points per activity for HD export
 def index():
     bounds = query_db(
         "SELECT MIN(date(startDateLocal)) as min_d, MAX(date(startDateLocal)) as max_d "
-        "FROM Activity WHERE streams IS NOT NULL AND streams != ''",
+        "FROM Ride WHERE streams IS NOT NULL AND streams != ''",
         one=True
     )
     sport_types = query_db(
-        'SELECT DISTINCT sportType FROM Activity WHERE sportType IS NOT NULL AND streams IS NOT NULL AND streams != "" ORDER BY sportType'
+        'SELECT DISTINCT sportType FROM Ride WHERE sportType IS NOT NULL AND streams IS NOT NULL AND streams != "" ORDER BY sportType'
     )
     return render_template('heatmap.html',
                            min_date=bounds['min_d'] or '',
@@ -92,7 +92,7 @@ def data():
         where += " AND lower(sportType) LIKE ?"
         params.append(f'%{sport.lower()}%')
 
-    rows = query_db(f"SELECT streams FROM Activity {where}", params)
+    rows = query_db(f"SELECT streams FROM Ride {where}", params)
 
     hd     = request.args.get('hd') == '1'
     sample = _SAMPLE_HD if hd else _SAMPLE

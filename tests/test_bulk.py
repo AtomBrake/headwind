@@ -36,8 +36,8 @@ def client(tmp_path, monkeypatch):
             db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime, streams, flagReason) "
                        "VALUES (?, 'Ride', 'Ride', 1, ?, ?, 20000, 3600, 3600, ?, ?)",
                        [f'r{i}', f'2026-07-0{i}T07:00:00', f'2026-07-0{i}T08:00:00', TRACK, 'only 45 m long' if i == 4 else None])
-        db.execute("INSERT INTO Workout (id, riderId, sport, startDateLocal, distance, movingTime, source) VALUES ('wk1', 1, 'Walk', '2026-07-05T09:00:00', 3000, 1800, 'android')")
-        db.execute("INSERT INTO Workout (id, riderId, sport, startDateLocal, distance, movingTime, source) VALUES ('garmin_9', 1, 'Swim', '2026-07-06T09:00:00', 1500, 1800, 'garmin')")
+        db.execute("INSERT INTO Activity (id, riderId, sportType, startDateLocal, distance, movingTime, source) VALUES ('wk1', 1, 'Walk', '2026-07-05T09:00:00', 3000, 1800, 'android')")
+        db.execute("INSERT INTO Activity (id, riderId, sportType, startDateLocal, distance, movingTime, source) VALUES ('garmin_9', 1, 'Swim', '2026-07-06T09:00:00', 1500, 1800, 'garmin')")
         db.commit()
         av = credentials.auth_version()
     c = app.test_client()

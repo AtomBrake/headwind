@@ -1,5 +1,7 @@
 # One table for every activity: query audit
 
+**Status:** release 1 done in 0.7.0-beta. Every statement below was changed as its category says, except that a sport change already became a label change (planned for release 2), so `services/convert.py` no longer moves rows. What release 2 still has to do is in the TODO entry.
+
 Release 1 of **One table for every activity** (TODO.md, Multi-sport) moves `Workout` rows into `Activity`. This file sorts every SQL statement that touches `Activity` by what it needs then, so the change can be made file by file and checked off. Made 2026-10-18 at 0.6.6-beta. Line numbers drift as code changes: the function names are the stable reference.
 
 **How the list was made.** Every string literal in the Python code (outside `tests/`) that matches `FROM`, `JOIN`, `INTO` or `UPDATE Activity` was extracted with its enclosing function, using Python's `ast`. That found 241 statements in 50 files. The earlier figure of 209 came from a grep that missed SQL spanning several lines. Statements that name the table through a variable are not in the tables; they are listed under **Not found by the search**.

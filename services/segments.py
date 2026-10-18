@@ -424,14 +424,10 @@ def scan_all_activities(db, segment_ids=None):
     placeholders = ','.join('?' * len(seg_ids))
     db.execute(f'DELETE FROM SegmentEffort WHERE segmentId IN ({placeholders})', seg_ids)
 
-    activities = db.execute(
+    activities = db.execute(                              # every sport: rides and runs alike are Activity rows
         "SELECT id, startDateLocal, streams, sportType FROM Activity "
         "WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')"
     ).fetchall()
-    if any(seg_sport(s) == 'run' for s in segments):     # phone-recorded runs live in Workout
-        activities = list(activities) + db.execute(
-            "SELECT id, startDateLocal, streams, sport AS sportType FROM Workout "
-            "WHERE sport='Run' AND streams IS NOT NULL AND streams NOT IN ('null', '{}')").fetchall()
 
     for act in activities:
         scan_activity_against_segments(db, act, segments)

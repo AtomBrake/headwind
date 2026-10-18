@@ -241,12 +241,12 @@ def assign_rides(db, rider_id, bike_id, dates=None, date_from=None, date_to=None
         if not b or b['riderId'] != rider_id:
             raise ValueError('that bike is not available')
     sel, args = _selection_sql(dates, date_from, date_to)
-    base = f'FROM Activity a WHERE a.riderId=? AND {RIDE_SQL} AND {sel}'
+    base = f'FROM Ride a WHERE a.riderId=? AND {RIDE_SQL} AND {sel}'
     matched = db.execute(f'SELECT COUNT(*) {base}', [rider_id] + args).fetchone()[0]
     skip = ' AND a.bikeId IS NULL' if only_unassigned and bike_id is not None else ''
     already = ' AND (a.bikeId IS NOT ?)'
     changing = db.execute(f'SELECT COUNT(*) {base}{skip}{already}', [rider_id] + args + [bike_id]).fetchone()[0]
-    prev = db.execute(f'SELECT a.bikeId, COUNT(*) FROM Activity a WHERE a.riderId=? AND {RIDE_SQL} AND {sel}{skip}{already} GROUP BY a.bikeId', [rider_id] + args + [bike_id]).fetchall()
+    prev = db.execute(f'SELECT a.bikeId, COUNT(*) FROM Ride a WHERE a.riderId=? AND {RIDE_SQL} AND {sel}{skip}{already} GROUP BY a.bikeId', [rider_id] + args + [bike_id]).fetchall()
     out = {'matched': matched, 'changed': changing, 'previous': {str(r[0]) if r[0] is not None else 'none': r[1] for r in prev}}
     if not dry_run and changing:
         db.execute(f'UPDATE Activity SET bikeId=? WHERE id IN (SELECT a.id {base}{skip}{already})', [bike_id, rider_id] + args + [bike_id])
@@ -257,7 +257,7 @@ def calendar_month(db, rider_id, year, month):
     """{ 'YYYY-MM-DD': {'n': rides, 'unassigned': n, 'bikes': {bikeId: n}} } for one month (rides only)."""
     first = date(year, month, 1)
     last = (date(year + (month == 12), (month % 12) + 1, 1) - timedelta(days=1))
-    rows = db.execute(f'''SELECT substr(a.startDateLocal,1,10) d, a.bikeId b, COUNT(*) n FROM Activity a
+    rows = db.execute(f'''SELECT substr(a.startDateLocal,1,10) d, a.bikeId b, COUNT(*) n FROM Ride a
                           WHERE a.riderId=? AND {RIDE_SQL} AND substr(a.startDateLocal,1,10) BETWEEN ? AND ? GROUP BY d, b''', [rider_id, first.isoformat(), last.isoformat()]).fetchall()
     out = {}
     for r in rows:
@@ -272,8 +272,8 @@ def calendar_month(db, rider_id, year, month):
 
 def ride_span(db, rider_id):
     """First / last ride date, how many rides have no bike, the oldest such ride, and the total, so the calendar can open somewhere useful."""
-    r = db.execute(f"SELECT MIN(substr(a.startDateLocal,1,10)), MAX(substr(a.startDateLocal,1,10)), SUM(a.bikeId IS NULL), COUNT(*) FROM Activity a WHERE a.riderId=? AND {RIDE_SQL}", [rider_id]).fetchone()
-    fu = db.execute(f"SELECT MIN(substr(a.startDateLocal,1,10)) FROM Activity a WHERE a.riderId=? AND {RIDE_SQL} AND a.bikeId IS NULL", [rider_id]).fetchone()[0]
+    r = db.execute(f"SELECT MIN(substr(a.startDateLocal,1,10)), MAX(substr(a.startDateLocal,1,10)), SUM(a.bikeId IS NULL), COUNT(*) FROM Ride a WHERE a.riderId=? AND {RIDE_SQL}", [rider_id]).fetchone()
+    fu = db.execute(f"SELECT MIN(substr(a.startDateLocal,1,10)) FROM Ride a WHERE a.riderId=? AND {RIDE_SQL} AND a.bikeId IS NULL", [rider_id]).fetchone()[0]
     return {'first': r[0], 'last': r[1], 'unassigned': r[2] or 0, 'total': r[3] or 0, 'first_unassigned': fu}
 
 

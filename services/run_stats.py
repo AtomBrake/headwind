@@ -65,13 +65,10 @@ def index_run(db, run_id, run_date, streams_json):
 
 
 def _runs(rid):
-    """Every run for the rider, newest first, from both tables."""
+    """Every run for the rider, newest first (the Workout view has every run, from any source)."""
     rows = []
     for r in query_db("SELECT id, name, startDateLocal d, distance, movingTime, totalElevationGain gain, averageHeartrate hr, streams, 'workout' kind "
                       "FROM Workout WHERE riderId=? AND sport='Run' AND distance>=? AND movingTime>=?", [rid, MIN_RUN_M, MIN_RUN_S]):
-        rows.append(dict(r))
-    for r in query_db("SELECT id, name, startDateLocal d, distance, movingTime, totalElevationGain gain, averageHeartrate hr, streams, 'activity' kind "
-                      "FROM Activity WHERE riderId=? AND sportType='Run' AND distance>=? AND movingTime>=?", [rid, MIN_RUN_M, MIN_RUN_S]):
         rows.append(dict(r))
     rows.sort(key=lambda r: r['d'] or '', reverse=True)
     return rows
