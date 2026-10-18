@@ -9,6 +9,8 @@
 
 # Personal avatar photos
 static/avatars/rider_*.jpg
+# The default picture, copied in from static/img at startup
+static/avatars/custard_cream.svg
 
 # Garmin auth tokens
 .garmin_tokens/
