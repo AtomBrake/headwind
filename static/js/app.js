@@ -64,3 +64,16 @@ function getKudos(rid) {
       alert('Request failed');
     });
 }
+
+// Safari draws an empty date field with today's date in it, which reads as a value. Mark empty ones so the CSS can dim them.
+(function () {
+  function mark(el) { el.classList.toggle('is-empty', !el.value); }
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('input[type="date"]').forEach(mark);
+  });
+  ['input', 'change'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+      if (e.target.matches && e.target.matches('input[type="date"]')) mark(e.target);
+    });
+  });
+})();
