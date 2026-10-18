@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.6-beta] - 2026-10-18
+
+Migration: one `Settings` column (`awayStartRecheckDone`), added automatically at startup, and a one-time duplicate recheck (below). No Android change.
+
+### Fixed
+- **Activities recorded away from your home time zone were kept twice** when Garmin and Strava (or a file) both had them, e.g. a walk in Vancouver with London as home. Garmin gives the local time where the activity happened, and the duplicate check read it in the home time zone. So the Garmin copy sat 8 hours away from its Strava twin and never overlapped it. Matching now uses the UTC start time that every source already stores. At start-up, rides whose two start times disagree this way are checked once more for a twin. The weaker copy (normally the Strava or file one) is set aside, not deleted, and can be swapped back from the ride page. The result is on the Tasks page. The side-by-side view of two recordings lines them up on the same instant too. Runs and walks that Garmin saved as workouts are still not compared with a Strava copy saved as a ride; that needs the two tables merged. `services/duplicates.start_instant`, `services/start_times.recheck_away_starts`, `tests/test_duplicates.py`, `tests/test_start_times.py`, `tests/test_garmin_sync.py`.
+
 ## [0.6.5-beta] - 2026-10-18
 
 No migration. No Android change.

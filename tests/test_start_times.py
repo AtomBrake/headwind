@@ -11,7 +11,7 @@ import database
 from routes import import_rides
 from services import duplicates
 from services.parser import _utc_iso
-from services.start_times import fix_utc_starts
+from services.start_times import fix_utc_starts, recheck_away_starts
 
 STREAMS = '{}'
 
@@ -24,7 +24,7 @@ def db(tmp_path):
         database.migrate_db()
         d = database.get_db()
         d.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
-        d.execute("UPDATE Settings SET utcStartFixDone=0 WHERE id=1")
+        d.execute("UPDATE Settings SET utcStartFixDone=0, awayStartRecheckDone=0 WHERE id=1")
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
         d.commit()
         yield d
@@ -77,3 +77,15 @@ def test_an_import_with_no_twin_just_gets_the_right_time(db):
     add(db, '777', '2026-08-03T06:15:00', '2026-08-03T06:15:00')
     assert fix_utc_starts(db) == {'moved': 1, 'duplicates': 0, 'ran': True}
     assert db.execute("SELECT startDate, startDateLocal FROM Activity WHERE id='777'").fetchone()[:] == ('2026-08-03T06:15:00', '2026-08-03T07:15:00')
+
+
+def test_twins_recorded_abroad_are_found_once(db):
+    """Saved before matching used the UTC instant: a Garmin walk in Vancouver (local 15:10) and its Strava copy (London 23:10) were both kept."""
+    add(db, 'garmin_1', '2026-07-26T22:10:00', '2026-07-26T15:10:00', dist=3900.0, secs=3689, hr=110, sport='Walk')
+    add(db, '123', '2026-07-26T22:10:00', '2026-07-26T23:10:00', dist=3900.0, secs=3689, sport='Walk')
+    add(db, '124', '2026-07-27T09:00:00', '2026-07-27T10:00:00', dist=3900.0, secs=3689, sport='Walk')   # another day: left alone
+    res = recheck_away_starts(db)
+    assert res == {'checked': 1, 'duplicates': 1, 'ran': True}
+    assert sorted(r[0] for r in db.execute('SELECT id FROM Activity')) == ['124', 'garmin_1']
+    assert tuple(db.execute("SELECT primaryId, status FROM ActivityDuplicate WHERE id='123'").fetchone()) == ('garmin_1', 'parked')
+    assert recheck_away_starts(db)['ran'] is False
