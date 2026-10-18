@@ -143,6 +143,22 @@ def test_merges_from_before_the_name_rule_get_the_chosen_name_back_once(db):
     assert not dup.recover_names(db)['ran'] and db.execute("SELECT name FROM Activity WHERE id='garmin_1'").fetchone()[0] == 'London Cycling'
 
 
+def test_the_name_check_never_sorts_the_parked_copies(db):
+    """0.7.1-beta failed to start on a large install: sorting every parked copy's rowJson (a whole activity, streams and all) filled the disk."""
+    _add(db, 'garmin_1', '2026-10-05T11:30:53', name='London Cycling')
+    db.execute("INSERT INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson) VALUES ('imp_1','garmin_1',1,'Phone or file','old','parked',?)",
+               [json.dumps({'id': 'imp_1', 'name': 'Box Hill loop', 'streams': 'x' * 100_000})])
+    db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
+    db.execute('UPDATE Settings SET dupNameFixDone=0 WHERE id=1'); db.commit()
+    seen = []
+    db.set_trace_callback(seen.append)
+    try:
+        assert dup.recover_names(db)['renamed'] == 1
+    finally:
+        db.set_trace_callback(None)
+    assert not [q for q in seen if 'rowJson' in q and 'ORDER BY' in q.upper()]
+
+
 def test_a_later_worse_copy_is_parked_instead_of_added(db):
     _add(db, 'garmin_1', '2026-10-05T11:30:53', hr=140)
     _add(db, 'imp_phone', '2026-10-05T10:29:38+00:00')
