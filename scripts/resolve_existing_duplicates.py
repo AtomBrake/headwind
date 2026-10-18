@@ -6,7 +6,7 @@
   python3 scripts/resolve_existing_duplicates.py --apply --db /path/to/other.db
 
 Duplicates are PARKED, never deleted (open the kept ride to switch, keep both or delete). Time fix: a GPX imported before 2026-10-05 stored its UTC
-time in startDateLocal (an hour early in summer); those rows are rewritten to UTC instant + London local, like Garmin rides.
+time in startDateLocal (an hour early in summer); those rows are rewritten to UTC instant + home-zone local (Settings.timeZone), like Garmin rides.
 """
 import argparse
 import os
@@ -15,6 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from services import duplicates as dup
+from services import tz
 
 ap = argparse.ArgumentParser()
 ap.add_argument('--apply', action='store_true')
@@ -30,6 +31,7 @@ if args.db is None:
     args.db = dotenv_values(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')).get('DATABASE_URL')
 db = sqlite3.connect(args.db, timeout=60)
 db.row_factory = sqlite3.Row
+tz.pin_from(db)
 print(('APPLYING to ' if args.apply else 'DRY RUN on ') + args.db)
 
 # 1) time labels
@@ -37,7 +39,7 @@ fix = [r for r in db.execute("SELECT id, startDate, startDateLocal FROM Activity
 print(f'\n{len(fix)} ride(s) with a UTC time stored as local:')
 for r in fix:
     utc = dup.instant(r['startDateLocal'])
-    new_local = utc.astimezone(dup.LOCAL).strftime('%Y-%m-%dT%H:%M:%S')
+    new_local = utc.astimezone(tz.zone()).strftime('%Y-%m-%dT%H:%M:%S')
     print(f"  {r['id']}: {r['startDateLocal']} -> local {new_local}")
     if args.apply and (args.all or r['id'] in only):
         db.execute('UPDATE Activity SET startDate=?, startDateLocal=? WHERE id=?', [utc.strftime('%Y-%m-%dT%H:%M:%S'), new_local, r['id']])

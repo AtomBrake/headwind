@@ -716,7 +716,7 @@
       <p style="font-size:0.78rem; color:var(--text-muted); margin:0.5rem 0;">Everyday burn (BMR × activity from your step goal) plus a fixed allowance for a typical week of riding, minus the deficit for your loss rate. Only your weight moves it — a big or missed ride never changes the goal — and it never goes below 1.1 × BMR.</p>
       <div class="form-row">
         <div class="form-group"><label>Sex</label><select id="sgSex"><option value="">—</option><option value="male">Male</option><option value="female">Female</option></select></div>
-        <div class="form-group"><label>Age</label><input type="number" id="sgAge" min="16" max="100" inputmode="numeric"></div>
+        <div class="form-group"><label>Date of birth</label><input type="date" id="sgBorn"><small id="sgBornHint" style="color:var(--text-muted);"></small></div>
       </div>
       <div class="form-row">
         <div class="form-group"><label>Height (cm)</label><input type="number" id="sgHeight" min="120" max="230" step="1" inputmode="numeric"></div>
@@ -1834,7 +1834,7 @@ async function sgLoad() {
   const d = await (await fetch('/nutrition/api/goal-plan')).json();
   const p = d.profile;
   document.getElementById('sgSex').value = p.sex || '';
-  document.getElementById('sgAge').value = p.age || '';
+  sgBornShow(p);
   document.getElementById('sgHeight').value = p.height_cm || '';
   document.getElementById('sgRides').value = p.ride_kcal_week;
   document.getElementById('sgRideGoal').value = p.ride_goal_week;
@@ -1842,6 +1842,10 @@ async function sgLoad() {
   document.getElementById('sgSteps').value = p.step_goal;
   document.getElementById('sgAuto').checked = !!p.auto;
   sgRender(d.plan, d.current);
+}
+function sgBornShow(p) {
+  document.getElementById('sgBorn').value = (!p.birth_date_guessed && p.birth_date) || '';
+  document.getElementById('sgBornHint').textContent = p.birth_date_guessed ? `Only the year (${p.birth_date.slice(0, 4)}) is known: enter the full date.` : (p.age ? `Age ${p.age}` : '');
 }
 function sgRender(pl, cur) {
   const box = document.getElementById('sgPlan');
@@ -1857,15 +1861,16 @@ function sgRender(pl, cur) {
 }
 async function sgSave() {
   const r = await fetch('/nutrition/api/goal-profile', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
-    sex: document.getElementById('sgSex').value, age: document.getElementById('sgAge').value, height_cm: document.getElementById('sgHeight').value,
+    sex: document.getElementById('sgSex').value, birth_date: document.getElementById('sgBorn').value, height_cm: document.getElementById('sgHeight').value,
     ride_kcal_week: document.getElementById('sgRides').value, ride_goal_week: document.getElementById('sgRideGoal').value, loss_lb_week: document.getElementById('sgLoss').value,
     step_goal: document.getElementById('sgSteps').value, auto: document.getElementById('sgAuto').checked }) });
   const d = await r.json();
   if (!r.ok) { document.getElementById('sgPlan').textContent = d.error; return; }
+  sgBornShow(d.profile);
   const cur = await (await fetch('/nutrition/api/goals')).json();
   sgRender(d.plan, cur);
 }
-['sgSex','sgAge','sgHeight','sgRides','sgRideGoal','sgLoss','sgSteps','sgAuto'].forEach(id => document.getElementById(id).addEventListener('change', sgSave));
+['sgSex','sgBorn','sgHeight','sgRides','sgRideGoal','sgLoss','sgSteps','sgAuto'].forEach(id => document.getElementById(id).addEventListener('change', sgSave));
 document.getElementById('sgApply').addEventListener('click', async () => {
   const r = await fetch('/nutrition/api/goal-plan/apply', { method: 'POST' });
   if (!r.ok) return;
