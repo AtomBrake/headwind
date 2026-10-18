@@ -169,6 +169,12 @@ def overview(db):
         except Exception:
             pass
 
+    # The activity type check started on the Activity types page (routes/garmin.py)
+    c = last(db, 'sport_check')
+    if c:
+        jobs.append(_card('Activity type check', c['status'], c['error'] or c['result'] or 'Asking Garmin for the type of each Garmin ride…',
+                          c['finishedAt'], {'url': '/garmin/sports', 'label': 'Open'}))
+
     # An import started on the Import page
     try:
         from routes import import_rides

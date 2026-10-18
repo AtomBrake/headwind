@@ -11,9 +11,17 @@
     counted in your ride totals and flagged as rides that look wrong. Runs, walks and hikes were also kept with the rides instead of in Workouts.
     This asks Garmin for the real type of each Garmin ride and lists the ones that are wrong. Nothing changes until you apply it.
   </p>
+  {% set running = check and check.status == 'running' %}
   <form method="POST" action="{{ url_for('garmin.sports_check') }}" onsubmit="this.querySelector('button').disabled = true; this.querySelector('button').textContent = 'Asking Garmin… this can take a minute';" style="margin:0;">
-    <button class="btn btn-primary" type="submit">Check with Garmin</button>
+    <button class="btn btn-primary" type="submit"{% if running %} disabled{% endif %}>{{ 'Asking Garmin… this can take a minute' if running else 'Check with Garmin' }}</button>
   </form>
+  {% if running %}
+  <p style="color:var(--text-muted); font-size:0.8125rem; margin:0.6rem 0 0;">It carries on if you leave this page; the Tasks page shows how it's going. This page updates itself when it's done.</p>
+  {% elif check and not msg %}
+  <div style="margin-top:0.75rem; padding:0.5rem 0.8rem; border:1px solid var(--border); border-radius:8px; font-size:0.875rem;">
+    {{ check.error or check.result }} <span style="color:var(--text-muted);">· last checked <span data-when="{{ check.finishedAt }}">{{ check.finishedAt }}</span></span>
+  </div>
+  {% endif %}
   {% if msg %}<div style="margin-top:0.75rem; padding:0.5rem 0.8rem; border:1px solid var(--border); border-radius:8px; font-size:0.875rem;">{{ msg }}</div>{% endif %}
 </div>
 
@@ -45,4 +53,19 @@
   <div style="margin-top:1rem;"><button class="btn btn-primary" type="submit">Apply the ticked changes</button></div>
 </form>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// stored in UTC: show in this browser's time, as on the Tasks page
+document.querySelectorAll('[data-when]').forEach(function (el) {
+  var d = new Date(el.dataset.when);
+  if (isNaN(d)) return;
+  var t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  el.textContent = (d.toDateString() === new Date().toDateString() ? 'today ' : d.getDate() + ' ' + _MONTHS[d.getMonth()] + ' ') + t;
+});
+{% if check and check.status == 'running' %}
+setTimeout(function () { location.reload(); }, 5000);
+{% endif %}
+</script>
 {% endblock %}
