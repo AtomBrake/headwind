@@ -272,6 +272,8 @@ def create_app():
     app.template_filter('fmt_speed')(lambda mps, places=1: _units.fmt_speed(mps, places=places))
     app.template_filter('fmt_pace')(lambda mps: _units.fmt_pace(mps))
     app.template_filter('pace_mi')(lambda mps: _units.fmt_pace(mps))       # old name, still used by a few templates
+    from services import sports as _sports
+    app.template_filter('fmt_rate')(lambda mps, sport: _units.fmt_rate(mps, _sports.rate_style(sport)))   # speed, pace or per 100 m, by sport
     app.template_filter('dist_val')(lambda m: _units.dist(m))
     app.template_filter('elev_val')(lambda m: _units.elev(m))
     app.template_filter('speed_val')(lambda mps: _units.speed(mps))
@@ -285,6 +287,12 @@ def create_app():
         if days:
             return f'{days}d {h:02d}h {m:02d}m {s:02d}s'
         return f'{h}:{m:02d}:{s:02d}' if h else f'{m}:{s:02d}'
+
+    @app.template_filter('fmt_hours')
+    def fmt_hours(secs):
+        """A long total: '312h 05m', or '45m' under an hour."""
+        h, m = divmod(int(secs or 0) // 60, 60)
+        return f'{h:,}h {m:02d}m' if h else f'{m}m'
 
     @app.template_filter('fmt_date')
     def fmt_date(val):

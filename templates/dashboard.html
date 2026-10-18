@@ -60,7 +60,12 @@
   {% endif %}
 </div>
 
-<!-- Primary lifetime stats -->
+{% set form_id = 'dashFilter' %}{% include '_sport_filter.html' %}
+
+<!-- Primary lifetime stats: a distance only when the sports left in share one (sf.group); otherwise time, calories and climbing, and each group's distance -->
+{% set th = ((totals.secs or 0) // 3600) %}
+{% set tm = (((totals.secs or 0) % 3600) // 60) %}
+{% if sf.group %}
 <div class="metric-row">
   <a class="metric-tile dash-link" href="#ride-history">
     <div class="m-icon">{% include 'icons/_bars.svg' %}</div>
@@ -86,8 +91,6 @@
   <a class="metric-tile dash-link" href="{{ data_url }}#calendar">
     <div class="m-icon">{% include 'icons/_pulse.svg' %}</div>
     <div>
-      {% set th = ((totals.secs or 0) // 3600) %}
-      {% set tm = (((totals.secs or 0) % 3600) // 60) %}
       <div class="m-value">{{ th }}h {{ tm }}m</div>
       <div class="m-label">Total Time</div>
     </div>
@@ -109,6 +112,55 @@
     <span class="m-label">calories burned</span>
   </a>
 </div>
+{% else %}
+<div class="metric-row">
+  <a class="metric-tile dash-link" href="#ride-history">
+    <div class="m-icon">{% include 'icons/_bars.svg' %}</div>
+    <div>
+      <div class="m-value">{{ totals.rides or 0 }}</div>
+      <div class="m-label">Activities</div>
+    </div>
+  </a>
+  <a class="metric-tile dash-link" href="{{ data_url }}#calendar">
+    <div class="m-icon">{% include 'icons/_pulse.svg' %}</div>
+    <div>
+      <div class="m-value">{{ th }}h {{ tm }}m</div>
+      <div class="m-label">Total Time</div>
+    </div>
+  </a>
+  <a class="metric-tile dash-link" href="{{ data_url }}#calories">
+    <div class="m-icon">{% include 'icons/_heart.svg' %}</div>
+    <div>
+      <div class="m-value">{{ "{:,}".format((totals.cals or 0) | int) }}</div>
+      <div class="m-label">Calories</div>
+    </div>
+  </a>
+  <a class="metric-tile dash-link" href="{{ data_url }}#climbing">
+    <div class="m-icon">{% include 'icons/_pin.svg' %}</div>
+    <div>
+      <div class="m-value">{{ (totals.elev or 0) | fmt_elev }}</div>
+      <div class="m-label">Total Elevation</div>
+    </div>
+  </a>
+</div>
+
+{# One distance per group (rides, on foot, swims, ...), never one sum; each opens the dashboard with only that group. #}
+{% set dist_groups = group_totals | selectattr('dist') | list %}
+<div class="metric-row-sub">
+  {% for g in dist_groups[:3] %}
+  <a class="metric-tile-sub dash-link" href="{{ g.href }}" title="{{ g.n }} activit{{ 'y' if g.n == 1 else 'ies' }}: show only these">
+    <span class="m-value">{{ g.dist | fmt_dist }}</span>
+    <span class="m-label">{{ g.icon }} {{ g.label | lower }}</span>
+  </a>
+  {% endfor %}
+  {% if dist_groups | length < 3 %}
+  <a class="metric-tile-sub dash-link" href="{{ data_url }}#climbing">
+    <span class="m-value">{{ "%.1f"|format((totals.elev or 0) / 8849) }}&times;</span>
+    <span class="m-label">Mt. Everests climbed</span>
+  </a>
+  {% endif %}
+</div>
+{% endif %}
 
 <!-- Performance chart -->
 <div class="card chart-card">
@@ -118,10 +170,17 @@
       <div class="sub" id="chartSubtitle">Last 12 weeks</div>
     </div>
     <div class="seg-tabs" id="chartTabs">
+      {% if sf.group %}
       <button type="button" class="seg-btn active" data-metric="distance">Distance</button>
-      <button type="button" class="seg-btn" data-metric="elevation">Elevation</button>
-      <button type="button" class="seg-btn" data-metric="speed">Speed</button>
+      {% if sf.group != 'swim' %}<button type="button" class="seg-btn" data-metric="elevation">Elevation</button>{% endif %}
+      <button type="button" class="seg-btn" data-metric="speed">{{ 'Speed' if sf.style == 'speed' else 'Pace' }}</button>
+      <button type="button" class="seg-btn" data-metric="time">Time</button>
       <button type="button" class="seg-btn" data-metric="calories">Calories</button>
+      {% else %}
+      <button type="button" class="seg-btn active" data-metric="time">Time</button>
+      <button type="button" class="seg-btn" data-metric="calories">Calories</button>
+      <button type="button" class="seg-btn" data-metric="elevation">Elevation</button>
+      {% endif %}
     </div>
   </div>
   <div style="height:260px; position:relative;">
@@ -139,7 +198,7 @@
     {% if activities %}
     <table class="table-compact">
       <thead>
-        <tr><th>Date</th><th>Name</th><th>Distance</th><th>Time</th><th>Avg Speed</th><th>Elevation</th></tr>
+        <tr><th>Date</th><th>Name</th><th>Distance</th><th>Time</th><th>{{ {'speed': 'Avg Speed', 'pace': 'Avg Pace', 'swim': 'Pace /100 m'}.get(sf.style, 'Speed / Pace') }}</th><th>Elevation</th></tr>
       </thead>
       <tbody>
         {% for a in activities[:6] %}
@@ -148,7 +207,7 @@
           <td style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><a href="/rides/{{ a.id }}" class="dash-link">{{ a.sportType | sport_icon }} {{ a.name }}</a></td>
           <td>{{ a.distance | fmt_dist }}</td>
           <td>{{ a.movingTime | fmt_duration }}</td>
-          <td>{{ a.averageSpeed | fmt_speed }}</td>
+          <td>{{ a.averageSpeed | fmt_rate(a.sportType) }}</td>
           <td>{{ a.totalElevationGain | fmt_elev if a.totalElevationGain else '—' }}</td>
         </tr>
         {% endfor %}
@@ -228,11 +287,11 @@ function dismissFlagged(id) {
 {% endif %}
 
 <!-- Search / Filter -->
-<form method="GET" action="/dashboard" class="toolbar" onsubmit="if (window.sportSkips) sportSkips(this)">
+<form method="GET" action="/dashboard" class="toolbar" id="dashFilter" onsubmit="if (window.sportSkips) sportSkips(this)">
   {% if not active_rider.isDefault %}<input type="hidden" name="rider" value="{{ active_rider.id }}">{% endif %}
   <div class="form-group-sm" style="flex:2; min-width:140px;">
     <label>Name</label>
-    <input type="text" name="q" value="{{ q }}" placeholder="Search rides…">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search activities…">
   </div>
   <div class="form-group-sm" style="flex:1; min-width:110px;">
     <label>From</label>
@@ -250,37 +309,10 @@ function dismissFlagged(id) {
     <label>Max {{ U.dist }}</label>
     <input type="number" name="max_dist" value="{{ max_dist }}" placeholder="&infin;" min="0" step="1">
   </div>
-  <div class="form-group-sm" style="flex:1; min-width:110px;">
-    <label>Sport</label>
-    <select name="sport">
-      <option value="">All</option>
-      {% for st in sport_types %}
-      <option value="{{ st.sportType }}" {% if sport == st.sportType %}selected{% endif %}>{{ st.sportType }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  {% if sport_types | length > 1 %}
-  {# Every sport is ticked to start with; unticking one leaves it out. The URL lists only the ones left out (skip=), so a sport that turns up later is shown. #}
-  <div class="sport-include">
-    <span class="sport-include-label">Include</span>
-    {% for st in sport_types %}
-    <label><input type="checkbox" data-sport value="{{ st.sportType }}" {% if st.sportType not in skip %}checked{% endif %} onchange="sportSkips(this.form); this.form.submit()"> {{ st.sportType | sport_icon }} {{ st.sportType }}</label>
-    {% endfor %}
-    {% if skip %}<button type="button" class="sport-include-all" onclick="this.form.querySelectorAll('input[data-sport]').forEach(b => b.checked = true); sportSkips(this.form); this.form.submit()">Tick all</button>{% endif %}
-  </div>
-  <script>
-  function sportSkips(form) {                 // the unticked sports become skip=… on the form, for both the tick boxes and the Search button
-    form.querySelectorAll('input[name="skip"]').forEach(i => i.remove());
-    form.querySelectorAll('input[data-sport]:not(:checked)').forEach(b => {
-      const h = document.createElement('input'); h.type = 'hidden'; h.name = 'skip'; h.value = b.value; form.appendChild(h);
-    });
-  }
-  </script>
-  {% endif %}
   <div style="display:flex; gap:0.4rem;">
     <button type="submit" class="btn btn-primary" style="padding:0.35rem 0.9rem; font-size:0.875rem;">Search</button>
     {% if is_filtered %}
-    <a href="/dashboard{% if not active_rider.isDefault %}?rider={{ active_rider.id }}{% endif %}" class="btn btn-secondary" style="padding:0.35rem 0.75rem; font-size:0.875rem;">&times; Clear</a>
+    <a href="/dashboard{% if rq %}?{{ rq }}{% endif %}" class="btn btn-secondary" style="padding:0.35rem 0.75rem; font-size:0.875rem;">&times; Clear</a>
     {% endif %}
   </div>
 </form>
@@ -321,7 +353,7 @@ function dismissFlagged(id) {
           {{ a.startDateLocal | fmt_date }}
           &nbsp;·&nbsp;<span style="color:var(--text);">{{ a.distance | fmt_dist }}</span>
           &nbsp;·&nbsp;{{ a.movingTime | fmt_duration }}
-          &nbsp;·&nbsp;{{ a.averageSpeed | fmt_speed }}
+          &nbsp;·&nbsp;{{ a.averageSpeed | fmt_rate(a.sportType) }}
           {% if a.totalElevationGain %}&nbsp;·&nbsp;{{ a.totalElevationGain | fmt_elev }}{% endif %}
         </div>
       </div>
@@ -338,7 +370,7 @@ function dismissFlagged(id) {
     <details class="tree-year" {% if yr.is_current %}open{% endif %}>
       <summary class="tree-year-summary">
         <span class="tree-year-label">{{ yr.year }}</span>
-        <span class="tree-meta">{{ yr.count }} activities &middot; {{ yr.dist | fmt_dist }} &middot; {{ yr.elev | fmt_elev }}</span>
+        <span class="tree-meta">{{ yr.count }} activities &middot; {{ yr.dist | fmt_dist if sf.group else yr.secs | fmt_hours }} &middot; {{ yr.elev | fmt_elev }}</span>
         <a class="tree-list-link" href="{{ list_url(yr.year ~ '-01-01', yr.year ~ '-12-31') }}" title="List every activity in {{ yr.year }}">List</a>
       </summary>
 
@@ -346,7 +378,7 @@ function dismissFlagged(id) {
       <details class="tree-month" {% if mo.is_current %}open{% endif %}>
         <summary class="tree-month-summary">
           <span class="tree-month-label">{{ mo.name }}</span>
-          <span class="tree-meta">{{ mo.count }} activities &middot; {{ mo.dist | fmt_dist }}</span>
+          <span class="tree-meta">{{ mo.count }} activities &middot; {{ mo.dist | fmt_dist if sf.group else mo.secs | fmt_hours }}</span>
           <a class="tree-list-link" href="{{ list_url(mo.from, mo.to) }}" title="List every activity in {{ mo.name }} {{ yr.year }}">List</a>
         </summary>
 
@@ -354,7 +386,7 @@ function dismissFlagged(id) {
         <div class="tree-day">
           <div class="tree-day-header">
             <a href="{{ list_url(day.from, day.from) }}" class="dash-link">{{ day.label }}</a>
-            <span class="tree-meta">{{ day.count }} activit{% if day.count != 1 %}ies{% else %}y{% endif %} &middot; {{ day.dist | fmt_dist }}</span>
+            <span class="tree-meta">{{ day.count }} activit{% if day.count != 1 %}ies{% else %}y{% endif %} &middot; {{ day.dist | fmt_dist if sf.group else day.secs | fmt_duration }}</span>
           </div>
           <div>
               {% for a in day.activities %}
@@ -373,7 +405,7 @@ function dismissFlagged(id) {
                   <div style="font-size:0.775rem; color:var(--text-muted); margin-top:0.15rem; font-variant-numeric:tabular-nums;">
                     <span style="color:var(--text);">{{ a.distance | fmt_dist }}</span>
                     &nbsp;·&nbsp;{{ a.movingTime | fmt_duration }}
-                    &nbsp;·&nbsp;{{ a.averageSpeed | fmt_speed }}
+                    &nbsp;·&nbsp;{{ a.averageSpeed | fmt_rate(a.sportType) }}
                     {% if a.totalElevationGain %}&nbsp;·&nbsp;{{ a.totalElevationGain | fmt_elev }}{% endif %}
                   </div>
                 </div>
@@ -420,32 +452,45 @@ function dismissFlagged(id) {
 const weeklyData   = {{ weekly | tojson }};
 const yearSpeedData = {{ year_speed | tojson }};
 const riderQuery    = {{ rider_query | tojson }};
+const chartGroups   = {{ chart_groups | tojson }};   // one stack per stat group (rides, on foot, swims, ...), services/sport_filter.chart_groups
+const rateStyle     = {{ sf.style | tojson }};       // 'speed', 'pace' or 'swim' when the sports left in share a distance, else null
 
-// A bar opens that week's activities (the search below already filters by date); a point on the speed line opens that ride.
+// A bar opens that week's activities (the search below already filters by date); a point on the speed line opens that activity.
 const weekLinks = weeklyData.map(w => '/dashboard?' + (riderQuery ? riderQuery + '&' : '') + 'from=' + w.from + '&to=' + w.to + '#ride-history');
 
 const TICK_COLOR = '#4d7d95';
 const GRID_COLOR = '#163352';
 
-function baseScales(yUnit) {
+function baseScales(yUnit, opts) {
+  opts = opts || {};
   return {
-    x: { ticks: { color: TICK_COLOR, font: { size: 11 } }, grid: { display: false } },
-    y: { ticks: { color: TICK_COLOR, font: { size: 11 }, callback: v => v + (yUnit ? (' ' + yUnit) : '') },
-         grid: { color: GRID_COLOR }, beginAtZero: true }
+    x: { stacked: !!opts.stacked, ticks: { color: TICK_COLOR, font: { size: 11 } }, grid: { display: false } },
+    y: { stacked: !!opts.stacked, reverse: !!opts.reverse, beginAtZero: !opts.reverse, grid: { color: GRID_COLOR },
+         ticks: { color: TICK_COLOR, font: { size: 11 }, callback: opts.tick || (v => v + (yUnit ? (' ' + yUnit) : '')) } }
   };
 }
 
+// Weekly bars, one stack per group: a week of runs and a ride shows both, each in its own colour. With one group it is a plain bar.
+function weekly(label, value, fmt) {
+  return { type: 'bar', label, sub: 'Last 12 weeks', labels: weeklyData.map(w => w.label), links: weekLinks, hint: 'Click to see this week\'s activities', stacked: true, fmt,
+           datasets: chartGroups.map(g => ({ label: g.label, color: 'rgb(' + g.color + ')', data: weeklyData.map(w => value(w.by[g.key] || {})) })) };
+}
+const onePlace = v => +(v || 0).toFixed(1);
+const hm = h => { const mins = Math.round(h * 60); return Math.floor(mins / 60) + 'h ' + String(mins % 60).padStart(2, '0') + 'm'; };
 const METRICS = {
-  distance:  { type: 'bar',  label: UNITS.dist,  color: 'rgb(252,76,2)',  sub: 'Last 12 weeks',
-               labels: weeklyData.map(w => w.label), data: weeklyData.map(w => +UNITS.toDist(w.dist_m).toFixed(1)), links: weekLinks, hint: 'Click to see this week\'s activities' },
-  elevation: { type: 'bar',  label: UNITS.elev,  color: 'rgb(16,185,129)', sub: 'Last 12 weeks',
-               labels: weeklyData.map(w => w.label), data: weeklyData.map(w => Math.round(UNITS.toElev(w.elev_m))), links: weekLinks, hint: 'Click to see this week\'s activities' },
-  calories:  { type: 'bar',  label: 'kcal', color: 'rgb(168,85,247)', sub: 'Last 12 weeks',
-               labels: weeklyData.map(w => w.label), data: weeklyData.map(w => w.cals), links: weekLinks, hint: 'Click to see this week\'s activities' },
-  speed:     { type: 'line', label: UNITS.speed, color: 'rgb(252,76,2)', sub: 'This year, per ride',
-               labels: yearSpeedData.map(r => fmtDate(r.d)), data: yearSpeedData.map(r => +UNITS.toSpeed(r.mps).toFixed(1)),
-               names: yearSpeedData.map(r => r.name), links: yearSpeedData.map(r => '/rides/' + encodeURIComponent(r.id)), hint: 'Click to open this ride' },
+  distance:  weekly(UNITS.dist, t => onePlace(UNITS.toDist(t.dist_m)), v => v.toFixed(1) + ' ' + UNITS.dist),
+  elevation: weekly(UNITS.elev, t => Math.round(UNITS.toElev(t.elev_m)), v => Math.round(v).toLocaleString() + ' ' + UNITS.elev),
+  calories:  weekly('kcal', t => t.cals || 0, v => Math.round(v).toLocaleString() + ' kcal'),
+  time:      weekly('h', t => +((t.secs || 0) / 3600).toFixed(2), hm),
 };
+if (rateStyle) {
+  const pace = rateStyle !== 'speed', unit = pace ? UNITS.paceLabel(rateStyle) : UNITS.speed;
+  METRICS.speed = { type: 'line', label: unit, sub: 'This year, per activity' + (pace ? ' (faster is higher)' : ''), labels: yearSpeedData.map(r => fmtDate(r.d)),
+                    names: yearSpeedData.map(r => r.name), links: yearSpeedData.map(r => '/rides/' + encodeURIComponent(r.id)), hint: 'Click to open this activity',
+                    reverse: pace, fmt: v => (pace ? UNITS.fmtMinSec(v) : v.toFixed(1)) + ' ' + unit, tick: pace ? (v => UNITS.fmtMinSec(v)) : null,
+                    datasets: [{ label: unit, color: 'rgb(' + (chartGroups[0] ? chartGroups[0].color : '252,76,2') + ')',
+                                 data: yearSpeedData.map(r => pace ? Math.round(UNITS.toPace(r.mps, rateStyle)) : onePlace(UNITS.toSpeed(r.mps))) }] };
+}
 
 let mainChart = null;
 function renderMainChart(metric) {
@@ -453,22 +498,24 @@ function renderMainChart(metric) {
   document.getElementById('chartSubtitle').textContent = m.sub;
   if (mainChart) mainChart.destroy();
   const isBar = m.type === 'bar';
+  const several = m.datasets.length > 1;
   mainChart = new Chart(document.getElementById('mainChart'), {
     type: m.type,
     data: {
       labels: m.labels,
-      datasets: [{
-        data: m.data,
-        backgroundColor: isBar ? m.color.replace('rgb', 'rgba').replace(')', ', 0.75)') : 'transparent',
-        borderColor: m.color,
+      datasets: m.datasets.map(d => ({
+        label: d.label,
+        data: d.data,
+        backgroundColor: isBar ? d.color.replace('rgb', 'rgba').replace(')', ', 0.75)') : 'transparent',
+        borderColor: d.color,
         borderWidth: isBar ? 1 : 2,
         borderRadius: isBar ? 3 : 0,
         pointRadius: isBar ? 0 : 3,
         pointHoverRadius: isBar ? 0 : 5,
-        pointBackgroundColor: m.color,
+        pointBackgroundColor: d.color,
         fill: false,
         tension: 0.3,
-      }]
+      }))
     },
     options: {
       animation: false,
@@ -477,21 +524,22 @@ function renderMainChart(metric) {
       onClick: (evt, els) => { if (els.length) location.href = m.links[els[0].index]; },
       onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
       plugins: {
-        legend: { display: false },
+        legend: { display: several, labels: { color: TICK_COLOR, boxWidth: 12 } },
         tooltip: {
+          filter: ctx => !several || ctx.parsed.y > 0,
           callbacks: {
             title: ctx => (m.names ? m.names[ctx[0].dataIndex] : ctx[0].label),
-            label: ctx => ctx.parsed.y.toFixed(1) + ' ' + m.label,
-            footer: () => m.hint,
+            label: ctx => (several ? ctx.dataset.label + ': ' : '') + m.fmt(ctx.parsed.y),
+            footer: ctx => (several && ctx.length > 1 ? 'Total ' + m.fmt(ctx.reduce((t, c) => t + c.parsed.y, 0)) + '\n' : '') + m.hint,
           }
         }
       },
-      scales: baseScales(m.label),
+      scales: baseScales(m.label, { stacked: m.stacked, reverse: m.reverse, tick: m.tick }),
     }
   });
 }
 
-renderMainChart('distance');
+renderMainChart(document.querySelector('#chartTabs .seg-btn.active').dataset.metric);
 document.getElementById('chartTabs').addEventListener('click', function (e) {
   const btn = e.target.closest('.seg-btn');
   if (!btn) return;

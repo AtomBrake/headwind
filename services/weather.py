@@ -335,15 +335,15 @@ def backfill_missing(db, limit=None, since_days=None, pause=0.15, on_each=None):
     return done, failed
 
 
-def fog_candidates(db, rider_id, sport=None, limit=300):
+def fog_candidates(db, rider_id, sports=None, limit=300):
     """Rides that were damp and still at the start (humidity 97%+, light wind, no rain, reported as clear / cloudy) and that nobody has confirmed or rejected.
     Fog is far too local for a weather model to report, so these are suggestions for the rider to confirm, never labelled automatically."""
     q = """SELECT id, name, startDateLocal, weatherHumidity, weatherWindKph, weatherTempC FROM Ride
            WHERE riderId=? AND weatherHumidity >= 97 AND weatherWindKph < 15 AND COALESCE(weatherRainMm, 0) < 0.1
              AND weatherCode IS NOT NULL AND weatherCode <= 3 AND weatherSource IS NULL"""
     args = [rider_id]
-    if sport:
-        q += " AND lower(sportType) LIKE ?"
-        args.append(f'%{sport.lower()}%')
+    if sports:                                            # (SQL condition, params) from services/sport_filter
+        q += f" AND {sports[0]}"
+        args += sports[1]
     q += " ORDER BY weatherHumidity DESC, weatherWindKph ASC, startDateLocal DESC LIMIT %d" % int(limit)
     return [dict(r) for r in db.execute(q, args).fetchall()]

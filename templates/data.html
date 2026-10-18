@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
-{% block title %}Ride Data{% endblock %}
-{% block page_title %}Ride Data{% endblock %}
+{% block title %}Analytics{% endblock %}
+{% block page_title %}Analytics{% endblock %}
 
 {% block head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -57,7 +57,7 @@
 {% if all_riders | length > 1 %}
 <div style="display:flex; gap:0.5rem; margin-bottom:1.25rem; flex-wrap:wrap;">
   {% for r in all_riders %}
-  <a href="{{ url_for('data.index', rider=r.id, sport=sport) }}"
+  <a href="{{ url_for('data.index', rider=r.id) }}"
      style="display:inline-flex; align-items:center; gap:0.5rem; padding:0.4rem 0.75rem 0.4rem 0.4rem;
             border-radius:999px; border:1px solid {% if r.id == active_rider.id %}var(--accent){% else %}var(--border){% endif %};
             background:{% if r.id == active_rider.id %}rgba(252,76,2,0.12){% else %}var(--card-bg){% endif %};
@@ -73,23 +73,16 @@
 </div>
 {% endif %}
 
-<div style="margin-bottom:1.25rem;">
-  <label style="font-size:0.75rem; color:var(--text-muted); display:block; margin-bottom:0.5rem;">Sport</label>
-  <form method="GET" action="/data" style="display:flex; gap:0.5rem;">
-    {% if not active_rider.isDefault %}<input type="hidden" name="rider" value="{{ active_rider.id }}">{% endif %}
-    <select name="sport" onchange="this.form.submit()" style="width:100%; max-width:200px; box-sizing:border-box; background-color:#0f2535; color:var(--text); border:1px solid var(--border); border-radius:5px; padding:0.35rem 0.6rem; font-size:0.875rem;">
-      <option value="">All Sports</option>
-      {% for st in sport_types %}
-      <option value="{{ st.sportType }}" {% if sport == st.sportType %}selected{% endif %}>{{ st.sportType }}</option>
-      {% endfor %}
-    </select>
-  </form>
-</div>
+<form method="GET" action="/data" id="dataFilter">{% if not active_rider.isDefault %}<input type="hidden" name="rider" value="{{ active_rider.id }}">{% endif %}</form>
+{% set form_id = 'dataFilter' %}{% include '_sport_filter.html' %}
+{% if not sf.kept %}<div class="card" style="margin-bottom:1.5rem; color:var(--text-muted); font-size:0.875rem;">Every sport is left out. Tick one above to see its charts.</div>{% endif %}
+{% set rides_tag %}{% if rides_only_note %}<span style="font-size:0.75rem; font-weight:400; color:var(--text-muted); margin-left:0.4rem;">rides only</span>{% endif %}{% endset %}
 
-<!-- Achievements -->
+<!-- Achievements (rides: services/best_efforts) -->
+{% if sf.has_rides %}
 <div class="card" id="records" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">
   <div style="padding:1rem 1.25rem; border-bottom:1px solid #1e4060; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
-    <div class="card-title" style="margin:0;">Achievements</div>
+    <div class="card-title" style="margin:0;">Achievements{{ rides_tag }}</div>
     <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
       <select id="recYear" onchange="renderRecords()" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
         {% for yr in records_by_year | sort(reverse=true) %}
@@ -135,12 +128,13 @@
   {% endif %}
   <div id="effortsStatus" style="padding:0.75rem 1.25rem; font-size:0.8125rem; color:var(--text-muted); display:none;"></div>
 </div>
+{% endif %}
 
 <!-- Climbing Records -->
 {% if climbing_by_year %}
 <div class="card" id="climbing" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">
   <div style="padding:1rem 1.25rem; border-bottom:1px solid #1e4060; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
-    <div class="card-title" style="margin:0;">Climbing Records</div>
+    <div class="card-title" style="margin:0;">Climbing Records{{ rides_tag }}</div>
     <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
       <select id="climbYear" onchange="renderClimbing()" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
         {% for yr in climbing_by_year | sort(reverse=true) %}
@@ -176,11 +170,13 @@
 </div>
 {% endif %}
 
-<!-- Speed over time -->
+<!-- Speed (or pace) over time: only when the sports left in share a distance -->
+{% if sf.group %}
 <div class="card" style="margin-bottom:1.5rem;">
-  <div class="card-title">Avg Speed Per Ride ({{ U.speed }})</div>
+  <div class="card-title">{% if sf.style == 'speed' %}Avg Speed Per Activity ({{ U.speed }}){% else %}Avg Pace Per Activity ({{ '/100 m' if sf.style == 'swim' else U.pace }}, faster is higher){% endif %}</div>
   <div class="cbox cbox-wide"><canvas id="speedChart"></canvas></div>
 </div>
+{% endif %}
 
 <!-- Calendar Heatmap -->
 <div class="card" id="calendar" style="margin-bottom:1.5rem;">
@@ -208,7 +204,7 @@
 <!-- Monthly + Year-on-Year -->
 <div class="chart-grid-2" id="distance">
   <div class="card">
-    <div class="card-title">Monthly Distance ({{ U.dist }})</div>
+    <div class="card-title">{% if dist_mode %}Monthly Distance ({{ U.dist }}){% else %}Monthly Time (hours){% endif %}</div>
     <div class="cbox cbox-half"><canvas id="monthlyChart"></canvas></div>
   </div>
   <div class="card">
@@ -219,25 +215,25 @@
 
 <!-- Calories over time -->
 <div class="card" id="calories" style="margin-bottom:1.5rem;">
-  <div class="card-title">Calories Burned Per Ride</div>
+  <div class="card-title">Calories Burned Per Activity</div>
   <div class="cbox cbox-wide"><canvas id="calChart"></canvas></div>
 </div>
 
 <!-- Histogram + Day of week -->
 <div class="chart-grid-2">
   <div class="card">
-    <div class="card-title">Ride Length Distribution</div>
+    <div class="card-title">{{ 'Distance' if dist_mode else 'Duration' }} Distribution</div>
     <div class="cbox cbox-half"><canvas id="histChart"></canvas></div>
   </div>
   <div class="card">
-    <div class="card-title">Rides by Day of Week</div>
+    <div class="card-title">Activities by Day of Week</div>
     <div class="cbox cbox-half"><canvas id="dowChart"></canvas></div>
   </div>
 </div>
 
 {% if wx_temp_x %}
 <!-- Weather & Performance -->
-<div class="card-title" id="weather" style="margin-bottom:1rem; font-size:1rem;">Weather &amp; Performance</div>
+<div class="card-title" id="weather" style="margin-bottom:1rem; font-size:1rem;">Weather &amp; Performance{{ rides_tag }}</div>
 
 <div class="chart-grid-2" style="margin-bottom:1.5rem;">
   <div class="card">
@@ -328,7 +324,7 @@
   // Populate month dropdown when year changes
   const recYear  = document.getElementById('recYear');
   const recMonth = document.getElementById('recMonth');
-  if (!recYear) return;  // table not rendered (no efforts yet)
+  if (!recYear || !document.getElementById('recBody')) return;  // table not rendered (no rides in the filter, or no efforts yet): carry on to the charts
 
   function populateMonths() {
     const yr = recYear.value;
@@ -468,14 +464,21 @@ function scalesXY(yLabel) {
 
 function noLegend() { return { legend: { display: false } }; }
 
-// ── Speed scatter ────────────────────────────────────────────────
-new Chart(document.getElementById('speedChart'), {
+// What the charts count: distance in the rider's unit when the sports left in share one (services/sport_filter), else hours
+const DIST_MODE = {{ dist_mode | tojson }};
+const AMOUNT_UNIT = DIST_MODE ? UNITS.dist : 'h';
+const RATE_STYLE = {{ sf.style | tojson }};
+const PACE = RATE_STYLE && RATE_STYLE !== 'speed';
+const RATE_UNIT = PACE ? UNITS.paceLabel(RATE_STYLE) : UNITS.speed;
+
+// ── Speed (or pace) scatter ──────────────────────────────────────
+if (document.getElementById('speedChart')) new Chart(document.getElementById('speedChart'), {
   type: 'line',
   data: {
     labels: {{ speed_labels | tojson }}.map(fmtDate),
     datasets: [
       {
-        label: 'Ride speed',
+        label: PACE ? 'Pace' : 'Speed',
         data:  {{ speed_values | tojson }},
         borderColor: 'transparent',
         pointBackgroundColor: 'rgba(14,165,233,0.45)',
@@ -486,7 +489,7 @@ new Chart(document.getElementById('speedChart'), {
         tension: 0,
       },
       {
-        label: '20-ride avg',
+        label: '20-activity avg',
         data:  {{ speed_rolling | tojson }},
         borderColor: ORANGE,
         borderWidth: 2,
@@ -500,9 +503,13 @@ new Chart(document.getElementById('speedChart'), {
     animation: false,
     plugins: {
       legend: { display: true, labels: { color: TICK_COLOR, boxWidth: 12 } },
-      tooltip: { mode: 'index', intersect: false }
+      tooltip: { mode: 'index', intersect: false, callbacks: { label: ctx => ctx.dataset.label + ': ' + (PACE ? UNITS.fmtMinSec(ctx.parsed.y) : ctx.parsed.y) + ' ' + RATE_UNIT } }
     },
-    scales: scalesXY(UNITS.speed)
+    scales: (function () {                       // pace: seconds per unit, drawn as m:ss with faster (fewer seconds) at the top
+      const sc = scalesXY(RATE_UNIT);
+      if (PACE) { sc.y.reverse = true; sc.y.ticks.callback = v => UNITS.fmtMinSec(v); }
+      return sc;
+    })()
   }
 });
 
@@ -521,8 +528,8 @@ new Chart(document.getElementById('monthlyChart'), {
   },
   options: {
     animation: false,
-    plugins: { ...noLegend(), tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} ${UNITS.dist}` } } },
-    scales: scalesXY(UNITS.dist)
+    plugins: { ...noLegend(), tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} ${AMOUNT_UNIT}` } } },
+    scales: scalesXY(AMOUNT_UNIT)
   }
 });
 
@@ -561,9 +568,9 @@ new Chart(document.getElementById('monthlyChart'), {
       animation: false,
       plugins: {
         legend: { display: true, labels: { color: TICK_COLOR, boxWidth: 10, font: { size: 10 } } },
-        tooltip: { mode: 'index', intersect: false, callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y} ${UNITS.dist}` } }
+        tooltip: { mode: 'index', intersect: false, callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y} ${AMOUNT_UNIT}` } }
       },
-      scales: scalesXY(UNITS.dist)
+      scales: scalesXY(AMOUNT_UNIT)
     }
   });
 })();
@@ -585,7 +592,7 @@ new Chart(document.getElementById('calChart'), {
         tension: 0,
       },
       {
-        label: '20-ride avg',
+        label: '20-activity avg',
         data: {{ cal_rolling | tojson }},
         borderColor: RED,
         borderWidth: 2,
@@ -620,8 +627,8 @@ new Chart(document.getElementById('histChart'), {
   },
   options: {
     animation: false,
-    plugins: { ...noLegend(), tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} rides` } } },
-    scales: scalesXY('rides')
+    plugins: { ...noLegend(), tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} activities` } } },
+    scales: scalesXY('activities')
   }
 });
 
@@ -640,8 +647,8 @@ new Chart(document.getElementById('dowChart'), {
   },
   options: {
     animation: false,
-    plugins: { ...noLegend(), tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} rides` } } },
-    scales: scalesXY('rides')
+    plugins: { ...noLegend(), tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} activities` } } },
+    scales: scalesXY('activities')
   }
 });
 
@@ -653,11 +660,12 @@ new Chart(document.getElementById('dowChart'), {
   const today    = new Date();
   today.setHours(0, 0, 0, 0);
 
-  function heatColor(mi) {
-    if (mi <= 0)  return '#1a2d3d';
-    if (mi < 10)  return '#4a2c15';
-    if (mi < 20)  return '#8c4a1e';
-    if (mi < 30)  return '#c4621f';
+  const STEPS = {{ heat_steps | tojson }}, HEAT_UNIT = {{ heat_unit | tojson }};      // in the unit shown: distance for one group of sports, else minutes
+  function heatColor(v) {
+    if (v <= 0)        return '#1a2d3d';
+    if (v < STEPS[0])  return '#4a2c15';
+    if (v < STEPS[1])  return '#8c4a1e';
+    if (v < STEPS[2])  return '#c4621f';
     return '#fc4c02';
   }
 
@@ -742,8 +750,8 @@ new Chart(document.getElementById('dowChart'), {
           c.style.background = 'transparent';
         } else {
           const ds = ymd(cd), mi = heatmap[ds] || 0;
-          c.style.background = heatColor(mi * UNITS.distM / 1609.344);      // the colour steps are in miles
-          c.title = mi > 0 ? `${fmtDate(ds)}: ${mi.toFixed(1)} ${UNITS.dist}` : fmtDate(ds);
+          c.style.background = heatColor(mi);
+          c.title = mi > 0 ? `${fmtDate(ds)}: ${HEAT_UNIT === 'min' ? mi + ' min' : mi.toFixed(1) + ' ' + HEAT_UNIT}` : fmtDate(ds);
         }
         col.appendChild(c);
       }
@@ -756,7 +764,7 @@ new Chart(document.getElementById('dowChart'), {
     container.appendChild(wrap);
     wrap.scrollLeft = wrap.scrollWidth;                                    // open at the most recent end
     const legend = document.getElementById('heatLegendNote');
-    if (legend) legend.textContent = 'Each square is a day (' + UNITS.distWord + ' ridden). Scroll sideways for earlier years.';
+    if (legend) legend.textContent = 'Each square is a day (' + (HEAT_UNIT === 'min' ? 'minutes of activity' : UNITS.distWord) + '). Scroll sideways for earlier years.';
   };
 
   renderHeatmap();
