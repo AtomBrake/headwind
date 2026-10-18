@@ -12,7 +12,6 @@ A heavy or missed ride day never changes the goal; as weight falls, BMR falls an
 Macros follow: protein by body weight, fat as a share of calories, carbs take the remainder.
 """
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 from database import get_db, query_db
 
@@ -30,7 +29,21 @@ KCAL_PER_LB_WEEK = 500
 
 
 def _today():
-    return datetime.now(ZoneInfo('Europe/London')).date()
+    from services import tz
+    return tz.today()
+
+
+def age_on(birth, day):
+    """Whole years from a date of birth (a date) to day: one more on the birthday itself. Someone born on 29 February has it on 1 March."""
+    return day.year - birth.year - ((day.month, day.day) < (birth.month, birth.day))
+
+
+def parse_birth_date(v):
+    """A date from 'YYYY-MM-DD', or None."""
+    try:
+        return date.fromisoformat(str(v)[:10]) if v else None
+    except ValueError:
+        return None
 
 
 def _or_default(v, default):
@@ -39,12 +52,15 @@ def _or_default(v, default):
 
 
 def profile():
-    s = query_db('SELECT sex, birthYear, heightCm, lossLbPerWeek, stepGoal, goalAuto, rideKcalWeek, rideGoalWeek FROM Settings WHERE id=1', one=True)
+    s = query_db('SELECT sex, birthDate, birthDateGuessed, birthYear, heightCm, lossLbPerWeek, stepGoal, goalAuto, rideKcalWeek, rideGoalWeek FROM Settings WHERE id=1', one=True)
     s = dict(s) if s else {}
+    born = parse_birth_date(s.get('birthDate'))
     by = s.get('birthYear')
     return {
         'sex': s.get('sex') or '',
-        'age': (_today().year - by) if by else None,
+        'age': age_on(born, _today()) if born else ((_today().year - by) if by else None),
+        'birth_date': born.isoformat() if born else None,
+        'birth_date_guessed': bool(born and s.get('birthDateGuessed')),     # 1 January of the year the old age field gave: ask for the real date
         'height_cm': s.get('heightCm'),
         'activity': activity_from_steps(s.get('stepGoal') or 8000),
         'loss_lb_week': _or_default(s.get('lossLbPerWeek'), 1.5),

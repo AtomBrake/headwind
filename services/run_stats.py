@@ -7,10 +7,10 @@ cached per run in RunEffort so publishing to Home Assistant stays cheap.
 """
 import json
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 from database import get_db, query_db
 from services.best_efforts import _dist_from_latlng
+from services import tz
 
 DISTANCES = [(1000.0, '1 km'), (1609.344, '1 mile'), (3000.0, '3 km'), (5000.0, '5 km'), (10000.0, '10 km'),
              (15000.0, '15 km'), (21097.5, 'Half marathon'), (42195.0, 'Marathon')]
@@ -109,7 +109,7 @@ def payloads(rid):
     if not runs:
         return {'nutrition_run_stats': {'runs': 0, 'units': units}, 'nutrition_run_route': {'pts': []}, 'nutrition_run_segments': {'efforts': []}}
     _ensure_indexed(runs)
-    today = datetime.now(ZoneInfo('Europe/London')).date()
+    today = tz.today()
     mon = today - timedelta(days=today.weekday())
     month0, year0 = today.replace(day=1), today.replace(month=1, day=1)
 

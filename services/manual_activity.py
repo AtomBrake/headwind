@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from services import duplicates
+from services import tz
 
-LOCAL = ZoneInfo('Europe/London')
 WORKOUT_SPORTS = ('Walk', 'Run', 'Hike')
 RIDE_SPORTS = ('Ride', 'VirtualRide')
 SPORTS = RIDE_SPORTS + WORKOUT_SPORTS
@@ -24,8 +24,8 @@ def _local_start(local_iso):
     except ValueError:
         raise ValueError('that date and time are not valid')
     if dt.tzinfo:
-        dt = dt.astimezone(LOCAL).replace(tzinfo=None)
-    if dt > datetime.now(LOCAL).replace(tzinfo=None) + timedelta(days=1):
+        dt = dt.astimezone(tz.zone()).replace(tzinfo=None)
+    if dt > tz.now().replace(tzinfo=None) + timedelta(days=1):
         raise ValueError('that is in the future')
     if dt.year < 2000:
         raise ValueError('that date is too far in the past')
@@ -58,7 +58,7 @@ def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, 
     name = (name or '').strip()[:80] or None
     notes = (notes or '').strip()[:1000] or None
     local = start.strftime('%Y-%m-%dT%H:%M:%S')
-    utc = start.replace(tzinfo=LOCAL).astimezone(ZoneInfo('UTC')).strftime('%Y-%m-%dT%H:%M:%S')
+    utc = start.replace(tzinfo=tz.zone()).astimezone(ZoneInfo('UTC')).strftime('%Y-%m-%dT%H:%M:%S')
     key = client_id or f'{local}|{sport}|{round(dist)}|{secs}'
     aid = ('man_' if sport in RIDE_SPORTS else 'wk_') + hashlib.sha1(f'{rider_id}|manual|{key}'.encode()).hexdigest()[:16]
     avg = dist / secs if secs else 0

@@ -277,9 +277,9 @@ def _garmin_state_values(g):
 def _gather_nutrition():
     from database import query_db
     from datetime import date, datetime
-    from zoneinfo import ZoneInfo
-    # The box's own timezone isn't UK; "today" (and so the midnight reset) must follow the diary's dates
-    today_d = datetime.now(ZoneInfo('Europe/London')).date()
+    from services import tz
+    # The box's own timezone may not be the user's; "today" (and so the midnight reset) must follow the diary's dates
+    today_d = tz.today()
     today = today_d.isoformat()
     rider = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
     if not rider:
@@ -498,8 +498,8 @@ def _history_payloads():
     """{uid: compact JSON} — the series behind the dashboard charts (weight, diary, recovery)."""
     from database import query_db
     from datetime import date, datetime, timedelta
-    from zoneinfo import ZoneInfo
-    today = datetime.now(ZoneInfo('Europe/London')).date()
+    from services import tz
+    today = tz.today()
     rider = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
     if not rider:
         return {}
