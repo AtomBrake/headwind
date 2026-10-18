@@ -103,7 +103,7 @@
             <span><span style="display:inline-block;width:12px;height:2px;background:#fc4c02;vertical-align:middle;margin-right:4px;"></span>Each effort</span>
             <span><span style="display:inline-block;width:12px;height:2px;background:#4d7d95;vertical-align:middle;margin-right:4px;border-top:2px dashed #4d7d95;"></span>3-effort avg</span>
           </div>
-          <select id="trendYear" onchange="filterTrend()" style="background:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060; border-radius:6px; padding:0.3rem 0.6rem; font-size:0.875rem; cursor:pointer;">
+          <select id="trendYear" onchange="filterTrend()" style="background-color:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060; border-radius:6px; padding:0.3rem 0.6rem; font-size:0.875rem; cursor:pointer;">
             <option value="all">All Time</option>
             {% set trend_years = trend | map(attribute='activityDate') | map('truncate', 4, False, '') | unique | sort | reverse | list %}
             {% for y in trend_years %}
@@ -127,14 +127,14 @@
     <div class="card-title" style="margin:0;">All Efforts</div>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
       {% if all_riders | length > 1 %}
-      <select id="riderFilter" onchange="filterEfforts()" style="background:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060; border-radius:6px; padding:0.3rem 0.6rem; font-size:0.875rem; cursor:pointer;">
+      <select id="riderFilter" onchange="filterEfforts()" style="background-color:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060; border-radius:6px; padding:0.3rem 0.6rem; font-size:0.875rem; cursor:pointer;">
         <option value="all">All Riders</option>
         {% for e in efforts | unique(attribute='rider_id') %}
         <option value="{{ e.rider_id }}">{{ e.rider_name or 'Unknown' }}</option>
         {% endfor %}
       </select>
       {% endif %}
-      <select id="yearFilter" onchange="filterEfforts()" style="background:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060; border-radius:6px; padding:0.3rem 0.6rem; font-size:0.875rem; cursor:pointer;">
+      <select id="yearFilter" onchange="filterEfforts()" style="background-color:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060; border-radius:6px; padding:0.3rem 0.6rem; font-size:0.875rem; cursor:pointer;">
         <option value="all">All Time</option>
         {% set years = efforts | map(attribute='activityDate') | map('truncate', 4, False, '') | unique | sort | reverse | list %}
         {% for y in years %}
