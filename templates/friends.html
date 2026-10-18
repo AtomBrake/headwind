@@ -7,130 +7,188 @@
   <a href="{{ url_for('dashboard.index') }}" class="btn btn-secondary">← Dashboard</a>
 {% endblock %}
 
+{% block head %}
+<style>
+  .fr-card { margin-bottom:1.5rem; }
+  .fr-intro { color:var(--text-muted); font-size:0.875rem; margin:0 0 1rem; }
+  .fr-note { color:var(--text-muted); font-size:0.8rem; margin:0.9rem 0 0; }
+  .fr-grid { display:grid; gap:0.75rem 1rem; align-items:end; justify-content:start; }
+  .fr-grid input:not([type=checkbox]), .fr-grid select, .fr-grid > .btn, .fr-checks { height:2.4rem; }   /* one height, so the labels line up */
+  .fr-field { display:flex; flex-direction:column; gap:0.3rem; min-width:0; margin:0; font-size:0.8rem; color:var(--text-muted); font-weight:500; }
+  .fr-field .hint { font-weight:400; opacity:0.85; }
+  .fr-field input, .fr-field select { color:var(--text); }
+  .fr-checks { display:flex; flex-wrap:wrap; gap:0.4rem 1rem; align-items:center; color:var(--text); font-size:0.875rem; }
+  .fr-checks label { display:flex; align-items:center; gap:0.35rem; margin:0; font-weight:400; color:var(--text); }
+  .fr-quick { display:flex; flex-wrap:wrap; gap:0.4rem; align-items:center; }
+  .fr-quick .btn, .fr-sm { padding:0.25rem 0.6rem; font-size:0.8rem; }
+
+  /* New token: name, shares, dates, button on one line; the quick ranges under the dates */
+  .fr-token { grid-template-columns:minmax(10rem,1fr) auto 9.5rem 9.5rem auto; }
+  .fr-token .fr-quick { grid-column:3 / -1; }
+  /* Editing a token: shares, dates, save */
+  .fr-edit { grid-template-columns:auto 9.5rem 9.5rem auto; }
+  .fr-edit .fr-quick { grid-column:2 / -1; }
+  .fr-connect { grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto; justify-content:stretch; }
+
+  .fr-table { width:100%; border-collapse:collapse; font-size:0.85rem; }
+  .fr-table th { padding:0.5rem; text-align:left; font-size:0.75rem; font-weight:600; color:var(--text-muted); border-bottom:1px solid var(--border); }
+  .fr-table td { padding:0.65rem 0.5rem; border-bottom:1px solid var(--border); vertical-align:middle; }
+  .fr-table th:first-child, .fr-table td:first-child { padding-left:0; }
+  .fr-table th:last-child, .fr-table td:last-child { padding-right:0; }
+  .fr-table .muted { color:var(--text-muted); }
+  .fr-table .name { font-weight:500; }
+  .fr-table .act { text-align:right; white-space:nowrap; }
+  .fr-table .act > * { display:inline-flex; vertical-align:middle; margin-left:0.35rem; }
+  .fr-table tr.revoked td { opacity:0.5; }
+  .fr-table tr.fr-edit-row td { padding:0.9rem 0 1rem; }
+  .fr-who { display:flex; align-items:center; gap:0.6rem; }
+  .fr-who img, .fr-who .rider-initial { width:28px; height:28px; border-radius:50%; object-fit:cover; font-size:0.75rem; flex:none; }
+  .fr-url { font-size:0.8125rem; word-break:break-all; }
+  .fr-x { background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:1.1rem; line-height:1; padding:0.2rem 0.4rem; }
+  .fr-x:hover { color:var(--danger); }
+
+  .fr-new-token { margin-top:1rem; padding:0.9rem; border:1px solid var(--border); border-radius:8px; }
+  .fr-new-token code { background:#071525; border:1px solid var(--border); border-radius:6px; padding:0.5rem 0.9rem; font-size:0.9rem; flex:1; word-break:break-all; }
+
+  @media (max-width: 900px) {
+    .fr-token { grid-template-columns:1fr 1fr; }
+    .fr-token { justify-content:stretch; }
+    .fr-token > :nth-child(-n+2), .fr-token .fr-quick, .fr-token > .btn { grid-column:1 / -1; }
+    .fr-token > .btn, .fr-edit > .btn { order:1; justify-self:start; }   /* the quick ranges stay next to the dates */
+    .fr-edit { grid-template-columns:1fr 1fr; justify-content:stretch; }
+    .fr-edit > :first-child, .fr-edit .fr-quick, .fr-edit > .btn { grid-column:1 / -1; }
+    .fr-connect { grid-template-columns:1fr; }
+  }
+  /* On a phone each table row is a small card: name and buttons on top, the details under it */
+  @media (max-width: 700px) {
+    .fr-table thead { display:none; }
+    .fr-table tr { display:grid; grid-template-columns:minmax(0,1fr) auto; column-gap:0.75rem; padding:0.7rem 0; border-bottom:1px solid var(--border); }
+    .fr-table td { border:none; padding:0.1rem 0 !important; }
+    .fr-table td.name { grid-column:1; grid-row:1; }
+    .fr-table td.act { grid-column:2; grid-row:1; }
+    .fr-table td:not(.name):not(.act) { grid-column:1 / -1; font-size:0.8rem; }
+    .fr-table td[data-label]::before { content:attr(data-label) ': '; color:var(--text-muted); opacity:0.8; }
+    .fr-table tr.fr-edit-row:not([hidden]) { display:block; padding-top:0; }
+    .fr-table tr[hidden] { display:none; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 
 <!-- Who can read your feed: one token per friend -->
-{% set field = 'background:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060; border-radius:6px; padding:0.45rem 0.7rem; font-size:0.875rem;' %}
-<div class="card" id="feed-tokens" style="margin-bottom:1.5rem;">
+<div class="card fr-card" id="feed-tokens">
   <div class="card-title">Who Can Read Your Feed</div>
-  <p style="color:var(--text-muted); font-size:0.875rem; margin:0 0 0.75rem;">
+  <p class="fr-intro">
     Give each friend their own token, so you can choose what they see and revoke one person without touching the others.
     A token is shown once — lose it and make a new one.
   </p>
 
-  <form id="token-form" style="display:flex; flex-wrap:wrap; gap:0.75rem; align-items:end;">
-    <div style="flex:1 1 10rem;">
-      <label style="font-size:0.8rem; color:var(--text-muted); display:block; margin-bottom:0.3rem;">Friend</label>
-      <input name="name" type="text" placeholder="Sam" required maxlength="60" style="width:100%; {{ field }}">
+  <form id="token-form" class="fr-grid fr-token">
+    <label class="fr-field">Friend's name
+      <input name="name" type="text" placeholder="e.g. Sam" required maxlength="60">
+    </label>
+    <div class="fr-field">Shares
+      <div class="fr-checks">
+        <label><input type="checkbox" name="shareRides" value="1" checked> Rides</label>
+        <label><input type="checkbox" name="shareSegments" value="1" checked> Segments</label>
+        <label><input type="checkbox" name="shareFoods" value="1" checked> Foods</label>
+      </div>
     </div>
-    <div style="display:flex; gap:0.9rem; font-size:0.875rem; padding-bottom:0.45rem; flex-wrap:wrap;">
-      <label><input type="checkbox" name="shareRides" value="1" checked> Rides</label>
-      <label><input type="checkbox" name="shareSegments" value="1" checked> Segments</label>
-      <label><input type="checkbox" name="shareFoods" value="1" checked> Foods</label>
-    </div>
-    <div>
-      <label style="font-size:0.8rem; color:var(--text-muted); display:block; margin-bottom:0.3rem;">Rides from</label>
-      <input name="sinceDate" type="date" style="{{ field }}">
-    </div>
-    <div>
-      <label style="font-size:0.8rem; color:var(--text-muted); display:block; margin-bottom:0.3rem;">to</label>
-      <input name="untilDate" type="date" style="{{ field }}">
-    </div>
+    <label class="fr-field">Rides from <input name="sinceDate" type="date"></label>
+    <label class="fr-field">to <input name="untilDate" type="date"></label>
     <button type="submit" class="btn btn-primary" style="white-space:nowrap;">Create Token</button>
+    <div class="fr-quick">
+      <button type="button" class="btn btn-secondary" data-range="all">All rides</button>
+      <button type="button" class="btn btn-secondary" data-range="6">Past 6 months</button>
+      <button type="button" class="btn btn-secondary" data-range="1">Past month</button>
+      <button type="button" class="btn btn-secondary" data-range="today">From today</button>
+    </div>
   </form>
 
-  <div id="new-token" style="display:none; margin-top:1rem; padding:0.9rem; border:1px solid #1e4060; border-radius:8px;">
+  <div id="new-token" class="fr-new-token" style="display:none;">
     <div style="font-size:0.85rem; margin-bottom:0.5rem;">Token for <b id="new-token-name"></b> — copy it now, it won't be shown again:</div>
     <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-      <code id="new-token-value" style="background:var(--surface2,#0d2135); border:1px solid #1e4060; border-radius:6px;
-                                        padding:0.5rem 0.9rem; font-size:0.9rem; flex:1; word-break:break-all;"></code>
+      <code id="new-token-value"></code>
       <button type="button" class="btn btn-secondary" onclick="copyToken(document.getElementById('new-token-value').textContent, this)">Copy</button>
       <button type="button" class="btn btn-secondary" onclick="location.reload()">Done</button>
     </div>
   </div>
 
-  <p style="color:var(--text-muted); font-size:0.8rem; margin:0.75rem 0 0;">
+  <p class="fr-note">
     Feed URL: <code>{{ request.host_url.rstrip('/') }}/api/feed</code> — token sent as <code>X-Feed-Token</code> header.
     Revoking a token or narrowing what it shares stops future syncs; rides a friend already pulled stay on their instance.
   </p>
 
   {% if feed_tokens %}
-  <div style="overflow-x:auto; margin-top:1rem;">
-  <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+  <table class="fr-table" style="margin-top:1rem;">
     <thead>
-      <tr style="border-bottom:1px solid #1e4060; color:var(--text-muted); font-size:0.75rem; text-align:left;">
-        <th style="padding:0.5rem 0.5rem 0.5rem 0;">Friend</th>
-        <th style="padding:0.5rem;">Shares</th>
-        <th style="padding:0.5rem;">Rides between</th>
-        <th style="padding:0.5rem;">Last used</th>
-        <th></th>
-      </tr>
+      <tr><th>Friend</th><th>Shares</th><th>Rides between</th><th>Last used</th><th></th></tr>
     </thead>
     <tbody>
       {% for t in feed_tokens %}
-      <tr style="border-bottom:1px solid #1e4060;{% if t.revokedAt %} opacity:0.5;{% endif %}">
-        <td style="padding:0.6rem 0.5rem 0.6rem 0; font-weight:500;">{{ t.name }}</td>
-        <td style="padding:0.6rem 0.5rem; color:var(--text-muted);">
-          {% set shared = [] %}
-          {% if t.shareRides %}{% set _ = shared.append('Rides') %}{% endif %}
-          {% if t.shareSegments %}{% set _ = shared.append('Segments') %}{% endif %}
-          {% if t.shareFoods %}{% set _ = shared.append('Foods') %}{% endif %}
-          {{ shared | join(', ') if shared else 'Nothing' }}
-        </td>
-        <td style="padding:0.6rem 0.5rem; color:var(--text-muted);">
-          {% if t.sinceDate or t.untilDate %}{{ t.sinceDate or 'start' }} – {{ t.untilDate or 'now' }}{% else %}All{% endif %}
-        </td>
-        <td style="padding:0.6rem 0.5rem; color:var(--text-muted);">
-          {% if t.revokedAt %}Revoked {{ t.revokedAt[:10] }}{% elif t.lastUsedAt %}{{ t.lastUsedAt[:16] }}{% else %}Never{% endif %}
-        </td>
-        <td style="padding:0.6rem 0; text-align:right; white-space:nowrap;">
+      {% set shared = [] %}
+      {% if t.shareRides %}{% set _ = shared.append('Rides') %}{% endif %}
+      {% if t.shareSegments %}{% set _ = shared.append('Segments') %}{% endif %}
+      {% if t.shareFoods %}{% set _ = shared.append('Foods') %}{% endif %}
+      <tr{% if t.revokedAt %} class="revoked"{% endif %}>
+        <td class="name">{{ t.name }}</td>
+        <td class="muted" data-label="Shares">{{ shared | join(', ') if shared else 'Nothing' }}</td>
+        <td class="muted" data-label="Rides">{% if t.sinceDate or t.untilDate %}{{ t.sinceDate or 'start' }} – {{ t.untilDate or 'now' }}{% else %}All{% endif %}</td>
+        <td class="muted" data-label="Last used">{% if t.revokedAt %}Revoked {{ t.revokedAt[:10] }}{% elif t.lastUsedAt %}{{ t.lastUsedAt[:16] }}{% else %}Never{% endif %}</td>
+        <td class="act">
           {% if not t.revokedAt %}
-          <details style="display:inline-block; text-align:left;">
-            <summary class="btn btn-secondary" style="padding:0.25rem 0.6rem; font-size:0.8rem; list-style:none; cursor:pointer;">Edit</summary>
-            <form method="POST" action="{{ url_for('friends.update_token', tid=t.id) }}"
-                  style="position:absolute; right:1.5rem; z-index:5; margin-top:0.4rem; padding:0.8rem; background:var(--card-bg);
-                         border:1px solid #1e4060; border-radius:8px; display:grid; gap:0.5rem;">
-              <label><input type="checkbox" name="shareRides" value="1" {% if t.shareRides %}checked{% endif %}> Rides</label>
-              <label><input type="checkbox" name="shareSegments" value="1" {% if t.shareSegments %}checked{% endif %}> Segments</label>
-              <label><input type="checkbox" name="shareFoods" value="1" {% if t.shareFoods %}checked{% endif %}> Foods</label>
-              <label style="font-size:0.8rem; color:var(--text-muted);">Rides from <input type="date" name="sinceDate" value="{{ t.sinceDate or '' }}" style="{{ field }}"></label>
-              <label style="font-size:0.8rem; color:var(--text-muted);">to <input type="date" name="untilDate" value="{{ t.untilDate or '' }}" style="{{ field }}"></label>
-              <button type="submit" class="btn btn-primary" style="padding:0.3rem 0.7rem; font-size:0.8rem;">Save</button>
-            </form>
-          </details>
-          <form method="POST" action="{{ url_for('friends.revoke_token', tid=t.id) }}" style="display:inline;"
+          <button type="button" class="btn btn-secondary fr-sm" aria-expanded="false" onclick="toggleEdit(this, 'edit-{{ t.id }}')">Edit</button>
+          <form method="POST" action="{{ url_for('friends.revoke_token', tid=t.id) }}"
                 data-confirm="Revoke {{ t.name }}'s token? Their instance stops syncing from you." onsubmit="return confirm(this.dataset.confirm)">
-            <button type="submit" class="btn btn-secondary" style="padding:0.25rem 0.6rem; font-size:0.8rem;">Revoke</button>
+            <button type="submit" class="btn btn-secondary fr-sm">Revoke</button>
           </form>
           {% endif %}
         </td>
       </tr>
+      {% if not t.revokedAt %}
+      <tr class="fr-edit-row" id="edit-{{ t.id }}" hidden>
+        <td colspan="5">
+          <form method="POST" action="{{ url_for('friends.update_token', tid=t.id) }}" class="fr-grid fr-edit">
+            <div class="fr-field">Shares
+              <div class="fr-checks">
+                <label><input type="checkbox" name="shareRides" value="1" {% if t.shareRides %}checked{% endif %}> Rides</label>
+                <label><input type="checkbox" name="shareSegments" value="1" {% if t.shareSegments %}checked{% endif %}> Segments</label>
+                <label><input type="checkbox" name="shareFoods" value="1" {% if t.shareFoods %}checked{% endif %}> Foods</label>
+              </div>
+            </div>
+            <label class="fr-field">Rides from <input type="date" name="sinceDate" value="{{ t.sinceDate or '' }}"></label>
+            <label class="fr-field">to <input type="date" name="untilDate" value="{{ t.untilDate or '' }}"></label>
+            <button type="submit" class="btn btn-primary">Save</button>
+            <div class="fr-quick">
+              <button type="button" class="btn btn-secondary" data-range="all">All rides</button>
+              <button type="button" class="btn btn-secondary" data-range="6">Past 6 months</button>
+              <button type="button" class="btn btn-secondary" data-range="1">Past month</button>
+              <button type="button" class="btn btn-secondary" data-range="today">From today</button>
+            </div>
+          </form>
+        </td>
+      </tr>
+      {% endif %}
       {% endfor %}
     </tbody>
   </table>
-  </div>
   {% endif %}
 </div>
 
 <!-- Add a friend -->
-<div class="card" style="margin-bottom:1.5rem;">
+<div class="card fr-card">
   <div class="card-title">Add a Friend</div>
+  <p class="fr-intro">Ask your friend for their Headwind address and a feed token they made for you.</p>
 
   <!-- Step 1: connect -->
-  <div style="display:grid; grid-template-columns:2fr 1fr auto; gap:0.75rem; align-items:end;">
-    <div>
-      <label style="font-size:0.8rem; color:var(--text-muted); display:block; margin-bottom:0.3rem;">Their Base URL</label>
-      <input id="probe-url" type="url" placeholder="http://192.168.1.50:5001"
-             style="width:100%; background:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060;
-                    border-radius:6px; padding:0.5rem 0.75rem; font-size:0.875rem;">
-      <div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.25rem;">Root URL only — no path</div>
-    </div>
-    <div>
-      <label style="font-size:0.8rem; color:var(--text-muted); display:block; margin-bottom:0.3rem;">Their Feed Token</label>
-      <input id="probe-token" type="text" placeholder="paste token"
-             style="width:100%; background:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060;
-                    border-radius:6px; padding:0.5rem 0.75rem; font-size:0.875rem;">
-    </div>
+  <div class="fr-grid fr-connect">
+    <label class="fr-field"><span>Their Headwind address <span class="hint">(just the address, no path)</span></span>
+      <input id="probe-url" type="url" placeholder="e.g. https://sam.example.com">
+    </label>
+    <label class="fr-field">Their feed token
+      <input id="probe-token" type="text" placeholder="hwf_…" autocomplete="off">
+    </label>
     <button id="probe-btn" type="button" onclick="probeInstance()" class="btn btn-secondary" style="white-space:nowrap;">Connect</button>
   </div>
 
@@ -138,42 +196,30 @@
 
   <!-- Step 2: pick rider + name (hidden until probe succeeds) -->
   <form id="add-form" method="POST" action="{{ url_for('friends.add') }}"
-        style="display:none; margin-top:1.25rem; padding-top:1.25rem; border-top:1px solid #1e4060;">
+        style="display:none; margin-top:1.25rem; padding-top:1.25rem; border-top:1px solid var(--border);">
     <input type="hidden" name="url" id="form-url">
     <input type="hidden" name="token" id="form-token">
-    <div style="display:grid; grid-template-columns:1fr 1fr auto; gap:0.75rem; align-items:end;">
-      <div>
-        <label style="font-size:0.8rem; color:var(--text-muted); display:block; margin-bottom:0.3rem;">Rider</label>
-        <select name="riderName" id="rider-select"
-                style="width:100%; background-color:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060;
-                       border-radius:6px; padding:0.5rem 0.75rem; font-size:0.875rem;">
-        </select>
-      </div>
-      <div>
-        <label style="font-size:0.8rem; color:var(--text-muted); display:block; margin-bottom:0.3rem;">Display Name</label>
-        <input name="name" id="form-name" type="text" placeholder="Sam" required
-               style="width:100%; background:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060;
-                      border-radius:6px; padding:0.5rem 0.75rem; font-size:0.875rem;">
-      </div>
+    <div class="fr-grid fr-connect">
+      <label class="fr-field">Rider
+        <select name="riderName" id="rider-select"></select>
+      </label>
+      <label class="fr-field">Show them here as
+        <input name="name" id="form-name" type="text" placeholder="e.g. Sam" required>
+      </label>
       <button type="submit" class="btn btn-primary" style="white-space:nowrap;">Add &amp; Sync</button>
     </div>
-    <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.5rem;">
-      Same URL can be added multiple times with different riders selected.
-    </div>
+    <p class="fr-note" style="margin-top:0.5rem;">The same address can be added more than once, with a different rider each time.</p>
   </form>
 </div>
 
 <!-- Auto-sync interval -->
-<div class="card" style="margin-bottom:1.5rem; display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
-  <div style="flex:1; min-width:0;">
+<div class="card fr-card" style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+  <div style="flex:1 1 14rem; min-width:0;">
     <div style="font-weight:600; font-size:0.875rem; margin-bottom:0.15rem;">Auto-Sync</div>
     <div style="font-size:0.8rem; color:var(--text-muted);">Automatically pull new rides from all friends in the background.</div>
   </div>
-  <form method="POST" action="{{ url_for('friends.set_sync_interval') }}"
-        style="display:flex; align-items:center; gap:0.6rem;">
-    <select name="interval" onchange="this.form.submit()"
-            style="background-color:var(--surface2,#0d2135); color:var(--text); border:1px solid #1e4060;
-                   border-radius:6px; padding:0.4rem 0.65rem; font-size:0.875rem;">
+  <form method="POST" action="{{ url_for('friends.set_sync_interval') }}">
+    <select name="interval" onchange="this.form.submit()" style="width:auto;">
       {% for val, label in [(0,'Off'),(15,'Every 15 min'),(30,'Every 30 min'),(60,'Every hour'),(120,'Every 2 hours')] %}
       <option value="{{ val }}" {% if sync_interval == val %}selected{% endif %}>{{ label }}</option>
       {% endfor %}
@@ -182,68 +228,48 @@
 </div>
 
 <!-- Friends list -->
-{% if friends %}
-<div class="card" style="padding:0; overflow:hidden;">
-  <div style="padding:1rem 1.25rem; border-bottom:1px solid #1e4060;">
-    <div class="card-title" style="margin:0;">Connected Instances</div>
-  </div>
-  <table style="width:100%; border-collapse:collapse;">
+<div class="card fr-card">
+  <div class="card-title">Connected Instances</div>
+  {% if friends %}
+  <table class="fr-table">
     <thead>
-      <tr style="border-bottom:1px solid #1e4060;">
-        <th style="padding:0.75rem 1.25rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Rider</th>
-        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">URL</th>
-        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Last Synced</th>
-        <th style="padding:0.75rem 1.25rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;"></th>
-      </tr>
+      <tr><th>Rider</th><th>Address</th><th>Last synced</th><th></th></tr>
     </thead>
     <tbody>
       {% for f in friends %}
-      <tr style="border-bottom:1px solid #1e4060;">
-        <td style="padding:0.875rem 1.25rem;">
-          <div style="display:flex; align-items:center; gap:0.6rem;">
+      <tr>
+        <td class="name">
+          <div class="fr-who">
             {% if f.rider_avatar %}
-              <img src="{{ url_for('static', filename='avatars/' + f.rider_avatar) }}"
-                   style="width:28px;height:28px;border-radius:50%;object-fit:cover;" alt="{{ f.name }}">
+              <img src="{{ url_for('static', filename='avatars/' + f.rider_avatar) }}" alt="{{ f.name }}">
             {% else %}
-              <span class="rider-initial" style="width:28px;height:28px;font-size:0.75rem;">{{ f.name[0]|upper }}</span>
+              <span class="rider-initial">{{ f.name[0]|upper }}</span>
             {% endif %}
-            <span style="font-weight:500;">{{ f.name }}</span>
+            <span>{{ f.name }}</span>
           </div>
         </td>
-        <td style="padding:0.875rem 1rem; color:var(--text-muted); font-size:0.8125rem;">
-          <code>{{ f.url }}</code>
-        </td>
-        <td style="padding:0.875rem 1rem; color:var(--text-muted); font-size:0.8125rem;">
-          {% if f.lastSynced %}{{ f.lastSynced[:16] | replace('T',' ') }}{% else %}Never{% endif %}
-        </td>
-        <td style="padding:0.875rem 1.25rem; text-align:right;">
-          <div style="display:flex; gap:0.5rem; justify-content:flex-end; align-items:center;">
-            <button onclick="syncFriend({{ f.id }}, this)"
-                    class="btn btn-secondary" style="padding:0.3rem 0.7rem; font-size:0.8125rem;">Sync</button>
-            <form method="POST" action="{{ url_for('friends.set_friend_token', fid=f.id) }}" style="display:inline;"
-                  onsubmit="var t = prompt('New feed token from {{ f.name }}:'); if (!t) return false; this.token.value = t; return true;">
-              <input type="hidden" name="token">
-              <button type="submit" class="btn btn-secondary" style="padding:0.3rem 0.7rem; font-size:0.8125rem;"
-                      title="Paste a new token this friend gave you; their rides stay">Token</button>
-            </form>
-            <form method="POST" action="{{ url_for('friends.delete', fid=f.id) }}"
-                  data-confirm="Remove {{ f.name }} and all their rides?" onsubmit="return confirm(this.dataset.confirm)" style="display:inline;">
-              <button type="submit"
-                      style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:1rem;padding:0.2rem 0.4rem;"
-                      title="Remove">×</button>
-            </form>
-          </div>
+        <td class="muted fr-url"><code>{{ f.url }}</code></td>
+        <td class="muted" data-label="Last synced">{% if f.lastSynced %}{{ f.lastSynced[:16] | replace('T',' ') }}{% else %}Never{% endif %}</td>
+        <td class="act">
+          <button type="button" onclick="syncFriend({{ f.id }}, this)" class="btn btn-secondary fr-sm">Sync</button>
+          <form method="POST" action="{{ url_for('friends.set_friend_token', fid=f.id) }}"
+                onsubmit="var t = prompt('New feed token from {{ f.name }}:'); if (!t) return false; this.token.value = t; return true;">
+            <input type="hidden" name="token">
+            <button type="submit" class="btn btn-secondary fr-sm" title="Paste a new token this friend gave you; their rides stay">Token</button>
+          </form>
+          <form method="POST" action="{{ url_for('friends.delete', fid=f.id) }}"
+                data-confirm="Remove {{ f.name }} and all their rides?" onsubmit="return confirm(this.dataset.confirm)">
+            <button type="submit" class="fr-x" title="Remove {{ f.name }}" aria-label="Remove {{ f.name }}">×</button>
+          </form>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  {% else %}
+  <p class="fr-intro" style="margin:0;">No friends connected yet — add one above.</p>
+  {% endif %}
 </div>
-{% else %}
-<div class="card" style="text-align:center; padding:2.5rem; color:var(--text-muted);">
-  No friends connected yet — add one above.
-</div>
-{% endif %}
 
 {% endblock %}
 
@@ -267,6 +293,28 @@ function copyToken(text, btn) {
     btn.textContent = 'Copied!';
     setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
   }
+}
+
+// Quick ranges, on the new-token form and each Edit form: fill "Rides from", leave "to" open so new rides keep flowing.
+document.querySelectorAll('.fr-quick [data-range]').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var form = btn.closest('form');
+    var r = btn.dataset.range, d = new Date(), since = '';
+    if (r !== 'all') {
+      if (r !== 'today') d.setMonth(d.getMonth() - parseInt(r, 10));
+      since = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+    form.sinceDate.value = since;
+    form.untilDate.value = '';
+    [form.sinceDate, form.untilDate].forEach(function(el) { el.dispatchEvent(new Event('input', { bubbles: true })); });
+  });
+});
+
+function toggleEdit(btn, id) {
+  var row = document.getElementById(id);
+  row.hidden = !row.hidden;
+  btn.setAttribute('aria-expanded', String(!row.hidden));
+  btn.textContent = row.hidden ? 'Edit' : 'Close';
 }
 
 document.getElementById('token-form').addEventListener('submit', function(e) {
