@@ -254,7 +254,8 @@ def api_upload_ride():
     return {'status': 'imported' if result['imported'] else 'skipped', 'rider': rider['name'], **result}
 
 
-def _process_single_file(path, original_name, rider_id=None):
+def _process_single_file(path, original_name, rider_id=None, bike_id=None):
+    """bike_id (the phone app's choice, already checked to be the rider's) goes on the ride instead of the default bike."""
     yield _event({'total': 1, 'source': 'files'})
     db = get_db()
     try:
@@ -284,6 +285,8 @@ def _process_single_file(path, original_name, rider_id=None):
             return
 
         _insert(db, act, rider_id)
+        if bike_id:                                     # before the segment scan, so an e-bike's efforts race for e-bike PRs from the start
+            db.execute('UPDATE Activity SET bikeId=? WHERE id=?', [bike_id, act['id']])
         from services.best_efforts import save_best_efforts
         save_best_efforts(db, act.get('id'), act.get('startDateLocal'), act.get('streams'))
         from services import sport_records
@@ -314,7 +317,10 @@ def _process_single_file(path, original_name, rider_id=None):
         try:                                            # same ride already recorded by another device? keep the better one
             dup = duplicates.resolve(db, act['id'])
             from services import gear
-            gear.on_ride_added(db, (dup or {}).get('kept', act['id']))
+            kept = (dup or {}).get('kept', act['id'])
+            if bike_id and kept != act['id'] and not db.execute('SELECT bikeId FROM Activity WHERE id=?', [kept]).fetchone()['bikeId']:
+                gear.set_ride_bike(db, kept, bike_id)   # the other copy was kept: give it the chosen bike unless it already has one
+            gear.on_ride_added(db, kept, stamp=not bike_id)
             db.commit()
         except Exception as e:
             log.error('Duplicate resolution failed for %s: %s', act['id'], e)
