@@ -4,14 +4,15 @@
 {% block page_title %}Segments{% endblock %}
 
 {% block topbar_actions %}
-  <button class="btn btn-secondary" id="scanBtn" onclick="scanAll()">Rescan All Rides</button>
+  <button class="btn btn-secondary" id="scanBtn" onclick="scanAll()">Rescan all activities</button>
 {% endblock %}
 
 {% block content %}
 
-<div style="display:flex;gap:.5rem;margin-bottom:1rem;">
-  <a href="{{ url_for('segments.index') }}" class="btn {{ 'btn-primary' if sport != 'run' else 'btn-secondary' }}">🚴 Ride segments</a>
-  <a href="{{ url_for('segments.index', sport='run') }}" class="btn {{ 'btn-primary' if sport == 'run' else 'btn-secondary' }}">🏃 Run segments</a>
+<div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+  {% for t in tabs %}
+  <a href="{{ url_for('segments.index', sport=t.family) }}" class="btn {{ 'btn-primary' if sport == t.family else 'btn-secondary' }}">{{ t.icon }} {{ t.label }}{% if t.n %} <span style="opacity:.7;">({{ t.n }})</span>{% endif %}</a>
+  {% endfor %}
 </div>
 
 {% if not segments %}
@@ -19,9 +20,13 @@
   <div style="font-size:2.5rem; margin-bottom:1rem;">🏁</div>
   <div class="card-title">No segments yet</div>
   <p style="color:var(--text-muted); font-size:0.9375rem; line-height:1.7; margin-bottom:0;">
-    {% if sport == 'run' %}Open a run that has a map (under Workouts), then click <strong style="color:var(--text);">Create Segment</strong>
-    to mark a start and end point on your route. Only runs are matched against run segments.{% else %}Open any ride that has a map, then click <strong style="color:var(--text);">Create Segment</strong>
-    to mark a start and end point on your route. Only rides are matched against ride segments.{% endif %}
+    {% if sport == 'foot' %}Open a walk, run or hike that has a map, then click <strong style="color:var(--text);">Create Segment</strong>
+    to mark a start and end point on your route. Walks, runs and hikes share these segments: one leaderboard, one PR.
+    {% elif sport == 'eride' %}Open an e-bike ride that has a map, then click <strong style="color:var(--text);">Create Segment</strong>
+    to mark a start and end point on your route. A ride counts as an e-bike ride when Strava or Garmin says so, or when it was ridden on a bike of kind E-bike (Gear).
+    Only e-bike rides are matched against these segments.
+    {% else %}Open any ride that has a map, then click <strong style="color:var(--text);">Create Segment</strong>
+    to mark a start and end point on your route. Only rides are matched against ride segments: not e-bike rides, indoor rides, walks or runs.{% endif %}
   </p>
 </div>
 {% else %}
@@ -102,18 +107,18 @@ function scanAll() {
   btn.disabled = true;
   btn.textContent = 'Scanning…';
   status.style.display = 'block';
-  status.textContent = 'Scanning all rides against all segments…';
+  status.textContent = 'Scanning every activity against the segments of its kind…';
   fetch('/segments/scan', { method: 'POST' })
     .then(r => r.json())
     .then(d => {
       status.textContent = `✓ Scanned ${d.scanned} activities — reload to see updated results`;
       btn.disabled = false;
-      btn.textContent = 'Rescan All Rides';
+      btn.textContent = 'Rescan all activities';
     })
     .catch(() => {
       status.textContent = 'Scan failed';
       btn.disabled = false;
-      btn.textContent = 'Rescan All Rides';
+      btn.textContent = 'Rescan all activities';
     });
 }
 </script>

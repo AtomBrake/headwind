@@ -5,7 +5,8 @@ from flask import Blueprint, abort, jsonify, redirect, render_template, request,
 
 from database import get_db, query_db
 from services.segments import (scan_all_activities, scan_activity_against_segments, _refresh_prs,
-                               clean_polyline, recover_polyline, valid_coord)
+                               clean_polyline, recover_polyline, seg_sport, valid_coord)
+from services.sports import FAMILIES, FAMILY_ICONS, FAMILY_LABELS, family_of
 
 log = logging.getLogger(__name__)
 
@@ -98,7 +99,8 @@ def _difficulty(seg, all_segs):
 
 @bp.route('/segments')
 def index():
-    sport = 'run' if request.args.get('sport') == 'run' else 'ride'
+    sport = request.args.get('sport')
+    sport = 'foot' if sport == 'run' else (sport if sport in FAMILIES else 'ride')      # ?sport=run: a bookmark from before 0.7.3
     segs = query_db('''
         SELECT s.*,
                COUNT(e.id)        AS effort_count,
@@ -132,7 +134,9 @@ def index():
             ''', [seg['id'], best['t']])
             if koms:
                 kom_map[seg['id']] = koms
-    return render_template('segments.html', segments=segs, kom_map=kom_map, sport=sport)
+    counts = {r[0]: r[1] for r in db.execute("SELECT COALESCE(sport, 'ride'), COUNT(*) FROM Segment GROUP BY 1")}
+    tabs = [{'family': f, 'label': FAMILY_LABELS[f], 'icon': FAMILY_ICONS[f], 'n': counts.get(f, 0)} for f in FAMILIES]
+    return render_template('segments.html', segments=segs, kom_map=kom_map, sport=sport, tabs=tabs)
 
 
 @bp.route('/segments/create', methods=['POST'])
@@ -146,7 +150,7 @@ def create():
         end_lng     = float(request.form['endLng'])
         distance_m  = float(request.form.get('distanceM') or 0)
         activity_id = request.form.get('activityId') or None
-        sport       = 'run' if request.form.get('sport') == 'run' else 'ride'
+        sport       = request.form.get('sport')
         polyline    = request.form.get('polyline') or None
         if not valid_coord(start_lat, start_lng) or not valid_coord(end_lat, end_lng):
             abort(400)
@@ -156,6 +160,12 @@ def create():
         elev_gain   = float(elev_gain) if elev_gain else None
     except (KeyError, ValueError):
         abort(400)
+    # The family is the activity's own (a segment made on a walk is a foot segment, on an e-bike ride an e-ride segment); the form's value is only
+    # used when there is no activity to ask.
+    fam = family_of(db, activity_id) if activity_id else None
+    if fam is None and activity_id and db.execute('SELECT 1 FROM Activity WHERE id=?', [activity_id]).fetchone():
+        abort(400)                                      # an indoor ride, a swim, ...: no segments
+    sport = fam or seg_sport({'sport': sport})
 
     db.execute('''
         INSERT INTO Segment (name, startLat, startLng, endLat, endLng, distanceM,
@@ -259,22 +269,24 @@ def detail(sid):
         window = secs_list[max(0, i - 2):i + 1]
         trend_rolling.append(round(sum(window) / len(window)))
 
-    all_segs = query_db("SELECT * FROM Segment WHERE COALESCE(sport, 'ride') = ?", [seg['sport'] or 'ride'])
+    family = seg_sport(seg)
+    all_segs = query_db("SELECT * FROM Segment WHERE COALESCE(sport, 'ride') = ?", [family])
     diff_label, diff_colour, sub_segs = _difficulty(seg, all_segs)
 
     return render_template('segment.html', seg=seg, efforts=efforts, map_data=map_data,
-                           trend=trend, trend_rolling=trend_rolling,
-                           stats=stats, diff_label=diff_label, is_run=(seg['sport'] == 'run'),
+                           trend=trend, trend_rolling=trend_rolling, family=family, family_label=FAMILY_LABELS[family],
+                           stats=stats, diff_label=diff_label, on_foot=(family == 'foot'),
                            diff_colour=diff_colour, sub_segs=sub_segs)
 
 
 @bp.route('/segments/<int:sid>/delete', methods=['POST'])
 def delete(sid):
     db = get_db()
+    fam = db.execute("SELECT COALESCE(sport, 'ride') FROM Segment WHERE id=?", [sid]).fetchone()
     db.execute('DELETE FROM SegmentEffort WHERE segmentId=?', [sid])
     db.execute('DELETE FROM Segment WHERE id=?', [sid])
     db.commit()
-    return redirect(url_for('segments.index'))
+    return redirect(url_for('segments.index', sport=fam[0] if fam else None))
 
 
 @bp.route('/segments/<int:sid>/efforts/<int:eid>/delete', methods=['POST'])

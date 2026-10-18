@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.7.3-beta] - 2026-10-18
+
+Migration, at the first start: run segments become **foot** segments (`Segment.sport` is now `ride`, `eride` or `foot`), and segment efforts and PRs are sorted out once (below). `Settings` gains `segmentFamiliesDone`. No Android or iOS change. A friend still on 0.7.2 or older keeps working: they see your foot segments as run segments and your e-bike segments as ride segments.
+
+**Segment PRs and leaderboard places can move.** At the first start, efforts on ride segments by walks, hikes, e-bike rides, indoor rides, swims and anything else that isn't a pedal ride are removed. Walks, runs and hikes are matched against the foot segments, and every segment's PRs are picked again. So a pedal ride can take back a PR an e-bike ride or a walk held, a walk or hike can appear on a foot segment's leaderboard, and segment badges can change. The Tasks page says how many efforts moved and how many PRs changed.
+
+### Added
+- **Segments by sport: ride, e-bike and on foot.** The Segments page has three tabs, and an activity is only matched against segments of its own kind. Walks, runs and hikes share foot segments: one leaderboard and one PR each, with the sport's icon beside every effort, and pace instead of speed. Indoor rides, swims, paddles, skis and the rest have no segments, so their pages don't offer "Create Segment". A segment made on an activity takes that activity's kind, so one made on a walk is a foot segment.
+- **E-bike rides are told apart from pedal rides.** A ride is an e-bike ride when Strava says so ("E-Bike Ride", "E-Mountain Bike Ride"), when Garmin says so, or when it was ridden on a bike whose kind is E-bike (Gear). Changing a ride's bike, a bike's kind, or deleting an e-bike moves those rides between ride and e-bike segments straight away. So does changing the type between Ride, Indoor ride and the new E-bike ride.
+- **Garmin e-bike rides keep their type.** The Garmin sync used to save `e_bike_mountain` and `e_bike_fitness` as a plain Ride; they are now E-bike rides. For rides already synced, run the check on **Garmin → Activity types**: it now proposes E-bike ride for them.
+- **Segment badges for each kind.** E-bike segments and segments on foot get their own sets beside the existing Segments badges: effort counts, first PR, holding every PR, repeats, and speed (25 to 40 mph on an e-bike) or pace (10:00 to 6:00 /mi on foot). The existing Segments badges now count pedal rides on ride segments only. More badges also means the trophy-case totals (the AI coach, the Home Assistant badge sensor) go up.
+
+### Fixed
+- **"King of the Road" couldn't be earned once a run segment existed.** It compared the PRs you hold with every segment, run segments included. Each set now counts its own segments.
+- **E-bike rides took pedal PRs and topped pedal leaderboards.**
+- **Walks and hikes counted as rides on segments.** A full rescan matched them against ride segments, and walks never matched run segments. They now go on foot segments only. The slowest speed that counts on foot is lower (0.5 m/s, was 1.2), so walks and steep hikes match.
+- **"Create Segment" on a walk made a ride segment.**
+- **Home Assistant's ride segments list follows the last ride's kind**, so after an e-bike ride it lists the e-bike segments.
+
+`services/sports.py` (`segment_family`, `family_of`, `FAMILIES`, `label`), `services/segments.py` (`rescan_activity`, `regroup`), `services/gear.py`, `services/garmin.garmin_sport`, `services/convert.py`, `services/workouts.refresh_derived`, `routes/segments.py`, `routes/riders._compute_badges`, `routes/friends.py`, `tests/test_segment_families.py`, `tests/test_run_segments.py`.
+
 ## [0.7.2-beta] - 2026-10-18
 
 No migration. No Android or iOS change.

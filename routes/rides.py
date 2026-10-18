@@ -206,7 +206,7 @@ def detail(rid):
 
     sport = (activity['sportType'] or '').lower()
     from services import weather as _wx
-    is_run = sport in ('run', 'trailrun', 'virtualrun')
+    seg_family = sports.family_of(get_db(), activity['id'])     # ride / eride / foot, or None: no segments (an indoor ride, a swim, ...)
 
     # Badges earned on this specific ride
     ride_badges = []
@@ -242,7 +242,7 @@ def detail(rid):
                            seg_trends=seg_trends, rival_trends=rival_trends,
                            elev_loss_m=elev_loss_m,
                            prev_ride=prev_ride, next_ride=next_ride,
-                           is_ride=is_ride, is_run=is_run, is_workout=is_workout,
+                           is_ride=is_ride, seg_family=seg_family, seg_family_label=sports.FAMILY_LABELS.get(seg_family), is_workout=is_workout,
                            wx_categories=list(_wx.CATEGORIES), wx_condition=_wx.bucket(activity['weatherCode'] if not is_workout else None),
                            wx_manual=(not is_workout and activity['weatherSource'] == 'manual'), wx_storm=(not is_workout and activity['weatherSource'] == 'storm'),
                            ride_badges=ride_badges,
@@ -459,7 +459,7 @@ def bulk_options():
     riders = [dict(r) for r in _bulk.own_riders(db)]
     for r in riders:
         r['bikes'] = [{'id': b['id'], 'name': b['name']} for b in gear.list_bikes(db, r['id'])]
-    return jsonify({'riders': riders, 'sports': [{'value': s, 'label': 'Indoor ride' if s == 'VirtualRide' else s} for s in convert.SPORTS]})
+    return jsonify({'riders': riders, 'sports': [{'value': s, 'label': sports.label(s)} for s in convert.SPORTS]})
 
 
 @bp.route('/bulk/download', methods=['POST'])

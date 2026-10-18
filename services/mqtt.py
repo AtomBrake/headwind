@@ -449,11 +449,13 @@ def _thin(points, n):
 
 def _ride_route_payloads(rid):
     """{'nutrition_ride_route': ..., 'nutrition_ride_segments': ...} for the rider's latest ride, plus every segment's personal best."""
-    from database import query_db
+    from database import get_db, query_db
     out = {}
     act = query_db("SELECT id, name, startDateLocal, distance, movingTime, streams FROM Ride WHERE riderId=? ORDER BY startDate DESC LIMIT 1", [rid], one=True)
     if not act:
         return {'nutrition_ride_route': {'pts': []}, 'nutrition_ride_segments': {'efforts': [], 'all': []}}
+    from services.sports import family_of
+    family = family_of(get_db(), act['id']) or 'ride'          # an e-bike ride lists the e-ride segments; an indoor ride, the ride ones
     try:
         ll = (json.loads(act['streams'] or '{}').get('latlng') or {}).get('data') or []
     except Exception:
@@ -480,7 +482,7 @@ def _ride_route_payloads(rid):
     allsegs = query_db("""SELECT s.id, s.name, s.distanceM, MIN(x.secs) best, COUNT(x.secs) tries, MAX(x.d) last
                           FROM Segment s LEFT JOIN (SELECT e.segmentId sid, e.elapsedSecs secs, a.startDateLocal d FROM SegmentEffort e
                                                     JOIN Ride a ON a.id=e.activityId WHERE a.riderId=?) x ON x.sid=s.id
-                          WHERE s.friendId IS NULL AND COALESCE(s.sport, 'ride') = 'ride' GROUP BY s.id ORDER BY s.name""", [rid])
+                          WHERE s.friendId IS NULL AND COALESCE(s.sport, 'ride') = ? GROUP BY s.id ORDER BY s.name""", [rid, family])
     out['nutrition_ride_route'] = {'id': act['id'], 'name': act['name'], 'date': (act['startDateLocal'] or '')[:10],
                                    'mi': round((act['distance'] or 0) / 1609.344, 1), 'pts': _thin(ll, 140), 'segs': segs}
     out['nutrition_ride_segments'] = {'id': act['id'], 'name': act['name'], 'date': (act['startDateLocal'] or '')[:10], 'efforts': detail,
