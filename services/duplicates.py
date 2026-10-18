@@ -157,15 +157,22 @@ def _drop_derived(db, act_id):
     db.execute('DELETE FROM SegmentEffort WHERE activityId=?', [act_id])
     db.execute('DELETE FROM BestEffort WHERE activityId=?', [act_id])
     db.execute('DELETE FROM RideMemory WHERE rideId=?', [act_id])
+    db.execute('DELETE FROM RunEffort WHERE runId=?', [act_id])
     return seg_ids
 
 
 def rebuild_derived(db, act_id):
-    """Best efforts + segment efforts + PRs for one ride (after it has been restored as the main recording)."""
+    """Best efforts + segment efforts + PRs for one activity (after it has been restored as the main recording). A run, walk, ... gets its own
+    (run best times, run segments) instead."""
     from services.best_efforts import save_best_efforts
     from services.segments import scan_activity_against_segments, _refresh_prs
+    from services.sports import is_ride
     row = db.execute('SELECT * FROM Activity WHERE id=?', [act_id]).fetchone()
     if not row:
+        return
+    if not is_ride(row['sportType']):
+        from services import workouts
+        workouts.refresh_derived(db, act_id)
         return
     seg_ids = _drop_derived(db, act_id)
     save_best_efforts(db, row['id'], row['startDateLocal'], row['streams'])
@@ -186,7 +193,8 @@ def park(db, loser_id, primary_id, reason):
     ensure_schema(db)
     winner = db.execute('SELECT * FROM Activity WHERE id=?', [primary_id]).fetchone()
     if winner:                                          # never lose something the user typed / chose on the ride that is being parked
-        for col in ('notes', 'description', 'bikeId'):
+        from services.sports import is_ride
+        for col in ('notes', 'description') + (('bikeId',) if is_ride(winner['sportType']) else ()):
             if col in row.keys() and row[col] and not winner[col]:
                 db.execute(f'UPDATE Activity SET {col}=? WHERE id=?', [row[col], primary_id])
     db.execute('INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson) VALUES (?,?,?,?,?,?,?)',
@@ -315,3 +323,25 @@ def discard(db, dup_id):
     """Delete a parked recording for good. Its id stays remembered (so a Garmin re-sync does not bring it back)."""
     n = db.execute("UPDATE ActivityDuplicate SET rowJson='{}', status='discarded' WHERE id=? AND status='parked'", [dup_id]).rowcount
     return bool(n)
+
+
+def recheck_workouts(db):
+    """Run once (Settings.workoutDupCheckDone), after walks, runs, ... moved in with the rides: the duplicate check never compared a workout with
+    anything, so a Garmin run and its Strava copy were both kept. Checks every non-ride activity once; the weaker copy is set aside (not deleted).
+    Friends' activities are left alone. Commits. Returns {'checked', 'duplicates', 'ran'}."""
+    from services.sports import RIDE_SQL
+    s = db.execute('SELECT workoutDupCheckDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['workoutDupCheckDone']:
+        return {'checked': 0, 'duplicates': 0, 'ran': False}
+    ids = [r[0] for r in db.execute(f"""SELECT id FROM Activity WHERE NOT {RIDE_SQL}
+                                         AND riderId NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL) ORDER BY startDateLocal""").fetchall()]
+    found = 0
+    for act_id in ids:
+        if db.execute('SELECT 1 FROM Activity WHERE id=?', [act_id]).fetchone():      # may have been set aside already as another's twin
+            if resolve(db, act_id):
+                found += 1
+    db.execute('UPDATE Settings SET workoutDupCheckDone=1 WHERE id=1')
+    db.commit()
+    if found:
+        log.warning('Duplicates: %d walk(s), run(s), ... turned out to be an activity already here', found)
+    return {'checked': len(ids), 'duplicates': found, 'ran': True}

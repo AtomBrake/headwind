@@ -43,7 +43,7 @@ def client(tmp_path, monkeypatch):
         db.execute("INSERT INTO BestEffort (activityId, activityDate, distanceMi, elapsedSecs, avgSpeedMps) VALUES ('r1', ?, 5, 1200, 6.7)", [today.isoformat()])
         db.execute("INSERT INTO RideMemory (rideId, rideDate, rideName, distanceMi, movingTime, elevationFt, avgSpeedMph) VALUES ('r2', ?, 'Morning ride', 12.4, 2843, 984, 15.7)",
                    [today.isoformat()])
-        db.execute("INSERT INTO Workout (id, riderId, sport, startDateLocal, distance, movingTime, totalElevationGain, source) VALUES ('wk_1', 1, 'Run', ?, 5000, 1500, 40, 'android')",
+        db.execute("INSERT INTO Activity (id, riderId, sportType, startDateLocal, distance, movingTime, totalElevationGain, source) VALUES ('wk_1', 1, 'Run', ?, 5000, 1500, 40, 'android')",
                    [today.isoformat() + 'T07:00:00'])
         db.commit()
         av = credentials.auth_version()

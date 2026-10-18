@@ -101,7 +101,7 @@ def save_best_efforts(db, activity_id, activity_date, streams_json):
 def scan_all_best_efforts(db):
     """Backfill every activity. Commits at the end."""
     activities = db.execute(
-        "SELECT id, startDateLocal, streams FROM Activity "
+        "SELECT id, startDateLocal, streams FROM Ride "
         "WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')"
     ).fetchall()
     total = 0

@@ -121,7 +121,7 @@ def feed():
                        averageCadence, calories, startLat, startLng, streams,
                        weatherTempC, weatherWindKph, weatherGustKph, weatherWindDir,
                        weatherHumidity, weatherRainMm, weatherCode, weatherSummary, weatherWindRel
-                FROM Activity WHERE {' AND '.join(where)} ORDER BY startDateLocal DESC
+                FROM Ride WHERE {' AND '.join(where)} ORDER BY startDateLocal DESC
             ''', args)
             for row in cur:
                 d = dict(row)
@@ -470,7 +470,7 @@ def _do_ride_sync(friend_id):
             ).fetchall()
         else:
             acts = db.execute(
-                "SELECT id, startDateLocal, streams FROM Activity "
+                "SELECT id, startDateLocal, streams FROM Ride "
                 "WHERE riderId=? AND streams IS NOT NULL AND streams NOT IN ('null', '{}')",
                 [rider_id]
             ).fetchall()
@@ -492,7 +492,7 @@ def _do_ride_sync(friend_id):
         owner = db.execute('SELECT id FROM Rider WHERE isDefault=1').fetchone()
         if owner:
             owner_acts = db.execute(
-                "SELECT id, startDateLocal, streams FROM Activity "
+                "SELECT id, startDateLocal, streams FROM Ride "
                 "WHERE riderId=? AND streams IS NOT NULL AND streams NOT IN ('null', '{}')",
                 [owner[0]]
             ).fetchall()

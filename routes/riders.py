@@ -20,7 +20,7 @@ def _compute_badges(rid, totals):
 
     def _nth_ride(n):
         row = query_db(
-            'SELECT id, startDateLocal FROM Activity WHERE riderId=? ORDER BY startDateLocal LIMIT 1 OFFSET ?',
+            'SELECT id, startDateLocal FROM Ride WHERE riderId=? ORDER BY startDateLocal LIMIT 1 OFFSET ?',
             [rid, n - 1], one=True)
         return (row['startDateLocal'][:10], row['id']) if row else (None, None)
 
@@ -29,7 +29,7 @@ def _compute_badges(rid, totals):
             SELECT id, startDateLocal FROM (
                 SELECT id, startDateLocal,
                        SUM(distance) OVER (ORDER BY startDateLocal) as running
-                FROM Activity WHERE riderId=?
+                FROM Ride WHERE riderId=?
             ) WHERE running >= ? LIMIT 1
         ''', [rid, threshold_mi * 1609.344], one=True)
         return (row['startDateLocal'][:10], row['id']) if row else (None, None)
@@ -39,26 +39,26 @@ def _compute_badges(rid, totals):
             SELECT id, startDateLocal FROM (
                 SELECT id, startDateLocal,
                        SUM(totalElevationGain) OVER (ORDER BY startDateLocal) as running
-                FROM Activity WHERE riderId=?
+                FROM Ride WHERE riderId=?
             ) WHERE running >= ? LIMIT 1
         ''', [rid, threshold_m], one=True)
         return (row['startDateLocal'][:10], row['id']) if row else (None, None)
 
     def _first_ride(condition_sql, params=None):
         row = query_db(
-            f'SELECT id, startDateLocal FROM Activity WHERE riderId=? AND {condition_sql} ORDER BY startDateLocal LIMIT 1',
+            f'SELECT id, startDateLocal FROM Ride WHERE riderId=? AND {condition_sql} ORDER BY startDateLocal LIMIT 1',
             [rid] + (params or []), one=True)
         return (row['startDateLocal'][:10], row['id']) if row else (None, None)
 
     # Segment stats
     seg_efforts_total = query_db('''
         SELECT COUNT(*) as n FROM SegmentEffort e
-        JOIN Activity a ON a.id=e.activityId WHERE a.riderId=?
+        JOIN Ride a ON a.id=e.activityId WHERE a.riderId=?
     ''', [rid], one=True)['n'] or 0
 
     seg_prs_held = query_db('''
         SELECT COUNT(*) as n FROM SegmentEffort e
-        JOIN Activity a ON a.id=e.activityId WHERE a.riderId=? AND e.isPR=1
+        JOIN Ride a ON a.id=e.activityId WHERE a.riderId=? AND e.isPR=1
     ''', [rid], one=True)['n'] or 0
 
     total_segs_defined = query_db('SELECT COUNT(*) as n FROM Segment', one=True)['n'] or 0
@@ -66,21 +66,21 @@ def _compute_badges(rid, totals):
     seg_max_repeats = query_db('''
         SELECT MAX(cnt) as m FROM (
             SELECT COUNT(*) as cnt FROM SegmentEffort e
-            JOIN Activity a ON a.id=e.activityId
+            JOIN Ride a ON a.id=e.activityId
             WHERE a.riderId=? GROUP BY e.segmentId
         )
     ''', [rid], one=True)['m'] or 0
 
     seg_max_speed = query_db('''
         SELECT MAX(e.avgSpeedMps) as v FROM SegmentEffort e
-        JOIN Activity a ON a.id=e.activityId WHERE a.riderId=?
+        JOIN Ride a ON a.id=e.activityId WHERE a.riderId=?
     ''', [rid], one=True)['v'] or 0
     seg_max_speed_mph = seg_max_speed * 2.23694
 
     def _nth_effort(n):
         row = query_db('''
             SELECT a.id, a.startDateLocal FROM SegmentEffort e
-            JOIN Activity a ON a.id=e.activityId
+            JOIN Ride a ON a.id=e.activityId
             WHERE a.riderId=? ORDER BY a.startDateLocal LIMIT 1 OFFSET ?
         ''', [rid, n - 1], one=True)
         return (row['startDateLocal'][:10], row['id']) if row else (None, None)
@@ -88,7 +88,7 @@ def _compute_badges(rid, totals):
     def _first_effort_speed(threshold_mph):
         row = query_db('''
             SELECT a.id, a.startDateLocal FROM SegmentEffort e
-            JOIN Activity a ON a.id=e.activityId
+            JOIN Ride a ON a.id=e.activityId
             WHERE a.riderId=? AND e.avgSpeedMps >= ?
             ORDER BY a.startDateLocal LIMIT 1
         ''', [rid, threshold_mph / 2.23694], one=True)
@@ -96,12 +96,12 @@ def _compute_badges(rid, totals):
 
     def _count_cond(cond, params=None):
         return query_db(
-            f'SELECT COUNT(*) as n FROM Activity WHERE riderId=? AND {cond}',
+            f'SELECT COUNT(*) as n FROM Ride WHERE riderId=? AND {cond}',
             [rid] + (params or []), one=True)['n'] or 0
 
     def _nth_cond(n, cond, params=None):
         row = query_db(
-            f'SELECT id, startDateLocal FROM Activity WHERE riderId=? AND {cond} ORDER BY startDateLocal LIMIT 1 OFFSET ?',
+            f'SELECT id, startDateLocal FROM Ride WHERE riderId=? AND {cond} ORDER BY startDateLocal LIMIT 1 OFFSET ?',
             [rid] + (params or []) + [n - 1], one=True)
         return (row['startDateLocal'][:10], row['id']) if row else (None, None)
 
@@ -121,10 +121,10 @@ def _compute_badges(rid, totals):
     def _first_repeat(n):
         row = query_db('''
             SELECT a.id, a.startDateLocal FROM SegmentEffort e
-            JOIN Activity a ON a.id=e.activityId
+            JOIN Ride a ON a.id=e.activityId
             WHERE a.riderId=? AND e.segmentId IN (
                 SELECT segmentId FROM SegmentEffort e2
-                JOIN Activity a2 ON a2.id=e2.activityId
+                JOIN Ride a2 ON a2.id=e2.activityId
                 WHERE a2.riderId=?
                 GROUP BY e2.segmentId HAVING COUNT(*) >= ?
             )
@@ -135,7 +135,7 @@ def _compute_badges(rid, totals):
     peak = query_db('''
         SELECT MAX(distance) as max_dist, MAX(totalElevationGain) as max_elev,
                MAX(averageSpeed) as max_speed, MAX(maxSpeed) as top_speed
-        FROM Activity WHERE riderId=?
+        FROM Ride WHERE riderId=?
     ''', [rid], one=True)
     max_dist_mi   = (peak['max_dist']  or 0) / 1609.344
     max_elev_ft   = (peak['max_elev']  or 0) * 3.28084
@@ -147,18 +147,18 @@ def _compute_badges(rid, totals):
         return {'earned': top_speed_mph >= mph, 'earned_date': d, 'ride_id': i}
 
     wx = query_db('''
-        SELECT MIN(weatherTempC) as min_temp FROM Activity
+        SELECT MIN(weatherTempC) as min_temp FROM Ride
         WHERE riderId=? AND weatherTempC IS NOT NULL
     ''', [rid], one=True)
     min_temp = wx['min_temp'] if wx and wx['min_temp'] is not None else 999
 
     wx_coldest = query_db('''
-        SELECT id, startDateLocal, weatherTempC FROM Activity
+        SELECT id, startDateLocal, weatherTempC FROM Ride
         WHERE riderId=? AND weatherTempC IS NOT NULL
         ORDER BY weatherTempC ASC LIMIT 1
     ''', [rid], one=True)
     wx_windiest = query_db('''
-        SELECT id, startDateLocal, weatherWindKph, weatherGustKph FROM Activity
+        SELECT id, startDateLocal, weatherWindKph, weatherGustKph FROM Ride
         WHERE riderId=? AND weatherWindKph IS NOT NULL
         ORDER BY COALESCE(weatherGustKph, weatherWindKph) DESC LIMIT 1
     ''', [rid], one=True)
@@ -383,7 +383,7 @@ def index():
                COUNT(a.id) AS ride_count,
                SUM(a.distance) AS total_dist
         FROM Rider r
-        LEFT JOIN Activity a ON a.riderId = r.id
+        LEFT JOIN Ride a ON a.riderId = r.id
         GROUP BY r.id
         ORDER BY r.isDefault DESC, r.name ASC
     ''')
@@ -399,21 +399,21 @@ def detail(rid):
     totals = query_db(
         'SELECT COUNT(*) as rides, SUM(distance) as dist, '
         'SUM(totalElevationGain) as elev, SUM(movingTime) as secs, '
-        'SUM(calories) as cals FROM Activity WHERE riderId=?',
+        'SUM(calories) as cals FROM Ride WHERE riderId=?',
         [rid], one=True,
     )
 
     recent = query_db('''
         SELECT id, name, sportType, startDateLocal, distance, movingTime,
                totalElevationGain, averageSpeed
-        FROM Activity WHERE riderId=? ORDER BY startDateLocal DESC LIMIT 20
+        FROM Ride WHERE riderId=? ORDER BY startDateLocal DESC LIMIT 20
     ''', [rid])
 
     seg_prs = query_db('''
         SELECT s.name AS seg_name, s.id AS seg_id,
                e.elapsedSecs, e.activityDate, e.avgSpeedMps
         FROM SegmentEffort e
-        JOIN Activity a ON a.id = e.activityId
+        JOIN Ride a ON a.id = e.activityId
         JOIN Segment s ON s.id = e.segmentId
         WHERE a.riderId=? AND e.isPR=1
         ORDER BY s.name
@@ -543,6 +543,8 @@ def delete(rid):
                '(SELECT id FROM Activity WHERE riderId=?)', [rid])
     db.execute('DELETE FROM RideMemory WHERE rideId IN '
                '(SELECT id FROM Activity WHERE riderId=?)', [rid])
+    db.execute('DELETE FROM RunEffort WHERE runId IN '
+               '(SELECT id FROM Activity WHERE riderId=?)', [rid])          # their runs' best times (walks, runs, ... are Activity rows too)
     db.execute('DELETE FROM Activity WHERE riderId=?', [rid])
     db.execute('DELETE FROM Rider WHERE id=?', [rid])
     for sid in seg_ids:

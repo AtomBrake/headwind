@@ -35,15 +35,15 @@ def test_a_walk_recorded_as_a_ride_becomes_a_walk_with_walking_calories(db):
     w = db.execute('SELECT * FROM Workout WHERE id=?', [res['id']]).fetchone()
     assert w['sport'] == 'Walk' and w['name'] is None and abs(w['distance'] - 2.45 * MI) < 1 and w['movingTime'] == 2777 and w['weatherSummary'] == 'Overcast, 17C' and w['streams'] == STREAMS
     assert 100 < w['calories'] < 300 and w['calories'] < 376          # a walking estimate, not the cycling one
-    assert db.execute("SELECT COUNT(*) FROM Activity WHERE id='imp_x'").fetchone()[0] == 0
-    assert duplicates.is_deleted(db, 'imp_x')                          # a re-sync cannot bring it back as a ride
+    assert res['id'] == 'imp_x' and db.execute("SELECT COUNT(*) FROM Ride WHERE id='imp_x'").fetchone()[0] == 0     # same row, no longer a ride
+    assert duplicates.exists_anywhere(db, 'imp_x') and not duplicates.is_deleted(db, 'imp_x')     # a re-sync finds it here and leaves it alone
 
 
 def test_ride_stats_no_longer_include_it_and_best_efforts_are_gone(db):
     add_ride(db)
     db.execute("INSERT INTO BestEffort (activityId, activityDate, distanceMi, elapsedSecs, avgSpeedMps) VALUES ('imp_x','2026-10-05',1,600,2.7)"); db.commit()
     convert.change_sport(db, 'ride', 'imp_x', 'Run'); db.commit()
-    assert db.execute('SELECT COUNT(*) FROM BestEffort').fetchone()[0] == 0 and db.execute('SELECT COUNT(*) FROM Activity').fetchone()[0] == 0
+    assert db.execute('SELECT COUNT(*) FROM BestEffort').fetchone()[0] == 0 and db.execute('SELECT COUNT(*) FROM Ride').fetchone()[0] == 0
 
 
 def test_a_named_activity_keeps_its_name_a_generic_one_does_not(db):
@@ -56,7 +56,7 @@ def test_a_workout_can_become_a_ride_and_gets_the_default_bike(db):
     bike = gear.create_bike(db, 1, 'Roubaix')
     add_ride(db); res = convert.change_sport(db, 'ride', 'imp_x', 'Walk'); db.commit()
     back = convert.change_sport(db, 'workout', res['id'], 'Ride'); db.commit()
-    assert back['kind'] == 'ride' and back['id'].startswith('conv_')
+    assert back['kind'] == 'ride' and back['id'] == 'imp_x'
     a = db.execute('SELECT * FROM Activity WHERE id=?', [back['id']]).fetchone()
     assert a['sportType'] == 'Ride' and a['bikeId'] == bike and abs(a['distance'] - 2.45 * MI) < 1 and a['streams'] == STREAMS
     assert db.execute('SELECT COUNT(*) FROM Workout').fetchone()[0] == 0
@@ -66,7 +66,7 @@ def test_label_only_changes_stay_where_they_are(db):
     add_ride(db)
     assert convert.change_sport(db, 'ride', 'imp_x', 'VirtualRide') == {'kind': 'ride', 'id': 'imp_x', 'sport': 'VirtualRide', 'changed': True}
     assert db.execute("SELECT sportType, type FROM Activity WHERE id='imp_x'").fetchone()[:] == ('VirtualRide', 'VirtualRide')
-    db.execute("INSERT INTO Workout (id, riderId, sport, startDateLocal, distance, movingTime, source) VALUES ('wk_1',1,'Walk','2026-10-05T10:00:00',3000,1800,'android')"); db.commit()
+    db.execute("INSERT INTO Activity (id, riderId, sportType, startDateLocal, distance, movingTime, source) VALUES ('wk_1',1,'Walk','2026-10-05T10:00:00',3000,1800,'android')"); db.commit()
     r = convert.change_sport(db, 'workout', 'wk_1', 'Hike'); assert r['changed'] and r['id'] == 'wk_1' and db.execute("SELECT sport FROM Workout WHERE id='wk_1'").fetchone()[0] == 'Hike'
 
 

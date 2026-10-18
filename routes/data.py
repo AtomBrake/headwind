@@ -34,7 +34,7 @@ def index():
     from services import units
     sport = request.args.get('sport', '').strip()
     sport_types = query_db(
-        'SELECT DISTINCT sportType FROM Activity WHERE riderId=? AND sportType IS NOT NULL ORDER BY sportType',
+        'SELECT DISTINCT sportType FROM Ride WHERE riderId=? AND sportType IS NOT NULL ORDER BY sportType',
         [rid]
     )
 
@@ -49,7 +49,7 @@ def index():
         where_params.append(f'%{sport.lower()}%')
     speed_rows = query_db(
         f"SELECT date(startDateLocal) as d, averageSpeed "
-        f"FROM Activity {where_clause} ORDER BY startDateLocal",
+        f"FROM Ride {where_clause} ORDER BY startDateLocal",
         where_params
     )
     speed_labels  = [r['d'] for r in speed_rows]
@@ -68,7 +68,7 @@ def index():
         monthly_params.append(f'%{sport.lower()}%')
     monthly_rows = query_db(
         f"SELECT strftime('%Y-%m', startDateLocal) as ym, SUM(distance) as dist "
-        f"FROM Activity {monthly_where} GROUP BY ym ORDER BY ym",
+        f"FROM Ride {monthly_where} GROUP BY ym ORDER BY ym",
         monthly_params
     )
     monthly_labels = [r['ym'] for r in monthly_rows]
@@ -83,7 +83,7 @@ def index():
     yoy_rows = query_db(
         f"SELECT strftime('%Y', startDateLocal) as yr, "
         f"CAST(strftime('%m', startDateLocal) AS INTEGER) as mo, "
-        f"SUM(distance) as dist FROM Activity {yoy_where} GROUP BY yr, mo ORDER BY yr, mo",
+        f"SUM(distance) as dist FROM Ride {yoy_where} GROUP BY yr, mo ORDER BY yr, mo",
         yoy_params
     )
     year_data = defaultdict(lambda: [0] * 12)
@@ -101,7 +101,7 @@ def index():
             hist_where += " AND lower(sportType) LIKE ?"
             hist_params.append(f'%{sport.lower()}%')
         n = query_db(
-            f"SELECT COUNT(*) as n FROM Activity {hist_where}",
+            f"SELECT COUNT(*) as n FROM Ride {hist_where}",
             hist_params, one=True
         )['n']
         hist_labels.append(label)
@@ -115,7 +115,7 @@ def index():
         dow_params.append(f'%{sport.lower()}%')
     dow_rows = query_db(
         f"SELECT CAST(strftime('%w', startDateLocal) AS INTEGER) as dow, COUNT(*) as n "
-        f"FROM Activity {dow_where} GROUP BY dow",
+        f"FROM Ride {dow_where} GROUP BY dow",
         dow_params
     )
     dow_map    = {r['dow']: r['n'] for r in dow_rows}
@@ -130,7 +130,7 @@ def index():
         cal_params.append(f'%{sport.lower()}%')
     cal_rows = query_db(
         f"SELECT date(startDateLocal) as d, calories "
-        f"FROM Activity {cal_where} ORDER BY startDateLocal",
+        f"FROM Ride {cal_where} ORDER BY startDateLocal",
         cal_params
     )
     cal_labels = [r['d'] for r in cal_rows]
@@ -149,7 +149,7 @@ def index():
         hm_params.append(f'%{sport.lower()}%')
     heatmap_rows = query_db(
         f"SELECT date(startDateLocal) as d, SUM(distance) as dist "
-        f"FROM Activity {hm_where} GROUP BY d",
+        f"FROM Ride {hm_where} GROUP BY d",
         hm_params
     )
     heatmap = {r['d']: round(units.dist(r['dist']), 1) for r in heatmap_rows}
@@ -193,7 +193,7 @@ def index():
         SELECT id, name, totalElevationGain, startDateLocal,
                strftime('%Y', startDateLocal) as yr,
                strftime('%Y-%m', startDateLocal) as ym
-        FROM Activity
+        FROM Ride
         WHERE riderId=? AND totalElevationGain > 0
         ORDER BY yr, totalElevationGain DESC
     ''', [rid])
@@ -233,7 +233,7 @@ def index():
     weather_scatter = query_db(
         f'''SELECT id, averageSpeed, weatherTempC, weatherWindKph, weatherWindRel, weatherCode,
                   strftime('%m', startDateLocal) as mo
-           FROM Activity
+           FROM Ride
            {wx_where}
            ORDER BY startDateLocal''',
         wx_params
@@ -275,7 +275,7 @@ def index():
     if sport:
         cond_where += " AND lower(sportType) LIKE ?"
         cond_params.append(f'%{sport.lower()}%')
-    for r in query_db(f'SELECT averageSpeed, weatherCode FROM Activity {cond_where}', cond_params):
+    for r in query_db(f'SELECT averageSpeed, weatherCode FROM Ride {cond_where}', cond_params):
         b = _wmo_bucket(r['weatherCode'])
         if b:
             wx_cond_buckets[b].append(round(units.speed(r['averageSpeed']), 1))

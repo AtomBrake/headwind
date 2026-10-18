@@ -1,5 +1,42 @@
+import os
 import sqlite3
 from flask import current_app, g
+
+
+def _merge_workouts(db):
+    """Once, on an install from before 0.7.0: copy every Workout row into Activity (its sport into type and sportType) and keep the old table,
+    untouched, as WorkoutPreMerge in case anything has to be put back. An id in both tables is one recording (ids come from the source, or from a
+    hash of it), so the Activity row stays. Safe to run again after a crash halfway: rows already copied are skipped. Before anything changes, the
+    whole database is copied to <database>.pre-0.7.0 (0.6 can't open a merged database, so going back means restoring that file). Commits.
+    Returns {'moved', 'same_id', 'backup', 'copy'} or None when there is nothing to merge."""
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='Workout'").fetchone():
+        return None
+    copy = None
+    path = db.execute('PRAGMA database_list').fetchone()[2]
+    if path:                                            # '' for an in-memory database
+        copy = path + '.pre-0.7.0'
+        if not os.path.exists(copy):                    # a second attempt after a crash keeps the first, untouched, copy
+            db.commit()
+            out = sqlite3.connect(copy)
+            try:
+                db.backup(out)
+            finally:
+                out.close()
+    wcols = [r[1] for r in db.execute('PRAGMA table_info(Workout)').fetchall()]
+    acols = {r[1] for r in db.execute('PRAGMA table_info(Activity)').fetchall()}
+    same = [c for c in wcols if c in acols]
+    cols = same + ['type', 'sportType', 'rawData', 'updatedAt']
+    sel = [f'w.{c}' for c in same] + ['w.sport', 'w.sport', "'{}'", "COALESCE(w.createdAt, datetime('now'))" if 'createdAt' in wcols else "datetime('now')"]
+    same_id = db.execute('SELECT COUNT(*) FROM Workout w JOIN Activity a ON a.id = w.id').fetchone()[0]
+    moved = db.execute(f"INSERT OR IGNORE INTO Activity ({', '.join(cols)}) SELECT {', '.join(sel)} FROM Workout w").rowcount
+    backup, n = 'WorkoutPreMerge', 1
+    while db.execute("SELECT 1 FROM sqlite_master WHERE name=?", [backup]).fetchone():
+        n += 1
+        backup = f'WorkoutPreMerge{n}'
+    db.execute('DROP VIEW IF EXISTS SegActivity')       # it reads Workout: renaming the table would point it at the backup
+    db.execute(f'ALTER TABLE Workout RENAME TO {backup}')
+    db.commit()
+    return {'moved': moved, 'same_id': same_id, 'backup': backup, 'copy': copy}
 
 
 def migrate_db():
@@ -235,6 +272,8 @@ def migrate_db():
         ('aiKudosAt',       'TEXT'),
         ('caloriesRaw',     'REAL'),
         ('originId',        'TEXT'),     # a ride that was a workout: the id it first came in with (services/origin.py)
+        ('steps',           'INTEGER'),  # walks, runs, hikes: from the phone or watch
+        ('source',          'TEXT'),     # how a walk, run, ... arrived: 'android', 'garmin', 'manual', 'converted', ... (was Workout.source)
     ]:
         if col not in act_cols:
             db.execute(f'ALTER TABLE Activity ADD COLUMN {col} {defn}')
@@ -284,7 +323,8 @@ def migrate_db():
         ('garminHistoryStatus',  'TEXT'),
         ('garminHistoryRetryAt', 'TEXT'),      # after a rate limit or outage, don't try again before this (UTC ISO)
         ('utcStartFixDone',      'INTEGER DEFAULT 0'),
-        ('awayStartRecheckDone', 'INTEGER DEFAULT 0'),   # duplicates re-checked on the UTC instant for rides recorded abroad (services/start_times.py)
+        ('awayStartRecheckDone', 'INTEGER DEFAULT 0'),
+        ('workoutDupCheckDone',  'INTEGER DEFAULT 0'),   # walks, runs, ... checked once for duplicates after the merge (services/duplicates.recheck_workouts)   # duplicates re-checked on the UTC instant for rides recorded abroad (services/start_times.py)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
         ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
@@ -539,39 +579,28 @@ def migrate_db():
         )
     ''')
 
-    # Walks / runs / hikes recorded by the phone app. Deliberately NOT in Activity: ~100 queries (ride stats, badges, charts, HA
-    # sensors, segments, AI) assume every Activity is a ride, so keeping workouts separate leaves all of them correct by construction.
-    db.execute('''
-        CREATE TABLE IF NOT EXISTS Workout (
-            id                 TEXT PRIMARY KEY,
-            riderId            INTEGER NOT NULL,
-            sport              TEXT NOT NULL,
-            name               TEXT,
-            startDate          TEXT,
-            startDateLocal     TEXT NOT NULL,
-            distance           REAL, movingTime INTEGER, elapsedTime INTEGER,
-            totalElevationGain REAL, averageSpeed REAL, maxSpeed REAL, averageHeartrate REAL,
-            calories           REAL,
-            steps              INTEGER,
-            startLat REAL, startLng REAL,
-            streams            TEXT,
-            weatherSummary     TEXT,
-            source             TEXT,
-            createdAt          TEXT DEFAULT (datetime('now'))
-        )
-    ''')
-    # Segments are for rides or for runs. A run lives in Workout (phone) or Activity (Garmin), so segment queries read activities
-    # through this view and see both; it carries no streams (heavy), only what leaderboards need.
+    # Every activity, of every sport, is a row in Activity. Walks, runs, swims, ... used to have a table of their own (Workout); _merge_workouts
+    # moves an old install's rows across once. Ride and Workout are views of Activity split by services/sports.RIDE_SQL: about 80 queries
+    # read rides only, and Workout keeps its old columns (sport, not sportType) for the code that reads it.
     if 'sport' not in {r[1] for r in db.execute('PRAGMA table_info(Segment)').fetchall()}:
         db.execute("ALTER TABLE Segment ADD COLUMN sport TEXT DEFAULT 'ride'")
-    seg_view = '''CREATE VIEW SegActivity AS
-        SELECT id, name, riderId, startDateLocal, sportType, 'activity' AS kind FROM Activity
-        UNION ALL
-        SELECT id, name, riderId, startDateLocal, sport AS sportType, 'workout' AS kind FROM Workout'''
-    cur = db.execute("SELECT sql FROM sqlite_master WHERE type='view' AND name='SegActivity'").fetchone()
-    if not cur or ' '.join((cur[0] or '').split()) != ' '.join(seg_view.split()):      # only write when it is missing or has changed, so start-up never takes a write lock needlessly
-        db.execute('DROP VIEW IF EXISTS SegActivity')
-        db.execute(seg_view)
+    merged = _merge_workouts(db)
+    from services.sports import RIDE_SQL
+    views = {
+        'Ride': f'CREATE VIEW Ride AS SELECT * FROM Activity WHERE {RIDE_SQL}',
+        'Workout': f'''CREATE VIEW Workout AS SELECT id, riderId, sportType AS sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime,
+            totalElevationGain, averageSpeed, maxSpeed, averageHeartrate, calories, steps, startLat, startLng, streams, weatherSummary, source, createdAt,
+            caloriesRaw, originId FROM Activity WHERE NOT {RIDE_SQL}''',
+        # segment leaderboards: no streams (heavy), only what they need
+        'SegActivity': f'''CREATE VIEW SegActivity AS SELECT id, name, riderId, startDateLocal, sportType,
+            CASE WHEN {RIDE_SQL} THEN 'activity' ELSE 'workout' END AS kind FROM Activity''',
+    }
+    for name, sql in views.items():
+        cur = db.execute("SELECT sql FROM sqlite_master WHERE type='view' AND name=?", [name]).fetchone()
+        if not cur or ' '.join((cur[0] or '').split()) != ' '.join(sql.split()):      # only write when missing or changed, so start-up never takes a write lock needlessly
+            db.execute(f'DROP VIEW IF EXISTS {name}')
+            db.execute(sql)
+    db.execute('CREATE INDEX IF NOT EXISTS idx_activity_rider_date ON Activity(riderId, startDateLocal)')
     # Phone sensor recordings kept beside rides (see services/sensors.py): one row per recording, attached to the overlapping ride by time.
     db.execute('''
         CREATE TABLE IF NOT EXISTS RideSensor (
@@ -600,11 +629,6 @@ def migrate_db():
             PRIMARY KEY (runId, distanceM)
         )
     ''')
-    if 'caloriesRaw' not in {r[1] for r in db.execute('PRAGMA table_info(Workout)').fetchall()}:
-        db.execute('ALTER TABLE Workout ADD COLUMN caloriesRaw REAL')
-    if 'originId' not in {r[1] for r in db.execute('PRAGMA table_info(Workout)').fetchall()}:
-        db.execute('ALTER TABLE Workout ADD COLUMN originId TEXT')       # a workout that was a ride: the id it first came in with
-    db.execute('CREATE INDEX IF NOT EXISTS idx_workout_rider_date ON Workout(riderId, startDateLocal)')
 
     from services.duplicates import ensure_schema as _dup_schema
     _dup_schema(db)
@@ -723,6 +747,19 @@ def migrate_db():
         _tasks.record(db, 'startup:utc_starts', 'Start times of imported rides',
                       f"{res['moved']} ride{'s' if res['moved'] != 1 else ''} moved from UTC to UK time; "
                       f"{res['duplicates']} turned out to be a ride already here (the weaker copy was set aside)" if res['moved'] else 'Nothing needed moving')
+        db.commit()
+    if merged:
+        _tasks.record(db, 'startup:merge_workouts', 'Walks, runs and other workouts moved in with the rides',
+                      f"{merged['moved']} moved into one table of activities"
+                      + (f"; {merged['same_id']} already there under the same id (that copy kept)" if merged['same_id'] else '')
+                      + f". The old table is kept as {merged['backup']}"
+                      + (f", and the whole database as it was in {merged['copy']}" if merged['copy'] else ''))
+        db.commit()
+    from services.duplicates import recheck_workouts
+    res = recheck_workouts(db)
+    if res.get('ran') and res['checked']:
+        _tasks.record(db, 'startup:workout_duplicates', 'Duplicates of walks, runs and other workouts',
+                      f"{res['checked']} checked; {res['duplicates']} turned out to be an activity already here (the weaker copy was set aside)")
         db.commit()
     from services.start_times import recheck_away_starts
     res = recheck_away_starts(db)

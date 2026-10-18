@@ -75,8 +75,8 @@ def test_check_lists_the_wrong_sports_and_apply_moves_them(db):
     assert swim and swim['calories'] == 210                                        # the watch's calories, not a walking estimate
     assert db.execute("SELECT COUNT(*) FROM Workout WHERE sport='Run'").fetchone()[0] == 1
     assert db.execute("SELECT sportType FROM Activity WHERE id='garmin_4'").fetchone()[0] == 'VirtualRide'
-    assert not db.execute("SELECT 1 FROM Activity WHERE id IN ('garmin_1','garmin_3')").fetchone()
-    assert duplicates.is_deleted(db, 'garmin_1')                                   # a Garmin re-sync won't bring the swim back as a ride
+    assert not db.execute("SELECT 1 FROM Ride WHERE id IN ('garmin_1','garmin_3')").fetchone()
+    assert swim['id'] == 'garmin_1' and duplicates.exists_anywhere(db, 'garmin_1')  # same id: a Garmin re-sync finds it and won't bring it back as a ride
     assert all(f['id'] != 'garmin_1' for f in sanity.flagged(db, 1))                # and it's off the "looks wrong" list
     assert origin.link(swim['id'], swim['originId'])['url'] == 'https://connect.garmin.com/modern/activity/1'    # still links to Garmin
 
@@ -142,7 +142,7 @@ def test_sync_puts_a_swim_in_workouts_and_a_ride_in_rides_with_a_sane_top_speed(
     events = list(garmin.sync_garmin_activities('e', 'p', 1))
     assert events[-1]['imported'] == 2
     assert db.execute("SELECT sport FROM Workout WHERE id='garmin_11'").fetchone()[0] == 'Swim'
-    assert not db.execute("SELECT 1 FROM Activity WHERE id='garmin_11'").fetchone()
+    assert not db.execute("SELECT 1 FROM Ride WHERE id='garmin_11'").fetchone()
     assert db.execute("SELECT maxSpeed FROM Activity WHERE id='garmin_12'").fetchone()[0] == 14.0
 
     db.execute('UPDATE Settings SET garminActivitySyncDate=NULL WHERE id=1'); db.commit()
@@ -165,7 +165,7 @@ def test_apply_moves_a_ride_with_a_copy_set_aside_and_throws_the_copy_away(db):
 
     assert sport_fix.apply(db, 1, ['garmin_20']) == {'changed': 1, 'failed': 0, 'kept': 0}
     assert db.execute("SELECT sport FROM Workout").fetchone()[0] == 'Other'
-    assert not db.execute("SELECT 1 FROM Activity").fetchone()
+    assert not db.execute("SELECT 1 FROM Ride").fetchone()
     d = db.execute("SELECT status, rowJson FROM ActivityDuplicate WHERE id='imp_hiit'").fetchone()
     assert tuple(d) == ('discarded', '{}')
     assert duplicates.exists_anywhere(db, 'imp_hiit')                              # a re-import can't bring the copy back as a ride
@@ -206,14 +206,15 @@ def test_a_ride_from_garmin_and_strava_links_to_both(db):
 def test_a_ride_changed_to_a_run_and_back_keeps_its_strava_link(db):
     add_ride(db, '4567890', dist=8000)
     wid = convert.change_sport(db, 'ride', '4567890', 'Run')['id']
-    assert db.execute('SELECT originId FROM Workout WHERE id=?', [wid]).fetchone()[0] == '4567890'
+    assert wid == '4567890' and [l['name'] for l in origin.links(db, wid)] == ['Strava']          # the id no longer changes: it is its own link
     aid = convert.change_sport(db, 'workout', wid, 'Ride')['id']
-    assert db.execute('SELECT originId FROM Activity WHERE id=?', [aid]).fetchone()[0] == '4567890'
+    assert aid == '4567890' and [l['name'] for l in origin.links(db, aid)] == ['Strava']
 
 
 def test_workouts_converted_before_the_origin_was_kept_are_matched_up(db):
-    add_ride(db, 'garmin_7', dist=8000)
-    wid = convert.change_sport(db, 'ride', 'garmin_7', 'Run')['id']
-    db.execute('UPDATE Workout SET originId=NULL'); db.commit()                    # as an older version left it
+    import hashlib
+    wid = 'wk_' + hashlib.sha1(b'1|conv|garmin_7').hexdigest()[:16]          # what changing a ride to a run used to make, with no originId
+    db.execute("INSERT INTO Activity (id, riderId, type, sportType, startDateLocal, distance, movingTime, source) VALUES (?, 1, 'Run', 'Run', '2026-10-01T08:00:00', 8000, 2400, 'converted')", [wid])
+    duplicates.tombstone(db, 'garmin_7', 1); db.commit()                       # the ride's id, remembered when it was removed
     assert origin.backfill(db) == 1
     assert db.execute('SELECT originId FROM Workout WHERE id=?', [wid]).fetchone()[0] == 'garmin_7'

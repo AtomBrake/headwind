@@ -197,7 +197,7 @@ def counter_gif(n, scale=2):
 # ---------------------------------------------------------------- keeping the data fresh
 # (table, columns, kind): 'd' = YYYY-MM-DD, 'dt' = YYYY-MM-DDTHH:MM:SS. Moving everything by WHOLE WEEKS keeps weekdays, so "Sunday rides" stay Sundays.
 DATE_COLUMNS = [
-    ('Activity', ('startDate', 'startDateLocal'), 'dt'), ('Workout', ('startDate', 'startDateLocal'), 'dt'),
+    ('Activity', ('startDate', 'startDateLocal'), 'dt'),          # every sport (workouts are Activity rows too)
     ('BestEffort', ('activityDate',), 'd'), ('SegmentEffort', ('activityDate',), 'd'),
     ('FoodLog', ('logDate',), 'd'), ('HydrationLog', ('logDate',), 'd'), ('WeightLog', ('logDate',), 'd'), ('BodyMetric', ('logDate',), 'd'),
     ('GarminDaily', ('date',), 'd'), ('Part', ('installedOn', 'retiredOn'), 'd'), ('ServiceLog', ('date',), 'd'), ('Bike', ('boughtOn',), 'd'),

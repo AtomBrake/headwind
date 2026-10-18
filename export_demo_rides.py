@@ -147,7 +147,7 @@ def main():
         rides = query_db('''
             SELECT id, name, startDateLocal, startDate, distance,
                    totalElevationGain, movingTime, streams
-            FROM Activity
+            FROM Ride
             WHERE riderId = (SELECT id FROM Rider WHERE isDefault=1)
               AND streams IS NOT NULL
               AND distance > 5000

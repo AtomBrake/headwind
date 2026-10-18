@@ -48,7 +48,7 @@ def sync():
             from services.garmin import fetch_ride_hr, _client
             missing = query_db('''
                 SELECT a.id, a.startDate, a.elapsedTime, a.streams
-                FROM Activity a
+                FROM Ride a
                 JOIN Rider r ON r.id = a.riderId
                 WHERE r.isDefault = 1
                   AND a.averageHeartrate IS NULL

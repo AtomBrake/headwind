@@ -50,6 +50,6 @@ def backfill(db):
     for r in db.execute('SELECT id, riderId FROM ActivityDuplicate').fetchall():
         wid = 'wk_' + hashlib.sha1(f"{r['riderId']}|conv|{r['id']}".encode()).hexdigest()[:16]
         if wid in todo:
-            db.execute('UPDATE Workout SET originId=? WHERE id=?', [r['id'], wid])
+            db.execute('UPDATE Activity SET originId=? WHERE id=?', [r['id'], wid])
             n += 1
     return n

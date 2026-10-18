@@ -259,6 +259,14 @@ function dismissFlagged(id) {
       {% endfor %}
     </select>
   </div>
+  {% if sport_types | length > 1 %}
+  <div class="form-group-sm" style="flex-basis:100%; display:flex; flex-wrap:wrap; align-items:center; gap:0.25rem 0.9rem; font-size:0.8125rem;">
+    <span style="color:var(--text-muted);">Leave out</span>
+    {% for st in sport_types %}
+    <label style="display:inline-flex; align-items:center; gap:0.3rem; margin:0; font-weight:400; color:var(--text);"><input type="checkbox" name="skip" value="{{ st.sportType }}" {% if st.sportType in skip %}checked{% endif %} onchange="this.form.submit()"> {{ st.sportType | sport_icon }} {{ st.sportType }}</label>
+    {% endfor %}
+  </div>
+  {% endif %}
   <div style="display:flex; gap:0.4rem;">
     <button type="submit" class="btn btn-primary" style="padding:0.35rem 0.9rem; font-size:0.875rem;">Search</button>
     {% if is_filtered %}

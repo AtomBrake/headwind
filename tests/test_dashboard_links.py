@@ -128,4 +128,4 @@ def test_activity_type_review_page_lists_pending_changes(client):
     with client.application.app_context():
         db = database.get_db()
         assert db.execute("SELECT sport FROM Workout WHERE sport='Swim'").fetchone()
-        assert not db.execute("SELECT 1 FROM Activity WHERE id='good'").fetchone()
+        assert not db.execute("SELECT 1 FROM Ride WHERE id='good'").fetchone()

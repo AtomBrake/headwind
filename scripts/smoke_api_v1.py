@@ -34,7 +34,7 @@ def gpx(start):
             + ''.join(pts) + '</trkseg></trk></gpx>').encode()
 start = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=1)
 files = lambda: {'file': (io.BytesIO(gpx(start)), 'walk.gpx'), 'client_id': 'test-uuid-1', 'steps': '3400'}
-acts_before = con.execute('select count(*) from Activity').fetchone()[0]
+acts_before = con.execute('select count(*) from Ride').fetchone()[0]
 r = c2.post('/api/v1/workouts', headers=H, data=files(), content_type='multipart/form-data'); w = r.get_json()
 ok('upload walk -> created', r.status_code == 201 and w['status'] == 'created', {k: w['workout'][k] for k in ('sport', 'distance', 'movingTime', 'calories', 'steps')})
 ok('sport detected from GPX <type>', w['workout']['sport'] == 'Walk')
@@ -42,7 +42,7 @@ ok('calories estimated', 80 <= (w['workout']['calories'] or 0) <= 400, w['workou
 r = c2.post('/api/v1/workouts', headers=H, data=files(), content_type='multipart/form-data')
 ok('same client_id again -> exists (idempotent)', r.status_code == 200 and r.get_json()['status'] == 'exists')
 ok('exactly one workout row', con.execute('select count(*) from Workout').fetchone()[0] == 1)
-ok('RIDE STATS UNTOUCHED (Activity table unchanged)', con.execute('select count(*) from Activity').fetchone()[0] == acts_before)
+ok('RIDE STATS UNTOUCHED (no new ride)', con.execute('select count(*) from Ride').fetchone()[0] == acts_before)
 ok('bad file -> 422', c2.post('/api/v1/workouts', headers=H, data={'file': (io.BytesIO(b'not gpx'), 'x.gpx')}, content_type='multipart/form-data').status_code == 422)
 today = datetime.now().date().isoformat()
 d = c.get('/nutrition/api/day/' + today).get_json()
