@@ -187,6 +187,9 @@ def delete(db, wid, rider_id):
         return False
     forget(db, wid)
     db.execute('DELETE FROM Activity WHERE id=?', [wid])
+    from flask import current_app
+    from services import photos
+    photos.delete_for(db, [wid], current_app.config['DATABASE'])
     if str(wid).startswith('garmin_'):
         from services import duplicates
         duplicates.tombstone(db, wid, rider_id)

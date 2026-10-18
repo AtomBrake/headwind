@@ -667,3 +667,126 @@ def merge_bikes(db):
     if was_e or found or moved:
         log.warning('Segment bikes merged: %d e-bike segments became ride segments, %d new efforts, %d PRs changed', len(was_e), found, moved)
     return {'ran': True, 'merged': len(was_e), 'found': found, 'scanned': scanned, 'prs_moved': moved}
+
+
+# ---------- segments from a Strava export (segments.csv) ----------
+IMPORT_TOL_M = 50       # a Strava segment's ends sit on the track it was drawn on; allow for a different recording of the same road
+
+
+def shape_from_streams(streams, start, end, tol_m=IMPORT_TOL_M):
+    """(polyline, distance_m, elevation_gain_m) of the stretch of a track from near `start` to near `end` after it, or None if the track doesn't
+    go from one to the other. Of every pass by the start, the shortest way on to the end is taken, so a loop that passes the start twice
+    gives the segment, not the loop."""
+    s = _parsed(streams)
+    ll = (s.get('latlng') or {}).get('data') or []
+    alt = (s.get('altitude') or {}).get('data') or []
+    pts, els = [], []
+    for i, p in enumerate(ll):
+        c = valid_coord(p[0], p[1]) if isinstance(p, (list, tuple)) and len(p) >= 2 else None
+        if c:
+            pts.append(c)
+            els.append(alt[i] if i < len(alt) and isinstance(alt[i], (int, float)) else None)
+    if len(pts) < 2:
+        return None
+    sw, ew = _window(start[0], start[1], tol_m), _window(end[0], end[1], tol_m)
+    ds = [_near(sw, la, ln, tol_m) for la, ln in pts]
+    de = [_near(ew, la, ln, tol_m) for la, ln in pts]
+    best = None
+    i, n = 0, len(pts)
+    while i < n:
+        if ds[i] is None:
+            i += 1
+            continue
+        j = i                                           # one pass through the start zone: its closest point
+        while j + 1 < n and ds[j + 1] is not None:
+            j += 1
+        si = min(range(i, j + 1), key=lambda k: ds[k])
+        k = si + 1
+        while k < n and de[k] is None:
+            k += 1
+        if k < n:
+            m = k
+            while m + 1 < n and de[m + 1] is not None:
+                m += 1
+            ei = min(range(k, m + 1), key=lambda q: de[q])
+            if ei > si:
+                length = _path_length_m(pts[si:ei + 1])
+                if best is None or length < best[2]:
+                    best = (si, ei, length)
+        i = j + 1
+    if not best:
+        return None
+    si, ei, length = best
+    shape = clean_polyline(pts[si:ei + 1], max_points=400)
+    if not shape:
+        return None
+    gain, last = 0.0, None
+    for e in els[si:ei + 1]:
+        if e is None:
+            continue
+        if last is not None and e > last:
+            gain += e - last
+        last = e
+    return shape, round(length, 1), (round(gain, 1) if last is not None else None)
+
+
+def _tracks_through(db, start, end, limit=40):
+    """Ids of activities whose track box holds both points, newest first: the ones worth reading to find a segment's shape."""
+    tracks.fill(db)
+    lo_lat, hi_lat = min(start[0], end[0]), max(start[0], end[0])
+    lo_lng, hi_lng = min(start[1], end[1]), max(start[1], end[1])
+    return [r[0] for r in db.execute(
+        'SELECT t.activityId FROM ActivityTrack t JOIN Activity a ON a.id = t.activityId '
+        'WHERE t.minLat <= ? AND t.maxLat >= ? AND t.minLng <= ? AND t.maxLng >= ? ORDER BY a.startDateLocal DESC LIMIT ?',
+        [lo_lat, hi_lat, lo_lng, hi_lng, limit])]
+
+
+def _segment_here(db, start, end, tol_m=TOLERANCE_M):
+    """True if a segment with both ends within tol_m of these is already saved."""
+    sw, ew = _window(start[0], start[1], tol_m), _window(end[0], end[1], tol_m)
+    for r in db.execute('SELECT startLat, startLng, endLat, endLng FROM Segment WHERE startLat BETWEEN ? AND ? AND startLng BETWEEN ? AND ?',
+                        [sw[0] - sw[2], sw[0] + sw[2], sw[1] - sw[3], sw[1] + sw[3]]):
+        if _near(sw, r[0], r[1], tol_m) is not None and _near(ew, r[2], r[3], tol_m) is not None:
+            return True
+    return False
+
+
+def import_strava(db, rows):
+    """Make a segment for each row of a Strava export's segments.csv (Segment Name, Activity ID, Starting/Ending Latitude/Longitude) that isn't
+    here yet. Its shape, length and climb come from the activity it was made on, or, when that isn't here (or the row names none), from another
+    activity that rode it. A row with no position, one already saved (both ends within TOLERANCE_M), or one no activity here rode, is skipped.
+    Returns {'created': [ids], 'existing': n, 'unridden': n, 'invalid': n}. Matches nothing yet (scan_all_activities with the new ids does) and
+    does not commit."""
+    out = {'created': [], 'existing': 0, 'unridden': 0, 'invalid': 0}
+    for row in rows:
+        start = valid_coord(row.get('Starting Latitude'), row.get('Starting Longitude'))
+        end = valid_coord(row.get('Ending Latitude'), row.get('Ending Longitude'))
+        if not start or not end or start == end:
+            out['invalid'] += 1
+            continue
+        if _segment_here(db, start, end):
+            out['existing'] += 1
+            continue
+        source = str(row.get('Activity ID') or '').strip()
+        tried, found = set(), None
+        for aid in ([source] if source else []) + _tracks_through(db, start, end):
+            if aid in tried:
+                continue
+            tried.add(aid)
+            fam = family_of(db, aid)
+            if fam is None:                                 # not here, or an indoor ride / swim: no segments
+                continue
+            r = db.execute('SELECT streams FROM Activity WHERE id=?', [aid]).fetchone()
+            shape = shape_from_streams(r[0], start, end) if r and r[0] else None
+            if shape:
+                found = (aid, fam, shape)
+                break
+        if not found:
+            out['unridden'] += 1
+            continue
+        aid, fam, (poly, dist, gain) = found
+        name = (row.get('Segment Name') or '').strip()[:200] or 'Strava segment'
+        db.execute('INSERT INTO Segment (name, startLat, startLng, endLat, endLng, distanceM, sourceActivityId, polyline, elevationGainM, sport) '
+                   'VALUES (?,?,?,?,?,?,?,?,?,?)', [name, start[0], start[1], end[0], end[1], dist, aid, json.dumps(poly), gain, fam])
+        out['created'].append(db.execute('SELECT last_insert_rowid()').fetchone()[0])
+    return out

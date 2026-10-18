@@ -365,6 +365,7 @@ def migrate_db():
         ('originId',        'TEXT'),     # a ride that was a workout: the id it first came in with (services/origin.py)
         ('steps',           'INTEGER'),  # walks, runs, hikes: from the phone or watch
         ('source',          'TEXT'),     # how a walk, run, ... arrived: 'android', 'garmin', 'manual', 'converted', ... (was Workout.source)
+        ('commute',         'INTEGER'),  # 1 a commute, 0 the rider said it isn't, NULL never said (a Strava import may then tick it)
     ]:
         if col not in act_cols:
             db.execute(f'ALTER TABLE Activity ADD COLUMN {col} {defn}')
@@ -735,6 +736,8 @@ def migrate_db():
     _gear_schema(db)
     from services.strava_gear import ensure_schema as _strava_gear_schema
     _strava_gear_schema(db)
+    from services.photos import ensure_schema as _photos_schema
+    _photos_schema(db)
     db.commit()
     # Every Activity column is there now: put the large ones last (heavy_last), then the track summaries and their triggers (services/tracks.py).
     rebuilt = {t: heavy_last(db, t, cols) for t, cols in HEAVY_COLUMNS.items()}

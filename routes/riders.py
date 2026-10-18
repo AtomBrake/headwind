@@ -563,6 +563,8 @@ def delete(rid):
                '(SELECT id FROM Activity WHERE riderId=?)', [rid])
     db.execute('DELETE FROM RunEffort WHERE runId IN '
                '(SELECT id FROM Activity WHERE riderId=?)', [rid])          # their runs' best times (walks, runs, ... are Activity rows too)
+    from services import photos
+    photos.delete_for(db, [r[0] for r in db.execute('SELECT id FROM Activity WHERE riderId=?', [rid])], current_app.config['DATABASE'])
     db.execute('DELETE FROM Activity WHERE riderId=?', [rid])
     db.execute('DELETE FROM Rider WHERE id=?', [rid])
     for sid in seg_ids:

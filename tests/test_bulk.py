@@ -118,3 +118,16 @@ def test_options_and_the_lists_offer_select_mode(client):
     # The dashboard draws only the open month; July's rows come from /dashboard/history when it is opened, ready to pick.
     html = client.get('/dashboard/history?from=2026-07-01&to=2026-07-31').get_data(as_text=True)
     assert 'data-pick="r1"' in html and 'data-pick="wk1"' in html
+
+
+def test_bulk_commute(client):
+    r = bulk(client, 'commute', ['r1', 'wk1', 'nope'], commute='1')
+    assert r.status_code == 302
+    assert dict(q(client, "SELECT id, commute FROM Activity WHERE id IN ('r1', 'r2', 'wk1')")) == {'r1': 1, 'r2': None, 'wk1': 1}
+    with client.session_transaction() as s:
+        assert ('success', 'Marked 2 activities as a commute. 1 could not be changed.') in s['_flashes']
+    bulk(client, 'commute', ['r1'], commute='0')
+    assert q(client, "SELECT commute FROM Activity WHERE id='r1'")[0][0] == 0          # 0, not NULL: an import won't tick it again
+    bulk(client, 'commute', ['r2'])
+    assert q(client, "SELECT commute FROM Activity WHERE id='r2'")[0][0] is None       # no choice made: nothing changes
+    assert 'aria-label="Commutes"' in client.get('/dashboard').get_data(as_text=True)

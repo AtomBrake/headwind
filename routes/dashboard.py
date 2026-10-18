@@ -218,7 +218,8 @@ def dashboard():
 
     rider_args = _rider_args(active_rider)
     def link(skip):
-        return '/dashboard' + ('?' + urlencode(rider_args + sf.args(skip)) if rider_args or skip else '')
+        args = rider_args + sf.args(skip)
+        return '/dashboard' + ('?' + urlencode(args) if args else '')
 
     where  = ['a.riderId=?']
     params = [rid]

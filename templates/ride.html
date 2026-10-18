@@ -71,8 +71,24 @@
     </select>
   </form>
   <span style="color:var(--text-muted);font-size:.8rem;">Recorded as the wrong thing? Pick the right type. A walk, run or hike moves to Workouts; a ride moves back to your rides.</span>
+  <label style="display:flex;gap:.4rem;align-items:center;margin-left:auto;font-size:.875rem;cursor:pointer;">
+    <input type="checkbox" id="commuteBox" {{ 'checked' if activity.commute == 1 }} onchange="saveCommute(this)"> Commute
+    <span id="commuteSaved" style="font-size:.78rem;color:var(--text-muted);display:none;">Saved</span>
+  </label>
 </div>
 <script>
+function saveCommute(box) {
+  fetch('/rides/{{ activity.id }}/commute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'commute=' + (box.checked ? '1' : '0')
+  }).then(function(r) {
+    if (r.status !== 204) { box.checked = !box.checked; return; }
+    var s = document.getElementById('commuteSaved');
+    s.style.display = 'inline';
+    setTimeout(function() { s.style.display = 'none'; }, 1500);
+  }).catch(function() { box.checked = !box.checked; });
+}
 function typeChanged(sel) {
   var f = sel.form, cur = f.getAttribute('data-current');
   if (!sel.value || sel.value === cur) { sel.value = cur; return; }
@@ -476,6 +492,59 @@ function typeChanged(sel) {
     </form>
   </div>
 </div>
+{% endif %}
+
+{% if photos or not demo_mode %}
+<div class="card" style="margin-top:1rem;" id="photosCard">
+  <div class="card-title" style="display:flex; align-items:center; gap:0.5rem;">
+    <span>Photos{% if photos %} <span style="font-size:0.75rem; color:var(--text-muted); font-weight:400;">· {{ photos | length }}</span>{% endif %}</span>
+    {% if not demo_mode %}
+    <form method="POST" action="{{ url_for('rides.add_photos', rid=activity.id) }}" enctype="multipart/form-data" style="margin:0 0 0 auto;">
+      <label class="btn btn-secondary" style="font-size:0.8125rem; padding:0.3rem 0.75rem; cursor:pointer; font-weight:500;">
+        Add photos
+        <input type="file" name="photos" accept="image/*" multiple hidden onchange="if (this.files.length) { this.closest('label').firstChild.textContent = 'Adding…'; this.form.submit(); }">
+      </label>
+    </form>
+    {% endif %}
+  </div>
+  {% if photos %}
+  <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:0.5rem;">
+    {% for p in photos %}
+    <figure style="margin:0; position:relative;">
+      <a href="{{ url_for('rides.photo', name=p.filename) }}" onclick="return openPhoto(this)" data-caption="{{ p.caption or '' }}">
+        <img src="{{ url_for('rides.photo', name=p.filename[:-4] ~ '_t.jpg') }}" alt="{{ p.caption or 'Photo from this activity' }}" loading="lazy"
+             style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; display:block;">
+      </a>
+      <form method="POST" action="{{ url_for('rides.delete_photo', rid=activity.id, pid=p.id) }}" onsubmit="return confirm('Remove this photo?')"
+            style="position:absolute; top:4px; right:4px; margin:0;">
+        <button type="submit" aria-label="Remove this photo" title="Remove"
+                style="border:none; border-radius:50%; width:24px; height:24px; line-height:24px; padding:0; background:rgba(0,0,0,0.55); color:#fff; cursor:pointer;">×</button>
+      </form>
+      {% if p.caption %}<figcaption style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem; line-height:1.3;">{{ p.caption }}</figcaption>{% endif %}
+    </figure>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div style="font-size:0.8125rem; color:var(--text-muted);">No photos yet. Location and camera details are taken out of the ones you add.</div>
+  {% endif %}
+</div>
+{% endif %}
+{% if photos %}
+<dialog id="photoDialog" onclick="this.close()" style="padding:0; border:none; background:transparent; max-width:95vw; max-height:95vh;">
+  <img id="photoDialogImg" alt="" style="max-width:95vw; max-height:88vh; display:block; border-radius:6px;">
+  <div id="photoDialogCaption" style="color:#fff; font-size:0.875rem; margin-top:0.4rem; text-align:center;"></div>
+</dialog>
+<script>
+function openPhoto(a) {
+  var d = document.getElementById('photoDialog');
+  if (!d.showModal) return true;                        // no <dialog>: just open the picture
+  document.getElementById('photoDialogImg').src = a.href;
+  document.getElementById('photoDialogImg').alt = a.getAttribute('data-caption') || 'Photo from this activity';
+  document.getElementById('photoDialogCaption').textContent = a.getAttribute('data-caption') || '';
+  d.showModal();
+  return false;
+}
+</script>
 {% endif %}
 
 {% if phone_sensors %}

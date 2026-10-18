@@ -381,7 +381,7 @@ def ride_detail(kind, rid):
     return jsonify({
         'duplicates': dups,
         'kind': kind, 'id': str(r['id']), 'name': r.get('name'), 'sport': r.get('sportType'),
-        'date': str(r.get('startDateLocal'))[:19], 'city': r.get('city'), 'source': r.get('source'),
+        'date': str(r.get('startDateLocal'))[:19], 'city': r.get('city'), 'source': r.get('source'), 'commute': r.get('commute') == 1,
         'distance_m': num('distance', 0), 'moving_s': r.get('movingTime'), 'elapsed_s': r.get('elapsedTime'), 'elev_m': num('totalElevationGain', 0),
         'avg_speed_mps': num('averageSpeed', 2), 'max_speed_mps': num('maxSpeed', 2),
         'avg_hr': num('averageHeartrate', 0), 'max_hr': num('maxHeartrate', 0),
@@ -544,6 +544,22 @@ def change_sport(kind, rid):
     if res['changed']:
         _refresh_after_change('ride'); _refresh_after_change('workout')
     return jsonify(res)
+
+
+@bp.route('/rides/<kind>/<rid>/commute', methods=['POST'])
+def set_commute(kind, rid):
+    """Tick or untick 'Commute' on a ride or a workout: JSON {commute: true|false}. Unticked is stored as 0, as on the web (routes/rides.set_commute)."""
+    rider = _rider()
+    db = get_db()
+    row = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone() if kind in ('ride', 'workout') else None
+    if not rider or not row or row['riderId'] != rider['id']:
+        return jsonify({'error': 'not found'}), 404
+    commute = (request.get_json(silent=True) or {}).get('commute')
+    if not isinstance(commute, bool):
+        return jsonify({'error': 'commute must be true or false'}), 400
+    db.execute('UPDATE Activity SET commute=? WHERE id=?', [int(commute), rid])
+    db.commit()
+    return jsonify({'id': str(rid), 'commute': commute})
 
 
 @bp.route('/rides/ride/<rid>/duplicate/<dup_id>/<action>', methods=['POST'])

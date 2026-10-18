@@ -16,6 +16,9 @@ _FOODIMG_RE = re.compile(r'^foodimg/([A-Za-z0-9_.-]{1,120}\.(?:jpg|png|gif|webp)
 _BIKEIMG_RE = re.compile(r'^bikeimg/(bike_\d+_[a-f0-9]{8}\.jpg)$')
 MAX_BIKEIMGS = 2_000
 MAX_BIKEIMG_BYTES = 15 * 1024 ** 2
+_RIDEIMG_RE = re.compile(r'^rideimg/(act_[a-f0-9]{12}(?:_t)?\.jpg)$')    # activity photos and their thumbnails (services/photos.py)
+MAX_RIDEIMGS = 100_000
+MAX_RIDEIMG_BYTES = 15 * 1024 ** 2
 MAX_FOODIMGS = 50_000
 MAX_FOODIMG_BYTES = 10 * 1024 ** 2
 
@@ -38,7 +41,7 @@ def _copy_member(zf, info, dest, limit):
 
 def stage_upload(file_storage):
     """Save an uploaded .db or backup .zip under a fresh temp dir with generated names.
-    Returns (tmp_dir, db_path, assets) where assets maps 'avatars'/'foodimg'/'bikeimg' to staged dirs (None for a bare .db). Caller must shutil.rmtree(tmp_dir)."""
+    Returns (tmp_dir, db_path, assets) where assets maps 'avatars'/'foodimg'/'bikeimg'/'rideimg' to staged dirs (None for a bare .db). Caller must shutil.rmtree(tmp_dir)."""
     tmp_dir = tempfile.mkdtemp(prefix='hw-restore-')
     try:
         upload = os.path.join(tmp_dir, 'upload.bin')
@@ -50,10 +53,12 @@ def stage_upload(file_storage):
         av_dir = os.path.join(tmp_dir, 'avatars')
         fi_dir = os.path.join(tmp_dir, 'foodimg')
         bi_dir = os.path.join(tmp_dir, 'bikeimg')
+        ri_dir = os.path.join(tmp_dir, 'rideimg')
         os.makedirs(av_dir)
         os.makedirs(fi_dir)
         os.makedirs(bi_dir)
-        found_db, n_av, n_fi, n_bi = False, 0, 0, 0
+        os.makedirs(ri_dir)
+        found_db, n_av, n_fi, n_bi, n_ri = False, 0, 0, 0, 0
         with zipfile.ZipFile(upload) as zf:
             for info in zf.infolist():
                 if info.filename == 'headwind.db':
@@ -74,11 +79,16 @@ def stage_upload(file_storage):
                     if n_bi > MAX_BIKEIMGS:
                         raise BackupError('too many bike pictures')
                     _copy_member(zf, info, os.path.join(bi_dir, m.group(1)), MAX_BIKEIMG_BYTES)
+                elif (m := _RIDEIMG_RE.match(info.filename)):
+                    n_ri += 1
+                    if n_ri > MAX_RIDEIMGS:
+                        raise BackupError('too many activity photos')
+                    _copy_member(zf, info, os.path.join(ri_dir, m.group(1)), MAX_RIDEIMG_BYTES)
                 # anything else in the archive is ignored
         if not found_db:
             raise BackupError('Invalid backup zip — headwind.db not found inside.')
         os.remove(upload)
-        return tmp_dir, db_path, {'avatars': av_dir, 'foodimg': fi_dir, 'bikeimg': bi_dir}
+        return tmp_dir, db_path, {'avatars': av_dir, 'foodimg': fi_dir, 'bikeimg': bi_dir, 'rideimg': ri_dir}
     except Exception:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
@@ -140,7 +150,8 @@ def apply(live_db, staged_db, assets, avatar_dest):
         snap.close()
         live.close()
     for key, dest in (('avatars', avatar_dest), ('foodimg', os.path.join(os.path.dirname(os.path.abspath(live_db)), 'foodimg')),
-                      ('bikeimg', os.path.join(os.path.dirname(os.path.abspath(live_db)), 'bikeimg'))):
+                      ('bikeimg', os.path.join(os.path.dirname(os.path.abspath(live_db)), 'bikeimg')),
+                      ('rideimg', os.path.join(os.path.dirname(os.path.abspath(live_db)), 'rideimg'))):
         src_dir = (assets or {}).get(key)
         if src_dir and os.path.isdir(src_dir):
             os.makedirs(dest, exist_ok=True)
