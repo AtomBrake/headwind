@@ -109,6 +109,8 @@ function typeChanged(sel) {
     <div>{{ d.reason }} The other recording is saved, not deleted.</div>
   </div>
   <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem;">
+    <a class="btn btn-secondary" href="{{ url_for('rides.view_duplicate', rid=activity.id, dup_id=d.id) }}">View</a>
+    <a class="btn btn-secondary" href="{{ url_for('rides.view_duplicate', rid=activity.id, dup_id=d.id, compare=1) }}">Compare side by side</a>
     <form method="POST" action="{{ url_for('rides.resolve_duplicate', rid=activity.id, dup_id=d.id, action='swap') }}"><button class="btn btn-secondary" type="submit">Use that recording instead</button></form>
     <form method="POST" action="{{ url_for('rides.resolve_duplicate', rid=activity.id, dup_id=d.id, action='keep') }}"><button class="btn btn-secondary" type="submit">They are different rides - keep both</button></form>
     <form method="POST" action="{{ url_for('rides.resolve_duplicate', rid=activity.id, dup_id=d.id, action='discard') }}" onsubmit="return confirm('Delete the other recording for good?')"><button class="btn btn-secondary" type="submit">Delete the other recording</button></form>

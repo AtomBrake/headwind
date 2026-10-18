@@ -146,3 +146,33 @@ def test_sync_puts_a_swim_in_workouts_and_a_ride_in_rides_with_a_sane_top_speed(
 
     db.execute('UPDATE Settings SET garminActivitySyncDate=NULL WHERE id=1'); db.commit()
     assert list(garmin.sync_garmin_activities('e', 'p', 1))[-1]['imported'] == 0          # a full re-sync adds neither again
+
+
+def _park_phone_copy(db, under, day='2024-05-30'):
+    """The same session arriving again from a phone / file import, set aside under the Garmin one."""
+    add_ride(db, 'imp_hiit', dist=0.0, day=day)
+    duplicates.park(db, 'imp_hiit', under, 'Kept the Garmin recording.')
+    db.commit()
+
+
+def test_apply_moves_a_ride_with_a_copy_set_aside_and_throws_the_copy_away(db):
+    add_ride(db, 'garmin_20', name='HIIT', dist=0.0, day='2024-05-30')
+    _park_phone_copy(db, 'garmin_20')
+    api = FakeGarmin([{'activityId': 20, 'activityType': {'typeKey': 'hiit'}, 'startTimeLocal': '2024-05-30 10:00:00'}])
+    sport_fix.scan(db, api, 1)
+    assert [p['parked'] for p in sport_fix.pending(db, 1)] == [1]                  # the review list says a copy goes with it
+
+    assert sport_fix.apply(db, 1, ['garmin_20']) == {'changed': 1, 'failed': 0, 'kept': 0}
+    assert db.execute("SELECT sport FROM Workout").fetchone()[0] == 'Other'
+    assert not db.execute("SELECT 1 FROM Activity").fetchone()
+    d = db.execute("SELECT status, rowJson FROM ActivityDuplicate WHERE id='imp_hiit'").fetchone()
+    assert tuple(d) == ('discarded', '{}')
+    assert duplicates.exists_anywhere(db, 'imp_hiit')                              # a re-import can't bring the copy back as a ride
+
+
+def test_changing_one_ride_by_hand_still_asks_to_settle_its_copy_first(db):
+    from services import convert
+    add_ride(db, 'garmin_21', dist=0.0, day='2024-05-30')
+    _park_phone_copy(db, 'garmin_21')
+    with pytest.raises(ValueError, match='set aside'):
+        convert.change_sport(db, 'ride', 'garmin_21', 'Other')

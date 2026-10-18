@@ -60,12 +60,17 @@ def scan(db, api, rider_id):
 
 
 def pending(db, rider_id):
-    return [dict(r) for r in db.execute("SELECT * FROM SportFix WHERE riderId=? AND status='pending' ORDER BY newSport, startDateLocal DESC", [rider_id])]
+    """The proposals still to review, each with `parked`: how many other recordings of it are set aside (they are thrown away when it is changed)."""
+    from services import duplicates
+    duplicates.ensure_schema(db)
+    return [dict(r) for r in db.execute('''SELECT f.*, (SELECT COUNT(*) FROM ActivityDuplicate d WHERE d.primaryId=f.rideId AND d.status='parked') AS parked
+                                           FROM SportFix f WHERE f.riderId=? AND f.status='pending' ORDER BY f.newSport, f.startDateLocal DESC''', [rider_id])]
 
 
 def apply(db, rider_id, ride_ids):
     """Change the picked rides to their proposed sport (runs, swims, ... move to Workouts through convert.change_sport, which keeps the derived data
-    right and remembers the old id so a re-sync can't bring it back as a ride). The ones not picked are marked 'kept' and not proposed again.
+    right and remembers the old id so a re-sync can't bring it back as a ride). A recording set aside under a picked ride is the same session from another
+    device, so it is not a ride either and is thrown away with it. The ones not picked are marked 'kept' and not proposed again.
     Commits. Returns {'changed', 'failed', 'kept'}."""
     from services import convert
     picked = set(ride_ids)
@@ -76,10 +81,10 @@ def apply(db, rider_id, ride_ids):
             kept += 1
             continue
         try:
-            convert.change_sport(db, 'ride', p['rideId'], p['newSport'])
+            convert.change_sport(db, 'ride', p['rideId'], p['newSport'], discard_parked=True)
             db.execute('DELETE FROM SportFix WHERE rideId=?', [p['rideId']])
             changed += 1
-        except ValueError as e:                     # gone already, or a duplicate recording parked under it
+        except ValueError as e:                     # gone already
             db.execute('UPDATE SportFix SET error=? WHERE rideId=?', [str(e), p['rideId']])
             failed += 1
     db.commit()
