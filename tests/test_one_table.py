@@ -1,5 +1,6 @@
 """Every sport in one table: an old install's Workout rows move into Activity, the Ride and Workout views split them, and the duplicate check now
 compares walks and runs too (a Garmin run and its Strava copy were both kept while they lived in different tables). Throwaway DB."""
+import re
 import sqlite3
 
 import pytest
@@ -139,6 +140,7 @@ def test_the_history_shows_every_sport_and_can_leave_some_out(tmp_path, monkeypa
         s['av'] = av
     page = c.get('/dashboard').get_data(as_text=True)
     assert '/rides/r1' in page and '/rides/w1' in page and 'Afternoon walk' in page                   # a walk with no name gets one
-    assert 'name="skip" value="Walk"' in page
+    assert 'data-sport value="Walk" checked' in page and 'data-sport value="Ride" checked' in page      # every sport included to start with
     page = c.get('/dashboard?skip=Walk').get_data(as_text=True)
     assert '/rides/r1' in page and '/rides/w1' not in page
+    assert re.search(r'data-sport value="Walk"\s+onchange', page) and 'data-sport value="Ride" checked' in page and 'Tick all' in page    # the left-out one is unticked
