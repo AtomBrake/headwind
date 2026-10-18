@@ -343,3 +343,13 @@ def test_a_backup_carries_activity_photos_and_restore_stages_only_real_ones(db, 
         assert sorted(os.listdir(assets['rideimg'])) == sorted([name, photos.thumb_name(name)])
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_shape_takes_the_pass_through_the_ends_not_a_shorter_one_that_skirts_them():
+    # the real TQ3 case: the ride first cuts between the two ends ~25 m off them, then later rides the segment through both ends
+    start, end = [50.4, -4.7], [50.4 + 20 * 0.0003, -4.7]
+    skirt = [[50.4 + i * 0.0003, -4.7 + 0.00035] for i in range(21)]                   # ~25 m east of the line, straight
+    real = [[50.4 + i * 0.0003, -4.7 + (0.002 if 5 <= i <= 15 else 0)] for i in range(21)]  # through both ends, with a dog-leg: longer
+    away = [[50.39, -4.69]]
+    shape = segments.shape_from_streams(json.dumps({'latlng': {'data': skirt + away + real}}), start, end)
+    assert shape and shape[0][0] == start and shape[0][-1] == end and shape[1] > 700
