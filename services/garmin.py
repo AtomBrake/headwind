@@ -16,6 +16,26 @@ _SKIP_TYPES = {
     'breathwork', 'meditation',
 }
 
+
+def garmin_sport(type_key):
+    """Garmin's activity type (`typeKey`, e.g. 'mountain_biking', 'lap_swimming', 'treadmill_running') -> our sport. Rides are Ride / VirtualRide and
+    go to Activity; everything else goes to Workout under its own sport. Anything not recognised is 'Other', never a ride: a ride that is really a
+    swim breaks the ride totals and the sanity checks."""
+    k = (type_key or '').lower()
+    if 'motor' in k or 'snowmobil' in k:                      # motorcycling, motocross: 'cycl' but not a bike ride
+        return 'Other'
+    if k in ('indoor_cycling', 'virtual_ride') or ('virtual' in k and ('cycl' in k or 'bik' in k or 'ride' in k)):
+        return 'VirtualRide'
+    if 'cycl' in k or 'bik' in k or k in ('ride', 'bmx'):
+        return 'Ride'
+    for needle, sport in (('run', 'Run'), ('walk', 'Walk'), ('hik', 'Hike'), ('mountaineer', 'Hike'), ('swim', 'Swim'), ('surf', 'Surf'),
+                          ('paddl', 'Paddle'), ('kayak', 'Paddle'), ('canoe', 'Paddle'), ('raft', 'Paddle'), ('row', 'Row'),
+                          ('ski', 'Ski'), ('snowboard', 'Ski'), ('skat', 'Skate'), ('golf', 'Golf'), ('climb', 'Climb')):
+        if needle in k:
+            return sport
+    return 'Other'
+
+
 import os as _os
 TOKEN_DIR = Path(_os.environ['HEADWIND_TOKEN_DIR']) if _os.environ.get('HEADWIND_TOKEN_DIR') else Path(__file__).parent.parent / '.garmin_tokens'
 
@@ -487,6 +507,9 @@ def backfill_history(email, password, today=None, pause=0.5):
             active = _days_with_steps(call(api.get_daily_steps, start.isoformat(), end.isoformat()))
             if rider:
                 w = call(_sync_weigh_ins, api, db, rider['id'], start.isoformat(), end.isoformat())
+                if w is None and call.ok:           # Garmin answered, but not with the weigh-ins: don't move past this stretch, they'd never be asked for again
+                    db.rollback()
+                    return retry_later('Garmin did not send the weigh-ins.')
                 if w:
                     found += w[0]
                     weights += w[1]
@@ -527,6 +550,67 @@ def backfill_history(email, password, today=None, pause=0.5):
     msg = f'Health history complete — back to {date.fromisoformat(oldest):%d %b %Y}.' if oldest else 'Health history complete — Garmin had nothing older.'
     _history_status(db, garminHistoryDone=1, garminHistoryRetryAt=None, garminHistoryStatus=msg)
     return msg
+
+
+WEIGHT_WINDOW = 365            # days of weigh-ins asked for in one request
+WEIGHT_EMPTY_STOP = 3          # 'all': stop after this many years in a row with no weigh-ins
+
+
+def backfill_weigh_ins(email, password, today=None):
+    """Weigh-ins on their own, a year per request, back as far as the health-history choice (Settings.garminHistoryFrom) allows. The day-by-day history
+    backfill also asks for them, but it used to move on past a stretch whose weigh-in request failed, so this pass (run once on every install,
+    Settings.garminWeightsDone) fills in anything missed. Never overwrites a weight typed in Headwind or from Home Assistant. Stops and retries later
+    on any failure. Returns the status line it saved, or None when there was nothing to do."""
+    import logging
+    from datetime import datetime, timezone
+    from database import get_db
+    db = get_db()
+    s = db.execute('SELECT garminHistoryFrom, garminWeightsDone FROM Settings WHERE id=1').fetchone()
+    rider = db.execute('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1').fetchone()
+    if not s or not s['garminHistoryFrom'] or s['garminWeightsDone'] or not rider:
+        return None
+    today = today or date.today()
+    target = s['garminHistoryFrom']
+    floor = (today - timedelta(days=HISTORY_RECENT - 1) if target == 'none'
+             else HISTORY_FLOOR if target == 'all' else max(date.fromisoformat(target), HISTORY_FLOOR))
+    end, empty, days, added = today, 0, 0, 0
+    try:
+        api = _client(email, password)
+        while end >= floor and not (target == 'all' and empty >= WEIGHT_EMPTY_STOP):
+            start = max(end - timedelta(days=WEIGHT_WINDOW - 1), floor)
+            n, changed = _sync_weigh_ins(api, db, rider['id'], start.isoformat(), end.isoformat())
+            db.commit()
+            days, added = days + n, added + changed
+            empty = 0 if n else empty + 1
+            end = start - timedelta(days=1)
+    except Exception as e:
+        db.rollback()
+        at = datetime.now(timezone.utc) + timedelta(minutes=HISTORY_RETRY_MINS)
+        logging.getLogger(__name__).warning('Garmin weigh-in history failed: %s', e)
+        msg = f'Weight history: {"Garmin asked Headwind to slow down" if _is_rate_limit(e) else "could not reach Garmin"}; trying again at {at.astimezone():%H:%M}.'
+        _history_status(db, garminWeightsRetryAt=at.isoformat(timespec='seconds'), garminWeightsStatus=msg)
+        return msg
+    finally:
+        if added:
+            _push_weights()
+    msg = (f'Weight history: {days} days with a weigh-in on Garmin, {added} added or updated here.' if days
+           else 'Weight history: Garmin has no weigh-ins in that range.')
+    _history_status(db, garminWeightsDone=1, garminWeightsRetryAt=None, garminWeightsStatus=msg)
+    return msg
+
+
+def _save_workout(db, wid, rider_id, sport, name, start_utc, start_local, parsed, max_speed):
+    """Store a Garmin activity that is not a ride in Workout, keeping the watch's calories (the walking/running estimate would be wrong for a swim).
+    Does not commit."""
+    from services.calorie_adjust import pair as _kcal_pair
+    from services import workouts
+    cal_raw, cal_adj = _kcal_pair(parsed.get('calories'))
+    db.execute('''INSERT OR IGNORE INTO Workout (id, riderId, sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain,
+                  averageSpeed, maxSpeed, averageHeartrate, calories, startLat, startLng, streams, source, caloriesRaw) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+               [wid, rider_id, sport, (name or '').strip() or None, start_utc, start_local, parsed.get('distance') or 0, parsed.get('movingTime') or 0,
+                parsed.get('elapsedTime') or 0, parsed.get('totalElevationGain') or 0, parsed.get('averageSpeed') or 0, max_speed,
+                parsed.get('averageHeartrate'), cal_adj, parsed.get('startLat'), parsed.get('startLng'), parsed.get('streams'), 'garmin', cal_raw])
+    workouts.refresh_derived(db, wid)                     # a run gets its best times and run-segment efforts
 
 
 def sync_garmin_activities(email, password, rider_id):
@@ -595,7 +679,8 @@ def sync_garmin_activities(email, password, rider_id):
             db_id = f'garmin_{activity_id}'
             # Check if Garmin ID already exists
             from services import duplicates
-            if duplicates.exists_anywhere(db, db_id) or duplicates.is_deleted(db, db_id):   # live, parked, discarded or deleted by the user: never bring it back
+            if (duplicates.exists_anywhere(db, db_id) or duplicates.is_deleted(db, db_id)        # live, parked, discarded or deleted by the user: never bring it back
+                    or db.execute('SELECT 1 FROM Workout WHERE id=?', [db_id]).fetchone()):     # or already saved as a run, swim, ...
                 skipped += 1
                 if start_date and (newest is None or start_date > newest):
                     newest = start_date
@@ -641,7 +726,7 @@ def sync_garmin_activities(email, password, rider_id):
                 continue
 
             # Prefer API summary for name and sport; FIT has accurate streams
-            sport_type  = _map_sport(type_key) if type_key else parsed.get('sportType', 'Ride')
+            sport_type  = garmin_sport(type_key) if type_key else _map_sport(parsed.get('sportType') or 'Ride')
             name        = a.get('activityName') or parsed.get('name') or 'Garmin Activity'
             start_utc   = (a.get('startTimeGMT') or start_local or '').replace(' ', 'T')
 
@@ -651,15 +736,22 @@ def sync_garmin_activities(email, password, rider_id):
                 dist /= 1000
                 parsed['distance'] = dist
 
-            # Derive maxSpeed from velocity stream if available (schema requires it)
-            max_speed = 0.0
-            try:
-                import json as _j
-                spd_data = (_j.loads(parsed['streams']).get('velocity_smooth') or {}).get('data') if parsed.get('streams') else None
-                if spd_data:
-                    max_speed = max(spd_data)
-            except Exception:
-                pass
+            # The parser's max ignores impossible spikes (a raw max of the speed stream let one GPS jump make a 137 mph mountain-bike ride)
+            max_speed = parsed.get('maxSpeed') or 0.0
+
+            if sport_type not in ('Ride', 'VirtualRide'):          # a run, walk, swim, ...: a workout, not a ride
+                try:
+                    _save_workout(db, db_id, rider_id, sport_type, a.get('activityName') or parsed.get('name'), start_utc, start_local, parsed, max_speed)
+                except Exception as e:
+                    log.warning('Garmin activity %s (%s) insert failed: %s', activity_id, sport_type, e)
+                    skipped += 1
+                    if start_date and (first_failed is None or start_date < first_failed):
+                        first_failed = start_date
+                    continue
+                imported += 1
+                if start_date and (newest is None or start_date > newest):
+                    newest = start_date
+                continue
 
             try:
                 from services.calorie_adjust import pair as _kcal_pair

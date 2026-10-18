@@ -12,6 +12,13 @@ MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 CLIMBING_BRACKETS_FT = [1000, 2000, 3000, 5000, 8000, 10000]
+CLIMBING_BRACKETS_M  = [300, 600, 1000, 1500, 2500, 3000]
+
+# ride-length histogram: (label, low metres, high metres) in the rider's units
+HIST_BUCKETS = {
+    'imperial': [('0–5 mi', 0, 8047), ('5–10 mi', 8047, 16093), ('10–20 mi', 16093, 32187), ('20–30 mi', 32187, 48280), ('30–50 mi', 48280, 80467), ('50+ mi', 80467, 9_999_999)],
+    'metric':   [('0–10 km', 0, 10000), ('10–20 km', 10000, 20000), ('20–40 km', 20000, 40000), ('40–60 km', 40000, 60000), ('60–100 km', 60000, 100000), ('100+ km', 100000, 9_999_999)],
+}
 
 
 @bp.route('/data')
@@ -24,6 +31,7 @@ def index():
         rid = owner['id'] if owner else None
     active_rider = query_db('SELECT * FROM Rider WHERE id=?', [rid], one=True) or owner
 
+    from services import units
     sport = request.args.get('sport', '').strip()
     sport_types = query_db(
         'SELECT DISTINCT sportType FROM Activity WHERE riderId=? AND sportType IS NOT NULL ORDER BY sportType',
@@ -45,7 +53,7 @@ def index():
         where_params
     )
     speed_labels  = [r['d'] for r in speed_rows]
-    speed_values  = [round(float(r['averageSpeed']) * 2.23694, 1) for r in speed_rows]
+    speed_values  = [round(units.speed(r['averageSpeed']), 1) for r in speed_rows]
     window = 20
     speed_rolling = []
     for i, v in enumerate(speed_values):
@@ -64,7 +72,7 @@ def index():
         monthly_params
     )
     monthly_labels = [r['ym'] for r in monthly_rows]
-    monthly_values = [round((r['dist'] or 0) / 1609.344, 1) for r in monthly_rows]
+    monthly_values = [round(units.dist(r['dist']), 1) for r in monthly_rows]
 
     # ── Year-on-year ─────────────────────────────────────────────
     yoy_where = "WHERE riderId=?"
@@ -80,18 +88,11 @@ def index():
     )
     year_data = defaultdict(lambda: [0] * 12)
     for r in yoy_rows:
-        year_data[r['yr']][int(r['mo']) - 1] = round((r['dist'] or 0) / 1609.344, 1)
+        year_data[r['yr']][int(r['mo']) - 1] = round(units.dist(r['dist']), 1)
     year_on_year = {y: year_data[y] for y in sorted(year_data)}
 
     # ── Ride length histogram ─────────────────────────────────────
-    hist_buckets = [
-        ('0–5 mi',   0,      8047),
-        ('5–10 mi',  8047,   16093),
-        ('10–20 mi', 16093,  32187),
-        ('20–30 mi', 32187,  48280),
-        ('30–50 mi', 48280,  80467),
-        ('50+ mi',   80467,  9_999_999),
-    ]
+    hist_buckets = HIST_BUCKETS[units.spec()['system']]
     hist_labels, hist_values = [], []
     for label, lo, hi in hist_buckets:
         hist_where = "WHERE riderId=? AND distance >= ? AND distance < ?"
@@ -151,7 +152,7 @@ def index():
         f"FROM Activity {hm_where} GROUP BY d",
         hm_params
     )
-    heatmap = {r['d']: round((r['dist'] or 0) / 1609.344, 1) for r in heatmap_rows}
+    heatmap = {r['d']: round(units.dist(r['dist']), 1) for r in heatmap_rows}
 
     # ── Best efforts / records ────────────────────────────────────
     effort_rows = query_db('''
@@ -171,7 +172,7 @@ def index():
         d   = int(e['distanceMi'])
         rec = {
             'secs':   e['elapsedSecs'],
-            'mph':    round(float(e['avgSpeedMps']) * 2.23694, 1) if e['avgSpeedMps'] else 0,
+            'speed':  round(units.speed(e['avgSpeedMps']), 1) if e['avgSpeedMps'] else 0,
             'ride':   e['rideName'],
             'rideId': e['activityId'],
             'date':   e['activityDate'],
@@ -186,7 +187,8 @@ def index():
     has_efforts = bool(effort_rows)
 
     # ── Climbing records ──────────────────────────────────────────
-    FEET_PER_M = 3.28084
+    metric = units.spec()['system'] == 'metric'
+    climb_brackets = CLIMBING_BRACKETS_M if metric else CLIMBING_BRACKETS_FT      # in the rider's unit
     climbing_rows = query_db('''
         SELECT id, name, totalElevationGain, startDateLocal,
                strftime('%Y', startDateLocal) as yr,
@@ -199,9 +201,9 @@ def index():
     climbing_by_year  = defaultdict(lambda: defaultdict(lambda: None))
     climbing_by_month = defaultdict(lambda: defaultdict(lambda: None))
     for r in climbing_rows:
-        ft = r['totalElevationGain'] * FEET_PER_M
+        ft = units.elev(r['totalElevationGain'])      # feet or metres, matching the brackets
         yr, ym = r['yr'], r['ym']
-        for b in CLIMBING_BRACKETS_FT:
+        for b in climb_brackets:
             if ft >= b:
                 if climbing_by_year[yr][b] is None:
                     climbing_by_year[yr][b] = {
@@ -251,7 +253,7 @@ def index():
         return 'Autumn'
 
     for r in weather_scatter:
-        mph = round(float(r['averageSpeed']) * 2.23694, 1)
+        mph = round(units.speed(r['averageSpeed']), 1)       # in the rider's units, despite the name
         mo  = r['mo'] or '01'
 
         wx_temp_x.append(round(float(r['weatherTempC']), 1))
@@ -259,8 +261,8 @@ def index():
         wx_temp_season.append(_season(mo))
         wx_temp_ids.append(r['id'])
 
-        # Convert wind from kph to mph to match speed units
-        wind_mph = round(float(r['weatherWindKph'] or 0) * 0.621371, 1)
+        # wind in the same unit as the ride speed
+        wind_mph = round(units.speed(float(r['weatherWindKph'] or 0) / 3.6), 1)
         wx_wind_x.append(wind_mph)
         wx_wind_y.append(mph)
         wx_wind_rel.append(r['weatherWindRel'] or 'calm')
@@ -276,7 +278,7 @@ def index():
     for r in query_db(f'SELECT averageSpeed, weatherCode FROM Activity {cond_where}', cond_params):
         b = _wmo_bucket(r['weatherCode'])
         if b:
-            wx_cond_buckets[b].append(round(float(r['averageSpeed']) * 2.23694, 1))
+            wx_cond_buckets[b].append(round(units.speed(r['averageSpeed']), 1))
 
     from services.weather import fog_candidates
     wx_fog = fog_candidates(get_db(), rid, sport)
@@ -316,7 +318,7 @@ def index():
         has_efforts=has_efforts,
         climbing_by_year=climbing_by_year,
         climbing_by_month=climbing_by_month,
-        climbing_brackets=CLIMBING_BRACKETS_FT,
+        climbing_brackets=climb_brackets,
         wx_temp_x=wx_temp_x,
         wx_temp_y=wx_temp_y,
         wx_temp_season=wx_temp_season,

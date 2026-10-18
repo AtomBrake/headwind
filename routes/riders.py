@@ -174,7 +174,7 @@ def _compute_badges(rid, totals):
     def _dm(mi):  # distance milestone helper
         d, i = _dist_milestone(mi) if total_dist_mi >= mi else (None, None)
         return {'earned': total_dist_mi >= mi, 'earned_date': d, 'ride_id': i,
-                'progress': round(total_dist_mi), 'target': int(mi)}
+                'progress': round(units.dist(total_dist_mi * units.MI)), 'target': round(units.dist(mi * units.MI))}
     def _em(m):   # elevation milestone helper
         d, i = _elev_milestone(m) if everests >= m / 8849 else (None, None)
         ev_target = round(m / 8849, 1)
@@ -195,8 +195,9 @@ def _compute_badges(rid, totals):
         return {'earned': seg_max_repeats >= n, 'earned_date': d, 'ride_id': i,
                 'progress': seg_max_repeats, 'target': n}
 
-    def _b(icon, name, desc, r):
-        return {'icon': icon, 'name': name, 'desc': desc, **r}
+    from services import units
+    def _b(icon, name, desc, r):   # the limits are in miles / mph / feet; the wording follows the rider's units
+        return {'icon': icon, 'name': units.localise(name), 'desc': units.localise(desc), **r}
 
     ride_count = [
         _b('🚴', 'First Pedal',     '1 activity',       _rc(1)),

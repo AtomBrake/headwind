@@ -46,3 +46,25 @@ def backfill(db, apply=False, rewind_wind=False):
             cols = ', '.join(f'{k}=?' for k in sets)
             db.execute(f'UPDATE Activity SET {cols} WHERE id=?', [*sets.values(), r['id']])
     return counts
+
+
+def fix_spiky_max_speed(db):
+    """Rides whose top speed is one GPS spike (the Garmin sync used to take the raw max of the speed stream: 86-137 mph mountain-bike rides): recompute it from
+    the ride's own streams, ignoring impossible values, and re-run the sanity check so a ride flagged only for that drops off the list. Cheap enough for
+    every start-up: it only reads rides over the plausible limit, and writes nothing when there are none. Returns the number fixed. Does not commit."""
+    from services.parser import _MAX_PLAUSIBLE
+    from services import sanity
+    fixed = 0
+    for r in db.execute('SELECT id, streams FROM Activity WHERE maxSpeed > ?', [_MAX_PLAUSIBLE['speed']]).fetchall():
+        try:
+            ex = extremes_from_streams(json.loads(r['streams'] or '{}'))
+        except (ValueError, TypeError):
+            continue
+        if 'maxSpeed' not in ex:                    # no usable speed or GPS data: leave it (still flagged, the rider decides)
+            continue
+        db.execute('UPDATE Activity SET maxSpeed=? WHERE id=?', [ex['maxSpeed'], r['id']])
+        sanity.flag(db, r['id'])
+        fixed += 1
+    if fixed:
+        log.warning('Top speed recomputed for %d ride(s) whose stored top speed was a GPS spike', fixed)
+    return fixed

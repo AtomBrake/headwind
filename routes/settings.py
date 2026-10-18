@@ -106,6 +106,11 @@ def index():
             units,
         ])
         db.commit()
+        if current and (current['units'] or 'imperial') != units:     # the "looks wrong" reasons are stored as text: re-word them in the new units
+            from flask import g
+            from services import sanity
+            g.units = units
+            sanity.scan_all(db)
         flash('Settings saved.', 'success')
         return redirect('/settings')
 

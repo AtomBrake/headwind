@@ -337,7 +337,7 @@ function totalMiles() {
 function refreshStats() {
   var mi  = totalMiles();
   var has = waypoints.length >= 2;
-  document.getElementById('statDist').textContent = has ? mi.toFixed(1) + ' mi' : '—';
+  document.getElementById('statDist').textContent = has ? UNITS.toDist(mi * 1609.344).toFixed(1) + ' ' + UNITS.dist : '—';   // measured in miles, shown in the rider's unit
   document.getElementById('statWpts').textContent = waypoints.length;
   document.getElementById('btnUndo').disabled   = waypoints.length === 0;
   document.getElementById('btnClear').disabled  = waypoints.length === 0;
@@ -439,7 +439,7 @@ function renderSavedRoutes() {
     return '<div class="route-row" data-id="' + r.id + '">' +
       '<div class="route-info" onclick="loadSaved(' + r.id + ')" title="Load onto map">' +
         '<div class="route-name">' + escapeHtml(r.name) + '</div>' +
-        '<div class="route-meta">' + r.distMi + ' mi &middot; ' + r.count + ' wpts</div>' +
+        '<div class="route-meta">' + UNITS.toDist(r.distMi * 1609.344).toFixed(1) + ' ' + UNITS.dist + ' &middot; ' + r.count + ' wpts</div>' +
       '</div>' +
       '<div class="route-actions">' +
         '<a href="/planner/routes/' + r.id + '/export.gpx" class="icon-btn" title="Download GPX">&#x2193;</a>' +
