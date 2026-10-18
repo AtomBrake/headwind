@@ -205,7 +205,7 @@
       var img = e.target;
       if (img.tagName !== 'IMG' || !img.src.includes('/avatars/')) return;
       var rid = img.getAttribute('data-rider-id');
-      if (rid) window.location = '/riders/' + rid;
+      if (rid) { e.preventDefault(); window.location = '/riders/' + rid; }   // the avatar can sit inside a link to the ride
     });
   })();
   </script>

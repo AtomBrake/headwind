@@ -1,4 +1,4 @@
-from calendar import month_name
+from calendar import month_name, monthrange
 from datetime import date, datetime, timedelta, timezone
 
 from urllib.parse import urlencode
@@ -25,7 +25,7 @@ def _weekly_data(rider_id):
         )
         total_mi = (row['total'] or 0) / 1609.344
         total_ft = (row['elev'] or 0) * 3.28084
-        weeks.append({'label': day_month(ws), 'mi': round(total_mi, 1), 'ft': round(total_ft), 'cals': round(row['cals'] or 0), 'current': i == 0})
+        weeks.append({'label': day_month(ws), 'from': ws.isoformat(), 'to': (we - timedelta(days=1)).isoformat(), 'mi': round(total_mi, 1), 'ft': round(total_ft), 'cals': round(row['cals'] or 0), 'current': i == 0})
     return weeks
 
 
@@ -56,6 +56,7 @@ def _group_activities(activities):
                 dt_day = datetime(year, mo, dy)
                 days.append({
                     'label':      day_month(dt_day),
+                    'from':       dt_day.date().isoformat(),
                     'activities': acts,
                     'count':      len(acts),
                     'dist':       d_dist,
@@ -66,6 +67,8 @@ def _group_activities(activities):
                 mo_elev  += d_elev
             months.append({
                 'name':       month_name[mo],
+                'from':       date(year, mo, 1).isoformat(),
+                'to':         date(year, mo, monthrange(year, mo)[1]).isoformat(),
                 'num':        mo,
                 'days':       days,
                 'count':      mo_rides,
@@ -180,14 +183,14 @@ def dashboard():
                           'secs': sum(r['movingTime'] or 0 for r in runs), 'cals': None}
 
     year_speed_rows = query_db(
-        "SELECT date(startDateLocal) as d, averageSpeed, name "
+        "SELECT id, date(startDateLocal) as d, averageSpeed, name "
         "FROM Activity "
         "WHERE riderId=? AND strftime('%Y', startDateLocal) = strftime('%Y', 'now') "
         "AND averageSpeed > 0 ORDER BY startDateLocal",
         [rid],
     )
     year_speed = [
-        {'d': r['d'], 'mph': round(float(r['averageSpeed']) * 2.23694, 1), 'name': r['name']}
+        {'id': r['id'], 'd': r['d'], 'mph': round(float(r['averageSpeed']) * 2.23694, 1), 'name': r['name']}
         for r in year_speed_rows
     ]
 
@@ -254,6 +257,7 @@ def dashboard():
         sport_types=sport_types,
         all_riders=all_riders,
         active_rider=active_rider,
+        rider_query='' if not active_rider or active_rider['isDefault'] else f"rider={active_rider['id']}",   # kept on every link the page makes
         recovery=recovery,
         weather=weather,
     )
