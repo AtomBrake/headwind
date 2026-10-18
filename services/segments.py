@@ -2,22 +2,22 @@ import json
 import logging
 from math import atan2, ceil, cos, isfinite, radians, sin, sqrt
 
-from services.sports import FAMILIES, family_of, segment_family
+from services.sports import FAMILIES, class_of, ebike_sql, family_of, segment_family
 
 log = logging.getLogger(__name__)
 
 TOLERANCE_M = 30  # metres — how close to a segment endpoint counts as a hit
 CHECKPOINT_M = 60  # metres — tolerance for interior waypoints (wider to absorb GPS drift)
 CHECKPOINT_N = 4   # number of evenly-spaced interior checkpoints to sample
-MIN_SPEED_MPS = {'ride': 2.0, 'eride': 2.0, 'foot': 0.5}   # slower than this is a false match (4.5 mph on a bike; on foot, a steep hike's pace)
+MIN_SPEED_MPS = {'ride': 2.0, 'foot': 0.5}   # slower than this is a false match (4.5 mph on a bike; on foot, a steep hike's pace)
 CLOSE_TOL_M = 75        # a ride counts as "on the shape" within this many metres (GPS drift, a different lane, a cycle path beside the road)
 CLOSE_COVER = 0.85      # share of the segment's length the ride must follow, in order, to count as a close (approximate) match
 CLOSE_DETOUR = 1.35     # the ride's own path over that stretch may be at most this much longer than the segment (no loops / wandering)
 
 
 def seg_sport(seg):
-    """A segment's family (services/sports.FAMILIES). 'run' is what segments on foot were called before 0.7.3, and a friend on an older version still
-    sends it."""
+    """A segment's family (services/sports.FAMILIES). 'run' is what segments on foot were called before 0.7.3, and 'eride' what 0.7.3 called e-bike
+    segments; a friend on an older version still sends them."""
     try:
         v = (seg['sport'] if 'sport' in seg.keys() else None) or 'ride'
     except AttributeError:
@@ -26,7 +26,7 @@ def seg_sport(seg):
 
 
 def _activity_family(db, activity):
-    """sports.segment_family for an activity row (or a dict with its id, and its sportType or sport): the sport as given, the bike from the database."""
+    """sports.segment_family for an activity row (or a dict with its id, and its sportType or sport)."""
     try:
         keys = activity.keys()
     except AttributeError:
@@ -34,11 +34,7 @@ def _activity_family(db, activity):
     st = activity['sportType'] if 'sportType' in keys else (activity['sport'] if 'sport' in keys else None)
     if st is None:
         return family_of(db, activity['id'])
-    try:
-        kind = db.execute('SELECT b.kind FROM Activity a JOIN Bike b ON b.id = a.bikeId WHERE a.id=?', [activity['id']]).fetchone()
-    except Exception:                                     # no Bike table (a bare test database)
-        kind = None
-    return segment_family(st, kind[0] if kind else None)
+    return segment_family(st)
 
 
 def _haversine(lat1, lon1, lat2, lon2):
@@ -341,23 +337,23 @@ def match_segment_close(activity_streams_json, seg):
 
 
 def _refresh_prs(db, segment_id):
+    """Mark each rider's personal best. On a ride segment a rider has two, one on a pedal bike and one on an e-bike (services/sports.segment_class),
+    so an e-bike ride never takes a pedal PR. An approximate effort never takes one."""
     db.execute('UPDATE SegmentEffort SET isPR=0 WHERE segmentId=?', [segment_id])
-    # Mark each rider's personal best
-    riders = db.execute('''
-        SELECT DISTINCT a.riderId
+    seg = db.execute('SELECT sport FROM Segment WHERE id=?', [segment_id]).fetchone()
+    ebike = ebike_sql() if seg and seg_sport(seg) == 'ride' else '0'
+    best = {}
+    for r in db.execute(f'''
+        SELECT e.id, a.riderId, {ebike} AS ebike
         FROM SegmentEffort e
         JOIN SegActivity a ON a.id = e.activityId
+        LEFT JOIN Bike b ON b.id = a.bikeId
         WHERE e.segmentId=? AND a.riderId IS NOT NULL AND COALESCE(e.approx, 0) = 0
-    ''', [segment_id]).fetchall()
-    for row in riders:
-        best = db.execute('''
-            SELECT e.id FROM SegmentEffort e
-            JOIN SegActivity a ON a.id = e.activityId
-            WHERE e.segmentId=? AND a.riderId=? AND COALESCE(e.approx, 0) = 0
-            ORDER BY e.elapsedSecs ASC LIMIT 1
-        ''', [segment_id, row[0]]).fetchone()
-        if best:
-            db.execute('UPDATE SegmentEffort SET isPR=1 WHERE id=?', [best[0]])
+        ORDER BY e.elapsedSecs ASC, e.id ASC
+    ''', [segment_id]):
+        best.setdefault((r['riderId'], r['ebike']), r['id'])
+    for eid in best.values():
+        db.execute('UPDATE SegmentEffort SET isPR=1 WHERE id=?', [eid])
 
 
 def scan_activity_against_segments(db, activity, segments):
@@ -367,7 +363,7 @@ def scan_activity_against_segments(db, activity, segments):
     if fam is None:                                     # an indoor ride, a swim, ...: no segments
         return 0
     for seg in segments:
-        if seg_sport(seg) != fam:                       # rides only match ride segments, e-rides e-ride segments, walks and runs foot segments
+        if seg_sport(seg) != fam:                       # rides (pedal and e-bike) only match ride segments, walks, runs and hikes foot segments
             continue
         elapsed = match_segment(activity['streams'], seg)
         approx = 0
@@ -453,8 +449,8 @@ def scan_new_ride(db, act_id):
 
 
 def rescan_activity(db, act_id):
-    """Match one activity again from scratch, against the segments of its family as it is now (its sport or its bike changed), and re-pick the PRs
-    of every segment it was or now is on. Returns how many it matched. Does not commit."""
+    """Match one activity again from scratch, against the segments of its family as it is now (its sport changed), and re-pick the PRs of every
+    segment it was or now is on. Returns how many it matched. Does not commit."""
     old = [r[0] for r in db.execute('SELECT DISTINCT segmentId FROM SegmentEffort WHERE activityId=?', [act_id])]
     db.execute('DELETE FROM SegmentEffort WHERE activityId=?', [act_id])
     act = db.execute('SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id=?', [act_id]).fetchone()
@@ -467,17 +463,32 @@ def rescan_activity(db, act_id):
     return n
 
 
+def reclassed(db, act_id, before):
+    """After an activity's sport or bike changed: `before` is its services/sports.segment_class from before the change. A new family (a ride
+    becoming an indoor ride or a walk) means new segments, so it is matched again; a pedal ride becoming an e-bike ride, or back, stays on the same
+    segments but races for the other PR, so those are picked again. Does not commit."""
+    now = class_of(db, act_id)
+    if now == before:
+        return
+    fam = {'bike': 'ride', 'ebike': 'ride'}
+    if fam.get(now, now) != fam.get(before, before):
+        rescan_activity(db, act_id)
+        return
+    for r in db.execute('SELECT DISTINCT segmentId FROM SegmentEffort WHERE activityId=?', [act_id]).fetchall():
+        _refresh_prs(db, r[0])
+
+
 def regroup(db):
-    """Run once (Settings.segmentFamiliesDone), when segments went from ride / run to ride / e-ride / on foot: run segments become foot segments; efforts
-    that are now on the wrong family's segments go (walks, hikes, e-bike rides, indoor rides, swims, ... on ride segments); every walk, run and hike is
-    matched against the foot segments (walks never were, and the slowest efforts were turned away); and every PR is picked again.
+    """Run once (Settings.segmentFamiliesDone), when segments went from ride / run to ride / on foot: run segments become foot segments; efforts
+    that are now on the wrong family's segments go (walks, hikes, indoor rides, swims, ... on ride segments); every walk, run and hike is matched
+    against the foot segments (walks never were, and the slowest efforts were turned away); and every PR is picked again.
     Commits. Returns {'ran', 'removed', 'foot', 'scanned', 'prs_moved'}."""
     s = db.execute('SELECT segmentFamiliesDone FROM Settings WHERE id=1').fetchone()
     if not s or s['segmentFamiliesDone']:
         return {'ran': False}
     db.execute("UPDATE Segment SET sport='foot' WHERE sport='run'")
     db.execute("UPDATE Segment SET sport='ride' WHERE sport IS NULL OR sport NOT IN ('ride', 'eride', 'foot')")
-    prs = {r[0]: r[1] for r in db.execute('SELECT segmentId, activityId FROM SegmentEffort WHERE isPR=1')}
+    prs = {(r[0], r[1]) for r in db.execute('SELECT segmentId, activityId FROM SegmentEffort WHERE isPR=1')}
     seg_fam = {r[0]: r[1] for r in db.execute('SELECT id, sport FROM Segment')}
     fams = {}
     removed = 0
@@ -498,10 +509,44 @@ def regroup(db):
         found = db.execute("SELECT COUNT(*) FROM SegmentEffort e JOIN Segment s ON s.id=e.segmentId WHERE s.sport='foot'").fetchone()[0] - before
     for sid in seg_fam:
         _refresh_prs(db, sid)
-    after = {r[0]: r[1] for r in db.execute('SELECT segmentId, activityId FROM SegmentEffort WHERE isPR=1')}
-    moved = sum(1 for sid in set(prs) | set(after) if prs.get(sid) != after.get(sid))
+    after = {(r[0], r[1]) for r in db.execute('SELECT segmentId, activityId FROM SegmentEffort WHERE isPR=1')}
+    moved = len(after - prs)                             # PRs now held by another effort (a rider can hold a pedal and an e-bike PR on one segment)
     db.execute('UPDATE Settings SET segmentFamiliesDone=1 WHERE id=1')
     db.commit()
     if removed or found or moved:
         log.warning('Segment families: %d efforts left segments of another family, %d new efforts on foot segments, %d PRs moved', removed, found, moved)
     return {'ran': True, 'removed': removed, 'foot': found, 'scanned': scanned, 'prs_moved': moved}
+
+
+def merge_bikes(db):
+    """Run once (Settings.segmentBikesMergedDone): 0.7.3's e-bike segments become ride segments. Pedal rides are matched against the segments that
+    were e-bike ones, e-bike rides against those that were always ride ones, and every ride segment's PRs are picked again, one pedal and one e-bike
+    PR per rider (_refresh_prs). Commits. Returns {'ran', 'merged', 'found', 'scanned', 'prs_moved'}."""
+    s = db.execute('SELECT segmentBikesMergedDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['segmentBikesMergedDone']:
+        return {'ran': False}
+    was_e = {r[0] for r in db.execute("SELECT id FROM Segment WHERE sport='eride'")}
+    db.execute("UPDATE Segment SET sport='ride' WHERE sport='eride'")
+    rides = db.execute("SELECT * FROM Segment WHERE COALESCE(sport, 'ride') = 'ride'").fetchall()
+    prs = {r[0] for r in db.execute("SELECT e.id FROM SegmentEffort e JOIN Segment s ON s.id=e.segmentId WHERE e.isPR=1 AND COALESCE(s.sport, 'ride')='ride'")}
+    found = scanned = 0
+    if rides:
+        before = db.execute('SELECT COUNT(*) FROM SegmentEffort').fetchone()[0]
+        for act in db.execute("SELECT id, startDateLocal, streams, sportType FROM Activity WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')").fetchall():
+            cls = class_of(db, act['id'])
+            if cls not in ('bike', 'ebike'):
+                continue
+            new_to_it = [g for g in rides if (g['id'] in was_e) == (cls == 'bike')]
+            if new_to_it:
+                scan_activity_against_segments(db, act, new_to_it)
+                scanned += 1
+        found = db.execute('SELECT COUNT(*) FROM SegmentEffort').fetchone()[0] - before
+        for g in rides:
+            _refresh_prs(db, g['id'])
+    after = {r[0] for r in db.execute("SELECT e.id FROM SegmentEffort e JOIN Segment s ON s.id=e.segmentId WHERE e.isPR=1 AND COALESCE(s.sport, 'ride')='ride'")}
+    moved = len(after - prs)                             # PRs now held by another effort, or held for the first time (an e-bike PR on an old ride segment)
+    db.execute('UPDATE Settings SET segmentBikesMergedDone=1 WHERE id=1')
+    db.commit()
+    if was_e or found or moved:
+        log.warning('Segment bikes merged: %d e-bike segments became ride segments, %d new efforts, %d PRs changed', len(was_e), found, moved)
+    return {'ran': True, 'merged': len(was_e), 'found': found, 'scanned': scanned, 'prs_moved': moved}

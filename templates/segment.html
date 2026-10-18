@@ -4,7 +4,7 @@
 {% block page_title %}🏁 {{ seg.name }} <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted); margin-left:0.4rem; vertical-align:middle;">{{ family_label }}</span>{% if seg.friend_name %} <span style="font-size:0.75rem; font-weight:400; background:rgba(252,76,2,0.12); color:var(--accent); border:1px solid rgba(252,76,2,0.3); border-radius:999px; padding:0.15rem 0.6rem; margin-left:0.5rem; vertical-align:middle;">from {{ seg.friend_name }}</span>{% endif %}{% endblock %}
 
 {% block topbar_actions %}
-  <a href="{{ url_for('segments.index', sport=family) }}" class="btn btn-secondary">← Segments</a>
+  <a href="{{ url_for('segments.index', sport=family, only=only) }}" class="btn btn-secondary">← Segments</a>
   <form method="POST" action="{{ url_for('segments.delete', sid=seg.id) }}" style="display:inline;"
         onsubmit="return confirm('Delete this segment and all its efforts?')">
     <button class="btn" style="background:var(--danger,#ef4444);color:#fff;border:none;">Delete</button>
@@ -18,6 +18,15 @@
 {% endblock %}
 
 {% block content %}
+
+{% if only_links %}
+<!-- Pedal / e-bike: the stats, the trend and the leaderboard below all follow it (routes/segments.detail) -->
+<div style="display:flex; gap:.35rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem;" title="Bike and e-bike rides share this segment; each keeps its own PRs">
+  {% for o in only_links %}
+  <a href="{{ o.href }}" class="btn {{ 'btn-primary' if o.active else 'btn-secondary' }}" style="font-size:0.8125rem; padding:0.35rem 0.75rem;">{{ o.icon }} {{ o.label }} <span style="opacity:.7;">({{ o.n }})</span></a>
+  {% endfor %}
+</div>
+{% endif %}
 
 <!-- Stats strip -->
 {% set pr = efforts | selectattr('isPR', 'equalto', 1) | list | first %}
@@ -178,9 +187,9 @@
         <td style="padding:0.875rem 1rem; color:var(--text-muted); font-size:0.875rem;">{{ e.activityDate | fmt_date }}</td>
         <td style="padding:0.875rem 1rem;">
           <a href="{{ url_for('rides.detail', rid=e.ride_id) }}" style="color:var(--text); text-decoration:none; font-size:0.9375rem;">
-            {% if on_foot %}<span title="{{ e.sportType | sport_label }}">{{ e.sportType | sport_icon }}</span> {% endif %}{{ e.ride_name }}
+            {% if on_foot %}<span title="{{ e.sportType | sport_label }}">{{ e.sportType | sport_icon }}</span> {% elif e.cls == 'ebike' %}<span title="E-bike">⚡</span> {% endif %}{{ e.ride_name }}
           </a>
-          {% if e.isPR %}<span style="margin-left:0.5rem; font-size:0.7rem; background:var(--accent); color:#fff; padding:0.1rem 0.4rem; border-radius:4px; vertical-align:middle;">PR</span>{% endif %}
+          {% if e.isPR %}<span style="margin-left:0.5rem; font-size:0.7rem; background:var(--accent); color:#fff; padding:0.1rem 0.4rem; border-radius:4px; vertical-align:middle;"{% if e.cls == 'ebike' %} title="E-bike PR"{% elif e.cls == 'bike' %} title="Bike PR"{% endif %}>PR</span>{% endif %}
         </td>
         <td style="padding:0.875rem 1rem; text-align:right; font-weight:600; font-variant-numeric:tabular-nums;
                    color:{% if e.isPR %}var(--accent){% else %}var(--text){% endif %};">
@@ -190,7 +199,7 @@
           {% if e.avgSpeedMps %}{% if on_foot %}{{ e.avgSpeedMps | fmt_pace }}{% else %}{{ e.avgSpeedMps | fmt_speed }}{% endif %}{% else %}—{% endif %}
         </td>
         <td style="padding:0.875rem 1rem; text-align:right;">
-          <form method="POST" action="{{ url_for('segments.delete_effort', sid=seg.id, eid=e.id) }}"
+          <form method="POST" action="{{ url_for('segments.delete_effort', sid=seg.id, eid=e.id, only=only) }}"
                 style="display:inline;" onsubmit="return confirm('Remove this effort?')">
             <button type="submit" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:1rem;padding:0;line-height:1;" title="Remove effort">×</button>
           </form>
@@ -202,7 +211,7 @@
 </div>
 {% else %}
 <div class="card" style="text-align:center; padding:2rem; color:var(--text-muted);">
-  No efforts recorded yet — try rescanning rides from the Segments page.
+  {% if only %}No {{ 'e-bike' if only == 'ebike' else 'bike' }} efforts on this segment yet.{% else %}No efforts recorded yet — try rescanning rides from the Segments page.{% endif %}
 </div>
 {% endif %}
 

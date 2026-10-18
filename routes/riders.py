@@ -126,6 +126,7 @@ def _compute_badges(rid, totals):
         d, i = _first_ride(cond, params)
         return {'earned': bool(d), 'earned_date': d, 'ride_id': i}
     from services import units
+    from services.sports import class_sql
     def _b(icon, name, desc, r):   # the limits are in miles / mph / feet; the wording follows the rider's units
         return {'icon': icon, 'name': units.localise(name), 'desc': units.localise(desc), **r}
 
@@ -265,10 +266,13 @@ def _compute_badges(rid, totals):
             'earned_date': wx_windiest['startDateLocal'][:10] if wx_windiest else None,
             'ride_id': wx_windiest['id'] if wx_windiest else None}),
     ]
-    def _segment_badges(fam, names):
-        """One family's segment badges (services/sports.FAMILIES), counted over its own segments and the rider's efforts on them, whatever the
-        activity's sport: e-bike rides only reach e-ride segments, walks and runs only foot ones (services/segments)."""
-        on = "FROM SegmentEffort e JOIN Segment s ON s.id = e.segmentId AND COALESCE(s.sport, 'ride') = ? JOIN Activity a ON a.id = e.activityId WHERE a.riderId = ?"
+    def _segment_badges(cls, names):
+        """One class's segment badges (services/sports.CLASSES), counted over its family's segments and the rider's efforts of that class on them:
+        pedal and e-bike rides share the ride segments but each has its own efforts, PRs and badges; walks, runs and hikes share the foot ones."""
+        fam = 'foot' if cls == 'foot' else 'ride'
+        keep, keep2 = class_sql(cls), class_sql(cls, 'a2.sportType', 'b2.kind')
+        on = ("FROM SegmentEffort e JOIN Segment s ON s.id = e.segmentId AND COALESCE(s.sport, 'ride') = ? JOIN Activity a ON a.id = e.activityId "
+              f"LEFT JOIN Bike b ON b.id = a.bikeId WHERE a.riderId = ? AND {keep}")
         args = [fam, rid]
         efforts = query_db(f'SELECT COUNT(*) AS n {on}', args, one=True)['n'] or 0
         prs = query_db(f'SELECT COUNT(*) AS n {on} AND e.isPR = 1', args, one=True)['n'] or 0
@@ -285,7 +289,8 @@ def _compute_badges(rid, totals):
             return {'earned': efforts >= n, 'earned_date': d, 'ride_id': i, 'progress': efforts, 'target': n}
 
         def repeat(n):
-            d, i = (first(f'AND e.segmentId IN (SELECT e2.segmentId FROM SegmentEffort e2 JOIN Activity a2 ON a2.id = e2.activityId WHERE a2.riderId = ? '
+            d, i = (first('AND e.segmentId IN (SELECT e2.segmentId FROM SegmentEffort e2 JOIN Activity a2 ON a2.id = e2.activityId '
+                          f'LEFT JOIN Bike b2 ON b2.id = a2.bikeId WHERE a2.riderId = ? AND {keep2} '
                           'GROUP BY e2.segmentId HAVING COUNT(*) >= ?)', [rid, n], offset=n - 1) if repeats >= n else (None, None))
             return {'earned': repeats >= n, 'earned_date': d, 'ride_id': i, 'progress': repeats, 'target': n}
 
@@ -294,28 +299,30 @@ def _compute_badges(rid, totals):
             return {'earned': fastest >= mps, 'earned_date': d, 'ride_id': i}
 
         n = names
+        how = n.get('how', '')
         return ([_b(icon, name, f"{k:,} {n['effort']}{'s' if k != 1 else ''}", count(k)) for (icon, name), k in zip(n['counts'], (1, 10, 50, 100, 250, 500))]
-                + [_b('🥇', n['first_pr'], f"Set your first {n['noun']} PR", {'earned': prs >= 1, 'earned_date': None, 'ride_id': None, 'progress': prs, 'target': 1}),
-                   _b('👑', n['king'], f"Hold every {n['noun']} PR ({defined} segment{'s' if defined != 1 else ''})",
+                + [_b('🥇', n['first_pr'], f"Set your first {n['noun']} PR{how}", {'earned': prs >= 1, 'earned_date': None, 'ride_id': None, 'progress': prs, 'target': 1}),
+                   _b('👑', n['king'], f"Hold every {n['noun']} PR{how} ({defined} segment{'s' if defined != 1 else ''})",
                       {'earned': defined > 0 and prs >= defined, 'earned_date': None, 'ride_id': None, 'progress': prs, 'target': defined or 1})]
-                + [_b(icon, name, f"{n['verb']} the same {n['noun']} {k}+ times", repeat(k)) for (icon, name), k in zip(n['repeats'], (10, 25, 50))]
+                + [_b(icon, name, f"{n['verb']} the same {n['noun']} {k}+ times{how}", repeat(k)) for (icon, name), k in zip(n['repeats'], (10, 25, 50))]
                 + [_b(icon, name, desc, quick(mps)) for icon, name, desc, mps in n['fast']])
 
-    # Pedal rides keep the names and limits the Segments badges always had. An e-bike's limits are higher; on foot it is pace, not speed.
+    # Pedal rides keep the names and limits the Segments badges always had. E-bike rides race on the same segments for their own PRs, with higher
+    # limits; on foot it is pace, not speed.
     _pace = lambda secs_per_mi: units.MI / secs_per_mi
-    seg_ride = _segment_badges('ride', {
+    seg_ride = _segment_badges('bike', {
         'effort': 'segment effort', 'noun': 'segment', 'verb': 'Ride', 'first_pr': 'First PR', 'king': 'King of the Road',
         'counts': [('📐', 'First Effort'), ('🔄', '10 Efforts'), ('💪', '50 Efforts'), ('💯', '100 Efforts'), ('⚡', '250 Efforts'), ('🏆', '500 Efforts')],
         'repeats': [('🔁', 'Creature of Habit'), ('😤', 'Obsessed'), ('🏠', 'Local Legend')],
         'fast': [('💨', 'Segment Flyer', '20 mph avg on a segment', 20 / 2.23694), ('🚀', 'Segment Rocket', '25 mph avg on a segment', 25 / 2.23694),
                  ('💫', 'Segment Missile', '30 mph avg on a segment', 30 / 2.23694), ('👑', 'Flying Machine', '35 mph avg on a segment', 35 / 2.23694)],
     })
-    seg_eride = _segment_badges('eride', {
-        'effort': 'e-bike segment effort', 'noun': 'e-bike segment', 'verb': 'Ride', 'first_pr': 'First E-Bike PR', 'king': 'King of the E-Road',
+    seg_eride = _segment_badges('ebike', {
+        'effort': 'e-bike segment effort', 'noun': 'segment', 'how': ' on an e-bike', 'verb': 'Ride', 'first_pr': 'First E-Bike PR', 'king': 'King of the E-Road',
         'counts': [('🔌', 'Plugged In'), ('🔋', '10 E-Efforts'), ('🔋', '50 E-Efforts'), ('⚡', '100 E-Efforts'), ('⚡', '250 E-Efforts'), ('🏆', '500 E-Efforts')],
         'repeats': [('🔁', 'Daily Charge'), ('😤', 'Battery Obsessed'), ('🏠', 'E-Local Legend')],
-        'fast': [('💨', 'Turbo Mode', '25 mph avg on an e-bike segment', 25 / 2.23694), ('🚀', 'Boost', '30 mph avg on an e-bike segment', 30 / 2.23694),
-                 ('💫', 'Overdrive', '35 mph avg on an e-bike segment', 35 / 2.23694), ('👑', 'Ludicrous Mode', '40 mph avg on an e-bike segment', 40 / 2.23694)],
+        'fast': [('💨', 'Turbo Mode', '25 mph avg on a segment (e-bike)', 25 / 2.23694), ('🚀', 'Boost', '30 mph avg on a segment (e-bike)', 30 / 2.23694),
+                 ('💫', 'Overdrive', '35 mph avg on a segment (e-bike)', 35 / 2.23694), ('👑', 'Ludicrous Mode', '40 mph avg on a segment (e-bike)', 40 / 2.23694)],
     })
     seg_foot = _segment_badges('foot', {
         'effort': 'foot segment effort', 'noun': 'foot segment', 'verb': 'Walk or run', 'first_pr': 'First Foot PR', 'king': 'King of the Trail',
