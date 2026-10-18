@@ -69,6 +69,7 @@ _SPORT_MAP = {
     'walk': 'Walk', 'walking': 'Walk',
     'hike': 'Hike', 'hiking': 'Hike',
     'vride': 'VirtualRide', 'virtual_ride': 'VirtualRide', 'virtualride': 'VirtualRide',
+    'ebike': 'EBikeRide', 'e-bike': 'EBikeRide', 'e_bike': 'EBikeRide', 'ebikeride': 'EBikeRide',     # the iPhone app's <type>ebike</type>
 }
 
 
