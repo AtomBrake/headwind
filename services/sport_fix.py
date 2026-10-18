@@ -50,7 +50,7 @@ def scan(db, api, rider_id):
         r, new = rows[aid], garmin_sport(key)
         if not key or new == r['sportType'] or aid in kept:
             continue
-        if new in RIDES and r['sportType'] in RIDES and new == 'Ride':      # an e-bike / MTB label on a ride is fine; only indoor-vs-outdoor matters
+        if new in RIDES and r['sportType'] in RIDES and new == 'Ride':      # an MTB / gravel label on a ride is fine; indoor and e-bike are what matter
             continue
         db.execute('INSERT OR REPLACE INTO SportFix (rideId, riderId, name, startDateLocal, distance, oldSport, newSport, typeKey) VALUES (?,?,?,?,?,?,?,?)',
                    [aid, rider_id, r['name'], r['startDateLocal'], r['distance'], r['sportType'], new, key])

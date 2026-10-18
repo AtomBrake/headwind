@@ -331,6 +331,7 @@ def migrate_db():
         ('awayStartRecheckDone', 'INTEGER DEFAULT 0'),
         ('workoutDupCheckDone',  'INTEGER DEFAULT 0'),   # walks, runs, ... checked once for duplicates after the merge (services/duplicates.recheck_workouts)   # duplicates re-checked on the UTC instant for rides recorded abroad (services/start_times.py)
         ('dupNameFixDone',       'INTEGER DEFAULT 0'),   # merged activities given back the name chosen on the copy set aside (services/duplicates.recover_names)
+        ('segmentFamiliesDone',  'INTEGER DEFAULT 0'),   # segments split into ride / e-ride / on foot, efforts and PRs picked again (services/segments.regroup)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
         ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
@@ -779,6 +780,14 @@ def migrate_db():
         _tasks.record(db, 'startup:dup_names', 'Names of merged activities',
                       f"{res['checked']} copies set aside checked; {res['renamed']} activit{'y' if res['renamed'] == 1 else 'ies'} "
                       "took back the name chosen on the copy" if res['renamed'] else f"{res['checked']} copies set aside checked; no names needed changing")
+        db.commit()
+    from services.segments import regroup as _regroup_segments
+    res = _regroup_segments(db)
+    if res.get('ran') and db.execute('SELECT 1 FROM Segment LIMIT 1').fetchone():
+        _tasks.record(db, 'startup:segment_families', 'Segments split into ride, e-bike and on foot',
+                      f"{res['removed']} effort{'s' if res['removed'] != 1 else ''} by walks, hikes, e-bike and indoor rides left the ride segments; "
+                      f"{res['foot']} new effort{'s' if res['foot'] != 1 else ''} on foot segments from {res['scanned']} walks, runs and hikes; "
+                      f"{res['prs_moved']} segment PR{'s' if res['prs_moved'] != 1 else ''} changed")
         db.commit()
     from services.reimport import ensure_schema as _reimport_schema
     _reimport_schema(db)

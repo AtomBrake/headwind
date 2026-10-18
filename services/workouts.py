@@ -194,17 +194,22 @@ def delete(db, wid, rider_id):
 
 
 def refresh_derived(db, wid):
-    """(Re)build everything derived from one workout: best times and run-segment efforts (runs only). Safe to call after any change. Does not commit."""
+    """(Re)build everything derived from one workout: best times (runs) and foot-segment efforts (walks, runs and hikes). Safe to call after any
+    change. Does not commit."""
     from services import run_stats
     from services.segments import scan_activity_against_segments, _refresh_prs
+    from services.sports import segment_family
     forget(db, wid)
     w = db.execute('SELECT id, sportType AS sport, startDateLocal, streams FROM Activity WHERE id=?', [wid]).fetchone()
-    if not w or w['sport'] != 'Run' or not w['streams']:
+    if not w or not w['streams']:
         return
-    run_stats.index_run(db, wid, w['startDateLocal'], w['streams'])
+    if w['sport'] == 'Run':
+        run_stats.index_run(db, wid, w['startDateLocal'], w['streams'])
+    if segment_family(w['sport']) != 'foot':
+        return
     try:
-        segs = db.execute("SELECT * FROM Segment WHERE sport='run'").fetchall()
-        if segs and scan_activity_against_segments(db, {'id': wid, 'startDateLocal': w['startDateLocal'], 'streams': w['streams'], 'sportType': 'Run'}, segs):
+        segs = db.execute("SELECT * FROM Segment WHERE sport='foot'").fetchall()
+        if segs and scan_activity_against_segments(db, {'id': wid, 'startDateLocal': w['startDateLocal'], 'streams': w['streams'], 'sportType': w['sport']}, segs):
             for s in segs:
                 _refresh_prs(db, s['id'])
     except Exception:
