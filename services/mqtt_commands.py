@@ -40,9 +40,8 @@ def _apply_water(app, payload):
         log.warning('MQTT water command ignored (ml out of range): %s', ml)
         return
     with app.app_context():
-        from datetime import datetime
-        from zoneinfo import ZoneInfo
         from database import get_db, query_db
+        from services import tz
         db = get_db()
         db.execute('CREATE TABLE IF NOT EXISTS CmdSeen (id TEXT PRIMARY KEY, seenAt TEXT DEFAULT (datetime(\'now\')))')
         if cid:
@@ -54,7 +53,7 @@ def _apply_water(app, payload):
         rider = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
         if not rider:
             return
-        today = datetime.now(ZoneInfo('Europe/London')).date().isoformat()
+        today = tz.today().isoformat()      # the home zone's date, as the diary uses
         db.execute('INSERT INTO HydrationLog (riderId, logDate, ml) VALUES (?, ?, ?)', [rider['id'], today, ml])
         db.commit()
         log.warning('Water +%d ml logged from Home Assistant', ml)

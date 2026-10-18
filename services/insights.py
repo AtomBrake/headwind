@@ -4,9 +4,9 @@ reality_check(): compares what you actually ate over the last 14 completed days 
 which gives a measured daily burn — far more trustworthy than any single-day estimated deficit.
 """
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 from database import query_db
+from services import tz
 
 LB = 2.20462
 KCAL_PER_KG = 7700
@@ -14,7 +14,7 @@ WINDOW = 21   # one window for intake AND weight so the two are measured over th
 
 
 def _today():
-    return datetime.now(ZoneInfo('Europe/London')).date()
+    return tz.today()
 
 
 def _slope(points):

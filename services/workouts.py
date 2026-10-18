@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from database import get_db, query_db
+from services import tz
 
 log = logging.getLogger(__name__)
 SPORTS = ('Walk', 'Run', 'Hike')
@@ -36,7 +37,7 @@ def _local(iso):
     dt = datetime.fromisoformat(iso)
     if dt.tzinfo is None:
         return dt.strftime('%Y-%m-%dT%H:%M:%S'), iso
-    return dt.astimezone(ZoneInfo('Europe/London')).strftime('%Y-%m-%dT%H:%M:%S'), dt.astimezone(ZoneInfo('UTC')).strftime('%Y-%m-%dT%H:%M:%SZ')
+    return dt.astimezone(tz.zone()).strftime('%Y-%m-%dT%H:%M:%S'), dt.astimezone(ZoneInfo('UTC')).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
 def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=None, source='android'):
@@ -134,7 +135,7 @@ def net_calories_on(rider_id, date_iso, bmr):
 
 
 def recent(rider_id, days=30):
-    since = (datetime.now(ZoneInfo('Europe/London')).date() - timedelta(days=days)).isoformat()
+    since = (tz.today() - timedelta(days=days)).isoformat()
     rows = query_db('''SELECT id, sport, name, startDateLocal, distance, movingTime, totalElevationGain, calories, steps, weatherSummary, source
                        FROM Workout WHERE riderId=? AND date(startDateLocal)>=? ORDER BY startDateLocal DESC''', [rider_id, since])
     return [dict(r) for r in rows]

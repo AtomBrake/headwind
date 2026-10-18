@@ -7,15 +7,14 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 import requests
 
 from database import get_db, query_db
 from services.weight_trend import MIN_SANE_KG, MAX_SANE_KG
+from services import tz
 
 log = logging.getLogger(__name__)
-LOCAL_TZ = ZoneInfo('Europe/London')
 FIRST_SYNC_DAYS = 10  # HA's recorder keeps 10 days by default
 # Same sanity range as the manual/backfill weight paths (services/weight_trend.py) — these had drifted apart
 # (this file used to have its own 20-350), which let a bogus HA-imported reading past a bound that the rest
@@ -187,7 +186,7 @@ def _daily_last(url, token, entity_id, since):
     unit = _unit_of(url, token, entity_id)
     days = {}
     for ts, val in _history_rows(url, token, entity_id, since):   # chronological, so the last one sticks
-        days[ts.astimezone(LOCAL_TZ).date().isoformat()] = (val, unit)
+        days[ts.astimezone(tz.zone()).date().isoformat()] = (val, unit)
     return days
 
 

@@ -7,6 +7,7 @@ The signature of such a ride is startDate == startDateLocal: the import stored t
 but UTC is UK time then, so moving those changes nothing. Garmin, manual, converted and demo rides, and friends' synced rides, are left alone."""
 import logging
 from datetime import datetime, timezone
+from services import tz
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ def fix_utc_starts(db):
             utc = datetime.fromisoformat(str(r['startDateLocal'])[:19]).replace(tzinfo=timezone.utc)
         except ValueError:
             continue
-        local = utc.astimezone(duplicates.LOCAL).strftime('%Y-%m-%dT%H:%M:%S')
+        local = utc.astimezone(tz.zone()).strftime('%Y-%m-%dT%H:%M:%S')
         db.execute('UPDATE Activity SET startDate=?, startDateLocal=? WHERE id=?', [utc.strftime('%Y-%m-%dT%H:%M:%S'), local, r['id']])
         if local != str(r['startDateLocal'])[:19]:
             moved.append(r['id'])
