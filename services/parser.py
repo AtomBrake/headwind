@@ -135,12 +135,26 @@ def _gain_smoothed(alts, threshold=3.0, window=7):
     return gain
 
 
+def _declare_missing_prefixes(text):
+    """Avinox writes <avinox:totalDistance> without ever declaring xmlns:avinox, which is not well-formed XML, so gpxpy rejects the whole file
+    ("unbound prefix"). Declare any prefix that is used but never declared on the root <gpx> element; files that are already valid are untouched."""
+    used = set(re.findall(r'</?([A-Za-z_][\w.-]*):[A-Za-z_]', text))
+    used |= set(re.findall(r'\s([A-Za-z_][\w.-]*):[A-Za-z_][\w.-]*\s*=', text))
+    declared = set(re.findall(r'xmlns:([A-Za-z_][\w.-]*)\s*=', text))
+    missing = sorted(used - declared - {'xml', 'xmlns'})
+    if not missing:
+        return text
+    decls = ''.join(f' xmlns:{p}="urn:undeclared:{p}"' for p in missing)
+    return re.sub(r'<gpx(?=[\s>/])', lambda m: '<gpx' + decls, text, count=1)
+
+
 def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
     import gpxpy
 
     text = data.decode('utf-8', errors='replace')
     # Trailforks writes "2026-07-21T12:05:57z" — gpxpy only accepts an upper-case T/Z and silently drops every timestamp otherwise
     text = re.sub(r'<time>([^<]*)</time>', lambda m: '<time>' + m.group(1).strip().upper() + '</time>', text)
+    text = _declare_missing_prefixes(text)
     gpx = gpxpy.parse(io.StringIO(text))
 
     points = []
