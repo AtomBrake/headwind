@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.3-beta] - 2026-10-18
+
+Migration: three `Settings` columns (`timeZone`, `birthDate`, `birthDateGuessed`), added automatically at startup. Existing installs are set to Europe/London so their "today" doesn't move, and an age saved before becomes 1 January of that birth year. `docker-compose.yml` now passes `TZ` through. No Android change: an age sent by an older client is still accepted.
+
+### Added
+- **Set your home time zone.** Settings → Display Preferences has a time zone. Leave it blank to use the server's zone (`$TZ`, then `/etc/localtime`). Everything that used to assume Europe/London now reads it, including the MQTT water command, which logged water against the London date. `services/tz.py`, `tests/test_tz_birth_date.py`.
+
+### Changed
+- **Date of birth instead of age.** The profile forms ask for a date of birth, so your age goes up on your birthday instead of being up to a year out. If you'd only entered an age before, the forms ask for the full date until you enter it.
+- **The ride page links to both Garmin and Strava** when the same ride was imported from each. Before, only the recording kept as the main one got a button. `services/origin.py`.
+
+### Fixed
+- **"Fetch history" in Settings → Garmin Connect did nothing.** The range dropdown had the same id as the button's function, and inside the Garmin form the button's click found the dropdown instead of the function, so no request was sent. The dropdown is now `garminHistoryRange`, here and in the setup wizard.
+
 ## [0.6.2-beta] - 2026-10-18
 
 Migration: an `originId` column on `Activity` and `Workout`, added automatically at startup. Workouts already changed from rides get theirs filled in once. No Android change.
