@@ -325,6 +325,7 @@ def migrate_db():
         ('utcStartFixDone',      'INTEGER DEFAULT 0'),
         ('awayStartRecheckDone', 'INTEGER DEFAULT 0'),
         ('workoutDupCheckDone',  'INTEGER DEFAULT 0'),   # walks, runs, ... checked once for duplicates after the merge (services/duplicates.recheck_workouts)   # duplicates re-checked on the UTC instant for rides recorded abroad (services/start_times.py)
+        ('dupNameFixDone',       'INTEGER DEFAULT 0'),   # merged activities given back the name chosen on the copy set aside (services/duplicates.recover_names)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
         ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
@@ -767,6 +768,13 @@ def migrate_db():
         _tasks.record(db, 'startup:away_starts', 'Duplicates of activities recorded in another time zone',
                       f"{res['checked']} checked again on their real start time; "
                       f"{res['duplicates']} turned out to be a ride already here (the weaker copy was set aside)")
+        db.commit()
+    from services.duplicates import recover_names
+    res = recover_names(db)
+    if res.get('ran') and res['checked']:
+        _tasks.record(db, 'startup:dup_names', 'Names of merged activities',
+                      f"{res['checked']} copies set aside checked; {res['renamed']} activit{'y' if res['renamed'] == 1 else 'ies'} "
+                      "took back the name chosen on the copy" if res['renamed'] else f"{res['checked']} copies set aside checked; no names needed changing")
         db.commit()
     from services.reimport import ensure_schema as _reimport_schema
     _reimport_schema(db)

@@ -129,6 +129,20 @@ def test_merging_keeps_a_name_someone_chose(db, garmin, phone, kept):
     assert db.execute("SELECT name FROM Activity WHERE id='garmin_1'").fetchone()[0] == kept
 
 
+def test_merges_from_before_the_name_rule_get_the_chosen_name_back_once(db):
+    for rid, parked, kept in (('garmin_1', 'Box Hill loop', 'London Cycling'), ('garmin_2', 'Morning Ride', 'Sunday spin'), ('garmin_3', 'Hilly one', 'Walking')):
+        _add(db, rid, '2026-10-05T11:30:53', name=kept)
+        db.execute("INSERT INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson) VALUES (?,?,1,'Phone or file','old',?,?)",
+                   ['imp_' + rid, rid, 'discarded' if rid == 'garmin_3' else 'parked', json.dumps({'id': 'imp_' + rid, 'name': parked})])
+    db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')                 # every real install has its settings row
+    db.execute('UPDATE Settings SET dupNameFixDone=0 WHERE id=1'); db.commit()
+    assert dup.recover_names(db) == {'checked': 2, 'renamed': 1, 'ran': True}
+    names = dict(db.execute('SELECT id, name FROM Activity').fetchall())
+    assert names == {'garmin_1': 'Box Hill loop', 'garmin_2': 'Sunday spin', 'garmin_3': 'Walking'}     # a discarded copy is not looked at
+    db.execute("UPDATE Activity SET name='London Cycling' WHERE id='garmin_1'"); db.commit()
+    assert not dup.recover_names(db)['ran'] and db.execute("SELECT name FROM Activity WHERE id='garmin_1'").fetchone()[0] == 'London Cycling'
+
+
 def test_a_later_worse_copy_is_parked_instead_of_added(db):
     _add(db, 'garmin_1', '2026-10-05T11:30:53', hr=140)
     _add(db, 'imp_phone', '2026-10-05T10:29:38+00:00')
