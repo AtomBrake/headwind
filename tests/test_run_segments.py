@@ -1,4 +1,4 @@
-"""Run segments: runs only match run segments, rides only ride segments; efforts/PRs span Workout and Activity. Throwaway DB."""
+"""Run segments: runs only match run segments, rides only ride segments; efforts/PRs span runs and rides. Throwaway DB."""
 import json
 
 import pytest

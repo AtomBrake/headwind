@@ -2,6 +2,7 @@ import json
 import re
 from flask import Blueprint, abort, redirect, render_template, request, url_for
 from database import query_db, get_db
+from services import sports
 from routes.riders import _compute_badges
 from services.ai import PERSONALITIES
 
@@ -71,34 +72,20 @@ def _stream_series(streams, key, dist_key='distance', transform=None):
     return {'values': values, 'labels': labels}
 
 
-def _workout_as_activity(wid):
-    """A Workout row shaped like an Activity row, so ride.html (map, elevation, segments) can show it. None if there is no such workout."""
-    w = query_db('''SELECT w.*, r.name AS riderName, r.avatarPath AS riderAvatar, r.isDefault AS riderIsDefault
-                    FROM Workout w LEFT JOIN Rider r ON r.id = w.riderId WHERE w.id=?''', [wid], one=True)
-    if not w:
-        return None
-    cols = [c[1] for c in get_db().execute('PRAGMA table_info(Activity)').fetchall()]
-    a = {c: None for c in cols}
-    a.update(dict(w))
-    a.update({'sportType': w['sport'], 'type': w['sport'], 'maxSpeed': w['maxSpeed'] if 'maxSpeed' in w.keys() else None,
-              'riderName': w['riderName'], 'riderAvatar': w['riderAvatar'], 'riderIsDefault': w['riderIsDefault'], 'name': w['name'] or w['sport']})
-    return a
-
-
 @bp.route('/<rid>')
 def detail(rid):
     activity = query_db('''
         SELECT a.*, r.name AS riderName, r.avatarPath AS riderAvatar, r.isDefault AS riderIsDefault
-        FROM Ride a
+        FROM Activity a
         LEFT JOIN Rider r ON r.id = a.riderId
         WHERE a.id=?
     ''', [rid], one=True)
-    is_workout = False
     if not activity:
-        activity = _workout_as_activity(rid)          # phone-recorded runs/walks live in Workout; show them on the same page
-        if not activity:
-            abort(404)
-        is_workout = True
+        abort(404)
+    is_ride = sports.is_ride(activity['sportType'])
+    is_workout = not is_ride                          # walks, runs, swims, ...: the same page, without what only a ride has
+    if is_workout:
+        activity = dict(activity, name=activity['name'] or activity['sportType'])
 
     streams = {}
     if activity['streams']:
@@ -219,7 +206,6 @@ def detail(rid):
 
     sport = (activity['sportType'] or '').lower()
     from services import weather as _wx
-    is_ride = 'ride' in sport or 'cycling' in sport
     is_run = sport in ('run', 'trailrun', 'virtualrun')
 
     # Badges earned on this specific ride
@@ -249,7 +235,7 @@ def detail(rid):
     phone_sensors = _sensors.for_ride(get_db(), str(activity['id']))
     from services import origin
     source_links = origin.links(get_db(), activity['id'], activity['originId'])
-    return render_template('ride.html', source_links=source_links, phone_sensors=phone_sensors, activity=activity, coords=coords, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=['Ride', 'VirtualRide', 'Walk', 'Run', 'Hike'],
+    return render_template('ride.html', source_links=source_links, phone_sensors=phone_sensors, activity=activity, coords=coords, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.RIDES + sports.ON_FOOT),
                            charts=charts, has_memory=memory_count > 0,
                            seg_efforts=seg_efforts, alt_raw=alt_raw,
                            co_riders=co_riders, seg_rivals=seg_rivals,
@@ -269,8 +255,7 @@ def detail(rid):
 def scan_segments(rid):
     from services.segments import scan_activity_against_segments, _refresh_prs
     db = get_db()
-    activity = (db.execute('SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id=?', [rid]).fetchone()
-                or db.execute('SELECT id, startDateLocal, streams, sport AS sportType FROM Workout WHERE id=?', [rid]).fetchone())
+    activity = db.execute('SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id=?', [rid]).fetchone()
     if not activity:
         return ('Not found', 404)
     segments = db.execute('SELECT * FROM Segment').fetchall()
@@ -487,7 +472,7 @@ def bulk_download():
     buf, names = io.BytesIO(), set()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
         for act_id in ids:
-            a = query_db('SELECT * FROM Activity WHERE id=?', [act_id], one=True) or _workout_as_activity(act_id)
+            a = query_db('SELECT * FROM Activity WHERE id=?', [act_id], one=True)
             out = gpx_for(a) if a else None
             if not out:
                 continue
@@ -550,9 +535,8 @@ def bulk_sport():
     db = get_db()
     changed = skipped = 0
     for i in ids:
-        kind = 'workout' if db.execute('SELECT 1 FROM Workout WHERE id=?', [i]).fetchone() else 'ride'
         try:
-            res = convert.change_sport(db, kind, i, sport)
+            res = convert.change_sport(db, None, i, sport)
             changed += 1 if res.get('changed') else 0
         except ValueError:
             skipped += 1

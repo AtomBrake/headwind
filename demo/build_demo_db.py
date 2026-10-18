@@ -610,7 +610,9 @@ def main():
             print('AUDIT FAILED:', b)
         os.remove(out_db)
         sys.exit(2)
-    counts = {t: chk.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in ('Activity', 'BestEffort', 'Segment', 'SegmentEffort', 'FoodLog', 'WeightLog', 'GarminDaily', 'Workout', 'Bike', 'Part')}
+    counts = {t: chk.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in ('Activity', 'BestEffort', 'Segment', 'SegmentEffort', 'FoodLog', 'WeightLog', 'GarminDaily', 'Bike', 'Part')}
+    from services.sports import RIDE_SQL
+    counts['Workout'] = chk.execute(f'SELECT COUNT(*) FROM Activity WHERE NOT {RIDE_SQL}').fetchone()[0]       # walks, runs, ... (rows of Activity)
     size = os.path.getsize(out_db) / 1e6
     with open(os.path.join(args.out, 'REPORT.txt'), 'w') as f:
         f.write(f'built {datetime.now().isoformat(timespec="seconds")}\nprivacy zones: {len(zones)} (radius {args.zone_radius} m)\nrides kept {len(kept)}; dropped {dict(dropped)}\n'

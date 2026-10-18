@@ -48,7 +48,7 @@ def test_manual_numbers_the_user_typed_are_never_adjusted(db):
     set_pct(db, 20)
     r = manual_activity.create(db, 1, 'Walk', '2026-10-05T10:00:00', 1800, 2000, calories=300)
     db.commit()
-    row = db.execute('SELECT calories, caloriesRaw FROM Workout WHERE id=?', [r['id']]).fetchone()
+    row = db.execute('SELECT calories, caloriesRaw FROM Activity WHERE id=?', [r['id']]).fetchone()
     assert row['calories'] == 300 and row['caloriesRaw'] is None
 
 
@@ -56,7 +56,7 @@ def test_a_manual_activity_with_an_estimated_figure_is_adjusted(db):
     set_pct(db, 20)
     r = manual_activity.create(db, 1, 'Walk', '2026-10-06T10:00:00', 1800, 2000)
     db.commit()
-    row = db.execute('SELECT calories, caloriesRaw FROM Workout WHERE id=?', [r['id']]).fetchone()
+    row = db.execute('SELECT calories, caloriesRaw FROM Activity WHERE id=?', [r['id']]).fetchone()
     assert row['caloriesRaw'] and row['calories'] == pytest.approx(row['caloriesRaw'] * 0.8, abs=0.1)
 
 

@@ -5,6 +5,8 @@ instance with a brand-new DB. Never touches your data. Run:
 import io, os, sqlite3, tempfile
 from datetime import datetime, timedelta, timezone
 from app import create_app
+from services.sports import RIDE_SQL
+WK = f"(SELECT * FROM Activity WHERE NOT {RIDE_SQL})"     # walks, runs, ...
 a = create_app(); c = a.test_client()
 db = a.config['DATABASE']
 assert os.path.realpath(db).startswith(os.path.realpath(tempfile.gettempdir())), 'refusing to run against a non-temp database: ' + db
@@ -51,11 +53,11 @@ mid = r.get_json()['id']; ok('manual ride created in Activity', r.status_code ==
 ok('manual ride page renders without a GPS track', c.get(f'/rides/{mid}').status_code == 200)
 ok('bad input is a 400, not a crash', phone.post('/api/v1/activities', headers=H, json={'sport': 'Ride', 'date': '2999-01-01', 'duration_s': 60, 'distance_m': 1}).status_code == 400
    and phone.post('/api/v1/activities', headers=H, json={'sport': 'Swim', 'date': '2026-10-01', 'duration_s': 600, 'distance_m': 100}).status_code == 400)
-w = con.execute("select id from Workout where source='manual'").fetchone()['id']
+w = con.execute(f"select id from {WK} where source='manual'").fetchone()['id']
 ok('workouts page lists it with a delete button', b'Delete' in c.get('/workouts').data and b'Add an activity' in c.get('/workouts').data)
-r = c.post('/workouts/new', data={'sport': 'Run', 'date': '2026-10-02', 'time': '07:00', 'hours': '0', 'minutes': '40', 'distance': '5', 'unit': 'mi'}); ok('web form adds a run', r.status_code == 302 and con.execute("select count(*) from Workout").fetchone()[0] == 2)
+r = c.post('/workouts/new', data={'sport': 'Run', 'date': '2026-10-02', 'time': '07:00', 'hours': '0', 'minutes': '40', 'distance': '5', 'unit': 'mi'}); ok('web form adds a run', r.status_code == 302 and con.execute(f"select count(*) from {WK}").fetchone()[0] == 2)
 ok('web form error is shown, not a 500', c.post('/workouts/new', data={'sport': 'Run', 'date': '2999-01-01', 'minutes': '40', 'distance': '5'}).status_code == 302)
-r = c.post(f'/workouts/{w}/delete'); ok('web delete workout', r.status_code == 302 and con.execute('select count(*) from Workout where id=?', [w]).fetchone()[0] == 0)
+r = c.post(f'/workouts/{w}/delete'); ok('web delete workout', r.status_code == 302 and con.execute(f'select count(*) from {WK} where id=?', [w]).fetchone()[0] == 0)
 r = phone.delete(f'/api/v1/rides/ride/{mid}', headers=H); ok('phone deletes a ride', r.status_code == 200 and mid not in live())
 ok("...and it can't be deleted twice", phone.delete(f'/api/v1/rides/ride/{mid}', headers=H).status_code == 404)
 from services import duplicates
@@ -80,14 +82,14 @@ slow = datetime(2026, 8, 20, 17, 0, 0, tzinfo=timezone.utc)
 j = upload(slow).get_json(); rid = j['ride']['id']
 r = phone.post(f'/api/v1/rides/ride/{rid}/sport', headers=H, json={'sport': 'Walk'}); body = r.get_json()
 ok('phone: change a ride to a Walk', r.status_code == 200 and body['kind'] == 'workout' and body['changed'] and body['id'] == rid and not con.execute('select 1 from Ride where id=?', [rid]).fetchone(), body)
-w = con.execute('select sport, calories from Workout where id=?', [body['id']]).fetchone()
+w = con.execute(f'select sportType sport, calories from {WK} where id=?', [body['id']]).fetchone()
 ok('...it is now a workout with a walking calorie estimate', w['sport'] == 'Walk' and w['calories'] is not None)
 ok('wrong type / unknown id / other kind are clean errors', phone.post(f"/api/v1/rides/workout/{body['id']}/sport", headers=H, json={'sport': 'Quidditch'}).status_code == 400
    and phone.post('/api/v1/rides/ride/nope/sport', headers=H, json={'sport': 'Walk'}).status_code == 404)
 back = phone.post(f"/api/v1/rides/workout/{body['id']}/sport", headers=H, json={'sport': 'Ride'}).get_json()
 ok('...and back to a ride', back['kind'] == 'ride' and back['id'] in live(), back)
 r = c.post(f"/rides/{back['id']}/sport", data={'sport': 'Run'}); ok('web: ride page changes it to a Run (lands on Workouts)', r.status_code == 302 and '/workouts' in r.headers['Location'])
-wid = con.execute("select id from Workout where sport='Run' and source='converted'").fetchone()[0]
-r = c.post(f'/workouts/{wid}/sport', data={'sport': 'Walk'}); ok('web: workouts page changes it to a Walk', r.status_code == 302 and con.execute('select sport from Workout where id=?', [wid]).fetchone()[0] == 'Walk')
+wid = con.execute(f"select id from {WK} where sportType='Run' and source='converted'").fetchone()[0]
+r = c.post(f'/workouts/{wid}/sport', data={'sport': 'Walk'}); ok('web: workouts page changes it to a Walk', r.status_code == 302 and con.execute(f'select sportType from {WK} where id=?', [wid]).fetchone()[0] == 'Walk')
 ok('the ride page shows the Type control', b'What kind of activity was this?' in c.get(f"/rides/{[x for x in live() if x.startswith('garmin') or x.startswith('imp_')][0]}").data)
 print('ALL PASS')

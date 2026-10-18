@@ -27,17 +27,13 @@ def _ensure_weather(activity, db):
     return activity
 
 
-def _is_ride(sport_type):
-    t = (sport_type or '').lower()
-    return 'ride' in t or 'cycling' in t
-
-
 @bp.route('/rides/<rid>/kudos', methods=['POST'])
 def kudos(rid):
     activity = query_db('SELECT * FROM Activity WHERE id=?', [rid], one=True)
     if not activity:
         return jsonify({'error': 'Not found'}), 404
-    if not _is_ride(activity['sportType']):
+    from services.sports import is_ride
+    if not is_ride(activity['sportType']):
         return jsonify({'error': 'AI coaching is only available for ride activities'}), 400
     try:
         from services.ai import PERSONALITIES

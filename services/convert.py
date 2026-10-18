@@ -1,14 +1,12 @@
 """Change what kind of activity something is: a walk that was recorded as a ride, a ride that was typed in as a run, and so on.
 
-Every sport is a row in Activity, so a change keeps the row and its id. Between the two families (rides, and the rest: the Ride and Workout views) it
+Every sport is a row in Activity, so a change keeps the row and its id. Between the two families (rides, and the rest: services/sports.is_ride) it
 is more than a label: what only a ride has (best efforts, ride segments, the bike) goes or comes back, and calories are re-estimated for the new sport
 (a walk logged as a ride carries a cycling estimate, which badly over-counts). Nothing here commits: the caller does.
 """
 
-RIDES = ('Ride', 'VirtualRide')
-OTHER = ('Swim', 'Surf', 'Paddle', 'Row', 'Ski', 'Skate', 'Golf', 'Climb', 'Other')   # Garmin activities that are neither rides nor walk/run/hike
-WORKOUTS = ('Walk', 'Run', 'Hike') + OTHER
-SPORTS = RIDES + WORKOUTS
+from services.sports import RIDES, SPORTS, is_ride
+
 _GENERIC_NAMES = {'', 'ride', 'walk', 'run', 'hike', 'virtualride', 'garmin activity', 'ride activity'}
 
 
@@ -64,15 +62,16 @@ def _workout_to_ride(db, row, sport):
 
 
 def change_sport(db, kind, act_id, sport, discard_parked=False):
-    """Returns {'kind', 'id', 'sport', 'changed'}. `kind` is what the caller has in hand ('ride' or 'workout'); the id never changes now that every
-    sport is a row in Activity. Raises ValueError with a readable reason. A ride with another recording set aside under it is refused unless
-    `discard_parked`, which throws those recordings away as it changes the ride."""
-    from services.sports import is_ride
+    """Returns {'kind', 'id', 'sport', 'changed'}. `kind` is what the caller has in hand ('ride' or 'workout'), checked against the row, or None to
+    take the row as it is; the id never changes now that every sport is a row in Activity. Raises ValueError with a readable reason. A ride with
+    another recording set aside under it is refused unless `discard_parked`, which throws those recordings away as it changes the ride."""
     if sport not in SPORTS:
         raise ValueError('pick one of: ' + ', '.join(SPORTS))
-    if kind not in ('ride', 'workout'):
+    if kind not in ('ride', 'workout', None):
         raise ValueError('kind must be ride or workout')
     row = db.execute('SELECT * FROM Activity WHERE id=?', [act_id]).fetchone()
+    if row and kind is None:
+        kind = 'ride' if is_ride(row['sportType']) else 'workout'
     if not row or is_ride(row['sportType']) != (kind == 'ride'):
         raise ValueError('that ride was not found' if kind == 'ride' else 'that activity was not found')
     if (row['sportType'] or '') == sport:

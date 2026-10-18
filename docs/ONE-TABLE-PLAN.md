@@ -1,6 +1,6 @@
 # One table for every activity: query audit
 
-**Status:** release 1 done in 0.7.0-beta. Every statement below was changed as its category says, except that a sport change already became a label change (planned for release 2), so `services/convert.py` no longer moves rows. What release 2 still has to do is in the TODO entry.
+**Status:** release 1 done in 0.7.0-beta, release 2 in 0.7.1-beta. Every statement below was changed as its category says, except that a sport change already became a label change in release 1, so `services/convert.py` no longer moves rows. In release 2 the "Reads Workout too" and "Picks the table by kind" statements became one `Activity` query each, "ride or workout" is decided by `services/sports.is_ride`, the `Workout` view's readers moved to `Activity`, and the `Workout` view and the `WorkoutPreMerge` table are dropped at start-up. This file is kept as the record of the audit; its `Workout` references describe 0.6.
 
 Release 1 of **One table for every activity** (TODO.md, Multi-sport) moves `Workout` rows into `Activity`. This file sorts every SQL statement that touches `Activity` by what it needs then, so the change can be made file by file and checked off. Made 2026-10-18 at 0.6.6-beta. Line numbers drift as code changes: the function names are the stable reference.
 

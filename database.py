@@ -4,11 +4,11 @@ from flask import current_app, g
 
 
 def _merge_workouts(db):
-    """Once, on an install from before 0.7.0: copy every Workout row into Activity (its sport into type and sportType) and keep the old table,
-    untouched, as WorkoutPreMerge in case anything has to be put back. An id in both tables is one recording (ids come from the source, or from a
-    hash of it), so the Activity row stays. Safe to run again after a crash halfway: rows already copied are skipped. Before anything changes, the
-    whole database is copied to <database>.pre-0.7.0 (0.6 can't open a merged database, so going back means restoring that file). Commits.
-    Returns {'moved', 'same_id', 'backup', 'copy'} or None when there is nothing to merge."""
+    """Once, on an install from before 0.7.0: copy every Workout row into Activity (its sport into type and sportType) and drop the old table.
+    An id in both tables is one recording (ids come from the source, or from a hash of it), so the Activity row stays. The copy and the drop are one
+    transaction, so a crash halfway leaves the old table as it was. Before anything changes, the whole database is copied to <database>.pre-0.7.0
+    (0.6 can't open a merged database, so going back means restoring that file). Commits.
+    Returns {'moved', 'same_id', 'copy'} or None when there is nothing to merge."""
     if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='Workout'").fetchone():
         return None
     copy = None
@@ -29,14 +29,19 @@ def _merge_workouts(db):
     sel = [f'w.{c}' for c in same] + ['w.sport', 'w.sport', "'{}'", "COALESCE(w.createdAt, datetime('now'))" if 'createdAt' in wcols else "datetime('now')"]
     same_id = db.execute('SELECT COUNT(*) FROM Workout w JOIN Activity a ON a.id = w.id').fetchone()[0]
     moved = db.execute(f"INSERT OR IGNORE INTO Activity ({', '.join(cols)}) SELECT {', '.join(sel)} FROM Workout w").rowcount
-    backup, n = 'WorkoutPreMerge', 1
-    while db.execute("SELECT 1 FROM sqlite_master WHERE name=?", [backup]).fetchone():
-        n += 1
-        backup = f'WorkoutPreMerge{n}'
-    db.execute('DROP VIEW IF EXISTS SegActivity')       # it reads Workout: renaming the table would point it at the backup
-    db.execute(f'ALTER TABLE Workout RENAME TO {backup}')
+    db.execute('DROP VIEW IF EXISTS SegActivity')       # 0.6's reads the Workout table; migrate_db makes it again from Activity
+    db.execute('DROP TABLE Workout')
     db.commit()
-    return {'moved': moved, 'same_id': same_id, 'backup': backup, 'copy': copy}
+    return {'moved': moved, 'same_id': same_id, 'copy': copy}
+
+
+def _drop_merge_leftovers(db):
+    """What 0.7.0 kept while the code moved over to one table: the Workout view and the old table, renamed WorkoutPreMerge (the whole database as it
+    was is still in <database>.pre-0.7.0). Returns the backup tables dropped. Does not commit."""
+    left = db.execute("SELECT type, name FROM sqlite_master WHERE (type='view' AND name='Workout') OR (type='table' AND name LIKE 'WorkoutPreMerge%')").fetchall()
+    for kind, name in left:                             # looked up first, so a start-up with nothing to drop writes nothing
+        db.execute(f'DROP {kind.upper()} "{name}"')
+    return [name for kind, name in left if kind == 'table']
 
 
 def migrate_db():
@@ -581,17 +586,17 @@ def migrate_db():
     ''')
 
     # Every activity, of every sport, is a row in Activity. Walks, runs, swims, ... used to have a table of their own (Workout); _merge_workouts
-    # moves an old install's rows across once. Ride and Workout are views of Activity split by services/sports.RIDE_SQL: about 80 queries
-    # read rides only, and Workout keeps its old columns (sport, not sportType) for the code that reads it.
+    # moves an old install's rows across once. Ride is a view of the rides in Activity (services/sports.RIDE_SQL): about 80 queries read rides only.
     if 'sport' not in {r[1] for r in db.execute('PRAGMA table_info(Segment)').fetchall()}:
         db.execute("ALTER TABLE Segment ADD COLUMN sport TEXT DEFAULT 'ride'")
     merged = _merge_workouts(db)
+    dropped = _drop_merge_leftovers(db)
+    if dropped:
+        import logging
+        logging.getLogger(__name__).warning('One table for every activity: dropped the Workout view and %s (kept by 0.7.0)', ', '.join(dropped))
     from services.sports import RIDE_SQL
     views = {
         'Ride': f'CREATE VIEW Ride AS SELECT * FROM Activity WHERE {RIDE_SQL}',
-        'Workout': f'''CREATE VIEW Workout AS SELECT id, riderId, sportType AS sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime,
-            totalElevationGain, averageSpeed, maxSpeed, averageHeartrate, calories, steps, startLat, startLng, streams, weatherSummary, source, createdAt,
-            caloriesRaw, originId FROM Activity WHERE NOT {RIDE_SQL}''',
         # segment leaderboards: no streams (heavy), only what they need
         'SegActivity': f'''CREATE VIEW SegActivity AS SELECT id, name, riderId, startDateLocal, sportType,
             CASE WHEN {RIDE_SQL} THEN 'activity' ELSE 'workout' END AS kind FROM Activity''',
@@ -753,8 +758,7 @@ def migrate_db():
         _tasks.record(db, 'startup:merge_workouts', 'Walks, runs and other workouts moved in with the rides',
                       f"{merged['moved']} moved into one table of activities"
                       + (f"; {merged['same_id']} already there under the same id (that copy kept)" if merged['same_id'] else '')
-                      + f". The old table is kept as {merged['backup']}"
-                      + (f", and the whole database as it was in {merged['copy']}" if merged['copy'] else ''))
+                      + (f". The whole database as it was is in {merged['copy']}" if merged['copy'] else ''))
         db.commit()
     from services.duplicates import recheck_workouts
     res = recheck_workouts(db)

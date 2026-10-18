@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.1-beta] - 2026-10-18
+
+Migration, at the first start: the `Workout` view and the `WorkoutPreMerge` table that 0.7.0 kept are dropped. Nothing reads them any more, and the way back is still the whole-database copy `bike.db.pre-0.7.0` made by 0.7.0. An install coming straight from 0.6 is merged as before, then drops its old `Workout` table in the same step as the copy, so there is no `WorkoutPreMerge` (the `.pre-0.7.0` copy is still made first). No Android or iOS change: the phone API keeps its shape.
+
+This finishes **One table for every activity** (release 2 in `docs/ONE-TABLE-PLAN.md`). It is mostly cleanup: nothing adds a rides half and a workouts half any more, and every "is this a ride?" question goes to `services/sports.py`.
+
+### Fixed
+- **Re-sending a phone walk that had since been changed to a ride failed.** The upload looked for the walk among the workouts only, didn't find it, and tried to save it again under the same id. It now finds the activity, whatever its sport, and answers "exists".
+- **Changing a workout to a ride on the Workouts page showed an error page.** The change was saved, but the page that should then open the ride failed. It opens the ride now.
+- **Opening an activity in the phone app after its type changed on the web said "not found".** The app asks for `/rides/ride/<id>` or `/rides/workout/<id>`, and the server only looked in the half the app named. The server now uses the activity's own sport, so a stale kind still opens it, changes its type and deletes it. The answer carries the real kind.
+
+### Changed
+- **One definition of a ride.** The gear module, the activity-type change, the typed-in activity form, the Garmin sync, the ride sanity checks, AI kudos, the ride page and the AI coach's "Other training" each had their own test of whether a sport is a ride. They now all use `services/sports.is_ride`, the same rule the `Ride` view is built from. In practice this changes nothing, except for an activity with no sport at all: like everywhere else, it now counts as a ride for the bike calendar, the default bike and the "looks wrong" checks, and "Cyclocross"-style sports get AI kudos.
+- **The day's calorie burn is one query over every sport** (Nutrition page, the calorie goal, Home Assistant), not rides plus workouts added together. The figures are the same.
+- **The phone's totals and history are one query each.** The `kind` in the answers comes from the sport, not from which half a row was found in.
+
+`services/sports.py` (`RIDES`, `ON_FOOT`, `WORKOUTS`, `SPORTS`, `kind`, `kind_of`, `KIND_SQL`), `services/goal_model.activity_calories`, `database._drop_merge_leftovers`, `routes/api_v1.py`, `routes/rides.py`, `services/workouts.py`, `services/bulk.py`, `services/sensors.py`, `services/gear.py`, `tests/test_one_table.py`.
+
 ## [0.7.0-beta] - 2026-10-18
 
 Migration, one way: walks, runs, swims and every other workout move into `Activity`, the table rides are in, at the first start. Before anything changes, the whole database is copied to `bike.db.pre-0.7.0` beside it; the old `Workout` table is also kept, untouched, as `WorkoutPreMerge`. 0.6 can't open the merged database, so going back means restoring that copy. `Activity` gains `steps` and `source`; `Ride` and `Workout` become views of it; `Settings` gains `workoutDupCheckDone`. No Android or iOS change: the phone API keeps its shape.

@@ -35,10 +35,10 @@ def db(tmp_path):
         yield d
 
 
-def add_ride(db, rid='garmin_1', start_ms=T0 - 30_000, secs=150, kind='Activity'):
+def add_ride(db, rid='garmin_1', start_ms=T0 - 30_000, secs=150, kind='ride'):
     from datetime import datetime, timezone
     iso = datetime.fromtimestamp(start_ms / 1000, timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
-    if kind == 'Activity':
+    if kind == 'ride':
         db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,rawData,riderId) VALUES (?,?,?,?,?,?,?,?,?,'{}',1)",
                    [rid, 'R', 'Ride', 'Ride', iso, iso, 1000, secs, secs])
     else:
@@ -89,7 +89,7 @@ def test_a_ride_that_does_not_overlap_gets_nothing(db):
 
 
 def test_a_phone_recorded_run_can_carry_its_own_sidecar(db):
-    add_ride(db, 'wk_run', kind='Workout')
+    add_ride(db, 'wk_run', kind='run')
     res, _ = sensors.store(db, 1, payload())
     assert res['attached'] == {'kind': 'workout', 'id': 'wk_run'}
 
