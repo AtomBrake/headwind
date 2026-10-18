@@ -7,6 +7,7 @@
   {% if riders %}
   <form method="GET" style="display:inline;"><select name="rider" onchange="this.form.submit()">{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>
   {% endif %}
+  {% if strava.any %}<a href="{{ url_for('gear.strava_page', rider=rid) }}" class="btn btn-secondary">Strava bikes</a>{% endif %}
   <a href="{{ url_for('gear.assign_page', rider=rid) }}" class="btn btn-secondary">Assign rides</a>
   <a href="{{ url_for('gear.bike_form', rider=rid) }}" class="btn btn-primary">+ Add bike</a>
 {% endblock %}
@@ -15,6 +16,13 @@
 
 {% block content %}
 {% if error %}<div class="gear-err">{{ error }}</div>{% endif %}
+
+{% if strava.pending %}
+<div class="gear-note">
+  <div><strong>{{ strava.pending }}</strong> bike{{ 's' if strava.pending != 1 }} from your Strava export {{ 'are' if strava.pending != 1 else 'is' }} waiting to be matched. Their rides get a bike once you say which of yours (or a new one) each is.</div>
+  <a class="btn btn-primary btn-sm" href="{{ url_for('gear.strava_page', rider=rid) }}">Match Strava bikes</a>
+</div>
+{% endif %}
 
 {% if span.unassigned and bikes %}
 <div class="gear-note">
