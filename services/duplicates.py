@@ -370,13 +370,16 @@ def recover_names(db):
     s = db.execute('SELECT dupNameFixDone FROM Settings WHERE id=1').fetchone()
     if not s or s['dupNameFixDone']:
         return {'checked': 0, 'renamed': 0, 'ran': False}
-    rows = db.execute("""SELECT d.primaryId, d.rowJson FROM ActivityDuplicate d JOIN Activity a ON a.id=d.primaryId
+    # Only the ids go through the sort: rowJson is a whole activity with its streams, and sorting every parked copy at once filled the disk
+    # (SQLite's temporary sort) on a large install. Each copy is read on its own below.
+    rows = db.execute("""SELECT d.id, d.primaryId FROM ActivityDuplicate d JOIN Activity a ON a.id=d.primaryId
                           WHERE d.status='parked' AND a.riderId NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)
                           ORDER BY d.parkedAt""").fetchall()
     renamed = set()
     for r in rows:
+        row_json = db.execute('SELECT rowJson FROM ActivityDuplicate WHERE id=?', [r['id']]).fetchone()
         try:
-            other = json.loads(r['rowJson']).get('name')
+            other = json.loads(row_json['rowJson']).get('name')
         except (ValueError, TypeError, AttributeError):
             continue
         kept = db.execute('SELECT name FROM Activity WHERE id=?', [r['primaryId']]).fetchone()
