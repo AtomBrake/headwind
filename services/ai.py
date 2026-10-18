@@ -231,16 +231,14 @@ def generate_analysis(activity, personality_key=None):
 
     from services.context import build_context, build_comparison_receipts, get_weather_line
 
-    dist_mi  = float(activity['distance'] or 0) / 1609.344
-    spd_mph  = float(activity['averageSpeed'] or 0) * 2.23694
-    elev_ft  = float(activity['totalElevationGain'] or 0) * 3.28084
+    from services import units                         # the coach reads every number in the rider's own units
     mins     = int(activity['movingTime'] or 0) // 60
 
     current = f'"{activity["name"]}" — {str(activity["startDateLocal"])[:10]}\n'
-    current += f'  Distance   : {dist_mi:.1f} mi\n'
+    current += f'  Distance   : {units.fmt_dist(activity["distance"])}\n'
     current += f'  Moving time: {mins} min\n'
-    current += f'  Avg speed  : {spd_mph:.1f} mph\n'
-    current += f'  Elevation  : {elev_ft:.0f} ft\n'
+    current += f'  Avg speed  : {units.fmt_speed(activity["averageSpeed"])}\n'
+    current += f'  Elevation  : {units.fmt_elev(activity["totalElevationGain"])}\n'
     if activity['averageWatts']:
         current += f'  Avg power  : {activity["averageWatts"]:.0f} W'
         if activity['weightedAvgWatts']:
@@ -346,7 +344,7 @@ REQUIRED — always write these three:
 🎯 Honest verdict — 1-2 sentences. Was this a good day, a poor day, or somewhere in between? Say it plainly.
 
 OPTIONAL — include only if you have something specific and non-obvious to say. Skip entirely otherwise:
-⛰️ Climbing — only if elevation > 800ft and the climbing meaningfully changes what the numbers mean
+⛰️ Climbing — only if elevation > CLIMB_LIMIT and the climbing meaningfully changes what the numbers mean
 🔥 Standout metric — only if there is a genuinely interesting power/HR/speed relationship worth explaining
 📈 Fitness reading — only if you can say something specific about adaptation or trajectory, not just "numbers are up"
 🌦️ Conditions — only if weather was a real factor that changes how the numbers should be read
@@ -363,6 +361,9 @@ RULES:
 - If a ride was genuinely below recent form: say so and explain what's behind it. If it was a reasonable training ride given the pattern and conditions, say that instead
 - If no history exists: analyse the data alone and flag it
 - The final sentence must be specific to this ride — if it could apply to any ride on any day, rewrite it"""
+
+    user_msg = user_msg.replace('CLIMB_LIMIT', units.fmt_elev(800 / units.FT_PER_M))      # 800 ft, in the rider's units
+    system_msg = units.localise(system_msg)      # its worked example ('a 13mph headwind ride') in the rider's units too
 
     resp = client.chat.completions.create(
         model=model,

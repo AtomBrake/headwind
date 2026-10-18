@@ -204,8 +204,12 @@ def _garmin_history(app):
         try:
             with app.app_context():
                 from database import query_db
-                s = query_db('SELECT garminEmail, garminPassword, garminHistoryFrom, garminHistoryDone, garminHistoryRetryAt FROM Settings WHERE id=1', one=True)
+                s = query_db('SELECT garminEmail, garminPassword, garminHistoryFrom, garminHistoryDone, garminHistoryRetryAt, '
+                             'garminWeightsDone, garminWeightsRetryAt FROM Settings WHERE id=1', one=True)
                 now = datetime.now(timezone.utc).isoformat(timespec='seconds')
+                if (s and s['garminEmail'] and s['garminPassword'] and s['garminHistoryFrom'] and not s['garminWeightsDone']
+                        and (not s['garminWeightsRetryAt'] or s['garminWeightsRetryAt'] <= now)):
+                    garmin.backfill_weigh_ins(s['garminEmail'], s['garminPassword'])      # quick (a year per call), so before the long day-by-day pass
                 if (s and s['garminEmail'] and s['garminPassword'] and s['garminHistoryFrom'] and not s['garminHistoryDone']
                         and (not s['garminHistoryRetryAt'] or s['garminHistoryRetryAt'] <= now)):
                     garmin.backfill_history(s['garminEmail'], s['garminPassword'])
@@ -230,41 +234,20 @@ def create_app():
     _ensure_default_avatar(app)
 
     # ── Template filters ─────────────────────────────────────────
+    from services import units as _units
+
     def _get_units():
-        if not hasattr(g, 'units'):
-            from database import query_db
-            row = query_db('SELECT units FROM Settings WHERE id=1', one=True)
-            g.units = (row['units'] if row and row['units'] else 'imperial')
-        return g.units
+        return _units.current()
 
-    @app.template_filter('pace_mi')
-    def pace_mi(mps):
-        """Metres per second -> running pace per mile, e.g. 3.1 -> '8:39 /mi'."""
-        if not mps or mps <= 0:
-            return '—'
-        secs = round(1609.344 / mps)
-        return f'{secs // 60}:{secs % 60:02d} /mi'
-
-    @app.template_filter('fmt_dist')
-    def fmt_dist(m):
-        v = float(m or 0)
-        if _get_units() == 'metric':
-            return f'{v/1000:,.1f} km'
-        return f'{v/1609.344:,.1f} mi'
-
-    @app.template_filter('fmt_speed')
-    def fmt_speed(mps):
-        v = float(mps or 0)
-        if _get_units() == 'metric':
-            return f'{v*3.6:.1f} km/h'
-        return f'{v*2.23694:.1f} mph'
-
-    @app.template_filter('fmt_elev')
-    def fmt_elev(m):
-        v = float(m or 0)
-        if _get_units() == 'metric':
-            return f'{round(v):,} m'
-        return f'{round(v*3.28084):,} ft'
+    # Distances, climbs, speeds and paces in the rider's units (services/units.py). The *_val filters give the bare number, for charts and inputs.
+    app.template_filter('fmt_dist')(lambda m, places=1: _units.fmt_dist(m, places=places))
+    app.template_filter('fmt_elev')(lambda m: _units.fmt_elev(m))
+    app.template_filter('fmt_speed')(lambda mps, places=1: _units.fmt_speed(mps, places=places))
+    app.template_filter('fmt_pace')(lambda mps: _units.fmt_pace(mps))
+    app.template_filter('pace_mi')(lambda mps: _units.fmt_pace(mps))       # old name, still used by a few templates
+    app.template_filter('dist_val')(lambda m: _units.dist(m))
+    app.template_filter('elev_val')(lambda m: _units.elev(m))
+    app.template_filter('speed_val')(lambda mps: _units.speed(mps))
 
     @app.template_filter('fmt_duration')
     def fmt_duration(secs):
@@ -295,6 +278,11 @@ def create_app():
         if 'ride' in t or 'cycling' in t: return '🚴'
         if 'run'  in t: return '🏃'
         if 'swim' in t: return '🏊'
+        if 'surf' in t: return '🏄'
+        if 'paddle' in t or 'row' in t: return '🛶'
+        if 'ski' in t: return '⛷️'
+        if 'golf' in t: return '⛳'
+        if 'climb' in t: return '🧗'
         if 'walk' in t or 'hike' in t: return '🥾'
         return '🏅'
 
@@ -416,7 +404,7 @@ def create_app():
 
     @app.context_processor
     def inject_units():
-        return {'units': _get_units()}
+        return {'units': _get_units(), 'U': _units.spec()}
 
     @app.context_processor
     def inject_demo():

@@ -23,10 +23,26 @@ def _weekly_data(rider_id):
             "WHERE riderId=? AND date(startDateLocal) >= ? AND date(startDateLocal) < ?",
             [rider_id, ws.isoformat(), we.isoformat()], one=True,
         )
-        total_mi = (row['total'] or 0) / 1609.344
-        total_ft = (row['elev'] or 0) * 3.28084
-        weeks.append({'label': day_month(ws), 'from': ws.isoformat(), 'to': (we - timedelta(days=1)).isoformat(), 'mi': round(total_mi, 1), 'ft': round(total_ft), 'cals': round(row['cals'] or 0), 'current': i == 0})
+        weeks.append({'label': day_month(ws), 'from': ws.isoformat(), 'to': (we - timedelta(days=1)).isoformat(),   # metres: the page shows them in the rider's units
+                      'dist_m': round(row['total'] or 0), 'elev_m': round(row['elev'] or 0), 'cals': round(row['cals'] or 0), 'current': i == 0})
     return weeks
+
+
+def dist_filters(args):
+    """The search form's distance range, typed in the rider's unit: (min text, max text, min metres or None, max metres or None). Old links that
+    still say min_mi / max_mi are read as miles."""
+    from services import units
+    out = []
+    for new, old in (('min_dist', 'min_mi'), ('max_dist', 'max_mi')):
+        text, system = (args.get(new) or '').strip(), None
+        if not text and (args.get(old) or '').strip():
+            text, system = args.get(old).strip(), 'imperial'
+        try:
+            metres = units.to_metres(text, system) if text else None
+        except ValueError:
+            metres = None
+        out.append((text, metres))
+    return out[0][0], out[1][0], out[0][1], out[1][1]
 
 
 def _group_activities(activities):
@@ -112,10 +128,9 @@ def dashboard():
     q         = request.args.get('q', '').strip()
     date_from = request.args.get('from', '').strip()
     date_to   = request.args.get('to', '').strip()
-    min_mi    = request.args.get('min_mi', '').strip()
-    max_mi    = request.args.get('max_mi', '').strip()
+    min_dist, max_dist, min_m, max_m = dist_filters(request.args)
     sport     = request.args.get('sport', '').strip()
-    is_filtered = any([q, date_from, date_to, min_mi, max_mi, sport])
+    is_filtered = any([q, date_from, date_to, min_dist, max_dist, sport])
 
     where  = ['a.riderId=?']
     params = [rid]
@@ -125,12 +140,10 @@ def dashboard():
         where.append('date(a.startDateLocal) >= ?'); params.append(date_from)
     if date_to:
         where.append('date(a.startDateLocal) <= ?'); params.append(date_to)
-    if min_mi:
-        try: where.append('a.distance >= ?'); params.append(float(min_mi) * 1609.344)
-        except ValueError: pass
-    if max_mi:
-        try: where.append('a.distance <= ?'); params.append(float(max_mi) * 1609.344)
-        except ValueError: pass
+    if min_m is not None:
+        where.append('a.distance >= ?'); params.append(min_m)
+    if max_m is not None:
+        where.append('a.distance <= ?'); params.append(max_m)
     if sport:
         where.append('lower(a.sportType) LIKE ?'); params.append(f'%{sport.lower()}%')
 
@@ -163,12 +176,9 @@ def dashboard():
         run_where.append('date(w.startDateLocal) >= ?'); run_params.append(date_from)
     if date_to:
         run_where.append('date(w.startDateLocal) <= ?'); run_params.append(date_to)
-    for val, op in ((min_mi, '>='), (max_mi, '<=')):
-        if val:
-            try:
-                run_where.append(f'w.distance {op} ?'); run_params.append(float(val) * 1609.344)
-            except ValueError:
-                pass
+    for val, op in ((min_m, '>='), (max_m, '<=')):
+        if val is not None:
+            run_where.append(f'w.distance {op} ?'); run_params.append(val)
     if not sport or 'run' in sport.lower():
         runs = query_db(f'''
             SELECT w.id, COALESCE(NULLIF(w.name, ''), 'Run') AS name, 'Run' AS sportType, w.startDateLocal, w.distance, w.movingTime,
@@ -190,7 +200,7 @@ def dashboard():
         [rid],
     )
     year_speed = [
-        {'id': r['id'], 'd': r['d'], 'mph': round(float(r['averageSpeed']) * 2.23694, 1), 'name': r['name']}
+        {'id': r['id'], 'd': r['d'], 'mps': float(r['averageSpeed']), 'name': r['name']}
         for r in year_speed_rows
     ]
 
@@ -240,6 +250,7 @@ def dashboard():
         'dashboard.html',
         gear_due=gear_due,
         flagged=flagged,
+        garmin_full=bool(query_db("SELECT 1 FROM Settings WHERE id=1 AND garminSyncMode='full'", one=True)),
         typed=request.args.get('typed', ''),
         back_url='/dashboard?' + urlencode([(k, v) for k, v in request.args.items(multi=True) if k != 'typed']),
         sport_choices=[('Ride', 'Ride'), ('VirtualRide', 'Indoor ride'), ('Walk', 'Walk'), ('Run', 'Run'), ('Hike', 'Hike')],
@@ -253,7 +264,7 @@ def dashboard():
         year_speed=year_speed,
         now=date.today(),
         q=q, date_from=date_from, date_to=date_to,
-        min_mi=min_mi, max_mi=max_mi, sport=sport,
+        min_dist=min_dist, max_dist=max_dist, sport=sport,
         sport_types=sport_types,
         all_riders=all_riders,
         active_rider=active_rider,

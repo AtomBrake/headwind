@@ -1,5 +1,19 @@
 from database import query_db
 from routes.riders import _compute_badges
+from services import units
+
+# RideMemory and the best-effort brackets are stored in miles / mph / feet (as are the similarity searches below). Everything the coach reads goes
+# through these, so it gets the rider's own units and never has to convert.
+def _mi(v):
+    return units.fmt_dist(float(v or 0) * units.MI)
+
+
+def _mph(v):
+    return units.fmt_speed(float(v or 0) / units.MPH_PER_MPS)
+
+
+def _ft(v):
+    return units.fmt_elev(float(v or 0) / units.FT_PER_M)
 
 
 def _tags(dist_mi, elev_ft, avg_power, avg_hr):
@@ -207,9 +221,9 @@ def _build_achievement_context(activity_id, activity_date):
     yr = str(activity_date)[:4]
 
     for ach in achievements:
-        d_mi   = int(ach['distanceMi'])
+        d_mi   = units.fmt_dist(float(ach['distanceMi']) * units.MI, places=0 if units.spec()['system'] == 'imperial' else 1)
         secs   = ach['elapsedSecs']
-        mph    = round(float(ach['avgSpeedMps']) * 2.23694, 1) if ach['avgSpeedMps'] else 0
+        mph    = units.fmt_speed(ach['avgSpeedMps'])
 
         # What was the previous best for this distance bracket?
         prev = query_db('''
@@ -222,12 +236,12 @@ def _build_achievement_context(activity_id, activity_date):
         if prev:
             improvement = prev['elapsedSecs'] - secs
             lines.append(
-                f'- Fastest {d_mi}mi: {_fmt_dur(secs)} at {mph}mph '
+                f'- Fastest {d_mi}: {_fmt_dur(secs)} at {mph} '
                 f'(beat previous best of {_fmt_dur(prev["elapsedSecs"])} '
                 f'from {_fmt_date(prev["activityDate"])} by {_fmt_dur(improvement)})'
             )
         else:
-            lines.append(f'- Fastest {d_mi}mi: {_fmt_dur(secs)} at {mph}mph (first recorded effort at this distance)')
+            lines.append(f'- Fastest {d_mi}: {_fmt_dur(secs)} at {mph} (first recorded effort at this distance)')
 
     return '\n'.join(lines)
 
@@ -300,13 +314,12 @@ def _build_other_training_context(rider_id, exclude_id):
 
     lines = ['Other training (last 30 days):']
     for r in rows:
-        dist_mi = float(r['distance'] or 0) / 1609.344
         dur_min = int((r['movingTime'] or 0) / 60)
-        elev_ft = int(float(r['totalElevationGain'] or 0) * 3.28084)
+        elev_m  = float(r['totalElevationGain'] or 0)
         sport   = r['sportType'] or 'Activity'
-        parts   = [f'{dist_mi:.1f}mi', f'{dur_min}min']
-        if elev_ft >= 50:
-            parts.append(f'{elev_ft}ft gain')
+        parts   = [units.fmt_dist(r['distance']), f'{dur_min}min']
+        if elev_m >= 15:
+            parts.append(f'{units.fmt_elev(elev_m)} gain')
         lines.append(f'  {_fmt_date(str(r["startDateLocal"])[:10])}: {sport} — {r["name"]} — {", ".join(parts)}')
 
     return '\n'.join(lines)
@@ -401,7 +414,7 @@ def _build_comeback_progress(ride_id, ride_date, cur_spd_mph=None, cur_pwr_w=Non
         partial_note = ' ⚠️ partial month' if r['ym'] == current_ym else ''
         lines.append(
             f"  {r['ym']}{partial_note}: {r['rides']} rides | "
-            f"avg {r['avg_spd']:.1f}mph (best {r['best_spd']:.1f}mph) | {pwr}"
+            f"avg {_mph(r['avg_spd'])} (best {_mph(r['best_spd'])}) | {pwr}"
         )
 
     # Add today's ride vs current month avg for context
@@ -410,7 +423,7 @@ def _build_comeback_progress(ride_id, ride_date, cur_spd_mph=None, cur_pwr_w=Non
         parts = []
         if cur_spd_mph:
             direction = 'above' if cur_spd_mph > cur_month_row['avg_spd'] else 'below'
-            parts.append(f'{cur_spd_mph:.1f}mph ({direction} {current_ym} avg of {cur_month_row["avg_spd"]:.1f}mph)')
+            parts.append(f'{_mph(cur_spd_mph)} ({direction} {current_ym} avg of {_mph(cur_month_row["avg_spd"])})')
         if cur_pwr_w and cur_month_row['avg_pwr']:
             direction = 'above' if cur_pwr_w > cur_month_row['avg_pwr'] else 'below'
             parts.append(f'{cur_pwr_w:.0f}W ({direction} {current_ym} avg of {cur_month_row["avg_pwr"]:.0f}W)')
@@ -495,8 +508,8 @@ def build_context(activity):
             pwr = f"{r['avgPower']:.0f}W" if r['avgPower'] else '—'
             hr  = f"{r['avgHR']:.0f}"     if r['avgHR']    else '—'
             lines.append(
-                f"{r['rideDate']} | {r['distanceMi']:>5.1f}mi | "
-                f"{r['avgSpeedMph']:>5.1f}mph | {r['elevationFt']:>5.0f}ft | "
+                f"{r['rideDate']} | {_mi(r['distanceMi']):>8} | "
+                f"{_mph(r['avgSpeedMph']):>9} | {_ft(r['elevationFt']):>7} | "
                 f"{pwr:>5} | {hr:>4} | {r['rideName']}"
             )
         lines.append('')
@@ -506,8 +519,8 @@ def build_context(activity):
         for r in comparable:
             pwr = f"{r['avgPower']:.0f}W" if r['avgPower'] else '—'
             lines.append(
-                f"  {r['rideDate']}: {r['distanceMi']:.1f}mi, "
-                f"{r['avgSpeedMph']:.1f}mph, {r['elevationFt']:.0f}ft climb, {pwr}"
+                f"  {r['rideDate']}: {_mi(r['distanceMi'])}, "
+                f"{_mph(r['avgSpeedMph'])}, {_ft(r['elevationFt'])} climb, {pwr}"
             )
         lines.append('')
 
@@ -526,13 +539,13 @@ def build_context(activity):
             return 'trending up' if diff > 0 else 'trending down'
 
         lines.append(f'30-day summary ({len(month)} rides):')
-        lines.append(f'  Distance : avg {sum(dists)/len(dists):.1f}mi, best {max(dists):.1f}mi, {trend(dists)}')
-        lines.append(f'  Elevation: avg {sum(elevs)/len(elevs):.0f}ft, best {max(elevs):.0f}ft')
-        lines.append(f'  Speed    : avg {sum(speeds)/len(speeds):.1f}mph, best {max(speeds):.1f}mph, {trend(speeds)}')
+        lines.append(f'  Distance : avg {_mi(sum(dists)/len(dists))}, best {_mi(max(dists))}, {trend(dists)}')
+        lines.append(f'  Elevation: avg {_ft(sum(elevs)/len(elevs))}, best {_ft(max(elevs))}')
+        lines.append(f'  Speed    : avg {_mph(sum(speeds)/len(speeds))}, best {_mph(max(speeds))}, {trend(speeds)}')
         if powers:
             lines.append(f'  Power    : avg {sum(powers)/len(powers):.0f}W, best {max(powers):.0f}W, {trend(powers)}')
         last3 = [r['distanceMi'] for r in month[:3]]
-        lines.append(f'  Last 3 rides: {", ".join(f"{d:.1f}mi" for d in last3)}')
+        lines.append(f'  Last 3 rides: {", ".join(_mi(d) for d in last3)}')
         lines.append('')
 
     if not recent and not month:
@@ -723,11 +736,11 @@ def build_comparison_receipts(activity):
             'comparison_type': 'similar_ride',
             'previous_name': sim['rideName'],
             'previous_date': _fmt_date(str(sim['rideDate'])),
-            'current_speed': f'{spd_mph:.1f}mph',
-            'previous_speed': f'{sim_spd:.1f}mph',
-            'current_elev': f'{elev_ft:.0f}ft',
-            'previous_elev': f'{float(sim["elevationFt"]):.0f}ft',
-            'delta': f'{abs(spd_delta):.1f}mph {direction}{pwr_note}',
+            'current_speed': _mph(spd_mph),
+            'previous_speed': _mph(sim_spd),
+            'current_elev': _ft(elev_ft),
+            'previous_elev': _ft(sim['elevationFt']),
+            'delta': f'{_mph(abs(spd_delta))} {direction}{pwr_note}',
             'hint': hint,
         })
 
