@@ -54,6 +54,25 @@ def _friends_autosync(app):
             time.sleep(60)
 
 
+def _track_summaries(app):
+    """Once after start-up: the track summaries (services/tracks.py) of activities that have none, so the heatmap and the first new segment don't
+    wait for them. After an upgrade that is every activity, reading each one's streams once; after that, only what arrived without one."""
+    time.sleep(20)                              # let the app finish starting up
+    try:
+        with app.app_context():
+            from database import get_db
+            from services import tasks, tracks
+            db = get_db()
+            missing = db.execute('SELECT COUNT(*) FROM Activity a LEFT JOIN ActivityTrack t ON t.activityId = a.id '
+                                 'WHERE t.activityId IS NULL').fetchone()[0]
+            if missing:
+                task_id = tasks.start(db, 'track_summaries', 'Map summaries of activities')
+                n = tracks.fill(db)
+                tasks.finish(db, task_id, f"{n:,} activit{'y' if n == 1 else 'ies'} summarised for the heatmap and new segments")
+    except Exception as e:
+        log.warning('Track summaries: %s', e)
+
+
 def _ensure_default_avatar(app):
     """New riders get custard_cream.svg as their picture. It ships in static/img and is copied into the avatar folder, which in
     Docker is the /data volume (the image replaces static/avatars with a link to it) and with AVATAR_DIR is the user's data
@@ -511,6 +530,7 @@ def create_app():
     from routes.tasks import bp as tasks_bp
     app.register_blueprint(tasks_bp)
 
+    threading.Thread(target=_track_summaries, args=(app,), daemon=True).start()
     if DEMO:                                   # no background threads that talk to the network; just the nightly reset
         from routes.demo import bp as demo_bp
         app.register_blueprint(demo_bp)
