@@ -11,8 +11,7 @@ from flask import Blueprint, Response, abort, jsonify, redirect, render_template
 log = logging.getLogger(__name__)
 
 from database import get_db, query_db
-from services.segments import scan_activity_against_segments, _refresh_prs
-from services.sports import FAMILIES
+from services.segments import scan_activity_against_segments, _refresh_prs, seg_sport
 from services.limits import bounded_lines
 from services.peer_http import open_peer
 from services import feed_tokens
@@ -376,7 +375,7 @@ def _do_ride_sync(friend_id):
                 _ec = valid_coord(obj.get('endLat'), obj.get('endLng'))
                 if not _sc or not _ec:
                     continue                       # a friend's segment with impossible coordinates is ignored
-                _fam = obj.get('family') if obj.get('family') in FAMILIES else ('foot' if obj.get('sport') == 'run' else 'ride')
+                _fam = seg_sport({'sport': obj.get('family') or obj.get('sport')})     # 0.7.3 sent 'eride' for e-bike segments, older versions 'run' for foot
                 _shape = clean_polyline(obj.get('polyline'))
                 _poly = json.dumps(_shape) if _shape else None
                 existing = db.execute(
