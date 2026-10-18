@@ -1,7 +1,7 @@
 import Foundation
 
-/// Writes a recorded ride as GPX 1.1 in the shape services/parser.py reads: one <trk> of type "cycling"
-/// (mapped to Ride), a <trkseg> per stretch between pauses, and heart rate in the Garmin TrackPointExtension
+/// Writes a recording as GPX 1.1 in the shape services/parser.py reads: one <trk> whose type is the sport's
+/// (Sport.gpxType, e.g. "cycling", mapped to Ride), a <trkseg> per stretch between pauses, and heart rate in the Garmin TrackPointExtension
 /// (the parser looks for any element named "hr").
 enum GPXWriter {
     static func gpx(segments: [[RidePoint]], name: String, type: String = "cycling", creator: String = "Headwind iOS") -> Data {
@@ -36,15 +36,23 @@ enum GPXWriter {
         return Data(out.utf8)
     }
 
-    /// "Morning Ride", "Evening Ride"… from the local start time, like the names Headwind gives imported rides.
-    static func rideName(start: Date, calendar: Calendar = .current) -> String {
-        switch calendar.component(.hour, from: start) {
-        case 5..<12: "Morning Ride"
-        case 12..<17: "Afternoon Ride"
-        case 17..<21: "Evening Ride"
-        default: "Night Ride"
-        }
+    /// A finished recording, named and typed by its sport.
+    static func gpx(segments: [[RidePoint]], summary: RideSummary, creator: String = "Headwind iOS") -> Data {
+        gpx(segments: segments, name: rideName(summary), type: summary.sport.gpxType, creator: creator)
     }
+
+    /// "Morning Ride", "Evening Run"… from the local start time, like the names Headwind gives imported rides.
+    static func rideName(start: Date, sport: Sport = .ride, calendar: Calendar = .current) -> String {
+        let time = switch calendar.component(.hour, from: start) {
+        case 5..<12: "Morning"
+        case 12..<17: "Afternoon"
+        case 17..<21: "Evening"
+        default: "Night"
+        }
+        return "\(time) \(sport.nameWord)"
+    }
+
+    static func rideName(_ summary: RideSummary) -> String { rideName(start: summary.start, sport: summary.sport) }
 
     private static func coordinate(_ value: Double) -> String {
         String(format: "%.7f", value)

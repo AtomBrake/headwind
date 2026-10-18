@@ -43,9 +43,19 @@ struct TodayView: View {
         }
     }
 
-    private var title: String {
-        guard let date = today.flatMap({ try? Date($0.date, strategy: .iso8601.year().month().day()) }) else { return "Today" }
-        return Calendar.current.isDateInToday(date) ? "Today" : date.formatted(.dateTime.weekday(.wide).day().month())
+    private var title: String { today.map { Self.title(for: $0.date) } ?? "Today" }
+
+    /// "Today", or the day the server's date is ("Friday 16 October"). The server sends a local calendar date, so it's read as
+    /// midnight here, not in UTC: read as UTC, west of Greenwich it fell on the evening before.
+    nonisolated static func title(for day: String, now: Date = .now, calendar: Calendar = .current) -> String {
+        let parts = day.prefix(10).split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3, let date = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])) else {
+            return "Today"
+        }
+        if calendar.isDate(date, inSameDayAs: now) { return "Today" }
+        var style = Date.FormatStyle.dateTime.weekday(.wide).day().month()
+        style.timeZone = calendar.timeZone
+        return date.formatted(style)
     }
 
     private func load() async {

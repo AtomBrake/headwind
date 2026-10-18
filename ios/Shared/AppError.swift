@@ -45,6 +45,12 @@ enum AppError: LocalizedError {
         if case .networkError = self { return true }
         return false
     }
+
+    /// The server refused the request itself (bad request, too large, unreadable), so sending it again won't help.
+    var isRejection: Bool {
+        if case .serverError(let status, _) = self { return [400, 413, 422].contains(status) }
+        return false
+    }
 }
 
 // Validation messages used in more than one place (and checked by the tests).

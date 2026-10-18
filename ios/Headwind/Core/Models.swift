@@ -11,6 +11,8 @@ struct PingInfo: Codable, Equatable {
     var units: String?
     var calorieAdjustPct: Double?
     var serverTime: String?
+    /// The rider's bikes that aren't archived, for the bike picker (older servers don't send them).
+    var bikes: [Bike]?
 }
 
 /// GET /api/v1/today: the home screen in one request.

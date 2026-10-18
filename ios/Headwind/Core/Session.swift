@@ -26,6 +26,7 @@ final class Session {
     }
 
     var units: Units { Units(system: info?.units) }
+    var bikes: [Bike] { info?.bikes ?? [] }
 
     /// Validates the link, checks the server accepts the token, and only then stores it.
     func pair(link: String) async throws(AppError) {

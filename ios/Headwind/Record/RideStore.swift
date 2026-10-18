@@ -2,10 +2,12 @@ import Foundation
 import Observation
 import UIKit
 
-/// A finished ride kept on the phone: its GPX, headline numbers, where it came from and whether it reached the server.
+/// A finished recording kept on the phone: its GPX, headline numbers (with its sport and bike), where it came from and
+/// whether it reached the server.
 struct SavedRide: Codable, Identifiable, Equatable {
     enum Source: String, Codable { case phone, watch }
-    enum Status: String, Codable { case pending, uploading, uploaded, failed }
+    /// `rejected`: the server refused the recording itself (it can't read it, or it's too large), so it isn't retried by itself.
+    enum Status: String, Codable { case pending, uploading, uploaded, failed, rejected }
 
     var id: UUID
     var summary: RideSummary
@@ -16,13 +18,19 @@ struct SavedRide: Codable, Identifiable, Equatable {
     /// Activity id on the server once uploaded.
     var serverId: String?
 
+    var name: String { GPXWriter.rideName(summary) }
     var filename: String { "\(id.uuidString).gpx" }
 }
 
-/// POST /api/v1/rides reply (routes/api_v1.py upload_ride).
+/// POST /api/v1/rides reply (routes/api_v1.py upload_ride), or /workouts (post_workout), whose activity is under `workout`.
 private struct UploadReply: Decodable, Sendable {
     var status: String
     var ride: Ride?
+    var workout: Ride?
+    var serverId: String? { (ride ?? workout)?.id }
+    /// /rides says "imported", /workouts "created"; anything else was already there.
+    var isNew: Bool { status == "imported" || status == "created" }
+
     struct Ride: Decodable, Sendable {
         var id: String?
 
@@ -58,7 +66,7 @@ final class RideStore {
         load()
     }
 
-    var pendingCount: Int { rides.filter { $0.status != .uploaded }.count }
+    var pendingCount: Int { rides.filter { $0.status != .uploaded && $0.status != .rejected }.count }
 
     @discardableResult
     func add(gpx: Data, summary: RideSummary, source: SavedRide.Source) throws(AppError) -> SavedRide {
@@ -147,7 +155,7 @@ final class RideStore {
         var tried = Set<UUID>()
         repeat {
             uploadAgain = false
-            for ride in rides.reversed() where ride.status != .uploaded && !tried.contains(ride.id) {
+            for ride in rides.reversed() where (ride.status == .pending || ride.status == .failed) && !tried.contains(ride.id) {
                 guard !Task.isCancelled else { return }
                 tried.insert(ride.id)
                 guard await upload(ride, using: session) else { return }   // offline: don't burn through the rest
@@ -156,21 +164,23 @@ final class RideStore {
     }
 
     /// Returns false if the phone looks offline or the upload was cancelled, so the caller stops.
-    private func upload(_ ride: SavedRide, using session: Session) async -> Bool {
+    private func upload(_ queued: SavedRide, using session: Session) async -> Bool {
+        let ride = rides.first { $0.id == queued.id } ?? queued   // the latest copy: its bike may have changed since the pass began
         guard let data = try? Data(contentsOf: fileURL(ride)) else {
             update(ride.id) { $0.status = .failed; $0.message = "The recording file is missing." }
             return true
         }
         update(ride.id) { $0.status = .uploading; $0.message = nil }
+        let (path, fields) = Self.destination(ride)
         do throws(AppError) {
-            let filename = "\(GPXWriter.rideName(start: ride.summary.start)).gpx"
             let reply = try await session.call { client async throws(AppError) in
-                try await client.upload("rides", file: data, filename: filename, mimeType: "application/gpx+xml", as: UploadReply.self)
+                try await client.upload(path, file: data, filename: "\(ride.name).gpx", mimeType: "application/gpx+xml",
+                                        fields: fields, as: UploadReply.self)
             }
             update(ride.id) {
                 $0.status = .uploaded
-                $0.serverId = reply.ride?.id
-                $0.message = reply.status == "imported" ? nil : "Already on the server"
+                $0.serverId = reply.serverId
+                $0.message = reply.isNew ? nil : "Already on the server"
             }
             return true
         } catch {
@@ -178,9 +188,45 @@ final class RideStore {
                 update(ride.id) { $0.status = .pending; $0.message = nil }
                 return false
             }
-            update(ride.id) { $0.status = .failed; $0.message = error.localizedDescription }
+            update(ride.id) { $0.status = error.isRejection ? .rejected : .failed; $0.message = error.localizedDescription }
             return !error.isNetworkError
         }
+    }
+
+    /// Rides to /rides, with the chosen bike; walks, runs and hikes to /workouts with their sport. The ride's id is the client_id
+    /// there, so a retry after a dropped reply finds the first upload (as /rides does by content).
+    nonisolated static func destination(_ ride: SavedRide) -> (path: String, fields: [String: String]) {
+        let s = ride.summary
+        if s.sport.isRide {
+            return ("rides", s.bikeId.map { ["bike_id": String($0)] } ?? [:])
+        }
+        return ("workouts", ["sport": s.sport.rawValue, "name": ride.name, "client_id": ride.id.uuidString, "source": "ios"])
+    }
+
+    /// Put a ride on another bike. Before upload it's only noted here and goes up with the ride; after, the server is told
+    /// first (POST /api/v1/rides/ride/<id>/bike) and the phone's copy changes only once it agrees.
+    func setBike(_ bike: Int?, for ride: SavedRide, using session: Session) async throws(AppError) {
+        guard ride.summary.sport.isRide else { return }
+        switch ride.status {
+        case .uploaded:
+            guard let serverId = ride.serverId else {
+                throw .validationError(message: "Headwind didn't say which ride this became. Change its bike on the ride's page.")
+            }
+            _ = try await session.call { client async throws(AppError) in
+                try await client.post("rides/ride/\(serverId)/bike", json: BikeChange(bike_id: bike), as: Ignored.self)
+            }
+        case .uploading:
+            throw .validationError(message: "This ride is uploading. Change its bike once it's on the server.")
+        case .pending, .failed, .rejected:
+            break
+        }
+        update(ride.id) { $0.summary.bikeId = bike }
+    }
+
+    /// Try a refused upload again, e.g. after the server was updated to read it.
+    func retry(_ ride: SavedRide, using session: Session) async {
+        update(ride.id) { $0.status = .pending; $0.message = nil }
+        await uploadPending(using: session)
     }
 
     private func update(_ id: UUID, _ change: (inout SavedRide) -> Void) {
@@ -206,4 +252,16 @@ final class RideStore {
             throw .storage(underlying: error)
         }
     }
+}
+
+/// Body of POST /api/v1/rides/ride/<id>/bike; a nil bike_id is sent as null (no bike).
+private struct BikeChange: Encodable, Sendable {
+    var bike_id: Int?
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(bike_id, forKey: .bike_id)
+    }
+
+    private enum CodingKeys: String, CodingKey { case bike_id }
 }

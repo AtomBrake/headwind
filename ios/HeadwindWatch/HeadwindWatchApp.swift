@@ -19,7 +19,7 @@ struct WatchRootView: View {
     var body: some View {
         switch workout.state {
         case .idle, .starting:
-            StartView()
+            NavigationStack { StartView() }   // for the sport and bike pickers
         case .recording, .paused:
             RecordingView()
         case .saving:
@@ -39,7 +39,7 @@ struct StartView: View {
             VStack(spacing: 10) {
                 if let recovered = workout.recovered {
                     VStack(spacing: 6) {
-                        Text("Unfinished ride from \(recovered.start.formatted(date: .omitted, time: .shortened))")
+                        Text("Unfinished \(recovered.sport.title.lowercased()) from \(recovered.start.formatted(date: .omitted, time: .shortened))")
                             .font(.footnote)
                             .multilineTextAlignment(.center)
                         HStack {
@@ -51,18 +51,41 @@ struct StartView: View {
                 }
 
                 Button {
-                    Task { await workout.start() }
+                    Task { await workout.start(bike: Bike.pick(workout.chosenBike, from: phone.bikes)) }
                 } label: {
                     VStack(spacing: 4) {
-                        Image(systemName: "bicycle")
+                        Image(systemName: workout.sport.systemImage)
                             .font(.system(size: 36, weight: .semibold))
-                        Text("Start ride").font(.headline)
+                        Text("Start \(workout.sport.title.lowercased())").font(.headline)
                     }
                     .frame(maxWidth: .infinity, minHeight: 100)
                 }
                 .tint(.accentColor)
                 .disabled(workout.state == .starting)
                 .accessibilityIdentifier("watch-start-ride")
+
+                Picker("Sport", selection: Binding(get: { workout.sport }, set: { workout.choose(sport: $0) })) {
+                    ForEach(Sport.allCases) { sport in
+                        Label(sport.title, systemImage: sport.systemImage).tag(sport)
+                    }
+                }
+                .pickerStyle(.navigationLink)
+                .disabled(workout.state == .starting)
+                .accessibilityIdentifier("watch-sport-picker")
+
+                if workout.sport.isRide, !phone.bikes.isEmpty {
+                    Picker("Bike", selection: Binding(get: { Bike.pick(workout.chosenBike, from: phone.bikes) },
+                                                      set: { workout.choose(bike: $0) })) {
+                        if Bike.pick(workout.chosenBike, from: phone.bikes) == nil {
+                            Text("No bike").tag(Int?.none)
+                        }
+                        ForEach(phone.bikes) { bike in
+                            Text(bike.name).tag(Int?.some(bike.id))
+                        }
+                    }
+                    .pickerStyle(.navigationLink)
+                    .disabled(workout.state == .starting)
+                }
 
                 if !phone.phonePaired {
                     Text("Pair the Headwind iPhone app with your server so rides can upload.")
@@ -104,7 +127,7 @@ private struct MetricsPage: View {
                     .foregroundStyle(workout.state == .paused ? .yellow : .accentColor)
                     .monospacedDigit()
                 metric(phone.units.distance(metres: workout.tracker.distance))
-                metric(phone.units.speed(metresPerSecond: workout.tracker.currentSpeed))
+                metric(phone.units.rate(metresPerSecond: workout.tracker.currentSpeed, sport: workout.sport))
                 HStack(spacing: 4) {
                     metric(workout.heartRate.map { "\($0)" } ?? "--")
                     Image(systemName: "heart.fill").foregroundStyle(.red).font(.footnote)
@@ -160,7 +183,7 @@ struct SummaryView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 if let s = workout.lastSummary {
-                    Text(GPXWriter.rideName(start: s.start)).font(.headline)
+                    Text(GPXWriter.rideName(s)).font(.headline)
                     LabeledContent("Distance", value: phone.units.distance(metres: s.distance))
                     LabeledContent("Moving", value: Units.duration(seconds: s.movingTime))
                     LabeledContent("Climbing", value: phone.units.elevation(metres: s.elevationGain))
@@ -168,7 +191,10 @@ struct SummaryView: View {
                         LabeledContent("Avg HR", value: "\(hr) bpm")
                     }
                 }
-                if phone.waitingToSend > 0, let problem = phone.sendProblem {
+                // Nothing to report when nothing was sent: too short to keep, or the Watch couldn't store it (the error says which).
+                if !workout.lastSent {
+                    EmptyView()
+                } else if phone.waitingToSend > 0, let problem = phone.sendProblem {
                     Label("Not sent to iPhone: \(problem)", systemImage: "exclamationmark.circle")
                         .font(.footnote)
                         .foregroundStyle(.orange)
