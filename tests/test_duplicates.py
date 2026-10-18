@@ -24,6 +24,18 @@ def test_phone_utc_and_garmin_local_are_the_same_ride_in_bst():
     assert dup.same_ride(garmin, phone) and dup.same_ride(phone, garmin)
 
 
+def test_garmin_local_time_abroad_matches_its_strava_copy():
+    """A Vancouver walk with London as home: Garmin's local time is Vancouver's, the Strava copy's is London's. Only the UTC instant agrees."""
+    garmin = _row(id='garmin_1', startDate='2026-07-26T22:10:00', startDateLocal='2026-07-26T15:10:00', elapsedTime=3689, movingTime=3689, distance=3900.0)
+    strava = _row(id='123', startDate='2026-07-26T22:10:00', startDateLocal='2026-07-26T23:10:00', elapsedTime=3689, movingTime=3689, distance=3900.0)
+    assert dup.same_ride(garmin, strava) and dup.same_ride(strava, garmin)
+    assert dup.start_instant(garmin).isoformat() == '2026-07-26T22:10:00+00:00'
+
+
+def test_a_naive_time_saved_in_both_columns_is_home_local():
+    assert dup.start_instant(_row(startDate='2026-07-26T15:10:00', startDateLocal='2026-07-26T15:10:00')).isoformat() == '2026-07-26T14:10:00+00:00'
+
+
 def test_second_commute_same_day_is_a_different_ride():
     am, pm = _row(startDateLocal='2026-10-05T08:00:00'), _row(startDateLocal='2026-10-05T17:30:00')
     assert not dup.same_ride(am, pm)

@@ -92,6 +92,18 @@ def test_same_ride_from_another_source_keeps_the_garmin_recording(env):
     assert _ids(db) == ['garmin_1']
 
 
+def test_ride_abroad_lands_on_its_strava_copy(env):
+    """Garmin's local time is where the ride was (Vancouver), the Strava copy's is the home zone's (London): matched on the UTC instant."""
+    db, run = env
+    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,"
+               "totalElevationGain,averageSpeed,maxSpeed,riderId,createdAt,updatedAt) VALUES "
+               "('555','a','Ride','Ride','2026-07-26T22:00:00','2026-07-26T23:00:00',10050,1700,1750,0,0,0,1,'n','n')")
+    db.commit()
+    run([dict(_act(1, '2026-07-26 15:00:00'), startTimeGMT='2026-07-26 22:00:00')])
+    assert _ids(db) == ['garmin_1']
+    assert tuple(db.execute("SELECT primaryId, status FROM ActivityDuplicate WHERE id='555'").fetchone()) == ('garmin_1', 'parked')
+
+
 # ── Weigh-ins → WeightLog ────────────────────────────────────────────────
 
 class FakeWeighAPI:

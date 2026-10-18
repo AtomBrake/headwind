@@ -573,7 +573,7 @@ _DUP_SERIES = (('heartrate', 'Heart rate', 'bpm'), ('watts', 'Power', 'W'), ('ca
 def _recording(row, label, t0):
     """One recording (a live ride or a set-aside one) for the duplicate view: its numbers, GPS track and streams against minutes since `t0`."""
     from services import units
-    from services.duplicates import instant, source_label
+    from services.duplicates import start_instant, source_label
     row = dict(row)
     try:
         streams = json.loads(row.get('streams') or '{}') or {}
@@ -586,7 +586,7 @@ def _recording(row, label, t0):
             coords = pl.decode(row['summaryPolyline'])
         except Exception:
             pass
-    start = instant(row.get('startDateLocal') or row.get('startDate'))
+    start = start_instant(row)
     offset = (start - t0).total_seconds() if start and t0 else 0
     times = (streams.get('time') or {}).get('data') or []
     conv = {'velocity_smooth': lambda v: units.speed(v), 'altitude': lambda v: units.elev(v)}
@@ -607,7 +607,7 @@ def _recording(row, label, t0):
 def view_duplicate(rid, dup_id=None):
     """A recording set aside as a duplicate of this ride: on its own, or (?compare=1) side by side with the one that was kept."""
     from services import duplicates
-    from services.duplicates import instant
+    from services.duplicates import start_instant
     db = get_db()
     parked = duplicates.parked_for(db, rid)
     d = next((p for p in parked if dup_id is None or str(p['id']) == str(dup_id)), None)
@@ -616,7 +616,7 @@ def view_duplicate(rid, dup_id=None):
         abort(404)
     other = json.loads(d['rowJson'] or '{}')
     compare = request.args.get('compare') == '1'
-    starts = [s for s in (instant(r.get('startDateLocal') or r.get('startDate')) for r in (dict(main), other)) if s]
+    starts = [s for s in (start_instant(r) for r in (dict(main), other)) if s]
     t0 = min(starts) if starts else None
     recs = [_recording(other, 'Set aside', t0)]
     if compare:
