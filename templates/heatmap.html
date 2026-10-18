@@ -76,7 +76,7 @@
     <!-- Sport filter -->
     <div class="overlay-row" style="gap: 0.25rem;">
       <label style="font-size:0.75rem; color:var(--text-muted); width:100%; margin-bottom:0.25rem;">Sport</label>
-      <select id="sportFilter" onchange="applyCustom()" style="width:100%; box-sizing:border-box; background:#071525; color:var(--text); border:1px solid #1e4060; border-radius:5px; padding:0.35rem 0.6rem; font-size:0.875rem;">
+      <select id="sportFilter" onchange="applyCustom()" style="width:100%; box-sizing:border-box; background-color:#071525; color:var(--text); border:1px solid #1e4060; border-radius:5px; padding:0.35rem 0.6rem; font-size:0.875rem;">
         <option value="">All Sports</option>
         {% for st in sport_types %}
         <option value="{{ st.sportType }}">{{ st.sportType }}</option>
