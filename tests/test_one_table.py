@@ -29,9 +29,9 @@ def app(tmp_path):
         yield a
 
 
-def ride(db, rid, start_utc, start_local, sport='Ride', dist=30000.0, secs=4000, hr=None):
+def ride(db, rid, start_utc, start_local, sport='Ride', dist=30000.0, secs=4000, hr=None, name=None):
     db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, averageHeartrate, rawData, riderId)"
-               " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', 1)", [rid, f'{sport} {rid}', sport, sport, start_utc, start_local, dist, secs, secs, hr])
+               " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '{}', 1)", [rid, name or f'{sport} {rid}', sport, sport, start_utc, start_local, dist, secs, secs, hr])
 
 
 def as_old_install(db):
@@ -47,7 +47,7 @@ def test_an_old_install_moves_its_workouts_in_and_its_twins_are_set_aside(app):
     db = database.get_db()
     as_old_install(db)
     ride(db, 'garmin_1', '2026-07-20T16:00:00', '2026-07-20T17:00:00', hr=140)                                 # a ride, stays a ride
-    ride(db, '555', '2026-07-26T21:00:00', '2026-07-26T22:00:00', sport='Run', dist=11800.0, secs=4262)       # Strava's copy of the run, saved as a "ride"
+    ride(db, '555', '2026-07-26T21:00:00', '2026-07-26T22:00:00', sport='Run', dist=11800.0, secs=4262, name='Night Run')  # Strava's copy, saved as a "ride"
     db.execute("INSERT INTO Workout (id, riderId, sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime, averageHeartrate, steps, source)"
                " VALUES ('garmin_2', 1, 'Run', 'Vancouver Running', '2026-07-26T21:00:00', '2026-07-26T14:00:00', 11800, 4262, 4262, 150, 12000, 'garmin')")
     db.execute("INSERT INTO Workout (id, riderId, sport, startDateLocal, distance, movingTime, source) VALUES ('wk_1', 1, 'Walk', '2026-08-01T09:00:00', 3000, 1800, 'android')")
