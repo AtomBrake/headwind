@@ -35,7 +35,7 @@
     </label>
   </div>
   {% for sport, group in fixes | groupby('newSport') %}
-  <div style="margin-top:0.75rem; font-size:0.8125rem; font-weight:600; color:var(--text-muted);">{{ sport | sport_icon }} {{ 'Indoor ride' if sport == 'VirtualRide' else sport }} ({{ group | length }})</div>
+  <div style="margin-top:0.75rem; font-size:0.8125rem; font-weight:600; color:var(--text-muted);">{{ sport | sport_icon }} {{ sport | sport_label }} ({{ group | length }})</div>
   {% for f in group %}
   <label style="display:flex; align-items:center; gap:0.6rem; padding:0.4rem 0; border-top:1px solid var(--border); font-size:0.875rem; cursor:pointer;">
     <input type="checkbox" name="ride" value="{{ f.rideId }}"{% if f.parked %} data-parked{% endif %} checked>

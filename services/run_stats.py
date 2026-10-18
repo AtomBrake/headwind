@@ -148,9 +148,10 @@ def payloads(rid):
 
 
 def _segment_efforts(rid, run):
-    """The run segments a run crossed, with time, rank and gap to the runner's best, plus each segment's shape for the map overlay."""
+    """The foot segments a run crossed, with time, rank and gap to the runner's best (walks and hikes on the same segment count: one leaderboard on
+    foot), plus each segment's shape for the map overlay."""
     rows = query_db("""SELECT e.segmentId, e.elapsedSecs, e.isPR, s.name, s.distanceM, s.polyline
-                        FROM SegmentEffort e JOIN Segment s ON s.id=e.segmentId WHERE e.activityId=? AND COALESCE(s.sport,'ride')='run' ORDER BY s.name""", [run['id']])
+                        FROM SegmentEffort e JOIN Segment s ON s.id=e.segmentId WHERE e.activityId=? AND s.sport='foot' ORDER BY s.name""", [run['id']])
     efforts, segs = [], []
     for e in rows:
         own = query_db("""SELECT e2.elapsedSecs secs, a2.startDateLocal d FROM SegmentEffort e2 JOIN SegActivity a2 ON a2.id=e2.activityId

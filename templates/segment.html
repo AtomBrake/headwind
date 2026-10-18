@@ -1,10 +1,10 @@
 {% extends 'base.html' %}
 
 {% block title %}{{ seg.name }}{% endblock %}
-{% block page_title %}🏁 {{ seg.name }}{% if seg.friend_name %} <span style="font-size:0.75rem; font-weight:400; background:rgba(252,76,2,0.12); color:var(--accent); border:1px solid rgba(252,76,2,0.3); border-radius:999px; padding:0.15rem 0.6rem; margin-left:0.5rem; vertical-align:middle;">from {{ seg.friend_name }}</span>{% endif %}{% endblock %}
+{% block page_title %}🏁 {{ seg.name }} <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted); margin-left:0.4rem; vertical-align:middle;">{{ family_label }}</span>{% if seg.friend_name %} <span style="font-size:0.75rem; font-weight:400; background:rgba(252,76,2,0.12); color:var(--accent); border:1px solid rgba(252,76,2,0.3); border-radius:999px; padding:0.15rem 0.6rem; margin-left:0.5rem; vertical-align:middle;">from {{ seg.friend_name }}</span>{% endif %}{% endblock %}
 
 {% block topbar_actions %}
-  <a href="{{ url_for('segments.index') }}" class="btn btn-secondary">← Segments</a>
+  <a href="{{ url_for('segments.index', sport=family) }}" class="btn btn-secondary">← Segments</a>
   <form method="POST" action="{{ url_for('segments.delete', sid=seg.id) }}" style="display:inline;"
         onsubmit="return confirm('Delete this segment and all its efforts?')">
     <button class="btn" style="background:var(--danger,#ef4444);color:#fff;border:none;">Delete</button>
@@ -48,9 +48,9 @@
   </div>
   <div class="stat-card">
     <div class="stat-value">
-      {% if pr and pr.avgSpeedMps %}{% if is_run %}{{ pr.avgSpeedMps | fmt_pace }}{% else %}{{ pr.avgSpeedMps | fmt_speed }}{% endif %}{% else %}—{% endif %}
+      {% if pr and pr.avgSpeedMps %}{% if on_foot %}{{ pr.avgSpeedMps | fmt_pace }}{% else %}{{ pr.avgSpeedMps | fmt_speed }}{% endif %}{% else %}—{% endif %}
     </div>
-    <div class="stat-label">PR Speed</div>
+    <div class="stat-label">PR {{ 'Pace' if on_foot else 'Speed' }}</div>
   </div>
   <div class="stat-card">
     <div class="stat-value">
@@ -60,9 +60,9 @@
   </div>
   <div class="stat-card">
     <div class="stat-value">
-      {% if stats.avgSpeedMps %}{% if is_run %}{{ stats.avgSpeedMps | fmt_pace }}{% else %}{{ stats.avgSpeedMps | fmt_speed }}{% endif %}{% else %}—{% endif %}
+      {% if stats.avgSpeedMps %}{% if on_foot %}{{ stats.avgSpeedMps | fmt_pace }}{% else %}{{ stats.avgSpeedMps | fmt_speed }}{% endif %}{% else %}—{% endif %}
     </div>
-    <div class="stat-label">Avg Speed</div>
+    <div class="stat-label">Avg {{ 'Pace' if on_foot else 'Speed' }}</div>
   </div>
   <div class="stat-card">
     <div class="stat-value">{{ stats.total or 0 }}</div>
@@ -149,9 +149,9 @@
         <th style="padding:0.75rem 1.25rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">#</th>
         <th style="padding:0.75rem 0.5rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Rider</th>
         <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Date</th>
-        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Ride</th>
+        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Activity</th>
         <th style="padding:0.75rem 1rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Time</th>
-        <th style="padding:0.75rem 1.25rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Avg Speed</th>
+        <th style="padding:0.75rem 1.25rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Avg {{ 'Pace' if on_foot else 'Speed' }}</th>
         <th style="padding:0.75rem 1rem;"></th>
       </tr>
     </thead>
@@ -178,7 +178,7 @@
         <td style="padding:0.875rem 1rem; color:var(--text-muted); font-size:0.875rem;">{{ e.activityDate | fmt_date }}</td>
         <td style="padding:0.875rem 1rem;">
           <a href="{{ url_for('rides.detail', rid=e.ride_id) }}" style="color:var(--text); text-decoration:none; font-size:0.9375rem;">
-            {{ e.ride_name }}
+            {% if on_foot %}<span title="{{ e.sportType | sport_label }}">{{ e.sportType | sport_icon }}</span> {% endif %}{{ e.ride_name }}
           </a>
           {% if e.isPR %}<span style="margin-left:0.5rem; font-size:0.7rem; background:var(--accent); color:#fff; padding:0.1rem 0.4rem; border-radius:4px; vertical-align:middle;">PR</span>{% endif %}
         </td>
@@ -187,7 +187,7 @@
           {% if e.approx %}<span title="Close match: you rode this but not exactly through the start/end markers, so the time is estimated" style="color:var(--text-muted); font-weight:400;">≈</span> {% endif %}{{ e.elapsedSecs | fmt_duration }}
         </td>
         <td style="padding:0.875rem 1.25rem; text-align:right; color:var(--text-muted); font-size:0.875rem;">
-          {% if e.avgSpeedMps %}{% if is_run %}{{ e.avgSpeedMps | fmt_pace }}{% else %}{{ e.avgSpeedMps | fmt_speed }}{% endif %}{% else %}—{% endif %}
+          {% if e.avgSpeedMps %}{% if on_foot %}{{ e.avgSpeedMps | fmt_pace }}{% else %}{{ e.avgSpeedMps | fmt_speed }}{% endif %}{% else %}—{% endif %}
         </td>
         <td style="padding:0.875rem 1rem; text-align:right;">
           <form method="POST" action="{{ url_for('segments.delete_effort', sid=seg.id, eid=e.id) }}"
