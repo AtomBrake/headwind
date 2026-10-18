@@ -162,13 +162,13 @@ Headwind started as a cycling app and is becoming one for every sport. Since 0.7
   - [ ] Distance and time on each item added up from its activities, with alerts as bike parts have: the dashboard's "Gear needs attention" banner and the Home Assistant gear alerts (`gear.evaluate_alerts`).
   - [ ] The Gear page shows bikes and other gear side by side; retiring a pair keeps its history.
   - [ ] Phone app and Garmin: Garmin Connect has its own gear (shoes included) and the activity list says which was used. Map it on sync as the Strava import does.
-- [ ] **Every sport in the dashboard and stats.** The dashboard's history merges in runs only (`routes/dashboard.py`), and the totals, Performance chart, Data page, badges and Home Assistant sensors are rides only.
+- [ ] **Every sport in the dashboard and stats.** The dashboard's history shows every sport since 0.7.0-beta, but the totals, Performance chart, Data page, badges and Home Assistant sensors are rides only.
   - [ ] A sport filter on the dashboard and Data page: every sport by default, with the rider picking sports to leave out, and totals and charts for what's left. A swim's distance shouldn't add to a ride total, so "All" shows time and calories, not one mixed distance.
   - [ ] Speed for rides, pace for runs and walks (per km or mile, from `services/units.py`), and per 100 m for swims.
   - [ ] Personal records per sport: run best efforts exist (`services/run_stats.py`); add swims and the rest where they make sense.
   - [ ] Badges per sport, not only cycling milestones (`routes/riders.py`).
   - [ ] Home Assistant sensors per sport, or a combined weekly-training sensor.
-- [ ] **Sport-specific detail pages.** The ride page (`templates/ride.html`) is used for workouts too (`_workout_as_activity`). Show what fits each sport: splits and pace for runs, lengths and stroke data for pool swims (Garmin FIT has them), runs and lift time for skiing. Hide what doesn't fit (power, bike, the wind-relative speed).
+- [ ] **Sport-specific detail pages.** The ride page (`templates/ride.html`) is used for workouts too (`routes/rides.detail`, `is_workout` when `sports.is_ride` says no). Show what fits each sport: splits and pace for runs, lengths and stroke data for pool swims (Garmin FIT has them), runs and lift time for skiing. Hide what doesn't fit (power, bike, the wind-relative speed).
 - [ ] **AI coach for other sports.** `services/ai.py` and `services/context.py` coach rides only. Give runs and other sports their own context and history, and let ride analysis take the rest of the training week into account. It already sees "Other training (last 30 days)".
 
 ## Training and analysis
