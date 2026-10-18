@@ -74,9 +74,12 @@ def test_approximate_efforts_never_take_the_pr():
     db.executescript('''
         CREATE TABLE SegmentEffort (id INTEGER PRIMARY KEY, segmentId INT, activityId TEXT, activityDate TEXT, elapsedSecs INT,
                                     avgSpeedMps REAL, isPR INT DEFAULT 0, approx INT DEFAULT 0);
-        CREATE TABLE Activity (id TEXT, riderId INT);
-        CREATE VIEW SegActivity AS SELECT id, riderId FROM Activity;
-        INSERT INTO Activity VALUES ('a', 1), ('b', 1);
+        CREATE TABLE Segment (id INTEGER PRIMARY KEY, sport TEXT);
+        CREATE TABLE Activity (id TEXT, riderId INT, sportType TEXT, bikeId INT);
+        CREATE TABLE Bike (id INTEGER PRIMARY KEY, kind TEXT);
+        CREATE VIEW SegActivity AS SELECT id, riderId, sportType, bikeId FROM Activity;
+        INSERT INTO Segment VALUES (1, 'ride');
+        INSERT INTO Activity VALUES ('a', 1, 'Ride', NULL), ('b', 1, 'Ride', NULL);
         INSERT INTO SegmentEffort (segmentId, activityId, elapsedSecs, approx) VALUES (1, 'a', 500, 0), (1, 'b', 400, 1);
     ''')
     S._refresh_prs(db, 1)

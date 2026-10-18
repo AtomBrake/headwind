@@ -454,8 +454,9 @@ def _ride_route_payloads(rid):
     act = query_db("SELECT id, name, startDateLocal, distance, movingTime, streams FROM Ride WHERE riderId=? ORDER BY startDate DESC LIMIT 1", [rid], one=True)
     if not act:
         return {'nutrition_ride_route': {'pts': []}, 'nutrition_ride_segments': {'efforts': [], 'all': []}}
-    from services.sports import family_of
-    family = family_of(get_db(), act['id']) or 'ride'          # an e-bike ride lists the e-ride segments; an indoor ride, the ride ones
+    from services.sports import class_of, class_sql
+    cls = class_of(get_db(), act['id'])                         # an e-bike ride's best times and ranks are among e-bike efforts, a pedal ride's among pedal ones
+    keep = class_sql(cls, 'a2.sportType', 'b2.kind')
     try:
         ll = (json.loads(act['streams'] or '{}').get('latlng') or {}).get('data') or []
     except Exception:
@@ -465,8 +466,8 @@ def _ride_route_payloads(rid):
     segs = []
     detail = []
     for e in efforts:
-        own = query_db("""SELECT e2.elapsedSecs secs, a2.startDateLocal d FROM SegmentEffort e2 JOIN Ride a2 ON a2.id=e2.activityId
-                          WHERE e2.segmentId=? AND a2.riderId=? ORDER BY a2.startDateLocal""", [e['segmentId'], rid])
+        own = query_db(f"""SELECT e2.elapsedSecs secs, a2.startDateLocal d FROM SegmentEffort e2 JOIN Ride a2 ON a2.id=e2.activityId
+                           LEFT JOIN Bike b2 ON b2.id=a2.bikeId WHERE e2.segmentId=? AND a2.riderId=? AND {keep} ORDER BY a2.startDateLocal""", [e['segmentId'], rid])
         times = [o['secs'] for o in own]
         before = [o['secs'] for o in own if o['d'] < act['startDateLocal']]
         best = min(times) if times else e['elapsedSecs']
@@ -479,10 +480,10 @@ def _ride_route_payloads(rid):
             sp = []
         if sp:
             segs.append({'n': e['name'], 'pr': bool(e['isPR']), 'pts': _thin(sp, 22)})
-    allsegs = query_db("""SELECT s.id, s.name, s.distanceM, MIN(x.secs) best, COUNT(x.secs) tries, MAX(x.d) last
-                          FROM Segment s LEFT JOIN (SELECT e.segmentId sid, e.elapsedSecs secs, a.startDateLocal d FROM SegmentEffort e
-                                                    JOIN Ride a ON a.id=e.activityId WHERE a.riderId=?) x ON x.sid=s.id
-                          WHERE s.friendId IS NULL AND COALESCE(s.sport, 'ride') = ? GROUP BY s.id ORDER BY s.name""", [rid, family])
+    allsegs = query_db(f"""SELECT s.id, s.name, s.distanceM, MIN(x.secs) best, COUNT(x.secs) tries, MAX(x.d) last
+                           FROM Segment s LEFT JOIN (SELECT e.segmentId sid, e.elapsedSecs secs, a2.startDateLocal d FROM SegmentEffort e
+                                                     JOIN Ride a2 ON a2.id=e.activityId LEFT JOIN Bike b2 ON b2.id=a2.bikeId WHERE a2.riderId=? AND {keep}) x ON x.sid=s.id
+                           WHERE s.friendId IS NULL AND COALESCE(s.sport, 'ride') = 'ride' GROUP BY s.id ORDER BY s.name""", [rid])
     out['nutrition_ride_route'] = {'id': act['id'], 'name': act['name'], 'date': (act['startDateLocal'] or '')[:10],
                                    'mi': round((act['distance'] or 0) / 1609.344, 1), 'pts': _thin(ll, 140), 'segs': segs}
     out['nutrition_ride_segments'] = {'id': act['id'], 'name': act['name'], 'date': (act['startDateLocal'] or '')[:10], 'efforts': detail,

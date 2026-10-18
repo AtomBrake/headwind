@@ -122,9 +122,9 @@ def update_bike(db, bike_id, **f):
         if k in cols:
             sets.append(f'{k}=?'); args.append(cols[k](v))
     if sets:
-        before = _families(db, _ids_on(db, bike_id)) if 'kind' in f else {}       # becoming (or no longer) an e-bike moves its rides' segments
+        before = _classes(db, _ids_on(db, bike_id)) if 'kind' in f else {}       # becoming (or no longer) an e-bike moves its rides' PRs
         db.execute(f"UPDATE Bike SET {', '.join(sets)} WHERE id=?", args + [bike_id])
-        _rescan_moved(db, before)
+        _repick_moved(db, before)
 
 
 def get_bike(db, bike_id):
@@ -156,9 +156,9 @@ def delete_bike(db, bike_id):
     b = get_bike(db, bike_id)
     if not b:
         return
-    before = _families(db, _ids_on(db, bike_id))
+    before = _classes(db, _ids_on(db, bike_id))
     db.execute('UPDATE Activity SET bikeId=NULL WHERE bikeId=?', [bike_id])
-    _rescan_moved(db, before)
+    _repick_moved(db, before)
     db.execute('DELETE FROM PartAlert WHERE partId IN (SELECT id FROM Part WHERE bikeId=?)', [bike_id])
     db.execute('DELETE FROM Part WHERE bikeId=?', [bike_id])
     db.execute('DELETE FROM ServiceLog WHERE bikeId=?', [bike_id])
@@ -191,20 +191,18 @@ def bike_stats(db, bike_id):
 
 
 # ---------- which bike rode which ride ----------
-def _rescan_moved(db, before):
-    """A ride ridden on an e-bike is matched against e-ride segments (services/sports.segment_family), so a change of bike or of a bike's kind can move
-    it between ride and e-ride segments. `before` is {ride id: family} from before the change; the rides whose family is now different are matched
-    again. Does not commit."""
-    from services.segments import rescan_activity
-    from services.sports import family_of
-    for act_id, fam in before.items():
-        if family_of(db, act_id) != fam:
-            rescan_activity(db, act_id)
+def _repick_moved(db, before):
+    """A ride ridden on an e-bike races for e-bike PRs (services/sports.segment_class), so a change of bike or of a bike's kind can move it between
+    pedal and e-bike PRs. `before` is {ride id: class} from before the change; the PRs of the rides whose class is now different are picked again.
+    Does not commit."""
+    from services.segments import reclassed
+    for act_id, cls in before.items():
+        reclassed(db, act_id, cls)
 
 
-def _families(db, ids):
-    from services.sports import family_of
-    return {i: family_of(db, i) for i in ids}
+def _classes(db, ids):
+    from services.sports import class_of
+    return {i: class_of(db, i) for i in ids}
 
 
 def _ids_on(db, bike_id):
@@ -220,9 +218,9 @@ def set_ride_bike(db, act_id, bike_id):
         b = get_bike(db, bike_id)
         if not b or b['riderId'] != a['riderId']:
             raise ValueError('that bike belongs to a different rider')
-    before = _families(db, [act_id])
+    before = _classes(db, [act_id])
     db.execute('UPDATE Activity SET bikeId=? WHERE id=?', [bike_id, act_id])
-    _rescan_moved(db, before)
+    _repick_moved(db, before)
     return True
 
 
@@ -270,9 +268,9 @@ def assign_rides(db, rider_id, bike_id, dates=None, date_from=None, date_to=None
     prev = db.execute(f'SELECT a.bikeId, COUNT(*) FROM Ride a WHERE a.riderId=? AND {sel}{skip}{already} GROUP BY a.bikeId', [rider_id] + args + [bike_id]).fetchall()
     out = {'matched': matched, 'changed': changing, 'previous': {str(r[0]) if r[0] is not None else 'none': r[1] for r in prev}}
     if not dry_run and changing:
-        before = _families(db, [r[0] for r in db.execute(f'SELECT a.id {base}{skip}{already}', [rider_id] + args + [bike_id]).fetchall()])
+        before = _classes(db, [r[0] for r in db.execute(f'SELECT a.id {base}{skip}{already}', [rider_id] + args + [bike_id]).fetchall()])
         db.execute(f'UPDATE Activity SET bikeId=? WHERE id IN (SELECT a.id {base}{skip}{already})', [bike_id, rider_id] + args + [bike_id])
-        _rescan_moved(db, before)
+        _repick_moved(db, before)
     return out
 
 
@@ -309,9 +307,9 @@ def on_ride_added(db, act_id):
     except Exception as e:
         log.warning('sensor attach for ride %s failed (non-fatal): %s', act_id, e)
     try:
-        before = _families(db, [act_id])
+        before = _classes(db, [act_id])
         if stamp_new_ride(db, act_id):
-            _rescan_moved(db, before)           # its segments may have been matched before it had its bike: an e-bike makes it an e-ride
+            _repick_moved(db, before)           # its PRs may have been picked before it had its bike: an e-bike makes it an e-bike effort
         a = db.execute('SELECT bikeId, riderId FROM Activity WHERE id=?', [act_id]).fetchone()
         if a and a['bikeId']:
             evaluate_alerts(db, rider_id=a['riderId'])

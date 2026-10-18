@@ -77,12 +77,11 @@ def change_sport(db, kind, act_id, sport, discard_parked=False):
     if (row['sportType'] or '') == sport:
         return {'kind': kind, 'id': act_id, 'sport': sport, 'changed': False}
     if kind == 'ride' and sport in RIDES:                # Ride <-> VirtualRide <-> EBikeRide (or an MTB ride becoming a plain Ride): the label,
-        from services.segments import rescan_activity   # and the segments it is matched against (services/sports.segment_family)
-        from services.sports import family_of
-        before = family_of(db, act_id)
+        from services.segments import reclassed         # and its segments (none indoors) or its PRs (pedal or e-bike: services/sports.segment_class)
+        from services.sports import class_of
+        before = class_of(db, act_id)
         db.execute('UPDATE Activity SET sportType=?, type=? WHERE id=?', [sport, sport, act_id])
-        if family_of(db, act_id) != before:
-            rescan_activity(db, act_id)
+        reclassed(db, act_id, before)
         return {'kind': 'ride', 'id': act_id, 'sport': sport, 'changed': True}
     if kind == 'ride':
         return dict(_ride_to_workout(db, row, sport, discard_parked), changed=True)

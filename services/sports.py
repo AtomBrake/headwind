@@ -4,8 +4,9 @@
 A sport is a ride when it contains "ride" or "cycl", ignoring case: Headwind's own Ride and VirtualRide, Strava's "Virtual Ride", "E-Bike Ride",
 "Gravel Ride" and "Mountain Bike Ride", Garmin's cycling types. A row with no sport counts as a ride, as the import treats it (routes/import_rides._insert).
 
-Segments come in three families, and an activity is only matched against segments of its own (segment_family): rides, e-bike rides and anything on
-foot. Indoor rides, swims, paddles, skis and the rest have no family and no segments."""
+Segments come in two families, and an activity is only matched against segments of its own (segment_family): rides, e-bike rides included, and
+anything on foot. Indoor rides, swims, paddles, skis and the rest have no family and no segments. On a ride segment, pedal and e-bike efforts are told
+apart by segment_class: each keeps its own PRs and badges, and the leaderboards can show either or both."""
 
 RIDE_SQL = "(sportType IS NULL OR sportType = '' OR lower(sportType) LIKE '%ride%' OR lower(sportType) LIKE '%cycl%')"
 KIND_SQL = f"(CASE WHEN {RIDE_SQL} THEN 'ride' ELSE 'workout' END)"     # the phone API's and the bulk actions' 'ride' / 'workout'
@@ -18,9 +19,12 @@ WORKOUTS = ON_FOOT + OTHER
 SPORTS = RIDES + WORKOUTS
 LABELS = {'VirtualRide': 'Indoor ride', 'EBikeRide': 'E-bike ride'}
 
-FAMILIES = ('ride', 'eride', 'foot')
-FAMILY_LABELS = {'ride': 'Ride', 'eride': 'E-bike', 'foot': 'On foot'}
-FAMILY_ICONS = {'ride': '🚴', 'eride': '⚡', 'foot': '🏃'}
+FAMILIES = ('ride', 'foot')
+FAMILY_LABELS = {'ride': 'Ride', 'foot': 'On foot'}
+FAMILY_ICONS = {'ride': '🚴', 'foot': '🏃'}
+CLASSES = ('bike', 'ebike', 'foot')                    # segment_class: who an effort races for a PR
+CLASS_LABELS = {'bike': 'Bike', 'ebike': 'E-bike', 'foot': 'On foot'}
+CLASS_ICONS = {'bike': '🚴', 'ebike': '⚡', 'foot': '🏃'}
 _FOOT = {'walk', 'run', 'hike', 'trailrun', 'virtualrun'}      # Strava's "Trail Run" and "Virtual Run" squashed (_squash)
 
 
@@ -55,21 +59,50 @@ def is_ebike(sport):
     return s.startswith('ebike') or s.startswith('emountainbike')
 
 
-def segment_family(sport, bike_kind=None):
-    """'ride', 'eride', 'foot' or None (no segments). Anything ridden on an e-bike is an e-ride, whether the sport says so or the bike does
-    (services/gear.BIKE_KINDS 'ebike'); an indoor ride has no family, whatever its bike."""
+def segment_family(sport):
+    """'ride', 'foot' or None (no segments). Pedal and e-bike rides share the ride segments; an indoor ride has none."""
     s = _squash(sport)
     if s in _FOOT:
         return 'foot'
     if not is_ride(sport) or 'virtual' in s or 'indoor' in s:
         return None
-    return 'eride' if is_ebike(sport) or bike_kind == 'ebike' else 'ride'
+    return 'ride'
+
+
+def segment_class(sport, bike_kind=None):
+    """'bike', 'ebike', 'foot' or None (no segments). Anything ridden on an e-bike is an e-bike effort, whether the sport says so or the bike does
+    (services/gear.BIKE_KINDS 'ebike'). ebike_sql is the same test for a query."""
+    fam = segment_family(sport)
+    if fam != 'ride':
+        return fam
+    return 'ebike' if is_ebike(sport) or bike_kind == 'ebike' else 'bike'
+
+
+def ebike_sql(sport='a.sportType', bike_kind='b.kind'):
+    """SQL that is true for an e-bike ride (segment_class 'ebike'), on a query that has the activity's sport and its bike's kind (a LEFT JOIN Bike)."""
+    s = f"replace(replace(replace(lower(COALESCE({sport}, '')), ' ', ''), '-', ''), '_', '')"
+    return f"(COALESCE({bike_kind}, '') = 'ebike' OR {s} LIKE 'ebike%' OR {s} LIKE 'emountainbike%')"
+
+
+def class_sql(cls, sport='a.sportType', bike_kind='b.kind'):
+    """SQL that keeps one segment_class's efforts on a ride segment: 'bike' (pedal) or 'ebike'. Anything else ('foot', None: every effort) keeps all."""
+    if cls == 'ebike':
+        return ebike_sql(sport, bike_kind)
+    if cls == 'bike':
+        return f'NOT {ebike_sql(sport, bike_kind)}'
+    return '1=1'
 
 
 def family_of(db, act_id):
-    """segment_family for an activity id, from its sport and its bike. None when there is no such activity."""
+    """segment_family for an activity id. None when there is no such activity, or it has no segments."""
+    row = db.execute('SELECT sportType FROM Activity WHERE id=?', [act_id]).fetchone()
+    return segment_family(row[0]) if row else None
+
+
+def class_of(db, act_id):
+    """segment_class for an activity id, from its sport and its bike. None when there is no such activity, or it has no segments."""
     try:
         row = db.execute('SELECT a.sportType, b.kind FROM Activity a LEFT JOIN Bike b ON b.id = a.bikeId WHERE a.id=?', [act_id]).fetchone()
     except Exception:                                     # no Bike table (a bare test database)
         row = db.execute('SELECT sportType, NULL FROM Activity WHERE id=?', [act_id]).fetchone()
-    return segment_family(row[0], row[1]) if row else None
+    return segment_class(row[0], row[1]) if row else None

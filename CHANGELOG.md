@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+Migration, at the first start: 0.7.3's e-bike segments become ride segments (`Segment.sport` is `ride` or `foot` again), and ride segment PRs are picked again (below). `Settings` gains `segmentBikesMergedDone`; the `SegActivity` view gains `bikeId`. No Android or iOS change. A friend on 0.7.3 who sends e-bike segments has them saved as ride segments.
+
+**Ride segment PRs can change.** Pedal and e-bike rides now share the ride segments, and each rider keeps two PRs on each: one pedal, one e-bike. At the first start, pedal rides are matched against the segments that were e-bike segments, e-bike rides against the ones that were always ride segments, and every ride segment's PRs are picked again. So e-bike rides appear on pedal riders' segments (and the other way round), a segment can show a pedal PR and an e-bike PR for the same rider, and the E-Bike Segments badges count every ride segment. The Tasks page says how many segments merged, how many efforts were found and how many PRs changed.
+
+### Changed
+- **Bike and e-bike rides share segments.** The Segments page has two tabs again, Ride and On foot, and a segment made on an e-bike ride is a ride segment. An e-bike ride still never takes a pedal PR: pedal and e-bike PRs are kept apart.
+- **Ride leaderboards filter All / Bike / E-bike.** On the Segments list the filter sets the KOM, the best time, the effort count and the PR date. On a segment's page it sets the leaderboard, the PR and average figures and the time trend, with the number of efforts of each kind on the buttons. E-bike efforts carry ⚡ in the "All" leaderboard. Bookmarks to the old e-bike tab (`/segments?sport=eride`) open the Ride tab filtered to e-bikes.
+- **The E-Bike Segments badges count e-bike efforts on the ride segments**, and "King of the E-Road" means holding the e-bike PR on every ride segment. The Segments badges still count pedal efforts only.
+- **Comparisons stay within the kind of bike.** A ride's "faster / slower than last time" on its segments, and Home Assistant's best time, rank and tries for the last ride, compare e-bike rides with e-bike efforts and pedal rides with pedal ones.
+
+`services/sports.py` (`segment_family`, `segment_class`, `class_of`, `ebike_sql`, `class_sql`), `services/segments.py` (`_refresh_prs`, `reclassed`, `merge_bikes`), `services/gear.py`, `services/convert.py`, `services/mqtt._ride_route_payloads`, `routes/segments.py`, `routes/rides.detail`, `routes/riders._compute_badges`, `routes/friends.py`, `database.py`, `templates/segments.html`, `templates/segment.html`, `tests/test_segment_families.py`, `tests/test_segments_close.py`.
+
 ## [0.7.3-beta] - 2026-10-18
 
 Migration, at the first start: run segments become **foot** segments (`Segment.sport` is now `ride`, `eride` or `foot`), and segment efforts and PRs are sorted out once (below). `Settings` gains `segmentFamiliesDone`. No Android or iOS change. A friend still on 0.7.2 or older keeps working: they see your foot segments as run segments and your e-bike segments as ride segments.

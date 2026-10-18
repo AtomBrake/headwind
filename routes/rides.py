@@ -156,11 +156,14 @@ def detail(rid):
             seg_rivals.setdefault(r['segmentId'], []).append(r)
 
     seg_trends = {}
+    seg_class = sports.class_of(get_db(), activity['id'])      # bike / ebike / foot: an e-bike ride is compared with the last e-bike effort, and so on
+    same_class = sports.class_sql(seg_class, 'a2.sportType', 'b2.kind')
     for e in seg_efforts:
-        prev = query_db('''
+        prev = query_db(f'''
             SELECT e2.elapsedSecs FROM SegmentEffort e2
             JOIN Activity a2 ON a2.id = e2.activityId
-            WHERE e2.segmentId=? AND a2.riderId IS ? AND a2.startDateLocal < ? AND e2.activityId != ?
+            LEFT JOIN Bike b2 ON b2.id = a2.bikeId
+            WHERE e2.segmentId=? AND a2.riderId IS ? AND a2.startDateLocal < ? AND e2.activityId != ? AND {same_class}
             ORDER BY a2.startDateLocal DESC LIMIT 1
         ''', [e['seg_id'], activity['riderId'], activity['startDateLocal'], rid], one=True)
         if prev:
@@ -206,7 +209,7 @@ def detail(rid):
 
     sport = (activity['sportType'] or '').lower()
     from services import weather as _wx
-    seg_family = sports.family_of(get_db(), activity['id'])     # ride / eride / foot, or None: no segments (an indoor ride, a swim, ...)
+    seg_family = sports.family_of(get_db(), activity['id'])     # ride / foot, or None: no segments (an indoor ride, a swim, ...)
 
     # Badges earned on this specific ride
     ride_badges = []
@@ -242,7 +245,7 @@ def detail(rid):
                            seg_trends=seg_trends, rival_trends=rival_trends,
                            elev_loss_m=elev_loss_m,
                            prev_ride=prev_ride, next_ride=next_ride,
-                           is_ride=is_ride, seg_family=seg_family, seg_family_label=sports.FAMILY_LABELS.get(seg_family), is_workout=is_workout,
+                           is_ride=is_ride, seg_family=seg_family, seg_family_label=(sports.CLASS_LABELS['ebike'] if seg_class == 'ebike' else sports.FAMILY_LABELS.get(seg_family)), is_workout=is_workout,
                            wx_categories=list(_wx.CATEGORIES), wx_condition=_wx.bucket(activity['weatherCode'] if not is_workout else None),
                            wx_manual=(not is_workout and activity['weatherSource'] == 'manual'), wx_storm=(not is_workout and activity['weatherSource'] == 'storm'),
                            ride_badges=ride_badges,

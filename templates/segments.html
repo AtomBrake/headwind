@@ -13,6 +13,14 @@
   {% for t in tabs %}
   <a href="{{ url_for('segments.index', sport=t.family) }}" class="btn {{ 'btn-primary' if sport == t.family else 'btn-secondary' }}">{{ t.icon }} {{ t.label }}{% if t.n %} <span style="opacity:.7;">({{ t.n }})</span>{% endif %}</a>
   {% endfor %}
+  {% if only_links %}
+  <span style="flex:1;"></span>
+  <span style="display:flex;gap:.35rem;align-items:center;" title="Bike and e-bike rides share the ride segments; each keeps its own PRs">
+    {% for o in only_links %}
+    <a href="{{ o.href }}" class="btn {{ 'btn-primary' if o.active else 'btn-secondary' }}" style="font-size:0.8125rem; padding:0.35rem 0.75rem;">{{ o.icon }} {{ o.label }}</a>
+    {% endfor %}
+  </span>
+  {% endif %}
 </div>
 
 {% if not segments %}
@@ -22,11 +30,9 @@
   <p style="color:var(--text-muted); font-size:0.9375rem; line-height:1.7; margin-bottom:0;">
     {% if sport == 'foot' %}Open a walk, run or hike that has a map, then click <strong style="color:var(--text);">Create Segment</strong>
     to mark a start and end point on your route. Walks, runs and hikes share these segments: one leaderboard, one PR.
-    {% elif sport == 'eride' %}Open an e-bike ride that has a map, then click <strong style="color:var(--text);">Create Segment</strong>
-    to mark a start and end point on your route. A ride counts as an e-bike ride when Strava or Garmin says so, or when it was ridden on a bike of kind E-bike (Gear).
-    Only e-bike rides are matched against these segments.
     {% else %}Open any ride that has a map, then click <strong style="color:var(--text);">Create Segment</strong>
-    to mark a start and end point on your route. Only rides are matched against ride segments: not e-bike rides, indoor rides, walks or runs.{% endif %}
+    to mark a start and end point on your route. Bike and e-bike rides share these segments, each with its own PRs, and the leaderboards show either or both.
+    A ride counts as an e-bike ride when Strava or Garmin says so, or when it was ridden on a bike of kind E-bike (Gear). Indoor rides, walks and runs are not matched.{% endif %}
   </p>
 </div>
 {% else %}
@@ -86,7 +92,7 @@
           {% if s.distanceM %}{{ s.distanceM | fmt_dist }}{% else %}—{% endif %}
         </td>
         <td style="padding:1rem 1.25rem; text-align:right;">
-          <a href="{{ url_for('segments.detail', sid=s.id) }}" class="btn btn-secondary" style="font-size:0.8125rem; padding:0.35rem 0.875rem;">View</a>
+          <a href="{{ url_for('segments.detail', sid=s.id, only=only) }}" class="btn btn-secondary" style="font-size:0.8125rem; padding:0.35rem 0.875rem;">View</a>
         </td>
       </tr>
       {% endfor %}

@@ -6,7 +6,7 @@ from flask import Blueprint, abort, jsonify, redirect, render_template, request,
 from database import get_db, query_db
 from services.segments import (scan_all_activities, scan_activity_against_segments, _refresh_prs,
                                clean_polyline, recover_polyline, seg_sport, valid_coord)
-from services.sports import FAMILIES, FAMILY_ICONS, FAMILY_LABELS, family_of
+from services.sports import CLASS_ICONS, CLASS_LABELS, FAMILIES, FAMILY_ICONS, FAMILY_LABELS, class_sql, ebike_sql, family_of
 
 log = logging.getLogger(__name__)
 
@@ -97,46 +97,70 @@ def _difficulty(seg, all_segs):
     return label, _TIER_COLOUR[label], sub_segs
 
 
+def _only(family, value):
+    """The leaderboard filter on ride segments (?only=bike / ebike): pedal or e-bike efforts only. None shows every effort, and is all there is on foot."""
+    return value if family == 'ride' and value in ('bike', 'ebike') else None
+
+
+def _only_links(endpoint, only, counts=None, **kw):
+    """The All / Bike / E-bike chips, each a link to the same page with ?only= set. `counts` is {class: efforts} when the chips show them."""
+    out = []
+    for value, label, icon in ((None, 'All', '🚴⚡'), ('bike', CLASS_LABELS['bike'], CLASS_ICONS['bike']), ('ebike', CLASS_LABELS['ebike'], CLASS_ICONS['ebike'])):
+        n = None if counts is None else (sum(counts.values()) if value is None else counts.get(value, 0))
+        out.append({'label': label, 'icon': icon, 'active': only == value, 'n': n, 'href': url_for(endpoint, only=value, **kw)})
+    return out
+
+
 @bp.route('/segments')
 def index():
     sport = request.args.get('sport')
+    only = request.args.get('only')
+    if sport == 'eride':                                # a bookmark from 0.7.3, when e-bike rides had segments of their own
+        sport, only = 'ride', 'ebike'
     sport = 'foot' if sport == 'run' else (sport if sport in FAMILIES else 'ride')      # ?sport=run: a bookmark from before 0.7.3
-    segs = query_db('''
+    only = _only(sport, only)
+    # A segment is listed as before (no efforts yet, or some of the owner's); its numbers count the owner's efforts that the filter keeps.
+    keep = class_sql(only)
+    segs = query_db(f'''
         SELECT s.*,
-               COUNT(e.id)        AS effort_count,
-               MIN(e.elapsedSecs) AS best_secs,
-               MAX(CASE WHEN e.isPR=1 THEN e.activityDate END) AS pr_date,
+               SUM(CASE WHEN e.id IS NOT NULL AND {keep} THEN 1 ELSE 0 END) AS effort_count,
+               MIN(CASE WHEN {keep} THEN e.elapsedSecs END) AS best_secs,
+               MAX(CASE WHEN e.isPR=1 AND {keep} THEN e.activityDate END) AS pr_date,
                f.name             AS friend_name
         FROM Segment s
         LEFT JOIN SegmentEffort e ON e.segmentId = s.id
         LEFT JOIN SegActivity a ON a.id = e.activityId
+        LEFT JOIN Bike b ON b.id = a.bikeId
         LEFT JOIN Rider r ON r.id = a.riderId
         LEFT JOIN Friend f ON f.id = s.friendId
         WHERE (e.id IS NULL OR r.isDefault = 1) AND COALESCE(s.sport, 'ride') = ?
         GROUP BY s.id
         ORDER BY s.createdAt DESC
     ''', [sport])
-    # Fetch all KOM holders per segment (handles ties)
+    # Fetch all KOM holders per segment (handles ties), among the efforts the filter keeps
     db = get_db()
     kom_map = {}
     for seg in segs:
-        best = db.execute(
-            'SELECT MIN(elapsedSecs) as t FROM SegmentEffort WHERE segmentId=?', [seg['id']]
-        ).fetchone()
+        best = db.execute(f'''
+            SELECT MIN(e.elapsedSecs) as t FROM SegmentEffort e JOIN SegActivity a ON a.id = e.activityId LEFT JOIN Bike b ON b.id = a.bikeId
+            WHERE e.segmentId=? AND {keep}
+        ''', [seg['id']]).fetchone()
         if best and best['t']:
-            koms = query_db('''
+            koms = query_db(f'''
                 SELECT DISTINCT r.id AS rider_id, r.name AS rider_name, r.avatarPath AS rider_avatar,
                                 r.isDefault AS rider_is_default
                 FROM SegmentEffort e
                 JOIN SegActivity a ON a.id = e.activityId
+                LEFT JOIN Bike b ON b.id = a.bikeId
                 LEFT JOIN Rider r ON r.id = a.riderId
-                WHERE e.segmentId=? AND e.elapsedSecs=?
+                WHERE e.segmentId=? AND e.elapsedSecs=? AND {keep}
             ''', [seg['id'], best['t']])
             if koms:
                 kom_map[seg['id']] = koms
     counts = {r[0]: r[1] for r in db.execute("SELECT COALESCE(sport, 'ride'), COUNT(*) FROM Segment GROUP BY 1")}
     tabs = [{'family': f, 'label': FAMILY_LABELS[f], 'icon': FAMILY_ICONS[f], 'n': counts.get(f, 0)} for f in FAMILIES]
-    return render_template('segments.html', segments=segs, kom_map=kom_map, sport=sport, tabs=tabs)
+    only_links = _only_links('segments.index', only, sport='ride') if sport == 'ride' else []
+    return render_template('segments.html', segments=segs, kom_map=kom_map, sport=sport, tabs=tabs, only=only, only_links=only_links)
 
 
 @bp.route('/segments/create', methods=['POST'])
@@ -160,7 +184,7 @@ def create():
         elev_gain   = float(elev_gain) if elev_gain else None
     except (KeyError, ValueError):
         abort(400)
-    # The family is the activity's own (a segment made on a walk is a foot segment, on an e-bike ride an e-ride segment); the form's value is only
+    # The family is the activity's own (a segment made on a walk is a foot segment, on any outdoor ride a ride segment); the form's value is only
     # used when there is no activity to ask.
     fam = family_of(db, activity_id) if activity_id else None
     if fam is None and activity_id and db.execute('SELECT 1 FROM Activity WHERE id=?', [activity_id]).fetchone():
@@ -240,27 +264,33 @@ def detail(sid):
     map_data = {'start': valid_coord(seg['startLat'], seg['startLng']),
                 'end': valid_coord(seg['endLat'], seg['endLng']), 'shape': shape}
 
-    efforts = query_db('''
-        SELECT e.*, a.name AS ride_name, a.sportType, a.id AS ride_id,
+    family = seg_sport(seg)
+    # Every effort says whether it was pedalled or on an e-bike (services/sports.segment_class); ?only= keeps one of the two, for the leaderboard,
+    # the PR and averages above it and the trend chart alike. Each keeps its own PRs (services/segments._refresh_prs).
+    cls = f"CASE WHEN {ebike_sql()} THEN 'ebike' ELSE 'bike' END" if family == 'ride' else "'foot'"
+    efforts = query_db(f'''
+        SELECT e.*, a.name AS ride_name, a.sportType, a.id AS ride_id, {cls} AS cls,
                r.id AS rider_id, r.name AS rider_name, r.avatarPath AS rider_avatar, r.isDefault AS rider_is_default
         FROM SegmentEffort e
         JOIN SegActivity a ON a.id = e.activityId
+        LEFT JOIN Bike b ON b.id = a.bikeId
         LEFT JOIN Rider r ON r.id = a.riderId
         WHERE e.segmentId = ?
         ORDER BY e.elapsedSecs ASC
     ''', [sid])
+    only = _only(family, request.args.get('only'))
+    class_counts = {}
+    for e in efforts:
+        class_counts[e['cls']] = class_counts.get(e['cls'], 0) + 1
+    if only:
+        efforts = [e for e in efforts if e['cls'] == only]
 
-    stats = query_db('''
-        SELECT AVG(elapsedSecs) as avgSecs, AVG(avgSpeedMps) as avgSpeedMps,
-               COUNT(*) as total
-        FROM SegmentEffort WHERE segmentId=?
-    ''', [sid], one=True)
+    speeds = [e['avgSpeedMps'] for e in efforts if e['avgSpeedMps'] is not None]
+    stats = {'avgSecs': sum(e['elapsedSecs'] for e in efforts) / len(efforts) if efforts else None,
+             'avgSpeedMps': sum(speeds) / len(speeds) if speeds else None,
+             'total': len(efforts)}
 
-    trend = query_db('''
-        SELECT activityDate, elapsedSecs
-        FROM SegmentEffort WHERE segmentId=?
-        ORDER BY activityDate ASC
-    ''', [sid])
+    trend = sorted(({'activityDate': e['activityDate'], 'elapsedSecs': e['elapsedSecs']} for e in efforts), key=lambda t: t['activityDate'] or '')
 
     # 3-effort rolling average for the trend chart
     secs_list = [e['elapsedSecs'] for e in trend]
@@ -269,13 +299,13 @@ def detail(sid):
         window = secs_list[max(0, i - 2):i + 1]
         trend_rolling.append(round(sum(window) / len(window)))
 
-    family = seg_sport(seg)
     all_segs = query_db("SELECT * FROM Segment WHERE COALESCE(sport, 'ride') = ?", [family])
     diff_label, diff_colour, sub_segs = _difficulty(seg, all_segs)
 
     return render_template('segment.html', seg=seg, efforts=efforts, map_data=map_data,
                            trend=trend, trend_rolling=trend_rolling, family=family, family_label=FAMILY_LABELS[family],
                            stats=stats, diff_label=diff_label, on_foot=(family == 'foot'),
+                           only=only, only_links=_only_links('segments.detail', only, class_counts, sid=sid) if family == 'ride' else [],
                            diff_colour=diff_colour, sub_segs=sub_segs)
 
 
@@ -295,7 +325,8 @@ def delete_effort(sid, eid):
     db.execute('DELETE FROM SegmentEffort WHERE id=? AND segmentId=?', [eid, sid])
     _refresh_prs(db, sid)
     db.commit()
-    return redirect(url_for('segments.detail', sid=sid))
+    only = request.args.get('only')
+    return redirect(url_for('segments.detail', sid=sid, only=only if only in ('bike', 'ebike') else None))
 
 
 @bp.route('/segments/scan', methods=['POST'])
