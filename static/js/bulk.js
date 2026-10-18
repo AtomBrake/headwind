@@ -116,7 +116,8 @@
     var label = sel.options[sel.selectedIndex].text;
     var q = { sport: 'Change ' + plural(n) + ' to ' + label + '? Rides that become walks, runs or other sports move to Workouts.',
               bike: 'Set the bike on ' + plural(n) + ' to ' + label + '? Only rides of that bike’s rider change.',
-              rider: 'Move ' + plural(n) + ' to ' + label + '? Their bikes are cleared.' }[sel.name];
+              rider: 'Move ' + plural(n) + ' to ' + label + '? Their bikes are cleared.',
+              commute: (sel.value === '1' ? 'Mark ' + plural(n) + ' as a commute?' : 'Mark ' + plural(n) + ' as not a commute?') }[sel.name];
     if (!q || !confirm(q)) { sel.value = ''; return; }
     bar.querySelectorAll('select').forEach(function (o) { if (o !== sel) o.value = ''; });
     submit(sel.name);

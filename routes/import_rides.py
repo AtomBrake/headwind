@@ -73,6 +73,9 @@ def upload():
         default = _qdb('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
         rider_id = default['id'] if default else None
 
+    opt_segments = request.form.get('importSegments') == '1'         # a Strava export's segments.csv: off unless asked for
+    opt_photos = request.form.get('importPhotos', '1') == '1'        # its photos: on unless turned off
+
     name_lower = f.filename.lower()
     is_single = name_lower.endswith(ACTIVITY_EXTENSIONS)
 
@@ -101,7 +104,7 @@ def upload():
                         log.warning('Import started — %d files in zip, has_csv=%s',
                                     len(names), 'activities.csv' in names)
                         if 'activities.csv' in names:
-                            gen = _process_strava_export(zf, names, rider_id)
+                            gen = _process_strava_export(zf, names, rider_id, segments=opt_segments, photos=opt_photos)
                         else:
                             gen = _process_generic_zip(zf, names, rider_id)
                         for item in gen:
@@ -355,7 +358,52 @@ def _strava_csv_distance_m(row):
     return None
 
 
-def _process_strava_export(zf, names, rider_id=None):
+def _strava_captions(zf, names):
+    """{'media/<uuid>.jpg': caption} from the export's media.csv."""
+    if 'media.csv' not in names:
+        return {}
+    with zf.open('media.csv') as f:
+        return {(r.get('Media Filename') or '').strip(): (r.get('Media Caption') or '').strip()
+                for r in csv.DictReader(io.TextIOWrapper(f, 'utf-8', errors='replace'))}
+
+
+def _strava_extras(db, zf, names, row, ride_id, photos_on, captions):
+    """What activities.csv says about a ride besides its numbers: tick it as a commute (unless the rider has already said either way), and add its
+    photos (the 'Media' column, '|'-separated paths into the zip; videos are left out). A photo already imported is not added again.
+    Returns (photos added, 1 if the commute was ticked). Does not commit."""
+    ticked = 0
+    if (row.get('Commute') or '').strip().lower() == 'true' or (row.get('Commute (2)') or '').strip() in ('1', '1.0'):
+        ticked = db.execute('UPDATE Activity SET commute=1 WHERE id=? AND commute IS NULL', [ride_id]).rowcount
+    added = 0
+    if photos_on:
+        from services import photos
+        media = [m.strip() for m in (row.get('Media') or '').split('|') if m.strip()]
+        for pos, m in enumerate(media):
+            if not m.lower().endswith(photos.PHOTO_EXTENSIONS) or m not in names or photos.have(db, 'strava:' + m):
+                continue
+            try:
+                if photos.save(db, ride_id, safe_zip_read(zf, m, photos.MAX_BYTES), current_app.config['DATABASE'], caption=captions.get(m), source_key='strava:' + m, position=pos):
+                    added += 1
+            except Exception as e:
+                log.warning('Strava import: could not add photo %s to %s (%s)', m, ride_id, e)
+    return added, ticked
+
+
+def _strava_segments(zf, names, db):
+    """Segments from the export's segments.csv (services/segments.import_strava), then every activity matched against the new ones."""
+    from services import segments as seg_svc
+    with zf.open('segments.csv') as f:
+        seg_rows = list(csv.DictReader(io.TextIOWrapper(f, 'utf-8', errors='replace')))
+    res = seg_svc.import_strava(db, seg_rows)
+    db.commit()
+    if res['created']:
+        seg_svc.scan_all_activities(db, segment_ids=res['created'])
+    log.warning('Strava import: segments created=%d already here=%d not ridden=%d without a position=%d',
+                len(res['created']), res['existing'], res['unridden'], res['invalid'])
+    return {'segments_created': len(res['created']), 'segments_existing': res['existing'], 'segments_unridden': res['unridden']}
+
+
+def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True):
     with zf.open('activities.csv') as f:
         rows = _strava_csv_rows(io.TextIOWrapper(f, 'utf-8', errors='replace'))
 
@@ -364,6 +412,12 @@ def _process_strava_export(zf, names, rider_id=None):
 
     db = get_db()
     imported = skipped = errors = changed = 0
+    n_photos = n_commutes = 0
+    try:
+        captions = _strava_captions(zf, names) if photos else {}
+    except Exception as e:
+        log.warning('Strava import: could not read media.csv (%s)', e)
+        captions = {}
     from services import strava_gear
     try:                                                # which bike Strava says rode each ride: those rides wait for it, not the default bike
         ride_gear = strava_gear.record(db, zf, names, rows, rider_id)
@@ -438,6 +492,13 @@ def _process_strava_export(zf, names, rider_id=None):
                 differs = False
             changed += bool(differs)
             skipped += not differs
+            try:                                        # an export imported before these were read: add them to the saved ride
+                p, c = _strava_extras(db, zf, names, row, act_id, photos, captions)
+                db.commit()
+                n_photos, n_commutes = n_photos + p, n_commutes + c
+            except Exception as e:
+                log.error('Strava import: photos / commute for %s failed: %s', act_id, e)
+                db.rollback()
             yield _progress(i + 1, total, imported, skipped, errors)
             continue
 
@@ -450,7 +511,10 @@ def _process_strava_export(zf, names, rider_id=None):
             from services import gear
             gear.on_ride_added(db, act.get('id'), stamp=act_id not in ride_gear)
             from services.ingest import after_ride_added
-            after_ride_added(db, (dup or {}).get('kept', act.get('id')))
+            kept = (dup or {}).get('kept', act.get('id'))
+            after_ride_added(db, kept)
+            p, c = _strava_extras(db, zf, names, row, kept, photos, captions)     # on the ride that was kept, if this one was a duplicate
+            n_photos, n_commutes = n_photos + p, n_commutes + c
             db.commit()
             imported += 1
         except Exception as e:
@@ -458,6 +522,15 @@ def _process_strava_export(zf, names, rider_id=None):
             errors += 1
 
         yield _progress(i + 1, total, imported, skipped, errors)
+
+    segs = {}
+    if segments and 'segments.csv' in names:
+        yield _event({'stage': 'Matching your Strava segments against every activity…'})
+        try:
+            segs = _strava_segments(zf, names, db)
+        except Exception as e:
+            log.error('Strava import: segments failed: %s\n%s', e, traceback.format_exc())
+            db.rollback()
 
     bikes = {}
     if ride_gear and rider_id:
@@ -468,9 +541,10 @@ def _process_strava_export(zf, names, rider_id=None):
         except Exception as e:
             log.error('Strava import: could not put rides on their bikes (%s)', e)
             db.rollback()
-    log.warning('Strava import done — imported=%d skipped=%d changed=%d errors=%d bikes=%s',
-                imported, skipped, changed, errors, bikes)
-    yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'changed': changed, 'errors': errors, **bikes})
+    log.warning('Strava import done — imported=%d skipped=%d changed=%d errors=%d photos=%d commutes=%d bikes=%s',
+                imported, skipped, changed, errors, n_photos, n_commutes, bikes)
+    yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'changed': changed, 'errors': errors, **bikes,
+                  'photos': n_photos, 'commutes': n_commutes, **segs})
 
 
 def _process_generic_zip(zf, names, rider_id=None):

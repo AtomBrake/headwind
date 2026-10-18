@@ -38,6 +38,19 @@
   </div>
   {% endif %}
 
+  <fieldset style="border:none;padding:0;margin:1rem 0 0;">
+    <legend style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.4rem;">From a Strava export, also bring in</legend>
+    <label style="display:flex;gap:0.5rem;align-items:flex-start;font-size:0.875rem;margin-bottom:0.35rem;cursor:pointer;">
+      <input type="checkbox" id="optPhotos" checked style="margin-top:0.2rem;">
+      <span>Photos on each activity <span style="color:var(--text-muted);">(location data is stripped; videos are left out)</span></span>
+    </label>
+    <label style="display:flex;gap:0.5rem;align-items:flex-start;font-size:0.875rem;cursor:pointer;">
+      <input type="checkbox" id="optSegments" style="margin-top:0.2rem;">
+      <span>Segments you created on Strava <span style="color:var(--text-muted);">(<code>segments.csv</code>; each one's shape comes from a ride of yours that went along it)</span></span>
+    </label>
+    <div style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.4rem;line-height:1.5;">Already imported this export? Import it again: rides already here are skipped, and the photos, segments and commute ticks are added to them.</div>
+  </fieldset>
+
   <button id="uploadBtn" class="btn btn-primary" style="margin-top:1rem;display:none;" onclick="startUpload()">
     Import
   </button>
@@ -143,6 +156,8 @@ async function startUpload() {
   fd.append('zipfile', chosenFile);
   const riderSel = document.getElementById('riderSelect');
   if (riderSel) fd.append('riderId', riderSel.value);
+  fd.append('importPhotos', document.getElementById('optPhotos').checked ? '1' : '0');
+  fd.append('importSegments', document.getElementById('optSegments').checked ? '1' : '0');
 
   document.getElementById('progressCard').style.display = 'block';
   document.getElementById('doneCard').style.display = 'none';
@@ -189,6 +204,11 @@ function handleEvent(d) {
     return;
   }
 
+  if (d.stage) {
+    document.getElementById('progressLabel').textContent = d.stage;
+    return;
+  }
+
   if (d.total !== undefined && d.done === undefined) {
     const src = d.source === 'strava' ? 'Strava export' : 'GPS files';
     document.getElementById('progressLabel').textContent = `Detected ${src} — ${d.total} activities`;
@@ -215,7 +235,12 @@ function handleEvent(d) {
       (d.errors ? `<br><span style="color:var(--danger)">${d.errors} files could not be parsed</span>` : '') +
       (d.changed ? `<br><a href="/import#changes" onclick="location.reload()" style="color:var(--accent)">${d.changed} differ from what's saved: review them</a>` : '') +
       (d.bikes_filled ? `<br><span style="color:var(--text-muted)">${d.bikes_filled} rides put on their Strava bike</span>` : '') +
-      (d.bikes_to_match ? `<br><a href="${d.bikes_url}" style="color:var(--accent)">${d.bikes_to_match} bike${d.bikes_to_match === 1 ? '' : 's'} from Strava to match to yours</a>` : '');
+      (d.bikes_to_match ? `<br><a href="${d.bikes_url}" style="color:var(--accent)">${d.bikes_to_match} bike${d.bikes_to_match === 1 ? '' : 's'} from Strava to match to yours</a>` : '') +
+      (d.photos ? `<br><span style="color:var(--text-muted)">${d.photos} photo${d.photos === 1 ? '' : 's'} added</span>` : '') +
+      (d.commutes ? `<br><span style="color:var(--text-muted)">${d.commutes} activit${d.commutes === 1 ? 'y' : 'ies'} ticked as a commute</span>` : '') +
+      (d.segments_created !== undefined ? `<br><a href="/segments" style="color:var(--accent)">${d.segments_created} segment${d.segments_created === 1 ? '' : 's'} created</a>` +
+        (d.segments_existing ? `<span style="color:var(--text-muted)">, ${d.segments_existing} already here</span>` : '') +
+        (d.segments_unridden ? `<span style="color:var(--text-muted)">, ${d.segments_unridden} skipped (no ride here goes along them)</span>` : '') : '');
   }
 }
 </script>
