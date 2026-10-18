@@ -20,6 +20,7 @@ bp = Blueprint('settings', __name__)
 ENV_PATH = Path(os.environ.get('HEADWIND_ENV') or Path(__file__).parent.parent / '.env')
 
 OPENAI_MODELS = ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini', 'gpt-4-turbo', 'gpt-3.5-turbo']
+from services.ai import CLAUDE_MODELS
 
 
 @bp.route('/', methods=['GET', 'POST'])
@@ -43,12 +44,15 @@ def index():
         provider     = field('aiProvider', 'openai') or 'openai'
         openai_key   = form.get('openaiKey', '').strip()
         openai_model = field('openaiModel', 'gpt-4o') or 'gpt-4o'
+        claude_key   = form.get('claudeKey', '').strip()
+        claude_model = field('claudeModel', CLAUDE_MODELS[0]) or CLAUDE_MODELS[0]
         ollama_url   = (field('ollamaUrl', 'http://localhost:11434') or 'http://localhost:11434').strip()
         ollama_model = (field('ollamaModel', 'llama3.2') or 'llama3.2').strip()
         units        = field('units', 'imperial')
         if units not in ('imperial', 'metric'):
             units = 'imperial'
         kept_key     = _kept('openaiKey')
+        kept_claude  = _kept('claudeKey')
         kept_mqtt_pw = _kept('mqttPassword')
 
         mqtt_host     = field('mqttHost').strip()
@@ -70,14 +74,16 @@ def index():
             garmin_sync_mode = 'health'
 
         db.execute('''
-            INSERT INTO Settings (id, aiProvider, openaiKey, openaiModel, ollamaUrl, ollamaModel,
+            INSERT INTO Settings (id, aiProvider, openaiKey, openaiModel, claudeKey, claudeModel, ollamaUrl, ollamaModel,
                                   mqttHost, mqttPort, mqttUser, mqttPassword,
                                   garminEmail, garminPassword, garminSyncHours, garminSyncMode, units)
-            VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 aiProvider=excluded.aiProvider,
                 openaiKey=excluded.openaiKey,
                 openaiModel=excluded.openaiModel,
+                claudeKey=excluded.claudeKey,
+                claudeModel=excluded.claudeModel,
                 ollamaUrl=excluded.ollamaUrl,
                 ollamaModel=excluded.ollamaModel,
                 mqttHost=excluded.mqttHost,
@@ -93,6 +99,8 @@ def index():
             provider,
             openai_key if openai_key else kept_key,
             openai_model,
+            claude_key if claude_key else kept_claude,
+            claude_model,
             ollama_url,
             ollama_model,
             mqtt_host,
@@ -127,6 +135,7 @@ def index():
     except ImportError:
         __version__ = 'dev'
     return render_template('settings.html', s=s, openai_models=OPENAI_MODELS,
+                           claude_models=CLAUDE_MODELS,
                            current_username=current_username, build_time=build_time,
                            app_version=__version__)
 
@@ -135,26 +144,22 @@ def index():
 def test_ai():
     """Try the AI credentials currently typed into the form (saved or not) with a one-word request."""
     import time
-    from openai import OpenAI
+    from services.ai import make_chat
     f = request.form
-    saved = query_db('SELECT openaiKey FROM Settings WHERE id=1', one=True)
+    saved = query_db('SELECT openaiKey, claudeKey FROM Settings WHERE id=1', one=True)
+
+    def key(col):     # a key left blank in the form means "the one already saved"
+        typed = (f.get(col) or '').strip()
+        return typed if typed not in ('', 'None') else ((saved[col] if saved else '') or '')
     try:
-        if (f.get('aiProvider') or 'openai') == 'ollama':
-            base = (f.get('ollamaUrl') or 'http://localhost:11434').strip()
-            model = (f.get('ollamaModel') or 'llama3.2').strip()
-            client = OpenAI(api_key='ollama', base_url=f'{base}/v1', timeout=20)
-        else:
-            key = (f.get('openaiKey') or '').strip()
-            if key in ('', 'None'):
-                key = (saved['openaiKey'] if saved else '') or ''
-            if key in ('', 'None'):
-                return jsonify({'error': 'No API key entered'}), 400
-            model = f.get('openaiModel') or 'gpt-4o'
-            client = OpenAI(api_key=key, timeout=20)
+        chat = make_chat(f.get('aiProvider') or 'openai', key('openaiKey'), f.get('openaiModel'),
+                         key('claudeKey'), f.get('claudeModel'),
+                         (f.get('ollamaUrl') or '').strip(), (f.get('ollamaModel') or '').strip(), timeout=60)
+        if chat is None:
+            return jsonify({'error': 'No API key entered'}), 400
         t0 = time.time()
-        client.chat.completions.create(model=model, max_tokens=5,
-                                       messages=[{'role': 'user', 'content': 'Reply with OK'}])
-        return jsonify({'ok': True, 'model': model, 'ms': int((time.time() - t0) * 1000)})
+        chat([{'role': 'user', 'content': 'Reply with OK'}], max_tokens=5)
+        return jsonify({'ok': True, 'model': chat.model, 'ms': int((time.time() - t0) * 1000)})
     except Exception as e:
         return jsonify({'error': str(getattr(e, 'message', None) or e)[:200]}), 400
 

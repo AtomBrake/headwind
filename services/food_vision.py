@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from PIL import Image
 
-from services.ai import _get_client_and_model
+from services.ai import get_chat, missing_key_message
 
 MEAL_KEYS = ['breakfast', 'lunch', 'dinner', 'snacks', 'ride_fuel', 'recovery']
 MAX_EDGE = 1600  # px — plenty for reading diary text, keeps token cost down
@@ -39,7 +39,7 @@ def _prepare(raw):
     img.thumbnail((MAX_EDGE, MAX_EDGE))
     buf = io.BytesIO()
     img.save(buf, 'JPEG', quality=85)
-    return 'data:image/jpeg;base64,' + base64.b64encode(buf.getvalue()).decode()
+    return {'type': 'image', 'media_type': 'image/jpeg', 'data': base64.b64encode(buf.getvalue()).decode()}
 
 
 def _num(v):
@@ -49,14 +49,9 @@ def _num(v):
         return None
 
 
-def _read_one(client, model, raw):
-    content = [{'type': 'text', 'text': PROMPT},
-               {'type': 'image_url', 'image_url': {'url': _prepare(raw), 'detail': 'high'}}]
-    resp = client.chat.completions.create(
-        model=model, messages=[{'role': 'user', 'content': content}],
-        response_format={'type': 'json_object'}, temperature=0,
-    )
-    data = json.loads(resp.choices[0].message.content)
+def _read_one(chat, raw):
+    content = [{'type': 'text', 'text': PROMPT}, _prepare(raw)]
+    data = json.loads(chat([{'role': 'user', 'content': content}], json=True, temperature=0))
     items = []
     for it in data.get('items') or []:
         name = str(it.get('name') or '').strip()
@@ -106,9 +101,9 @@ def merge_scrolls(pages):
 def extract_foods(images, progress=None):
     """images: raw image bytes in scroll order (top of diary first). Returns
     {'items': [...], 'day_totals': {...}, 'overlap_dropped': n}. Raises ValueError with a user-facing message."""
-    client, model = _get_client_and_model()
-    if client is None:
-        raise ValueError('No AI provider configured — add an OpenAI key in Settings.')
+    chat = get_chat()
+    if chat is None:
+        raise ValueError(missing_key_message('to read screenshots'))
     for raw in images:
         try:
             _prepare(raw)
@@ -118,7 +113,7 @@ def extract_foods(images, progress=None):
     results = [None] * len(images)
     try:
         with ThreadPoolExecutor(max_workers=min(4, len(images))) as pool:
-            futures = {pool.submit(_read_one, client, model, raw): i for i, raw in enumerate(images)}
+            futures = {pool.submit(_read_one, chat, raw): i for i, raw in enumerate(images)}
             for done, fut in enumerate(as_completed(futures), 1):
                 results[futures[fut]] = fut.result()  # slot by index so scroll order is preserved
                 if progress:
@@ -138,18 +133,15 @@ def extract_foods(images, progress=None):
 def _estimate_shapes(items):
     """Ask the AI for a rough protein/carbs/fat guess per item from its name and calories.
     Only the *proportions* between items are used, so the guesses need not be accurate."""
-    client, model = _get_client_and_model()
-    if client is None or not items:
+    chat = get_chat()
+    if chat is None or not items:
         return {}
     listing = '\n'.join(f'{i}. {it["name"]} — {it["calories"]:.0f} kcal' for i, it in enumerate(items))
     prompt = ('Estimate protein, carbs and fat (grams) for each of these logged foods/recipes, so that '
               '4*protein + 4*carbs + 9*fat is roughly its calories. Return ONLY JSON: '
               '{"items": [{"i": 0, "protein": n, "carbs": n, "fat": n}, ...]}\n\n' + listing)
     try:
-        resp = client.chat.completions.create(
-            model=model, messages=[{'role': 'user', 'content': prompt}],
-            response_format={'type': 'json_object'}, temperature=0)
-        rows = json.loads(resp.choices[0].message.content).get('items') or []
+        rows = json.loads(chat([{'role': 'user', 'content': prompt}], json=True, temperature=0)).get('items') or []
         return {int(r['i']): (_num(r.get('protein')) or 0, _num(r.get('carbs')) or 0, _num(r.get('fat')) or 0)
                 for r in rows}
     except Exception:
@@ -201,13 +193,10 @@ Rules:
 - Ignore rows cut off by the screen edge. List each recipe once."""
 
 
-def _read_recipes(client, model, raw):
-    content = [{'type': 'text', 'text': RECIPE_PROMPT},
-               {'type': 'image_url', 'image_url': {'url': _prepare(raw), 'detail': 'high'}}]
-    resp = client.chat.completions.create(model=model, messages=[{'role': 'user', 'content': content}],
-                                          response_format={'type': 'json_object'}, temperature=0)
+def _read_recipes(chat, raw):
+    content = [{'type': 'text', 'text': RECIPE_PROMPT}, _prepare(raw)]
     out = []
-    for r in json.loads(resp.choices[0].message.content).get('recipes') or []:
+    for r in json.loads(chat([{'role': 'user', 'content': content}], json=True, temperature=0)).get('recipes') or []:
         name, kcal = str(r.get('name') or '').strip(), _num(r.get('calories'))
         if name and kcal:
             out.append({'name': name[:120], 'calories': kcal, 'protein': _num(r.get('protein')),
@@ -219,9 +208,9 @@ def extract_recipes(images, progress=None):
     """Recipe screenshots (any order — recipes are independent). Duplicates across screenshots collapse to
     the most complete copy. Returns {'recipes': [...]}."""
     from services.food_lookup import name_key
-    client, model = _get_client_and_model()
-    if client is None:
-        raise ValueError('No AI provider configured — add an OpenAI key in Settings.')
+    chat = get_chat()
+    if chat is None:
+        raise ValueError(missing_key_message('to read screenshots'))
     for raw in images:
         try:
             _prepare(raw)
@@ -230,7 +219,7 @@ def extract_recipes(images, progress=None):
     found = {}
     try:
         with ThreadPoolExecutor(max_workers=min(4, len(images))) as pool:
-            futures = [pool.submit(_read_recipes, client, model, raw) for raw in images]
+            futures = [pool.submit(_read_recipes, chat, raw) for raw in images]
             for done, fut in enumerate(futures, 1):
                 for r in fut.result():
                     key = name_key(r['name'])
@@ -271,19 +260,17 @@ Rules:
 def estimate_meal(image_bytes, hint=None):
     """AI estimate for one meal photo. Returns {name, items[], totals{}, confidence, assumptions, calories_low/high}.
     Totals are summed from the items here rather than trusted from the model."""
-    client, model = _get_client_and_model()
-    if client is None:
-        raise ValueError('No AI provider configured — add an OpenAI key in Settings.')
+    chat = get_chat()
+    if chat is None:
+        raise ValueError(missing_key_message('to estimate meals from photos'))
     try:
-        url = _prepare(image_bytes)
+        image = _prepare(image_bytes)
     except Exception:
         raise ValueError('That file is not a readable image.')
     text = MEAL_PROMPT + (f"\n\nThe user adds this note about the meal: {hint.strip()[:400]}" if hint and hint.strip() else '')
-    resp = client.chat.completions.create(
-        model=model, temperature=0.2, response_format={'type': 'json_object'},
-        messages=[{'role': 'user', 'content': [{'type': 'text', 'text': text}, {'type': 'image_url', 'image_url': {'url': url, 'detail': 'high'}}]}])
+    reply = chat([{'role': 'user', 'content': [{'type': 'text', 'text': text}, image]}], json=True, temperature=0.2)
     try:
-        d = json.loads(resp.choices[0].message.content)
+        d = json.loads(reply)
     except (ValueError, TypeError):
         raise ValueError('The AI returned something unreadable — try again.')
 
