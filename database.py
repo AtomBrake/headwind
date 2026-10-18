@@ -316,9 +316,16 @@ def migrate_db():
         ('calorieAdjustPct',       'REAL DEFAULT 0'),
         ('claudeKey',              'TEXT'),
         ('claudeModel',            'TEXT'),
+        ('timeZone',               'TEXT'),     # IANA name; blank = the server's zone (services/tz.py)
+        ('birthDate',              'TEXT'),     # YYYY-MM-DD; replaces birthYear for the age (services/goal_model.profile)
+        ('birthDateGuessed',       'INTEGER DEFAULT 0'),    # 1 = filled in as 1 January from birthYear; the profile forms ask for the real date
     ]:
         if col not in settings_cols:
             db.execute(f'ALTER TABLE Settings ADD COLUMN {col} {defn}')
+    if 'timeZone' not in settings_cols:                 # an install from before the setting: keep the zone it has always used
+        db.execute("UPDATE Settings SET timeZone='Europe/London' WHERE id=1")
+    if 'birthDate' not in settings_cols:                # only the year was known: 1 January of it, until the real date is entered
+        db.execute("UPDATE Settings SET birthDate=printf('%04d-01-01', birthYear), birthDateGuessed=1 WHERE birthYear BETWEEN 1900 AND 2100")
 
     db.execute('''
         CREATE TABLE IF NOT EXISTS Friend (

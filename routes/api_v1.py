@@ -13,11 +13,11 @@ import logging
 import os
 import tempfile
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
 
 from flask import abort, redirect, Blueprint, current_app, jsonify, render_template, request
 
 from database import get_db, query_db
+from services import tz
 
 log = logging.getLogger(__name__)
 bp = Blueprint('api_v1', __name__, url_prefix='/api/v1')
@@ -30,7 +30,7 @@ def _rider():
 
 
 def _today():
-    return datetime.now(ZoneInfo('Europe/London')).date().isoformat()
+    return tz.today().isoformat()
 
 
 def _public(w):
@@ -45,7 +45,7 @@ def ping():
     s = query_db('SELECT units, calorieAdjustPct FROM Settings WHERE id=1', one=True)
     return jsonify({'ok': True, 'api': 1, 'rider': r['name'] if r else None, 'units': (s['units'] if s else None) or 'imperial',
                     'calorie_adjust_pct': (s['calorieAdjustPct'] if s and s['calorieAdjustPct'] is not None else 0),
-                    'server_time': datetime.now(ZoneInfo('Europe/London')).isoformat(timespec='seconds')})
+                    'server_time': tz.now().isoformat(timespec='seconds')})
 
 
 def _weight_kg(rider_id):
@@ -109,7 +109,7 @@ def overview():
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     rid = rider['id']
-    today = datetime.now(ZoneInfo('Europe/London')).date()
+    today = tz.today()
 
     def tot(since=None):
         q = 'SELECT COUNT(*) n, SUM(distance) d, SUM(totalElevationGain) e, SUM(movingTime) t, SUM(calories) c FROM Activity WHERE riderId=?'
@@ -407,7 +407,7 @@ def sync_nutrition():
         days = min(730, max(1, int(request.args.get('days', 120))))
     except ValueError:
         return jsonify({'error': 'bad days'}), 400
-    today = datetime.now(ZoneInfo('Europe/London')).date()
+    today = tz.today()
     since = (today - timedelta(days=days)).isoformat()
     rows = [dict(r) for r in query_db(
         'SELECT id, logDate, foodName, calories, protein, carbs, fat, fibre, sugar, alcoholUnits, servingG, quantity, barcode, mealType, source, brand, imageUrl, '
@@ -426,14 +426,14 @@ def sync_nutrition():
     g = query_db('SELECT steps FROM GarminDaily WHERE date=?', [today.isoformat()], one=True)
     goal = (query_db('SELECT stepGoal FROM Settings WHERE id=1', one=True) or {'stepGoal': None})['stepGoal'] or 8000
     return jsonify({
-        'server_time': datetime.now(ZoneInfo('Europe/London')).isoformat(timespec='seconds'), 'since': since, 'today': today.isoformat(),
+        'server_time': tz.now().isoformat(timespec='seconds'), 'since': since, 'today': today.isoformat(),
         'entries': entries, 'water': water, 'days': meta, 'goals': nu._get_goals(),
         'steps': {'today': _best_steps_for(rid, today.isoformat(), g['steps'] if g else None), 'goal': goal},
         'weight_kg': _weight_kg(rid), 'workouts': workouts.recent(rid, 30),
         'weights': [{'id': r['id'], 'date': r['logDate'], 'kg': r['weightKg'], 'source': r['source']}
                     for r in query_db('SELECT id, logDate, weightKg, source FROM WeightLog WHERE riderId=? ORDER BY logDate', [rid])],
         'weight_settings': nu._weight_settings(),
-        'profile': dict(query_db('SELECT sex, birthYear, heightCm, lossLbPerWeek, stepGoal, goalAuto, rideKcalWeek, rideGoalWeek FROM Settings WHERE id=1', one=True) or {}),
+        'profile': dict(query_db('SELECT sex, birthYear, birthDate, heightCm, lossLbPerWeek, stepGoal, goalAuto, rideKcalWeek, rideGoalWeek FROM Settings WHERE id=1', one=True) or {}),
         'steps_days': [{'date': d['date'], 'best': d['best'], 'manual': d['manual']} for d in nu.steps_list().get_json()['days']],
         'saved_meals': nu.list_saved_meals().get_json(),
     })
@@ -605,7 +605,7 @@ def workouts_page():
     st = query_db('SELECT units FROM Settings WHERE id=1', one=True)
     return render_template('workouts.html', workouts=rows, grouped=_group_activities(rows) if not is_filtered else [], totals=totals, sports=sports, f=f, is_filtered=is_filtered,
                            units=(st['units'] if st and st['units'] else 'imperial'), today=_today(),
-                           now=datetime.now(ZoneInfo('Europe/London')).strftime('%H:%M'), error=request.args.get('error'))
+                           now=tz.now().strftime('%H:%M'), error=request.args.get('error'))
 
 
 @ui.route('/workouts/new', methods=['POST'])

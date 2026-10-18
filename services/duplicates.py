@@ -10,10 +10,9 @@ strings during British Summer Time is how a 1-hour gap hid the first duplicate e
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from services import tz
 
 log = logging.getLogger(__name__)
-LOCAL = ZoneInfo('Europe/London')          # the app's home timezone everywhere else (workouts, goals, HA)
 UTC = timezone.utc
 
 OVERLAP_MIN = 0.60          # the two recordings must overlap for at least this share of the shorter one
@@ -45,7 +44,7 @@ def instant(value):
         dt = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
     except ValueError:
         return None
-    return (dt if dt.tzinfo else dt.replace(tzinfo=LOCAL)).astimezone(UTC)
+    return (dt if dt.tzinfo else dt.replace(tzinfo=tz.zone())).astimezone(UTC)
 
 
 def span(row):
@@ -127,7 +126,7 @@ def find_duplicates(db, row, exclude_ids=()):
     s = span(row)
     if not s:
         return []
-    day = s[0].astimezone(LOCAL).date()
+    day = s[0].astimezone(tz.zone()).date()
     lo, hi = (day - timedelta(days=SEARCH_DAYS)).isoformat(), (day + timedelta(days=SEARCH_DAYS + 1)).isoformat()
     cands = db.execute("SELECT * FROM Activity WHERE riderId=? AND id<>? AND substr(startDateLocal,1,10) BETWEEN ? AND ?", [row['riderId'], row['id'], lo, hi]).fetchall()
     skip = set(exclude_ids) | _kept_both_partners(db, row['id'])

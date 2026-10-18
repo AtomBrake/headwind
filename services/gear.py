@@ -56,8 +56,8 @@ def ensure_schema(db):
 
 # ---------- small helpers ----------
 def today():
-    from zoneinfo import ZoneInfo
-    return datetime.now(ZoneInfo('Europe/London')).date()
+    from services import tz
+    return tz.today()
 
 
 def parse_date(s):

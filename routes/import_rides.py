@@ -516,7 +516,8 @@ def _process_generic_zip(zf, names, rider_id=None):
 def _split_start(act):
     """(startDate, startDateLocal) for the Activity row. A GPX/FIT time with a timezone (a phone recording is UTC 'Z') is stored as
     the UTC instant plus the home-timezone local time, like Garmin rides; a naive time is local already and stays as is."""
-    from services.duplicates import instant, LOCAL
+    from services import tz
+    from services.duplicates import instant
     raw = act.get('startDateLocal')
     try:
         aware = datetime.fromisoformat(str(raw).replace('Z', '+00:00')).tzinfo is not None
@@ -525,7 +526,7 @@ def _split_start(act):
     if not aware:
         return raw, raw
     utc = instant(raw)
-    return utc.strftime('%Y-%m-%dT%H:%M:%S'), utc.astimezone(LOCAL).strftime('%Y-%m-%dT%H:%M:%S')
+    return utc.strftime('%Y-%m-%dT%H:%M:%S'), utc.astimezone(tz.zone()).strftime('%Y-%m-%dT%H:%M:%S')
 
 
 def _offer_change(db, act, source):

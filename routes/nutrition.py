@@ -190,9 +190,8 @@ _STEP_LABELS = (('steps_manual', 'Manual'), ('steps_phone', 'Phone'), ('steps_wa
 
 
 def _london_today():
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    return datetime.now(ZoneInfo('Europe/London')).date()
+    from services import tz
+    return tz.today()
 
 
 @bp.route('/steps')
@@ -354,7 +353,7 @@ def save_goal_profile():
     d = request.get_json() or {}
     sex = d.get('sex') if d.get('sex') in ('male', 'female') else None
     try:
-        age = int(d['age']) if d.get('age') else None
+        age = int(d['age']) if d.get('age') else None           # older clients still send an age
         height_cm = float(d['height_cm']) if d.get('height_cm') not in (None, '') else None
         rides = float(d['ride_kcal_week']) if d.get('ride_kcal_week') not in (None, '') else None
         loss = float(d['loss_lb_week']) if d.get('loss_lb_week') not in (None, '') else None
@@ -368,11 +367,23 @@ def save_goal_profile():
         return jsonify({'error': 'rides per week must be between 1 and 14'}), 400
     if height_cm is not None and not (100 <= height_cm <= 250):
         return jsonify({'error': 'height must be between 100 and 250 cm'}), 400
+    born = None
+    if d.get('birth_date'):
+        born = goal_model.parse_birth_date(d['birth_date'])
+        if not born or not (16 <= goal_model.age_on(born, goal_model._today()) <= 100):
+            return jsonify({'error': 'date of birth must be a real date, for an age between 16 and 100'}), 400
+    elif age is not None and not (16 <= age <= 100):
+        return jsonify({'error': 'age must be between 16 and 100'}), 400
     db = get_db()
     db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
-    db.execute("UPDATE Settings SET sex=COALESCE(?, sex), birthYear=COALESCE(?, birthYear), heightCm=COALESCE(?, heightCm), rideKcalWeek=COALESCE(?, rideKcalWeek), "
+    db.execute("UPDATE Settings SET sex=COALESCE(?, sex), heightCm=COALESCE(?, heightCm), rideKcalWeek=COALESCE(?, rideKcalWeek), "
                "lossLbPerWeek=COALESCE(?, lossLbPerWeek), stepGoal=COALESCE(?, stepGoal), rideGoalWeek=COALESCE(?, rideGoalWeek), goalAuto=? WHERE id=1",
-               [sex, (goal_model._today().year - age) if age else None, height_cm, rides, loss, steps, ride_goal, 1 if d.get('auto') else 0])
+               [sex, height_cm, rides, loss, steps, ride_goal, 1 if d.get('auto') else 0])
+    if born:
+        db.execute('UPDATE Settings SET birthDate=?, birthDateGuessed=0, birthYear=? WHERE id=1', [born.isoformat(), born.year])
+    elif age is not None and age != goal_model.profile()['age']:     # an age alone: 1 January of the year it gives, still to be confirmed
+        y = goal_model._today().year - age
+        db.execute('UPDATE Settings SET birthDate=?, birthDateGuessed=1, birthYear=? WHERE id=1', [f'{y:04d}-01-01', y])
     db.commit()
     _mqtt_nutrition()
     return jsonify({'plan': goal_model.plan(), 'profile': goal_model.profile()})

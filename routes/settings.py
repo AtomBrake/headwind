@@ -113,6 +113,11 @@ def index():
             garmin_sync_mode,
             units,
         ])
+        if 'timeZone' in form:                          # blank = the server's zone
+            from services import tz
+            zone = form['timeZone'].strip()
+            db.execute('UPDATE Settings SET timeZone=? WHERE id=1', [zone if tz.valid(zone) else None])
+            tz.forget()
         db.commit()
         if current and (current['units'] or 'imperial') != units:     # the "looks wrong" reasons are stored as text: re-word them in the new units
             from flask import g
@@ -134,7 +139,8 @@ def index():
         from version import __version__
     except ImportError:
         __version__ = 'dev'
-    return render_template('settings.html', s=s, openai_models=OPENAI_MODELS,
+    from services import tz
+    return render_template('settings.html', s=s, openai_models=OPENAI_MODELS, zones=tz.names(), server_zone=tz.server_zone_name(),
                            claude_models=CLAUDE_MODELS,
                            current_username=current_username, build_time=build_time,
                            app_version=__version__)
