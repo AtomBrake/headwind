@@ -41,7 +41,7 @@ def connect():
     ''', [email, password])
     if prev and prev['garminEmail'] and prev['garminEmail'].lower() != email.lower():
         # a different account has its own history: ask the first-run question again
-        db.execute('''UPDATE Settings SET garminHistoryFrom=NULL, garminHistoryCursor=NULL, garminHistoryDone=0,
+        db.execute('''UPDATE Settings SET garminHistoryFrom=NULL, garminHistoryCursor=NULL, garminHistoryDone=0, garminWeightsDone=0, garminWeightsStatus=NULL,
                       garminHistoryStatus=NULL, garminHistoryRetryAt=NULL WHERE id=1''')
     db.commit()
     return jsonify(result)
@@ -87,7 +87,8 @@ def history():
         return jsonify({'error': "range must be 'all', 'none' or a number of days"}), 400
     db = get_db()
     db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
-    db.execute('UPDATE Settings SET garminHistoryFrom=?, garminHistoryDone=0, garminHistoryRetryAt=NULL, garminHistoryStatus=? WHERE id=1',
+    db.execute('UPDATE Settings SET garminHistoryFrom=?, garminHistoryDone=0, garminHistoryRetryAt=NULL, garminHistoryStatus=?, '
+               'garminWeightsDone=0, garminWeightsRetryAt=NULL WHERE id=1',      # a new range: fetch the weigh-ins for it too
                [frm, 'Only recent days will be synced.' if frm == 'none' else 'Starting to fetch health history…'])
     db.commit()
     HISTORY_WAKE.set()
@@ -135,3 +136,51 @@ def sync_activities():
         mimetype='text/event-stream',
         headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'},
     )
+
+
+@bp.route('/garmin/sports')
+def sports_page():
+    """Review what an older Garmin sync saved with the wrong sport (see services/sport_fix.py)."""
+    from flask import render_template
+    from services import sport_fix
+    rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
+    return render_template('garmin_sports.html', fixes=sport_fix.pending(get_db(), rider['id']) if rider else [], msg=request.args.get('msg', ''))
+
+
+@bp.route('/garmin/sports/check', methods=['POST'])
+def sports_check():
+    from flask import redirect, url_for
+    from services import sport_fix
+    from services.garmin import _client
+    s = query_db('SELECT garminEmail, garminPassword FROM Settings WHERE id=1', one=True)
+    rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
+    if not s or not s['garminEmail'] or not s['garminPassword'] or not rider:
+        return redirect(url_for('garmin.sports_page', msg='Connect Garmin in Settings first.'))
+    try:
+        res = sport_fix.scan(get_db(), _client(s['garminEmail'], s['garminPassword']), rider['id'])
+    except Exception as e:
+        return redirect(url_for('garmin.sports_page', msg=f'Could not reach Garmin: {e}'))
+    missing = res['checked'] - res['found']
+    msg = (f"Checked {res['found']} of your {res['checked']} Garmin rides: {res['proposed']} "
+           f"{'has' if res['proposed'] == 1 else 'have'} the wrong sport.") + (f' {missing} are no longer on Garmin and were left alone.' if missing else '')
+    return redirect(url_for('garmin.sports_page', msg=msg))
+
+
+@bp.route('/garmin/sports/apply', methods=['POST'])
+def sports_apply():
+    from flask import redirect, url_for
+    from services import sport_fix
+    from services.ingest import after_ride_removed
+    rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
+    if not rider:
+        return redirect(url_for('garmin.sports_page'))
+    res = sport_fix.apply(get_db(), rider['id'], request.form.getlist('ride'))
+    after_ride_removed()                                   # the Home Assistant ride totals drop the activities that moved out
+    try:
+        from services.mqtt import push_update_nutrition
+        push_update_nutrition()
+    except Exception:
+        pass
+    msg = f"Changed {res['changed']}." + (f" {res['failed']} could not be changed (see below)." if res['failed'] else '') + \
+          (f" Left {res['kept']} as {'it is' if res['kept'] == 1 else 'they are'}." if res['kept'] else '')
+    return redirect(url_for('garmin.sports_page', msg=msg))

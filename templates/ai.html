@@ -53,7 +53,7 @@
             <div style="text-align:right; min-width:80px;">
               <span style="font-size:0.8125rem; font-weight:600; color:var(--text);">{{ m.cnt }}</span>
               <span style="font-size:0.75rem; color:var(--text-muted);"> rides</span>
-              <div style="font-size:0.7rem; color:var(--text-muted);">{{ m.total_dist }} mi · {{ m.avg_spd }} mph</div>
+              <div style="font-size:0.7rem; color:var(--text-muted);">{{ m.total_dist }} {{ U.dist }} · {{ m.avg_spd }} {{ U.speed }}</div>
             </div>
           </div>
           {% endfor %}
@@ -81,7 +81,7 @@
           <div style="display:grid; grid-template-columns:auto 1fr; gap:0.75rem; align-items:start; padding:0.6rem 0.75rem; background:#0d1f2d; border-radius:6px;">
             <div style="text-align:right; min-width:72px;">
               <div style="font-size:0.75rem; font-weight:600; color:var(--text); white-space:nowrap;">{{ r.rideDate | fmt_date }}</div>
-              <div style="font-size:0.7rem; color:var(--text-muted);">{{ r.distanceMi | round(1) }} mi</div>
+              <div style="font-size:0.7rem; color:var(--text-muted);">{{ ((r.distanceMi or 0) * 1609.344) | fmt_dist }}</div>
             </div>
             <div>
               <div style="font-size:0.8125rem; font-weight:500; color:var(--text); margin-bottom:0.2rem;">{{ r.rideName }}</div>
@@ -223,7 +223,7 @@
       strong.textContent = d.name;
       tip.replaceChildren(strong, document.createElement('br'),
         document.createTextNode(d.date), document.createElement('br'),
-        document.createTextNode(d.dist + ' mi · ' + d.speed + ' mph'));
+        document.createTextNode(d.dist + ' ' + UNITS.dist + ' · ' + d.speed + ' ' + UNITS.speed));
       tip.style.display = 'block';
     });
     circle.addEventListener('mousemove', function(e) {

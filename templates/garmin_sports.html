@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+
+{% block title %}Activity types{% endblock %}
+{% block page_title %}Activity types{% endblock %}
+
+{% block content %}
+<div class="card" style="margin-bottom:1.25rem;">
+  <div class="card-title">Check activity types with Garmin</div>
+  <p style="color:var(--text-muted); font-size:0.875rem; line-height:1.55; margin:0 0 0.75rem;">
+    An older Garmin sync saved every activity type it didn't know as a ride, so swims, surf sessions and some runs ended up in your rides,
+    counted in your ride totals and flagged as rides that look wrong. Runs, walks and hikes were also kept with the rides instead of in Workouts.
+    This asks Garmin for the real type of each Garmin ride and lists the ones that are wrong. Nothing changes until you apply it.
+  </p>
+  <form method="POST" action="{{ url_for('garmin.sports_check') }}" onsubmit="this.querySelector('button').disabled = true; this.querySelector('button').textContent = 'Asking Garmin… this can take a minute';" style="margin:0;">
+    <button class="btn btn-primary" type="submit">Check with Garmin</button>
+  </form>
+  {% if msg %}<div style="margin-top:0.75rem; padding:0.5rem 0.8rem; border:1px solid var(--border); border-radius:8px; font-size:0.875rem;">{{ msg }}</div>{% endif %}
+</div>
+
+{% if fixes %}
+<form method="POST" action="{{ url_for('garmin.sports_apply') }}" class="card"
+      onsubmit="var n = this.querySelectorAll('input[name=ride]:checked').length; return confirm('Change ' + n + ' activit' + (n == 1 ? 'y' : 'ies') + ' to the sport Garmin recorded? Rides that become runs, swims and so on move to Workouts. The ones you untick are left as they are and not suggested again.');">
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.5rem;">
+    <div class="card-title" style="margin:0;">{{ fixes | length }} with the wrong sport</div>
+    <label style="font-size:0.8125rem; display:flex; align-items:center; gap:0.4rem;">
+      <input type="checkbox" checked onchange="document.querySelectorAll('input[name=ride]').forEach(c => c.checked = this.checked)"> All
+    </label>
+  </div>
+  {% for sport, group in fixes | groupby('newSport') %}
+  <div style="margin-top:0.75rem; font-size:0.8125rem; font-weight:600; color:var(--text-muted);">{{ sport | sport_icon }} {{ 'Indoor ride' if sport == 'VirtualRide' else sport }} ({{ group | length }})</div>
+  {% for f in group %}
+  <label style="display:flex; align-items:center; gap:0.6rem; padding:0.4rem 0; border-top:1px solid var(--border); font-size:0.875rem; cursor:pointer;">
+    <input type="checkbox" name="ride" value="{{ f.rideId }}" checked>
+    <span style="flex:1; min-width:0;">
+      <a href="/rides/{{ f.rideId }}" style="color:var(--text);">{{ f.startDateLocal | fmt_date }} · {{ f.name or 'Activity' }}</a>
+      <span style="color:var(--text-muted);"> · {{ f.distance | fmt_dist }} · saved as {{ f.oldSport }}, Garmin says {{ f.typeKey | replace('_', ' ') }}</span>
+      {% if f.error %}<br><span style="color:#f59e0b;">{{ f.error }}</span>{% endif %}
+    </span>
+  </label>
+  {% endfor %}
+  {% endfor %}
+  <div style="margin-top:1rem;"><button class="btn btn-primary" type="submit">Apply the ticked changes</button></div>
+</form>
+{% endif %}
+{% endblock %}

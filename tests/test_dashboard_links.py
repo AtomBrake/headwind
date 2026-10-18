@@ -49,11 +49,11 @@ def test_deleting_a_ride_updates_every_dashboard_number_at_once(client, monkeypa
     pushed = []
     monkeypatch.setattr('services.mqtt.push_update', lambda *a, **kw: pushed.append(1))
     html, weekly, _ = _page(client)
-    assert max(w['mi'] for w in weekly) > 18000 and 'huge' in html
+    assert max(w['dist_m'] for w in weekly) > 18000 * 1609 and 'huge' in html
 
     assert client.post('/rides/huge/delete').status_code == 302
     html, weekly, speed = _page(client)
-    assert max(w['mi'] for w in weekly) < 20 and 'huge' not in html
+    assert max(w['dist_m'] for w in weekly) < 20 * 1609 and 'huge' not in html
     assert all(r['id'] != 'huge' for r in speed)
     assert pushed, 'the Home Assistant sensors are re-published after a web delete'
 
@@ -97,3 +97,35 @@ def test_a_second_riders_links_keep_the_rider(client):
     html = client.get('/dashboard?rider=2').get_data(as_text=True)
     assert 'href="/data?rider=2#distance"' in html and 'const riderQuery    = "rider=2"' in html
     assert '/dashboard?rider=2&amp;from=' in html
+
+
+def test_blips_go_in_one_click_and_the_rest_stay_flagged(client):
+    from services import sanity
+    with client.application.app_context():
+        db = database.get_db()
+        for aid, dist, top in (('blip1', 45, 3), ('blip2', 130, 3), ('spiky', 30000, 61)):
+            db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, averageSpeed, maxSpeed) "
+                       "VALUES (?, 'Cycling', 'Ride', 1, '2023-08-04T10:00:00', ?, 600, 2, ?)", [aid, dist, top])
+            sanity.flag(db, aid)
+        db.commit()
+    html, _, _ = _page(client)
+    assert 'Delete all 2 blips (under 160 m)' in html
+    assert client.post('/rides/flagged/delete-blips').status_code == 302
+    with client.application.app_context():
+        left = {f['id'] for f in sanity.flagged(database.get_db(), 1)}
+    assert left == {'spiky'}
+
+
+def test_activity_type_review_page_lists_pending_changes(client):
+    with client.application.app_context():
+        db = database.get_db()
+        db.execute("INSERT INTO SportFix (rideId, riderId, name, startDateLocal, distance, oldSport, newSport, typeKey) "
+                   "VALUES ('good', 1, 'Pool Swimming', '2021-07-19T08:00:00', 140, 'Ride', 'Swim', 'lap_swimming')")
+        db.commit()
+    html = client.get('/garmin/sports').get_data(as_text=True)
+    assert 'Pool Swimming' in html and 'Garmin says lap swimming' in html and 'name="ride" value="good"' in html
+    assert client.post('/garmin/sports/apply', data={'ride': 'good'}).status_code == 302
+    with client.application.app_context():
+        db = database.get_db()
+        assert db.execute("SELECT sport FROM Workout WHERE sport='Swim'").fetchone()
+        assert not db.execute("SELECT 1 FROM Activity WHERE id='good'").fetchone()

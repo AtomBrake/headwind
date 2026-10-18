@@ -123,7 +123,7 @@ def overview():
         r = query_db('SELECT COUNT(*) n, SUM(distance) d, SUM(calories) c FROM Workout WHERE riderId=? AND date(startDateLocal)>=?', [rid, since.isoformat()], one=True)
         return {'count': r['n'] or 0, 'distance_m': round(r['d'] or 0), 'calories': round(r['c'] or 0)}
 
-    weekly = [{'label': w['label'], 'distance_m': round(w['mi'] * 1609.344), 'elev_m': round(w['ft'] / 3.28084), 'calories': w['cals'], 'current': w['current']} for w in _weekly_data(rid)]
+    weekly = [{'label': w['label'], 'distance_m': w['dist_m'], 'elev_m': w['elev_m'], 'calories': w['cals'], 'current': w['current']} for w in _weekly_data(rid)]
     rec = query_db('SELECT date, restingHR, hrv, sleepHours, sleepScore, bodyBattery, steps FROM GarminDaily ORDER BY date DESC LIMIT 1', one=True)
     sports = [r['sportType'] for r in query_db('SELECT DISTINCT sportType FROM Activity WHERE riderId=? AND sportType IS NOT NULL ORDER BY sportType', [rid])]
     return jsonify({
@@ -480,8 +480,7 @@ def delete_workout(wid):
     rider = _rider()
     db = get_db()
     from services import workouts as _wk
-    _wk.forget(db, wid)
-    n = db.execute('DELETE FROM Workout WHERE id=? AND riderId=?', [wid, rider['id'] if rider else -1]).rowcount
+    n = _wk.delete(db, wid, rider['id'] if rider else -1)
     db.commit()
     if n:
         try:
@@ -576,8 +575,7 @@ def delete_ride(kind, rid):
     db = get_db()
     if kind == 'workout':
         from services import workouts as _wk
-        _wk.forget(db, rid)
-        n = db.execute('DELETE FROM Workout WHERE id=? AND riderId=?', [rid, rider['id'] if rider else -1]).rowcount
+        n = _wk.delete(db, rid, rider['id'] if rider else -1)
     elif kind == 'ride':
         row = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone()
         n = 1 if (row and rider and row['riderId'] == rider['id'] and duplicates.delete_activity(db, rid)) else 0
@@ -596,9 +594,11 @@ def workouts_page():
     from services import workouts
     from routes.dashboard import _group_activities
     rider = _rider()
-    f = {k: request.args.get(k, '').strip() for k in ('q', 'from', 'to', 'min_mi', 'max_mi', 'sport')}
+    from routes.dashboard import dist_filters
+    f = {k: request.args.get(k, '').strip() for k in ('q', 'from', 'to', 'sport')}
+    f['min_dist'], f['max_dist'], min_m, max_m = dist_filters(request.args)
     is_filtered = any(f.values())
-    rows = workouts.search(rider['id'], f['q'], f['from'], f['to'], f['min_mi'], f['max_mi'], f['sport']) if rider else []
+    rows = workouts.search(rider['id'], f['q'], f['from'], f['to'], min_m, max_m, f['sport']) if rider else []
     totals = {'count': len(rows), 'dist': sum(r['distance'] or 0 for r in rows), 'secs': sum(r['movingTime'] or 0 for r in rows),
               'elev': sum(r['totalElevationGain'] or 0 for r in rows), 'kcal': sum(r['calories'] or 0 for r in rows), 'steps': sum(r['steps'] or 0 for r in rows)}
     sports = [r[0] for r in query_db('SELECT DISTINCT sport FROM Workout WHERE riderId=? AND sport IS NOT NULL ORDER BY sport', [rider['id']])] if rider else []
@@ -651,8 +651,7 @@ def workouts_delete(wid):
     rider = _rider()
     db = get_db()
     from services import workouts as _wk
-    _wk.forget(db, wid)
-    db.execute('DELETE FROM Workout WHERE id=? AND riderId=?', [wid, rider['id'] if rider else -1])
+    _wk.delete(db, wid, rider['id'] if rider else -1)
     db.commit()
     _refresh_after_change('workout')
     return redirect('/workouts')

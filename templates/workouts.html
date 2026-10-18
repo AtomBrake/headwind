@@ -64,7 +64,7 @@
     <div style="display:flex; gap:0.4rem; align-items:center; flex-shrink:0;" onclick="event.stopPropagation()">
       <form method="POST" action="{{ url_for('workouts_ui.workouts_sport', wid=w.id) }}" style="margin:0;" title="Recorded as the wrong type?">
         <select name="sport" aria-label="Activity type" onchange="if (this.value !== '{{ w.sport }}' && confirm('Change this to a ' + this.value.replace('VirtualRide','indoor ride').toLowerCase() + '?')) this.form.submit(); else this.value='{{ w.sport }}';" style="font-size:.78rem;padding:.2rem .3rem;">
-          {% for sp in ['Walk','Run','Hike','Ride','VirtualRide'] %}<option value="{{ sp }}" {{ 'selected' if w.sport == sp }}>{{ 'Indoor ride' if sp == 'VirtualRide' else sp }}</option>{% endfor %}
+          {% for sp in (['Walk','Run','Hike','Ride','VirtualRide'] if w.sport in ['Walk','Run','Hike'] else [w.sport,'Walk','Run','Hike','Ride','VirtualRide']) %}<option value="{{ sp }}" {{ 'selected' if w.sport == sp }}>{{ 'Indoor ride' if sp == 'VirtualRide' else sp }}</option>{% endfor %}
         </select>
       </form>
       <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=w.id) }}" onsubmit="return confirm('Delete this activity? This cannot be undone.')" style="margin:0;"><button class="wo-del" type="submit" title="Delete">Delete</button></form>
@@ -87,8 +87,8 @@
   <div class="form-group-sm" style="flex:2; min-width:140px;"><label>Name</label><input type="text" name="q" value="{{ f.q }}" placeholder="Search workouts…"></div>
   <div class="form-group-sm" style="flex:1; min-width:110px;"><label>From</label><input type="date" name="from" value="{{ f['from'] }}"></div>
   <div class="form-group-sm" style="flex:1; min-width:110px;"><label>To</label><input type="date" name="to" value="{{ f.to }}"></div>
-  <div class="form-group-sm" style="flex:1; min-width:80px;"><label>Min mi</label><input type="number" name="min_mi" value="{{ f.min_mi }}" placeholder="0" min="0" step="0.5"></div>
-  <div class="form-group-sm" style="flex:1; min-width:80px;"><label>Max mi</label><input type="number" name="max_mi" value="{{ f.max_mi }}" placeholder="&infin;" min="0" step="0.5"></div>
+  <div class="form-group-sm" style="flex:1; min-width:80px;"><label>Min {{ U.dist }}</label><input type="number" name="min_dist" value="{{ f.min_dist }}" placeholder="0" min="0" step="0.5"></div>
+  <div class="form-group-sm" style="flex:1; min-width:80px;"><label>Max {{ U.dist }}</label><input type="number" name="max_dist" value="{{ f.max_dist }}" placeholder="&infin;" min="0" step="0.5"></div>
   <div class="form-group-sm" style="flex:1; min-width:110px;"><label>Type</label>
     <select name="sport"><option value="">All</option>{% for sp in sports %}<option value="{{ sp }}" {{ 'selected' if f.sport == sp }}>{{ sp }}</option>{% endfor %}</select></div>
   <div style="display:flex; gap:0.4rem;">

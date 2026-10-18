@@ -41,7 +41,7 @@
   <div class="card" style="margin-top:1rem;">
     <div class="card-title">Roughest spots</div>
     <div id="rgWorst" class="rg-worst" style="font-size:0.875rem;"></div>
-    <p style="color:var(--text-muted); font-size:0.75rem; margin:0.7rem 0 0; line-height:1.5;">Readings are scaled to a steady 18 mph so a fast descent does not look rougher than it is, and averaged per 20 m of road. Colours are relative to your own roads: the red end is your roughest 5%.</p>
+    <p style="color:var(--text-muted); font-size:0.75rem; margin:0.7rem 0 0; line-height:1.5;">Readings are scaled to a steady {{ 8.0 | fmt_speed(0) }} so a fast descent does not look rougher than it is, and averaged per 20 m of road. Colours are relative to your own roads: the red end is your roughest 5%.</p>
   </div>
 </div>
 {% endblock %}

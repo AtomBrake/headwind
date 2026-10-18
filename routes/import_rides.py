@@ -9,7 +9,7 @@ import tempfile
 import threading
 import traceback
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 
 from flask import Blueprint, Response, current_app, render_template, request, stream_with_context
 
@@ -369,8 +369,8 @@ def _process_strava_export(zf, names, rider_id=None):
         act['sportType'] = row.get('Activity Type', 'Ride').strip() or 'Ride'
 
         start_dt = _parse_strava_date(row.get('Activity Date', ''))
-        if start_dt:
-            act['startDateLocal'] = start_dt.isoformat()
+        if start_dt:                                    # activities.csv gives the start in UTC
+            act['startDateLocal'] = start_dt.replace(tzinfo=timezone.utc).isoformat()
 
         def csv_num(key):
             v = row.get(key, '').strip()

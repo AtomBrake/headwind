@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.5.9-beta] - 2026-10-18
+
+Migration: a new `SportFix` table, four new `Settings` columns (`utcStartFixDone`, `garminWeights*`), and one-off repairs of top speeds and imported rides' start times at start-up (all automatic). No Android change.
+
+### Fixed
+- **Garmin weight history could have gaps.** The health-history download asked for weigh-ins 28 days at a time, but when that request failed (anything other than Garmin asking it to slow down) it moved on anyway, so that stretch's weigh-ins were never asked for again. It now waits and retries the stretch. Weigh-ins are also fetched on their own, a year per request, across the history range you chose. This runs once on every install, so earlier gaps fill in, and again whenever you change the range or the Garmin account. A weight typed in Headwind or from Home Assistant is never replaced. Progress shows under the history status in Settings → Garmin Connect. `services/garmin.backfill_weigh_ins`, `tests/test_garmin_sync.py`.
+- **Rides imported from Strava or from files were counted twice** when Garmin also had them, e.g. a Zwift ride that reaches both. Imported start times were an hour early all summer: FIT files and Strava's `activities.csv` give the start in UTC, and the import took it for UK local time. So the imported copy didn't overlap its Garmin twin, the duplicate check never matched them, and both counted in every total, chart and badge. Imports now read those times as UTC. At start-up, rides already saved this way move to the right local time once, and each one is checked again for a twin. The weaker copy (normally the import, since the Garmin recording has heart rate) is set aside, not deleted, and can be swapped back from the ride page. Weather for those rides was looked up for the wrong hour and isn't refetched. `services/start_times.py`, `services/parser._utc_iso`, `tests/test_start_times.py`.
+- **Swims, surf sessions and other sports were saved as rides.** The Garmin sync turned every activity type it didn't recognise into a ride: lap and open-water swimming, surfing, paddling, skiing, golf, and trail and treadmill runs. They counted in the ride totals, charts and Home Assistant sensors, and were flagged as rides that look wrong ("Pool Swimming · only 140 m long"). Runs, walks and hikes it did recognise were still kept with the rides instead of in Workouts. The sync now saves rides as rides, indoor cycling as an indoor ride, and everything else in Workouts under its own sport (Run, Walk, Hike, Swim, Surf, Paddle, Row, Ski, Skate, Golf, Climb or Other), keeping the watch's calories. `services/garmin.garmin_sport`, `tests/test_garmin_sports.py`.
+- **Activities already saved with the wrong sport** can be put right from Settings → Garmin Connect → "Check activity types with Garmin" (also linked from the "Rides that look wrong" card). It asks Garmin for the real type of each Garmin ride (100 per call) and lists the wrong ones grouped by sport, all ticked. Apply moves them, and the ones you untick are left alone and not suggested again. A moved activity is remembered, so a re-sync can't bring it back as a ride. `services/sport_fix.py`, `GET /garmin/sports`.
+- **Mountain bike rides with a top speed of 86-137 mph.** The Garmin sync took the single highest reading in the speed recording, so one GPS jump became the ride's top speed and the ride was flagged and left out of the speed and weather charts. It now uses the parser's top speed, which ignores anything above 108 km/h. Rides already saved are recomputed from their own speed and GPS data at start-up, and re-checked, so a ride flagged only for that drops off the list. `services/max_stats.fix_spiky_max_speed`.
+- **A Garmin workout you deleted could come back** on a full re-sync. Deleting one is now remembered, as it is for rides. `services/workouts.delete`.
+- **The links on the "Rides that look wrong" card** used the browser's default blue.
+
+- **Imperial units showed up all over the app with metric chosen.** Many pages, charts and messages converted to miles, feet and mph by hand. Everything now goes through one module (`services/units.py`) and follows the Settings choice:
+  - the dashboard's Performance chart and distance filters;
+  - the ride page's charts, pace, segment builder and effort speeds;
+  - segment and rider pages, including best efforts;
+  - every Data page chart, table and the calendar heatmap (the wind chart's axis also said "kph" while its numbers were mph);
+  - the AI page, the route planner, Workouts filters and the roughness note;
+  - the "looks wrong" reasons (re-worded when you switch units), gear alerts, workout notifications and badge wording.
+
+  The AI coach is now given the ride and its history in your units, instead of in miles. Not yet converted: the Home Assistant sensors, and best-effort distances and badge limits, which are still defined in miles (see TODO). `tests/test_units.py`.
+
+### Added
+- **"Delete all blips"** on the "Rides that look wrong" card: one click, with a confirmation, deletes every flagged ride shorter than 160 m (an accidental start and stop). `POST /rides/flagged/delete-blips`.
+
 ## [0.5.8-beta] - 2026-10-18
 
 No migration. No Android change.

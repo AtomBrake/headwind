@@ -7,6 +7,14 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <script>
+  // The rider's units (services/units.py): page scripts get stored metres / m/s through these, never their own 1609.344 or 2.23694.
+  window.UNITS = {{ U | tojson }};
+  // Labels: UNITS.dist ('mi'|'km'), UNITS.elev ('ft'|'m'), UNITS.speed ('mph'|'km/h'), UNITS.pace ('/mi'|'/km'). Numbers from stored values:
+  UNITS.toDist  = function (m)   { return (m || 0) / UNITS.distM; };
+  UNITS.toElev  = function (m)   { return (m || 0) * UNITS.elevPerM; };
+  UNITS.toSpeed = function (mps) { return (mps || 0) * UNITS.speedPerMps; };
+  </script>
   {% block head %}{% endblock %}
 </head>
 <body>

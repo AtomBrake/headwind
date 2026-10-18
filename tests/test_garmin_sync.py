@@ -319,3 +319,77 @@ def test_history_route_and_account_switch_reset(env, monkeypatch):
     assert c.post('/garmin/history', json={'range': 'lots'}).status_code == 400
     c.post('/garmin/connect', json={'email': 'b@x', 'password': 'p'})
     assert c.get('/garmin/history').get_json()['from'] is None            # new account: ask again
+
+
+class WeighInsFailOnce(FakeHistoryAPI):
+    """Answers steps, but the first weigh-in request fails (not a rate limit)."""
+    def __init__(self, **kw):
+        super().__init__(**kw)
+        self.failed = False
+
+    def get_weigh_ins(self, start, end):
+        if not self.failed:
+            self.failed = True
+            raise ValueError('weight service hiccup')
+        return super().get_weigh_ins(start, end)
+
+
+def test_history_does_not_move_past_a_stretch_whose_weigh_ins_failed(henv):
+    db, run, state, days = henv
+    api = WeighInsFailOnce(active={'2026-09-20'}, weights={'2026-09-25': 81000})
+    msg = run(api, garmin.history_from('91', today=TODAY))
+    assert 'weigh-ins' in msg and state()['done'] == 0 and state()['c'] is None       # still at the start: this stretch is asked again
+    db.execute('UPDATE Settings SET garminHistoryRetryAt=NULL'); db.commit()
+    run(api)
+    assert db.execute("SELECT weightKg FROM WeightLog WHERE logDate='2026-09-25'").fetchone()[0] == 81.0 and state()['done'] == 1
+
+
+class YearlyWeighAPI:
+    def __init__(self, weights, down=False):
+        self.weights, self.down, self.calls = weights, down, []
+
+    def get_weigh_ins(self, start, end):
+        if self.down:
+            raise ConnectionError('no route to host')
+        self.calls.append((start, end))
+        return {'dailyWeightSummaries': [_day(d, (g, 1)) for d, g in self.weights.items() if start <= d <= end]}
+
+
+@pytest.fixture
+def wbenv(henv, monkeypatch):
+    db, _, _, _ = henv
+
+    def run(api, frm):
+        db.execute('UPDATE Settings SET garminHistoryFrom=?, garminWeightsDone=0, garminWeightsRetryAt=NULL WHERE id=1', [frm]); db.commit()
+        monkeypatch.setattr(garmin, '_client', lambda e, p: api)
+        return garmin.backfill_weigh_ins('e', 'p', today=TODAY)
+
+    def weights():
+        return dict(db.execute('SELECT logDate, weightKg FROM WeightLog ORDER BY logDate').fetchall())
+    yield db, run, weights
+
+
+def test_weight_history_comes_a_year_at_a_time_back_to_the_last_weigh_in(wbenv):
+    db, run, weights = wbenv
+    api = YearlyWeighAPI({'2026-10-01': 80000, '2024-05-01': 84000, '2019-02-01': 90000})
+    msg = run(api, 'all')
+    # 2019 is behind three empty years (2021-2023), so 'all' has stopped by then
+    assert weights() == {'2024-05-01': 84.0, '2026-10-01': 80.0}
+    assert len(api.calls) == 6 and all((date.fromisoformat(e) - date.fromisoformat(s)).days == 364 for s, e in api.calls)
+    assert '2 days with a weigh-in' in msg
+    assert db.execute('SELECT garminWeightsDone FROM Settings').fetchone()[0] == 1
+    assert run(api, 'all') is not None and garmin.backfill_weigh_ins('e', 'p', today=TODAY) is None   # done: nothing more to do
+
+
+def test_weight_history_keeps_to_the_chosen_range_and_manual_entries(wbenv):
+    db, run, weights = wbenv
+    db.execute("INSERT INTO WeightLog (riderId, logDate, weightKg, source) VALUES (1, '2026-10-01', 79.5, 'manual')"); db.commit()
+    run(YearlyWeighAPI({'2026-10-01': 80000, '2026-03-01': 82000, '2025-01-01': 85000}), garmin.history_from('365', today=TODAY))
+    assert weights() == {'2026-03-01': 82.0, '2026-10-01': 79.5}          # 2025-01-01 is outside the year; the typed-in weight stays
+
+
+def test_weight_history_retries_after_an_outage(wbenv):
+    db, run, weights = wbenv
+    msg = run(YearlyWeighAPI({}, down=True), 'all')
+    s = db.execute('SELECT garminWeightsDone, garminWeightsRetryAt, garminWeightsStatus FROM Settings').fetchone()
+    assert 'could not reach Garmin' in msg and s[0] == 0 and s[1] and s[2] == msg

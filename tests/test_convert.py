@@ -73,7 +73,7 @@ def test_label_only_changes_stay_where_they_are(db):
 def test_same_type_is_a_no_op_and_bad_input_is_a_clear_error(db):
     add_ride(db)
     assert convert.change_sport(db, 'ride', 'imp_x', 'Ride')['changed'] is False
-    for args in (('ride', 'imp_x', 'Swim'), ('ride', 'nope', 'Walk'), ('workout', 'nope', 'Walk'), ('thing', 'imp_x', 'Walk')):
+    for args in (('ride', 'imp_x', 'Quidditch'), ('ride', 'nope', 'Walk'), ('workout', 'nope', 'Walk'), ('thing', 'imp_x', 'Walk')):
         with pytest.raises(ValueError):
             convert.change_sport(db, *args)
 

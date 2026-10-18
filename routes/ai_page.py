@@ -22,8 +22,10 @@ def _memory_viz_data():
     min_d, max_d = dates[0], dates[-1]
     span = max((max_d - min_d).days, 1)
 
-    speeds = [float(r['avgSpeedMph'] or 0) for r in rows]
-    dists  = [float(r['distanceMi']  or 0) for r in rows]
+    from services import units
+    mi, mph = units.MI, units.MPH_PER_MPS                  # RideMemory is stored in miles and mph; shown in the rider's units
+    speeds = [units.speed(float(r['avgSpeedMph'] or 0) / mph) for r in rows]
+    dists  = [units.dist(float(r['distanceMi'] or 0) * mi) for r in rows]
     min_spd, max_spd = min(speeds), max(speeds)
     spd_range = max(max_spd - min_spd, 0.1)
     max_dist = max(dists) if dists else 1
@@ -57,8 +59,8 @@ def _memory_viz_data():
     monthly = [{
         'label':      datetime.strptime(r['mo'], '%Y-%m').strftime('%b %Y'),
         'cnt':        r['cnt'],
-        'total_dist': round(r['total_dist'] or 0, 1),
-        'avg_spd':    round(r['avg_spd'] or 0, 1),
+        'total_dist': round(units.dist((r['total_dist'] or 0) * mi), 1),
+        'avg_spd':    round(units.speed((r['avg_spd'] or 0) / mph), 1),
         'avg_elev':   round(r['avg_elev'] or 0),
         'bar_pct':    round(((r['total_dist'] or 0) / max_dist_mo) * 100),
     } for r in monthly_raw]

@@ -118,7 +118,7 @@
     <tbody id="recBody">
       {% for d in effort_brackets %}
       <tr data-dist="{{ d }}" style="border-bottom:1px solid #163352;">
-        <td style="padding:0.875rem 1.25rem; font-weight:600; color:var(--text);">{{ d }} mi</td>
+        <td style="padding:0.875rem 1.25rem; font-weight:600; color:var(--text);">{{ (d * 1609.344) | fmt_dist(0 if units != 'metric' else 1) }}</td>
         <td class="rec-time"  style="padding:0.875rem 1rem; text-align:right; font-variant-numeric:tabular-nums; color:var(--accent); font-weight:600;">—</td>
         <td class="rec-speed" style="padding:0.875rem 1rem; text-align:right; color:var(--text-muted); font-size:0.875rem;">—</td>
         <td class="rec-ride"  style="padding:0.875rem 1rem; font-size:0.875rem;">—</td>
@@ -164,7 +164,7 @@
     <tbody id="climbBody">
       {% for b in climbing_brackets %}
       <tr data-bracket="{{ b }}" style="border-bottom:1px solid #163352;">
-        <td style="padding:0.875rem 1.25rem; font-weight:600; color:var(--text);">{{ '{:,}'.format(b) }} ft</td>
+        <td style="padding:0.875rem 1.25rem; font-weight:600; color:var(--text);">{{ '{:,}'.format(b) }} {{ U.elev }}</td>
         <td class="climb-ft"   style="padding:0.875rem 1rem; text-align:right; color:var(--accent); font-weight:600;">—</td>
         <td class="climb-ride" style="padding:0.875rem 1rem; font-size:0.875rem;">—</td>
         <td class="climb-date" style="padding:0.875rem 1.25rem; text-align:right; color:var(--text-muted); font-size:0.875rem;">—</td>
@@ -178,7 +178,7 @@
 
 <!-- Speed over time -->
 <div class="card" style="margin-bottom:1.5rem;">
-  <div class="card-title">Avg Speed Per Ride (mph)</div>
+  <div class="card-title">Avg Speed Per Ride ({{ U.speed }})</div>
   <div class="cbox cbox-wide"><canvas id="speedChart"></canvas></div>
 </div>
 
@@ -208,7 +208,7 @@
 <!-- Monthly + Year-on-Year -->
 <div class="chart-grid-2" id="distance">
   <div class="card">
-    <div class="card-title">Monthly Distance (mi)</div>
+    <div class="card-title">Monthly Distance ({{ U.dist }})</div>
     <div class="cbox cbox-half"><canvas id="monthlyChart"></canvas></div>
   </div>
   <div class="card">
@@ -241,11 +241,11 @@
 
 <div class="chart-grid-2" style="margin-bottom:1.5rem;">
   <div class="card">
-    <div class="card-title">Speed vs Temperature (mph / °C)</div>
+    <div class="card-title">Speed vs Temperature ({{ U.speed }} / °C)</div>
     <div class="cbox cbox-scatter"><canvas id="wxTempChart"></canvas></div>
   </div>
   <div class="card">
-    <div class="card-title">Speed vs Wind Speed (mph)</div>
+    <div class="card-title">Speed vs Wind Speed ({{ U.speed }})</div>
     <div class="cbox cbox-scatter"><canvas id="wxWindChart"></canvas></div>
   </div>
 </div>
@@ -285,7 +285,7 @@
     <div style="max-height:24rem; overflow:auto; font-size:0.8125rem;">
       {% for r in claimed + other %}
       <div id="storm_{{ r.id }}" style="display:flex; align-items:center; gap:0.6rem; padding:0.35rem 0; border-top:1px solid #163352; flex-wrap:wrap;">
-        <a href="/rides/{{ r.id }}" style="flex:1 1 13rem;">{{ r.date_txt }} · {{ r.name or 'Ride' }}<br><span style="color:var(--text-muted);">Storm {{ r.storm }} · {{ (r.distance / 1609.344) | round(1) }} mi · {% if r.gust_kph is not none %}gusts {{ r.gust_kph | round | int }} kph{% else %}no wind data{% endif %}{% if r.condition and r.condition != 'Storm' %} · {{ r.condition }}{% endif %}</span></a>
+        <a href="/rides/{{ r.id }}" style="flex:1 1 13rem;">{{ r.date_txt }} · {{ r.name or 'Ride' }}<br><span style="color:var(--text-muted);">Storm {{ r.storm }} · {{ r.distance | fmt_dist }} · {% if r.gust_kph is not none %}gusts {{ r.gust_kph | round | int }} kph{% else %}no wind data{% endif %}{% if r.condition and r.condition != 'Storm' %} · {{ r.condition }}{% endif %}</span></a>
         {% if r.condition == 'Storm' %}
         <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;" onclick="stormPick('{{ r.id }}','notstorm')">Not a storm</button>
         {% else %}
@@ -357,7 +357,7 @@
         const t = h ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
                     : `${m}:${String(sec).padStart(2,'0')}`;
         row.querySelector('.rec-time').textContent  = t;
-        row.querySelector('.rec-speed').textContent = rec.mph + ' mph';
+        row.querySelector('.rec-speed').textContent = rec.speed + ' ' + UNITS.speed;
         {
           const a = document.createElement('a');
           a.href = '/rides/' + encodeURIComponent(rec.rideId);
@@ -407,7 +407,7 @@
       const rec = src[b];
       if (rec) {
         anyData = true;
-        row.querySelector('.climb-ft').textContent   = rec.ft.toLocaleString() + ' ft';
+        row.querySelector('.climb-ft').textContent   = rec.ft.toLocaleString() + ' ' + UNITS.elev;      // rec.ft is in the rider's unit
         {
           const a = document.createElement('a');
           a.href = '/rides/' + encodeURIComponent(rec.rideId);
@@ -502,7 +502,7 @@ new Chart(document.getElementById('speedChart'), {
       legend: { display: true, labels: { color: TICK_COLOR, boxWidth: 12 } },
       tooltip: { mode: 'index', intersect: false }
     },
-    scales: scalesXY('mph')
+    scales: scalesXY(UNITS.speed)
   }
 });
 
@@ -521,8 +521,8 @@ new Chart(document.getElementById('monthlyChart'), {
   },
   options: {
     animation: false,
-    plugins: { ...noLegend(), tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} mi` } } },
-    scales: scalesXY('miles')
+    plugins: { ...noLegend(), tooltip: { callbacks: { label: ctx => `${ctx.parsed.y} ${UNITS.dist}` } } },
+    scales: scalesXY(UNITS.dist)
   }
 });
 
@@ -561,9 +561,9 @@ new Chart(document.getElementById('monthlyChart'), {
       animation: false,
       plugins: {
         legend: { display: true, labels: { color: TICK_COLOR, boxWidth: 10, font: { size: 10 } } },
-        tooltip: { mode: 'index', intersect: false, callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y} mi` } }
+        tooltip: { mode: 'index', intersect: false, callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y} ${UNITS.dist}` } }
       },
-      scales: scalesXY('miles')
+      scales: scalesXY(UNITS.dist)
     }
   });
 })();
@@ -742,8 +742,8 @@ new Chart(document.getElementById('dowChart'), {
           c.style.background = 'transparent';
         } else {
           const ds = ymd(cd), mi = heatmap[ds] || 0;
-          c.style.background = heatColor(mi);
-          c.title = mi > 0 ? `${fmtDate(ds)}: ${mi.toFixed(1)} mi` : fmtDate(ds);
+          c.style.background = heatColor(mi * UNITS.distM / 1609.344);      // the colour steps are in miles
+          c.title = mi > 0 ? `${fmtDate(ds)}: ${mi.toFixed(1)} ${UNITS.dist}` : fmtDate(ds);
         }
         col.appendChild(c);
       }
@@ -756,7 +756,7 @@ new Chart(document.getElementById('dowChart'), {
     container.appendChild(wrap);
     wrap.scrollLeft = wrap.scrollWidth;                                    // open at the most recent end
     const legend = document.getElementById('heatLegendNote');
-    if (legend) legend.textContent = 'Each square is a day (miles ridden). Scroll sideways for earlier years.';
+    if (legend) legend.textContent = 'Each square is a day (' + UNITS.distWord + ' ridden). Scroll sideways for earlier years.';
   };
 
   renderHeatmap();
@@ -799,7 +799,7 @@ new Chart(document.getElementById('dowChart'), {
       scales: {
         x: { title: { display: true, text: 'Temperature (°C)', color: '#4d7d95' },
              ticks: { color: '#4d7d95' }, grid: { color: '#1a3a52' } },
-        y: { title: { display: true, text: 'Avg Speed (mph)', color: '#4d7d95' },
+        y: { title: { display: true, text: 'Avg Speed (' + UNITS.speed + ')', color: '#4d7d95' },
              ticks: { color: '#4d7d95' }, grid: { color: '#1a3a52' } },
       }
     }
@@ -843,9 +843,9 @@ new Chart(document.getElementById('dowChart'), {
       },
       plugins: { legend: { labels: { color: '#8ab4cc', boxWidth: 10, font: { size: 11 } } } },
       scales: {
-        x: { title: { display: true, text: 'Wind Speed (kph)', color: '#4d7d95' },
+        x: { title: { display: true, text: 'Wind Speed (' + UNITS.speed + ')', color: '#4d7d95' },
              ticks: { color: '#4d7d95' }, grid: { color: '#1a3a52' } },
-        y: { title: { display: true, text: 'Avg Speed (mph)', color: '#4d7d95' },
+        y: { title: { display: true, text: 'Avg Speed (' + UNITS.speed + ')', color: '#4d7d95' },
              ticks: { color: '#4d7d95' }, grid: { color: '#1a3a52' } },
       }
     }
@@ -873,7 +873,7 @@ new Chart(document.getElementById('dowChart'), {
     data: {
       labels: labels.map((l, i) => l + ' (' + counts[i] + ')'),
       datasets: [{
-        label: 'Avg Speed (mph)',
+        label: 'Avg Speed (' + UNITS.speed + ')',
         data: avgs,
         backgroundColor: labels.map(l => condColors[l] || 'rgba(100,181,246,0.7)'),
         borderRadius: 4,
@@ -898,7 +898,7 @@ new Chart(document.getElementById('dowChart'), {
       },
       scales: {
         x: { ticks: { color: '#8ab4cc' }, grid: { color: '#1a3a52' } },
-        y: { beginAtZero: true, title: { display: true, text: 'Avg Speed (mph)', color: '#4d7d95' },
+        y: { beginAtZero: true, title: { display: true, text: 'Avg Speed (' + UNITS.speed + ')', color: '#4d7d95' },
              ticks: { color: '#4d7d95' }, grid: { color: '#1a3a52' } },
         y2: { beginAtZero: true, position: 'right', title: { display: true, text: 'Rides', color: '#fc4c02' },
               ticks: { color: '#fc4c02' }, grid: { drawOnChartArea: false } },
