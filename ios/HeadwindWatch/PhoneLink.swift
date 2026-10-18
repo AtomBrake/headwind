@@ -4,12 +4,13 @@ import WatchConnectivity
 
 /// Watch end of the iPhone link. Finished rides go to the phone with transferFile, which the system queues and
 /// delivers whenever the phone is reachable, even hours later, so riding without the phone is fine.
-/// The phone sends back the server's units and whether it's paired.
+/// The phone sends back the server's units, whether it's paired and the rider's bikes.
 @MainActor
 @Observable
 final class PhoneLink: NSObject {
     private(set) var units = Units(system: "metric")
     private(set) var phonePaired = true
+    private(set) var bikes: [Bike] = []
     /// Rides in the outbox: not yet confirmed delivered to the phone.
     private(set) var waitingToSend = 0
     /// Why rides are stuck in the outbox (e.g. Headwind isn't installed on the iPhone); nil while sending normally.
@@ -110,9 +111,15 @@ final class PhoneLink: NSObject {
         }
     }
 
-    private func apply(units system: String?, paired: Bool?) {
+    private func apply(units system: String?, paired: Bool?, bikes: [Bike]?) {
         if let system { units = Units(system: system) }
         if let paired { phonePaired = paired }
+        if let bikes { self.bikes = bikes }
+    }
+
+    /// The bikes in an application context, or nil if it has none (an older iPhone app).
+    nonisolated private static func bikes(in context: [String: Any]) -> [Bike]? {
+        (context[WatchLink.bikesKey] as? [[String: Any]])?.compactMap(Bike.init(dictionary:))
     }
 }
 
@@ -120,9 +127,10 @@ extension PhoneLink: WCSessionDelegate {
     nonisolated func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
         let context = session.receivedApplicationContext
         let units = context[WatchLink.unitsKey] as? String, paired = context[WatchLink.pairedKey] as? Bool
+        let bikes = Self.bikes(in: context)
         let activated = state == .activated
         Task { @MainActor in
-            self.apply(units: units, paired: paired)
+            self.apply(units: units, paired: paired, bikes: bikes)
             if activated { self.resendOutbox() }
             self.refreshCount()
         }
@@ -130,7 +138,8 @@ extension PhoneLink: WCSessionDelegate {
 
     nonisolated func session(_ session: WCSession, didReceiveApplicationContext context: [String: Any]) {
         let units = context[WatchLink.unitsKey] as? String, paired = context[WatchLink.pairedKey] as? Bool
-        Task { @MainActor in self.apply(units: units, paired: paired) }
+        let bikes = Self.bikes(in: context)
+        Task { @MainActor in self.apply(units: units, paired: paired, bikes: bikes) }
     }
 
     nonisolated func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {

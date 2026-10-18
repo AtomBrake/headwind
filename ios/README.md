@@ -6,18 +6,23 @@ A native SwiftUI companion for a Headwind server. It uses the same phone API and
 | Tab | Shows | Endpoint |
 |---|---|---|
 | Today | Calories ring (eaten / goal / burned), macros, water, steps, weight trend, food diary by meal, today's walks and runs | `GET /api/v1/today` |
-| Record | Map, live stats, start / pause / finish a ride; list of recordings and their upload status | `POST /api/v1/rides`, `POST /api/v1/live` |
+| Record | Map, live stats, start / pause / finish a ride, e-bike ride, run, walk or hike, on a chosen bike; list of recordings, their upload status and bike | `POST /api/v1/rides`, `POST /api/v1/workouts`, `POST /api/v1/rides/ride/<id>/bike`, `POST /api/v1/live` |
 | Overview | Riding totals for week / month / year / all time, 12-week distance chart, latest recovery (resting HR, HRV, sleep, body battery) | `GET /api/v1/overview` |
-| Settings | Paired server, rider, units, unpair | `GET /api/v1/ping` |
+| Settings | Paired server, rider, units, unpair (the ping also brings the rider's bikes) | `GET /api/v1/ping` |
 
-**Apple Watch:** ride recording only. Start, pause and end a ride on the wrist with GPS, heart rate, speed,
-distance and climbing.
+**Apple Watch:** recording only. Start, pause and end a ride, run, walk or hike on the wrist with GPS, heart rate,
+speed or pace, distance and climbing.
 
 ## Recording rides
 
+- **Sport and bike:** pick Ride, E-bike ride, Run, Walk or Hike before Start, on the phone or the Watch, and for rides
+  the bike (the server's default to begin with; the last choice is remembered). Both are fixed once recording. Rides
+  upload to `/api/v1/rides` with `bike_id`; on foot they go to `/api/v1/workouts` with their sport. On foot the live
+  stats show pace, and the Watch records the matching Apple Health workout. A ride's bike can be changed later from its
+  menu under Recordings, before or after upload.
 - **iPhone:** GPS keeps recording with the screen locked. While recording, the phone reports its position to
   `/api/v1/live` every 15 s for Home Assistant, as the Android app does.
-- **Watch:** runs as a HealthKit cycling workout, which keeps the app running with the wrist down and supplies heart
+- **Watch:** runs as a HealthKit workout of the chosen sport, which keeps the app running with the wrist down and supplies heart
   rate. The finished ride is saved to Apple Health with its route, and sent to the iPhone as GPX with heart rate
   on every point. The phone uploads it with its own pairing, so the Watch never needs pairing. Riding without the
   phone is fine: the system queues the transfer until the two are back in range.

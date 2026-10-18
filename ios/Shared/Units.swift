@@ -25,6 +25,27 @@ struct Units {
         return value.formatted(.number.precision(.fractionLength(1))) + (metric ? " km/h" : " mph")
     }
 
+    /// Minutes per kilometre or mile on foot: "5:32 /km". A dash when standing still, rather than hours per kilometre.
+    func pace(metresPerSecond v: Double) -> String {
+        guard v >= 0.3 else { return "–" + (metric ? " /km" : " /mi") }
+        let total = Int(((metric ? 1000 : 1609.344) / v).rounded())
+        return String(format: "%d:%02d", total / 60, total % 60) + (metric ? " /km" : " /mi")
+    }
+
+    /// Speed for rides, pace on foot, as the server's dashboard shows them.
+    func rate(metresPerSecond v: Double, sport: Sport) -> String {
+        sport.isRide ? speed(metresPerSecond: v) : pace(metresPerSecond: v)
+    }
+
+    static func rateCaption(_ sport: Sport, average: Bool = false) -> String {
+        switch (sport.isRide, average) {
+        case (true, false): "Speed"
+        case (true, true): "Avg speed"
+        case (false, false): "Pace"
+        case (false, true): "Avg pace"
+        }
+    }
+
     /// Stopwatch style for a ride in progress: 0:42, 12:05, 1:03:27.
     static func clock(seconds s: Double) -> String {
         let total = max(0, Int(s))

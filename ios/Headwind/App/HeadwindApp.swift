@@ -47,7 +47,7 @@ struct HeadwindApp: App {
     }
 
     private func syncWatch() {
-        watch.updateWatch(units: session.info?.units, paired: session.pairing != nil)
+        watch.updateWatch(units: session.info?.units, paired: session.pairing != nil, bikes: session.bikes)
     }
 }
 
@@ -57,6 +57,9 @@ struct Ignored: Decodable, Sendable {}
 struct RootView: View {
     @Environment(Session.self) private var session
     @Environment(PhoneRideRecorder.self) private var recorder
+    /// Set while a new server is being checked before it replaces the current pairing.
+    @State private var switching = false
+    @State private var switchError: AppError?
 
     var body: some View {
         Group {
@@ -73,12 +76,45 @@ struct RootView: View {
         .alert("Pair with a different server?", isPresented: switchPrompt) {
             Button("Pair", role: .destructive) {
                 guard let link = session.pendingLink else { return }
-                session.unpair()
-                session.pendingLink = link   // PairingView takes it from here
+                session.pendingLink = nil
+                Task { await switchServer(to: link) }
             }
             Button("Cancel", role: .cancel) { session.pendingLink = nil }
         } message: {
-            Text("This phone is paired with \(session.pairing?.server.host() ?? "a server"). Opening this code replaces that pairing.")
+            Text(switchMessage)
+        }
+        .alert("Couldn't pair with the new server", isPresented: Binding(get: { switchError != nil }, set: { if !$0 { switchError = nil } }),
+               presenting: switchError) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { error in
+            Text("\(error.localizedDescription)\n\nThis phone is still paired with \(session.pairing?.server.host() ?? "its server").")
+        }
+        .overlay {
+            if switching {
+                ProgressView("Checking the new server…")
+                    .padding(20)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            }
+        }
+    }
+
+    private var switchMessage: String {
+        let current = session.pairing?.server.host() ?? "a server"
+        guard let link = session.pendingLink, let new = (try? PairLink.parse(link))?.server.host() else {
+            return "This phone is paired with \(current). Opening this code replaces that pairing."
+        }
+        return "This phone is paired with \(current). Opening this code pairs it with \(new) instead."
+    }
+
+    /// The new server is checked first (Session.pair stores a pairing only once its server accepts the token), so a stale or
+    /// mistyped link leaves the working pairing alone.
+    private func switchServer(to link: String) async {
+        switching = true
+        defer { switching = false }
+        do throws(AppError) {
+            try await session.pair(link: link)
+        } catch {
+            switchError = error
         }
     }
 

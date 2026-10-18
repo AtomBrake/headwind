@@ -35,7 +35,8 @@ private struct RecordScreen: View {
 
             VStack(spacing: 12) {
                 if let recovered = recorder.recovered, !recorder.isRecording {
-                    RecoveredBanner(start: recovered.start, save: { save(recovered: true) }, discard: recorder.discardRecovered)
+                    RecoveredBanner(start: recovered.start, sport: recovered.sport, save: { save(recovered: true) },
+                                    discard: recorder.discardRecovered)
                 }
                 if let watchError = watch.lastError {
                     Label("A ride from your Watch couldn't be saved: \(watchError.localizedDescription)", systemImage: "applewatch.slash")
@@ -52,7 +53,7 @@ private struct RecordScreen: View {
                 if recorder.isRecording {
                     RideStatsPanel(recorder: recorder, units: session.units)
                 }
-                RecordControls(recorder: recorder, onStart: startRide) { confirmFinish = true }
+                RecordControls(recorder: recorder, bikes: session.bikes, onStart: startRide) { confirmFinish = true }
             }
             .padding(16)
         }
@@ -67,10 +68,10 @@ private struct RecordScreen: View {
                 .accessibilityIdentifier("recordings")
             }
         }
-        .confirmationDialog("Finish this ride?", isPresented: $confirmFinish, titleVisibility: .visible) {
-            Button("Save ride") { save(recovered: false) }
-            Button("Discard ride", role: .destructive) { recorder.discard() }
-            Button("Keep riding", role: .cancel) {}
+        .confirmationDialog("Finish this \(recorder.sport.title.lowercased())?", isPresented: $confirmFinish, titleVisibility: .visible) {
+            Button("Save \(recorder.sport.title.lowercased())") { save(recovered: false) }
+            Button("Discard \(recorder.sport.title.lowercased())", role: .destructive) { recorder.discard() }
+            Button("Keep going", role: .cancel) {}
         }
         .alert("Couldn't save the ride", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } }),
                presenting: error) { _ in
@@ -103,7 +104,7 @@ private struct RecordScreen: View {
     /// If it can't be saved, the error shows and the new ride doesn't start.
     private func startRide() {
         if recorder.recovered != nil, !save(recovered: true, announce: false) { return }
-        recorder.start()
+        recorder.start(bike: Bike.pick(recorder.chosenBike, from: session.bikes))
     }
 
     /// Store the finished (or recovered) ride, then upload it. The recorder lets go of the ride only once it's

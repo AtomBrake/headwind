@@ -21,11 +21,14 @@ struct APIClient: Sendable {
         return try await send(req, as: type)
     }
 
-    /// POST one file as multipart/form-data field `file` (e.g. a GPX to /rides).
-    func upload<T: Decodable & Sendable>(_ path: String, file: Data, filename: String, mimeType: String,
+    /// POST one file as multipart/form-data field `file` (e.g. a GPX to /rides), plus any plain form `fields`.
+    func upload<T: Decodable & Sendable>(_ path: String, file: Data, filename: String, mimeType: String, fields: [String: String] = [:],
                                          as type: T.Type = T.self) async throws(AppError) -> T {
         let boundary = "headwind-\(UUID().uuidString)"
         var body = Data()
+        for (name, value) in fields.sorted(by: { $0.key < $1.key }) {
+            body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".utf8))
+        }
         body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n".utf8))
         body.append(Data("Content-Type: \(mimeType)\r\n\r\n".utf8))
         body.append(file)

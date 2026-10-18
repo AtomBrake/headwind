@@ -5,7 +5,7 @@ import WatchConnectivity
 /// iPhone end of the Watch link. Rides recorded on the Watch arrive as GPX file transfers (queued by the
 /// system, delivered even if this app wasn't running) and go into the RideStore to upload with the phone's
 /// pairing; the Watch never talks to the server itself. In the other direction the phone tells the Watch
-/// which units to show and whether it's paired.
+/// which units to show, whether it's paired, and the rider's bikes for its bike picker.
 @MainActor
 @Observable
 final class WatchBridge: NSObject {
@@ -14,8 +14,8 @@ final class WatchBridge: NSObject {
     @ObservationIgnored var onRideReceived: (() -> Void)?
     /// The last Watch ride that couldn't be stored on the phone, for the Record tab to show.
     private(set) var lastError: AppError?
-    /// The latest units/paired context for the Watch, kept until the session can take it.
-    @ObservationIgnored private var context: (units: String, paired: Bool)?
+    /// The latest units/paired/bikes context for the Watch, kept until the session can take it.
+    @ObservationIgnored private var context: (units: String, paired: Bool, bikes: [Bike])?
     /// Where arriving rides are held (GPX plus a summary .json) until the RideStore takes them. Once a transfer
     /// is received the Watch deletes its copy, so this is in Application Support, not a purgeable temp directory.
     nonisolated let inbox: URL
@@ -37,8 +37,8 @@ final class WatchBridge: NSObject {
         WCSession.default.activate()
     }
 
-    func updateWatch(units: String?, paired: Bool) {
-        context = (units ?? "metric", paired)
+    func updateWatch(units: String?, paired: Bool, bikes: [Bike]) {
+        context = (units ?? "metric", paired, bikes)
         sendContext()
     }
 
@@ -47,7 +47,8 @@ final class WatchBridge: NSObject {
     private func sendContext() {
         guard let context, WCSession.isSupported(), WCSession.default.activationState == .activated,
               WCSession.default.isPaired, WCSession.default.isWatchAppInstalled else { return }
-        try? WCSession.default.updateApplicationContext([WatchLink.unitsKey: context.units, WatchLink.pairedKey: context.paired])
+        try? WCSession.default.updateApplicationContext([WatchLink.unitsKey: context.units, WatchLink.pairedKey: context.paired,
+                                                         WatchLink.bikesKey: context.bikes.map(\.dictionary)])
     }
 
     /// Move every held ride into the RideStore. One that can't be stored stays in the inbox for the next try.
