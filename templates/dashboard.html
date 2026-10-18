@@ -228,7 +228,7 @@ function dismissFlagged(id) {
 {% endif %}
 
 <!-- Search / Filter -->
-<form method="GET" action="/dashboard" class="toolbar">
+<form method="GET" action="/dashboard" class="toolbar" onsubmit="if (window.sportSkips) sportSkips(this)">
   {% if not active_rider.isDefault %}<input type="hidden" name="rider" value="{{ active_rider.id }}">{% endif %}
   <div class="form-group-sm" style="flex:2; min-width:140px;">
     <label>Name</label>
@@ -260,12 +260,22 @@ function dismissFlagged(id) {
     </select>
   </div>
   {% if sport_types | length > 1 %}
-  <div class="form-group-sm" style="flex-basis:100%; display:flex; flex-wrap:wrap; align-items:center; gap:0.25rem 0.9rem; font-size:0.8125rem;">
-    <span style="color:var(--text-muted);">Leave out</span>
+  {# Every sport is ticked to start with; unticking one leaves it out. The URL lists only the ones left out (skip=), so a sport that turns up later is shown. #}
+  <div class="sport-include">
+    <span class="sport-include-label">Include</span>
     {% for st in sport_types %}
-    <label style="display:inline-flex; align-items:center; gap:0.3rem; margin:0; font-weight:400; color:var(--text);"><input type="checkbox" name="skip" value="{{ st.sportType }}" {% if st.sportType in skip %}checked{% endif %} onchange="this.form.submit()"> {{ st.sportType | sport_icon }} {{ st.sportType }}</label>
+    <label><input type="checkbox" data-sport value="{{ st.sportType }}" {% if st.sportType not in skip %}checked{% endif %} onchange="sportSkips(this.form); this.form.submit()"> {{ st.sportType | sport_icon }} {{ st.sportType }}</label>
     {% endfor %}
+    {% if skip %}<button type="button" class="sport-include-all" onclick="this.form.querySelectorAll('input[data-sport]').forEach(b => b.checked = true); sportSkips(this.form); this.form.submit()">Tick all</button>{% endif %}
   </div>
+  <script>
+  function sportSkips(form) {                 // the unticked sports become skip=… on the form, for both the tick boxes and the Search button
+    form.querySelectorAll('input[name="skip"]').forEach(i => i.remove());
+    form.querySelectorAll('input[data-sport]:not(:checked)').forEach(b => {
+      const h = document.createElement('input'); h.type = 'hidden'; h.name = 'skip'; h.value = b.value; form.appendChild(h);
+    });
+  }
+  </script>
   {% endif %}
   <div style="display:flex; gap:0.4rem;">
     <button type="submit" class="btn btn-primary" style="padding:0.35rem 0.9rem; font-size:0.875rem;">Search</button>
