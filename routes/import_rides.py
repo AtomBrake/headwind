@@ -25,9 +25,10 @@ bp = Blueprint('import_rides', __name__)
 @bp.route('/import')
 def index():
     from database import query_db
-    from services import reimport
+    from services import reimport, strava_gear
+    from services.rider_mode import owner_rider_id
     riders = query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name ASC')
-    return render_template('import.html', riders=riders, changes=reimport.pending(get_db()))
+    return render_template('import.html', riders=riders, changes=reimport.pending(get_db()), strava_pending=strava_gear.pending(get_db(), owner_rider_id()))
 
 
 @bp.route('/import/changes/<path:ride_id>/<choice>', methods=['POST'])
@@ -363,6 +364,14 @@ def _process_strava_export(zf, names, rider_id=None):
 
     db = get_db()
     imported = skipped = errors = changed = 0
+    from services import strava_gear
+    try:                                                # which bike Strava says rode each ride: those rides wait for it, not the default bike
+        ride_gear = strava_gear.record(db, zf, names, rows, rider_id)
+        db.commit()
+    except Exception as e:
+        log.error('Strava import: could not read the bikes (%s)', e)
+        db.rollback()
+        ride_gear = {}
 
     for i, row in enumerate(rows):
         act_id = str(row.get('Activity ID', '')).strip()
@@ -439,7 +448,7 @@ def _process_strava_export(zf, names, rider_id=None):
             from services import duplicates
             dup = duplicates.resolve(db, act.get('id'))
             from services import gear
-            gear.on_ride_added(db, act.get('id'))
+            gear.on_ride_added(db, act.get('id'), stamp=act_id not in ride_gear)
             from services.ingest import after_ride_added
             after_ride_added(db, (dup or {}).get('kept', act.get('id')))
             db.commit()
@@ -450,9 +459,18 @@ def _process_strava_export(zf, names, rider_id=None):
 
         yield _progress(i + 1, total, imported, skipped, errors)
 
-    log.warning('Strava import done — imported=%d skipped=%d changed=%d errors=%d',
-                imported, skipped, changed, errors)
-    yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'changed': changed, 'errors': errors})
+    bikes = {}
+    if ride_gear and rider_id:
+        try:                                            # rides of the Strava bikes already matched go on their bike; the rest wait for /gear/strava
+            bikes = {'bikes_filled': strava_gear.apply_matched(db, rider_id), 'bikes_to_match': strava_gear.pending(db, rider_id),
+                     'bikes_url': f'/gear/strava?rider={rider_id}'}
+            db.commit()
+        except Exception as e:
+            log.error('Strava import: could not put rides on their bikes (%s)', e)
+            db.rollback()
+    log.warning('Strava import done — imported=%d skipped=%d changed=%d errors=%d bikes=%s',
+                imported, skipped, changed, errors, bikes)
+    yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'changed': changed, 'errors': errors, **bikes})
 
 
 def _process_generic_zip(zf, names, rider_id=None):

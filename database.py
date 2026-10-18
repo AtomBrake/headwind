@@ -733,6 +733,8 @@ def migrate_db():
     _dup_schema(db)
     from services.gear import ensure_schema as _gear_schema
     _gear_schema(db)
+    from services.strava_gear import ensure_schema as _strava_gear_schema
+    _strava_gear_schema(db)
     db.commit()
     # Every Activity column is there now: put the large ones last (heavy_last), then the track summaries and their triggers (services/tracks.py).
     rebuilt = {t: heavy_last(db, t, cols) for t, cols in HEAVY_COLUMNS.items()}
