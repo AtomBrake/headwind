@@ -47,9 +47,27 @@ def instant(value):
     return (dt if dt.tzinfo else dt.replace(tzinfo=tz.zone())).astimezone(UTC)
 
 
+def start_instant(row):
+    """The real start of an activity row/dict (UTC), or None. Every path that knows it stores the UTC instant in startDate and the local time in
+    startDateLocal (Garmin's startTimeGMT, FIT and Strava export times, a GPX with a 'Z', the phone app, manual entries), so startDate is the one
+    to trust: Garmin's local time is the clock where the ride happened, which on a trip abroad is not the home zone (a Vancouver walk read as
+    London time is 8 hours out and never overlaps its Strava copy). When the two are the same string it is a naive time saved in both (a file
+    with no zone): read that as home-zone local, which is also what a UTC time means whenever the home zone is on UTC."""
+    keys = row.keys()
+    utc = row['startDate'] if 'startDate' in keys else None
+    local = row['startDateLocal'] if 'startDateLocal' in keys else None
+    if utc and str(utc)[:19] != str(local or '')[:19]:
+        try:
+            dt = datetime.fromisoformat(str(utc).replace('Z', '+00:00'))
+            return (dt if dt.tzinfo else dt.replace(tzinfo=UTC)).astimezone(UTC)
+        except ValueError:
+            pass
+    return instant(local or utc)
+
+
 def span(row):
     """(start, end) instants of an activity row/dict, or None if it has no usable start."""
-    start = instant(row['startDateLocal'] if row['startDateLocal'] else row['startDate'])
+    start = start_instant(row)
     if not start:
         return None
     secs = max(int(row['elapsedTime'] or 0), int(row['movingTime'] or 0))

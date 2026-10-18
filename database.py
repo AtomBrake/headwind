@@ -284,6 +284,7 @@ def migrate_db():
         ('garminHistoryStatus',  'TEXT'),
         ('garminHistoryRetryAt', 'TEXT'),      # after a rate limit or outage, don't try again before this (UTC ISO)
         ('utcStartFixDone',      'INTEGER DEFAULT 0'),
+        ('awayStartRecheckDone', 'INTEGER DEFAULT 0'),   # duplicates re-checked on the UTC instant for rides recorded abroad (services/start_times.py)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
         ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
@@ -722,6 +723,13 @@ def migrate_db():
         _tasks.record(db, 'startup:utc_starts', 'Start times of imported rides',
                       f"{res['moved']} ride{'s' if res['moved'] != 1 else ''} moved from UTC to UK time; "
                       f"{res['duplicates']} turned out to be a ride already here (the weaker copy was set aside)" if res['moved'] else 'Nothing needed moving')
+        db.commit()
+    from services.start_times import recheck_away_starts
+    res = recheck_away_starts(db)
+    if res.get('ran') and res['checked']:
+        _tasks.record(db, 'startup:away_starts', 'Duplicates of activities recorded in another time zone',
+                      f"{res['checked']} checked again on their real start time; "
+                      f"{res['duplicates']} turned out to be a ride already here (the weaker copy was set aside)")
         db.commit()
     from services.reimport import ensure_schema as _reimport_schema
     _reimport_schema(db)

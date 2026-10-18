@@ -690,7 +690,8 @@ def sync_garmin_activities(email, password, rider_id):
             # Same ride already here from another source? A phone/file copy is fine: we still fetch the Garmin one (it has the sensors) and
             # resolve() keeps the better recording afterwards. Only skip when Garmin itself already gave us this ride under another id.
             garmin_distance = a.get('distance') or 0
-            probe = {'id': db_id, 'startDateLocal': start_local, 'startDate': start_local, 'riderId': rider_id, 'distance': garmin_distance,
+            probe = {'id': db_id, 'startDateLocal': start_local, 'startDate': (a.get('startTimeGMT') or start_local or '').replace(' ', 'T'),     # the real instant: start_local is wherever the ride was
+                     'riderId': rider_id, 'distance': garmin_distance,
                      'elapsedTime': int(a.get('elapsedDuration') or a.get('duration') or 0), 'movingTime': int(a.get('movingDuration') or a.get('duration') or 0)}
             if any(str(t['id']).startswith('garmin_') for t in duplicates.find_duplicates(db, probe)):
                 skipped += 1
