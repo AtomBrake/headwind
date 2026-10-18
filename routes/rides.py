@@ -403,6 +403,8 @@ def delete(rid):
     duplicates.delete_activity(db, rid)
     db.execute('DELETE FROM RideMemory WHERE rideId=?', [rid])
     db.commit()
+    from services.ingest import after_ride_removed
+    after_ride_removed()
     return redirect(url_for('dashboard.dashboard'))
 
 
