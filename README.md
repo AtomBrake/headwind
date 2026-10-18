@@ -493,7 +493,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - Works over LAN, VPN or the public internet (use HTTPS).
 
 ### Automation and coaching
-- **AI coaching** (optional): GPT models or a local **Ollama** model; the prompt includes ride stats, weather, similar past rides, segment comparisons and recovery. Ten personalities (including a refreshingly rude one) and your own coaching goals.
+- **AI coaching** (optional): GPT models, **Claude**, or a local **Ollama** model; the prompt includes ride stats, weather, similar past rides, segment comparisons and recovery. Ten personalities (including a refreshingly rude one) and your own coaching goals.
 - **Home Assistant / MQTT**: ride, recovery, nutrition, hydration and weight sensors with auto-discovery; notifications; dashboards.
 - **Notifications** — ride-synced alerts through Home Assistant's companion app (an ntfy hook exists in the code but has no settings screen yet).
 
@@ -647,7 +647,7 @@ Garmin credentials, the MQTT broker, Home Assistant URL/token and mappings, AI p
 - Example Home Assistant dashboard and automation builders live in [`docs/ha`](docs/ha).
 
 ### AI coaching
-- In **Settings → AI Provider** choose OpenAI (paste your key, pick a model) **or** a local **Ollama** (URL + model). Nothing is sent anywhere until you do.
+- In **Settings → AI Provider** choose OpenAI or Claude (paste your key, pick a model) **or** a local **Ollama** (URL + model). Nothing is sent anywhere until you do.
 - Pick a coaching personality and add your own goals; the model is also given recent history so it can say whether you're improving.
 - Costs are whatever your provider charges; Headwind sends ride summaries, not raw GPS.
 - The same key powers the optional food-photo estimate and screenshot import in the nutrition tracker.

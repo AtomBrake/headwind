@@ -85,10 +85,10 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
 
 ## AI
 
-- [ ] **Claude as an AI source** — add `claude` to `aiProvider` alongside `openai` and `ollama` (Settings page in `routes/settings.py`, key and model columns on `Settings`).
-  - [ ] `services/ai.py` `_get_client_and_model` returns an OpenAI client for every provider, and callers (`services/food_vision.py` included) use `client.chat.completions.create`. Either use Anthropic's OpenAI-compatible endpoint, or wrap the Anthropic SDK behind one small `chat()` helper that all callers go through.
-  - [ ] Check the food-screenshot and recipe readers still work, since they send images.
-  - [ ] Store the API key with the others, and update the "add an OpenAI key in Settings" errors to name whichever provider is missing.
+- [x] **Claude as an AI source** — done (unreleased). `claude` is an `aiProvider` alongside `openai` and `ollama`, with `claudeKey` / `claudeModel` columns on `Settings`.
+  - [x] Every caller goes through `services.ai.Chat` (from `get_chat()`, or `make_chat()` for the Test AI button), which uses the Anthropic SDK for Claude and the OpenAI SDK for OpenAI and Ollama.
+  - [ ] Check the food-screenshot, recipe and meal-photo readers against the real Claude API with real screenshots. The image and JSON handling is covered by `tests/test_ai_providers.py` with a faked client only.
+  - [x] The key is stored with the others, and the "add an API key" errors name the chosen provider (`ai.missing_key_message`).
 
 ## Dashboard and activity lists
 

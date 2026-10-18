@@ -81,14 +81,10 @@ def test_the_ai_coach_is_given_metric_numbers_not_asked_to_convert(client, monke
     from services import ai
     sent = {}
 
-    class Fake:
-        class chat:
-            class completions:
-                @staticmethod
-                def create(model, messages, **kw):
-                    sent['messages'] = messages
-                    return type('R', (), {'choices': [type('C', (), {'message': type('M', (), {'content': 'ok'})()})()]})()
-    monkeypatch.setattr(ai, '_get_client_and_model', lambda: (Fake, 'm'))
+    def fake_chat(messages, system=None, **kw):
+        sent['messages'] = [{'content': system}] + messages
+        return 'ok'
+    monkeypatch.setattr(ai, 'get_chat', lambda: fake_chat)
     with client.application.app_context():
         act = database.get_db().execute("SELECT * FROM Activity WHERE id='r1'").fetchone()
         ai.generate_analysis(act)

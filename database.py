@@ -313,6 +313,8 @@ def migrate_db():
         ('nutritionWeightEmaAlpha', 'REAL DEFAULT 0.1'),
         ('dietStartDate',           'TEXT'),
         ('calorieAdjustPct',       'REAL DEFAULT 0'),
+        ('claudeKey',              'TEXT'),
+        ('claudeModel',            'TEXT'),
     ]:
         if col not in settings_cols:
             db.execute(f'ALTER TABLE Settings ADD COLUMN {col} {defn}')
