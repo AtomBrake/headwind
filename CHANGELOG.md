@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.4-beta] - 2026-10-18
+
+No migration. No Android change.
+
+### Added
+- **Quick date ranges for feed tokens.** When you make or edit a friend's token, "All rides", "Past 6 months", "Past month" and "From today" fill in the dates. The end date is left open, so new rides keep reaching them.
+
+### Changed
+- **A tidier Friends page.** Every field has its label above it and the forms line up. Edit opens a row under the token, replacing a popup whose date fields spilled out of it. On a phone, tokens and friends are shown as small cards instead of squashed tables.
+- **Placeholder text is dimmed everywhere**, so example text like "e.g. Sam" no longer looks like something already typed. Empty date fields are dimmed too, since Safari shows today's date in them.
+
+### Fixed
+- **A friend sync slowed down or broke everything else that saves data.** It held the database's write lock for up to a minute at a time: it saved only every 50 rides, and its segment scans and PR refresh took a long time. Creating a feed token during a sync took about a minute, and other saves could fail with "database is locked". The sync now saves after each ride and each segment, so other saves wait milliseconds. Only one sync per friend runs at once; a second one is refused with "Already syncing" instead of competing with the first. `tests/test_friend_feed.py`.
+
 ## [0.6.3-beta] - 2026-10-18
 
 Migration: three `Settings` columns (`timeZone`, `birthDate`, `birthDateGuessed`), added automatically at startup. Existing installs are set to Europe/London so their "today" doesn't move, and an age saved before becomes 1 January of that birth year. `docker-compose.yml` now passes `TZ` through. No Android change: an age sent by an older client is still accepted.
