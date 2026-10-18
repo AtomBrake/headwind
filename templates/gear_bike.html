@@ -72,7 +72,8 @@
 
 <div class="card" id="parts" style="margin-bottom:1rem;">
   <div class="card-title">Parts on this bike</div>
-  {% if not parts %}<p class="hint">Nothing tracked yet. Add the chain, tyres, cassette, bar tape and so on below, and Headwind will count the miles on each from the day you fitted it.</p>{% endif %}
+  {% if not parts %}<p class="hint">Nothing tracked yet. Add the chain, tyres, cassette, bar tape and so on below, and Headwind will count the miles on each from the day you fitted it.</p>
+  {% if strava_name %}<p class="hint">This bike's distance is the rides Strava had on <strong>{{ strava_name }}</strong>; Strava's export doesn't include the parts fitted to it. Add them below with the date each was fitted (and how far it had already gone) to start tracking wear.</p>{% endif %}{% endif %}
   {% if parts %}
   <table class="gtable">
     <thead><tr><th>Part</th><th>Fitted</th><th>Used</th><th>Replace</th><th>Check</th><th></th></tr></thead>

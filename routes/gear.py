@@ -66,7 +66,9 @@ def index():
         st = gear.bike_stats(db, b['id'])
         bikes.append({'bike': b, 'stats': st, 'odometer': gear.odometer(db, b), 'health': gear.bike_health(db, b['id'])})
     default = query_db('SELECT defaultBikeId FROM Rider WHERE id=?', [rid], one=True)
-    return render_template('gear.html', bikes=bikes, default_id=default['defaultBikeId'] if default else None, due=gear.due_items(db, rid), span=gear.ride_span(db, rid), rid=rid,
+    from services import strava_gear
+    strava = {'pending': strava_gear.pending(db, rid), 'any': bool(query_db('SELECT 1 FROM StravaBike WHERE riderId=?', [rid], one=True))}
+    return render_template('gear.html', bikes=bikes, strava=strava, default_id=default['defaultBikeId'] if default else None, due=gear.due_items(db, rid), span=gear.ride_span(db, rid), rid=rid,
                            riders=query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name') if multi_rider() else [], error=request.args.get('error'), units=units,
                            show_archived=request.args.get('archived') == '1', has_archived=bool(query_db('SELECT 1 FROM Bike WHERE riderId=? AND archived=1', [rid], one=True)))
 
@@ -126,9 +128,46 @@ def bike(bike_id):
     retired = [{'part': p, 'status': gear.part_status(db, p)} for p in gear.part_rows(db, bike_id, include_retired=True) if p['retiredOn']]
     recent = db.execute('SELECT id, name, startDateLocal, distance, movingTime, totalElevationGain FROM Activity WHERE bikeId=? ORDER BY startDateLocal DESC LIMIT 8', [bike_id]).fetchall()
     default = query_db('SELECT defaultBikeId FROM Rider WHERE id=?', [b['riderId']], one=True)
-    return render_template('gear_bike.html', bike=b, stats=st, odometer=gear.odometer(db, b), parts=parts, retired=retired, log=gear.service_log(db, bike_id), recent=recent, units=units,
+    from services.strava_gear import strava_name
+    return render_template('gear_bike.html', bike=b, strava_name=strava_name(db, bike_id), stats=st, odometer=gear.odometer(db, b), parts=parts, retired=retired, log=gear.service_log(db, bike_id), recent=recent, units=units,
                            catalog=_catalog_for_ui(units), groups=GROUPS, actions=gear.ACTIONS, is_default=bool(default and default['defaultBikeId'] == bike_id), today=gear.today().isoformat(),
                            by_year=json.dumps(st['by_year']), error=request.args.get('error'), kinds=dict(gear.BIKE_KINDS))
+
+
+@bp.route('/strava')
+def strava_page():
+    """Match the bikes a Strava export named to the rider's bikes (services/strava_gear.py)."""
+    from services import strava_gear
+    db = get_db()
+    rid = _rider_id()
+    rows = strava_gear.overview(db, rid)
+    return render_template('gear_strava.html', rows=rows, bikes=gear.list_bikes(db, rid, include_archived=True), kinds=gear.BIKE_KINDS, rid=rid,
+                           riders=query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name') if multi_rider() else [], error=request.args.get('error'),
+                           elsewhere=sum(r['elsewhere'] for r in rows), done=request.args.get('done'))
+
+
+@bp.route('/strava', methods=['POST'])
+def strava_save():
+    from services import strava_gear
+    db = get_db()
+    f = request.form
+    rid = _rider_id()
+    names = f.getlist('name')
+    choices = {n: {'match': f.get(f'match_{i}'), 'kind': f.get(f'kind_{i}'), 'retired': bool(f.get(f'retired_{i}'))} for i, n in enumerate(names)}
+    try:
+        res = strava_gear.save(db, rid, choices, replace=bool(f.get('replace')))
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        return _flash_redirect(url_for('gear.strava_page', rider=rid), e)
+    try:
+        from services.mqtt import push_update
+        push_update(background=True)
+    except Exception:
+        pass
+    n, m = len(res['created']), res['moved']
+    done = (f"Added {n} bike{'s' if n != 1 else ''}; " if n else '') + (f"{m:,} rides put on their Strava bikes." if m != 1 else "1 ride put on its Strava bike.")
+    return redirect(url_for('gear.strava_page', rider=rid, done=done))
 
 
 @bp.route('/bike/<int:bike_id>/default', methods=['POST'])
