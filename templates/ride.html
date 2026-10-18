@@ -414,7 +414,7 @@ function typeChanged(sel) {
         <div style="font-size:1.25rem; font-weight:600; color:#10b981; margin-bottom:0.5rem;">
           <span id="segStartDist">0.0</span> mi
         </div>
-        <input type="range" id="segStartSlider" min="0" max="100" value="0" style="width:100%; height:5px; margin-bottom:0.5rem;" oninput="updateSegmentFromSliders()">
+        <input type="range" id="segStartSlider" min="0" max="100" value="0" style="width:100%; height:5px; margin-bottom:0.5rem;" oninput="updateSegmentFromSliders('start')">
         <div style="display:flex; gap:0.3rem; justify-content:center; margin-bottom:0.5rem;">
           <button type="button" class="btn btn-secondary" style="padding:0.25rem 0.5rem; font-size:0.75rem; flex:1;" onclick="adjustSegStart(-1)">← Back</button>
           <button type="button" class="btn btn-secondary" style="padding:0.25rem 0.5rem; font-size:0.75rem; flex:1;" onclick="adjustSegStart(1)">Fwd →</button>
@@ -439,7 +439,7 @@ function typeChanged(sel) {
         <div style="font-size:1.25rem; font-weight:600; color:#ef4444; margin-bottom:0.5rem;">
           <span id="segEndDist">0.0</span> mi
         </div>
-        <input type="range" id="segEndSlider" min="0" max="100" value="100" style="width:100%; height:5px; margin-bottom:0.5rem;" oninput="updateSegmentFromSliders()">
+        <input type="range" id="segEndSlider" min="0" max="100" value="100" style="width:100%; height:5px; margin-bottom:0.5rem;" oninput="updateSegmentFromSliders('end')">
         <div style="display:flex; gap:0.3rem; justify-content:center; margin-bottom:0.5rem;">
           <button type="button" class="btn btn-secondary" style="padding:0.25rem 0.5rem; font-size:0.75rem; flex:1;" onclick="adjustSegEnd(-1)">← Back</button>
           <button type="button" class="btn btn-secondary" style="padding:0.25rem 0.5rem; font-size:0.75rem; flex:1;" onclick="adjustSegEnd(1)">Fwd →</button>
@@ -741,7 +741,7 @@ function setWeather(v) {
 // ── Segment creation ─────────────────────────────────────────────
 var _segState = { active: false, startIdx: 0, endIdx: null,
                   startMarker: null, endMarker: null, segLine: null, segLineGroup: null,
-                  draggingStart: false, draggingEnd: false };
+                  dragging: null };                 // 'start' or 'end' while that marker is held
 
 function enterSegmentMode() {
   var coords = window._rideCoords || [];
@@ -757,6 +757,7 @@ function enterSegmentMode() {
 
   var maxIdx = coords.length - 1;
   document.getElementById('segStartSlider').max = maxIdx;
+  document.getElementById('segStartSlider').value = 0;
   document.getElementById('segEndSlider').max = maxIdx;
   document.getElementById('segEndSlider').value = maxIdx;
 
@@ -771,7 +772,7 @@ function adjustSegStart(delta) {
   var newVal = parseInt(slider.value) + delta;
   newVal = Math.max(0, Math.min(newVal, parseInt(slider.max)));
   slider.value = newVal;
-  updateSegmentFromSliders();
+  updateSegmentFromSliders('start');
 }
 
 function adjustSegEnd(delta) {
@@ -779,7 +780,7 @@ function adjustSegEnd(delta) {
   var newVal = parseInt(slider.value) + delta;
   newVal = Math.max(0, Math.min(newVal, parseInt(slider.max)));
   slider.value = newVal;
-  updateSegmentFromSliders();
+  updateSegmentFromSliders('end');
 }
 
 function showSegmentForm() {
@@ -799,13 +800,13 @@ function resetSegmentMode() {
   if (_segState.segLineGroup && map) map.removeLayer(_segState.segLineGroup);
   _segState = { active: false, startIdx: 0, endIdx: null,
                 startMarker: null, endMarker: null, segLine: null, segLineGroup: null,
-                draggingStart: false, draggingEnd: false };
+                dragging: null };
   document.getElementById('segSliders').style.display = 'none';
   document.getElementById('segForm').style.display = 'none';
   if (map) map.getContainer().style.cursor = '';
 }
 
-function updateSegmentFromSliders() {
+function updateSegmentFromSliders(moved) {
   if (!_segState.active) return;
   var coords = window._rideCoords || [];
   var timeData = window._rideTime || [];
@@ -814,7 +815,10 @@ function updateSegmentFromSliders() {
   var si = parseInt(document.getElementById('segStartSlider').value);
   var ei = parseInt(document.getElementById('segEndSlider').value);
 
-  if (si > ei) { si = ei; document.getElementById('segStartSlider').value = si; }
+  if (si > ei) {                        // crossed: the one being moved stops at the other, the other stays put
+    if (moved === 'end') { ei = si; document.getElementById('segEndSlider').value = ei; }
+    else                 { si = ei; document.getElementById('segStartSlider').value = si; }
+  }
   _segState.startIdx = si;
   _segState.endIdx = ei;
 
@@ -824,21 +828,21 @@ function updateSegmentFromSliders() {
   // Update markers and segment line
   if (_segState.segLineGroup) _segState.segLineGroup.clearLayers();
 
+  // Segment line, under the markers and not clickable, so pressing a marker grabs the marker
+  _segState.segLine = L.polyline(segCoords, { color: '#3b82f6', weight: 5, opacity: 0.85, interactive: false })
+    .addTo(_segState.segLineGroup);
+
   // Start marker
   _segState.startMarker = L.circleMarker(coords[si], {
     color: '#10b981', fillColor: '#10b981', fillOpacity: 1, radius: 10, weight: 2
   }).addTo(_segState.segLineGroup);
-  _segState.startMarker.on('mousedown', function() { _segState.draggingStart = true; });
+  _segState.startMarker.on('mousedown', function(e) { startSegDrag('start', e); });
 
   // End marker
   _segState.endMarker = L.circleMarker(coords[ei], {
     color: '#ef4444', fillColor: '#ef4444', fillOpacity: 1, radius: 10, weight: 2
   }).addTo(_segState.segLineGroup);
-  _segState.endMarker.on('mousedown', function() { _segState.draggingEnd = true; });
-
-  // Segment line
-  _segState.segLine = L.polyline(segCoords, { color: '#3b82f6', weight: 5, opacity: 0.85 })
-    .addTo(_segState.segLineGroup);
+  _segState.endMarker.on('mousedown', function(e) { startSegDrag('end', e); });
 
   // Calculate distance
   var dist = 0;
@@ -895,36 +899,54 @@ function updateSegmentFromSliders() {
   document.getElementById('segPolyline').value = JSON.stringify(segCoords);
 }
 
+// Holding a marker drags it, not the map, until the button comes up anywhere on the page.
+function startSegDrag(which, e) {
+  _segState.dragging = which;
+  window._rideMap.dragging.disable();
+  L.DomEvent.preventDefault(e.originalEvent);
+}
+
+// The route point under the cursor for the marker being dragged. Only the part of the route that keeps the start before the end is
+// searched, and where a loop or an out-and-back passes under the cursor more than once, the pass nearest the marker's current place
+// along the route wins, so the marker stays on the pass it is on.
+function segSnapIdx(latlng, which) {
+  var map = window._rideMap, coords = window._rideCoords || [];
+  var lo = which === 'end' ? _segState.startIdx : 0;
+  var hi = which === 'start' ? _segState.endIdx : coords.length - 1;
+  var cur = which === 'start' ? _segState.startIdx : _segState.endIdx;
+  var p = map.latLngToContainerPoint(latlng), d = [], nearest = Infinity;
+  for (var i = lo; i <= hi; i++) {
+    d[i - lo] = p.distanceTo(map.latLngToContainerPoint(coords[i]));
+    if (d[i - lo] < nearest) nearest = d[i - lo];
+  }
+  var tol = nearest + 15, pick = cur, pickGap = Infinity, runBest = -1;     // pixels
+  for (var j = lo; j <= hi + 1; j++) {
+    if (j <= hi && d[j - lo] <= tol) {
+      if (runBest < 0 || d[j - lo] < d[runBest - lo]) runBest = j;
+    } else if (runBest >= 0) {                                               // one pass under the cursor ends here
+      if (Math.abs(runBest - cur) < pickGap) { pickGap = Math.abs(runBest - cur); pick = runBest; }
+      runBest = -1;
+    }
+  }
+  return pick;
+}
+
 {% if coords %}
 (function() {
   var map = window._rideMap;
   if (!map) return;
 
-  // Mouse move to drag markers along route
   map.on('mousemove', function(e) {
-    if (!_segState.active) return;
-    if (!_segState.draggingStart && !_segState.draggingEnd) return;
-
-    var coords = window._rideCoords || [];
-    var best = 0, bestD = Infinity;
-    for (var i = 0; i < coords.length; i++) {
-      var dl = coords[i][0] - e.latlng.lat, dm = coords[i][1] - e.latlng.lng;
-      var d = dl*dl + dm*dm;
-      if (d < bestD) { bestD = d; best = i; }
-    }
-
-    if (_segState.draggingStart) {
-      document.getElementById('segStartSlider').value = best;
-      updateSegmentFromSliders();
-    } else if (_segState.draggingEnd) {
-      document.getElementById('segEndSlider').value = best;
-      updateSegmentFromSliders();
-    }
+    if (!_segState.active || !_segState.dragging) return;
+    var which = _segState.dragging;
+    document.getElementById(which === 'start' ? 'segStartSlider' : 'segEndSlider').value = segSnapIdx(e.latlng, which);
+    updateSegmentFromSliders(which);
   });
 
-  map.on('mouseup', function() {
-    _segState.draggingStart = false;
-    _segState.draggingEnd = false;
+  document.addEventListener('mouseup', function() {
+    if (!_segState.dragging) return;
+    _segState.dragging = null;
+    map.dragging.enable();
     if (_segState.active) {
       document.getElementById('segForm').style.display = 'block';
     }
