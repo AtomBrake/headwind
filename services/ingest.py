@@ -10,3 +10,13 @@ def after_ride_added(db, act_id):
     except Exception:
         pass
     scan_new_ride(db, act_id)
+
+
+def after_ride_removed():
+    """What every deleted ride gets, once the delete is committed: the Home Assistant sensors are re-published, so their totals drop now rather than
+    at the next ride. (The web pages need nothing: they work everything out from Activity on each load.) Never raises."""
+    try:
+        from services.mqtt import push_update
+        push_update(background=True)
+    except Exception:
+        pass

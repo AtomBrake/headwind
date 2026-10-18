@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.8-beta] - 2026-10-18
+
+No migration. No Android change.
+
+### Added
+- **A clickable dashboard.** Click a weekly bar in the Performance chart to list that week's activities, or a point on the speed line to open that ride. The lifetime tiles and fun stats lead to the full history or the matching Data page section, the weather chip to the weather analysis, and the recovery numbers to Recovery. Each year and month in the history has a "List" link and each day heading is a link, all to that period's activities. Activity rows are now real links, so they can be opened in a new tab or reached with the keyboard. Viewing another rider's dashboard keeps that rider on every link. `routes/dashboard.py`, `templates/dashboard.html`, `tests/test_dashboard_links.py`.
+
+### Fixed
+- **Home Assistant kept a deleted ride in its totals** until the next ride arrived, when the ride was deleted on the web (deleting from the phone was fine). The sensors are now re-published straight after the delete. The web pages were never affected: they work their numbers out on every load. `services/ingest.after_ride_removed`.
+- **Hovering over a row in an activity table didn't highlight it**, because of a broken rule in the stylesheet. `static/css/style.css`.
+
 ## [0.5.7-beta] - 2026-10-17
 
 No migration. No Android change.
