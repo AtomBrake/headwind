@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.7.5-beta] - 2026-10-18
+
+Migration, at the first start: `Activity` (and `GarminDaily`) are rebuilt once with the GPS streams and raw data as their last columns (below). On a big database this takes a while, in batches, and a start that's stopped or times out carries on where it left off; on a Pi with years of history it can take more than one start. Afterwards each activity's track summary for the heatmap and segment matching (`ActivityTrack`) is made in the background. New: `Activity.commute`, and the `ActivityPhoto`, `ActivityTrack`, `DataVersion`, `StravaBike` and `StravaGear` tables; indexes on `SegmentEffort(activityId)`, `FoodLog(riderId, logDate)` and `HydrationLog(riderId, logDate)`. Photos are kept in `rideimg/` beside the database, and backups carry them. No Android change; the iPhone app's sport and bike choice (on the `ios-app` branch) needs this version.
+
+**Much faster pages on a large history.** SQLite reads a row's columns in order, so reading anything stored after an activity's GPS streams (its bike, weather, source…) read the whole track: the badges did that about 80 times for every ride page. Measured on a synthetic 1.4 GB history: ride page 10.4 s → 0.02 s, rider page 10.4 s → 0.007 s, heatmap data 8.9 s → 0.006 s, Analytics 0.86 s → 0.035 s, the dashboard 3.4 MB of HTML → 92 KB, a new segment 36 s → 1–3 s and a full segment rescan 771 s → 24 s, with the same efforts, PRs and heatmap tracks as before.
+
+### Added
+- **TCX import.** `.tcx` and `.tcx.gz` files from older Garmins, TrainerRoad and Strava exports are read: as a single file, in a zip, or inside a Strava export, whose TCX rides used to arrive with no track (no map, heatmap, charts, best efforts or segments). Distance, time, calories and maxima come from the device's laps; heart rate, cadence, speed and power from the track. Checked against 465 real files. A file a Strava import can't read is now logged rather than passed over. `services/parser.parse_tcx`, `tests/test_tcx.py`.
+- **Bikes from a Strava export.** The import records which bike rode each ride, for new and already saved rides, and a ride that names a Strava bike no longer gets the default bike. **Gear → Strava bikes** matches each Strava bike to one of yours, adds it as a new bike or leaves it out; a bike with the same name is matched straight away, and matches are remembered for the next export. `services/strava_gear.py`, `templates/gear_strava.html`, `tests/test_strava_gear.py`.
+- **Photos, commutes and segments from a Strava export** (import it again to fill in rides already saved). Photos are saved as upright JPEGs with no EXIF, at up to 1600 px plus a thumbnail, never twice. The commute tick comes in too, but never re-ticks a ride you unticked. When asked, the segments you made on Strava are added, each cut from a ride along it. `services/photos.py`, `segments.import_strava`, `tests/test_strava_extras.py`.
+- **Add photos to any activity** from its page (up to 20 at once). Off in the demo.
+- **Commutes.** A Commute tick box on every activity, "Commute…" in the bulk-edit bar, and a "Commutes / Not commutes" picker beside the sport filter on the dashboard and Analytics.
+- **Phone API for the iPhone app's sport and bike choice.** `/api/v1/ping` lists the rider's bikes that aren't archived (id, name, kind, which is the default). `POST /api/v1/rides` takes an optional `bike_id`: the ride goes on that bike instead of the default, and one that isn't the rider's or is archived falls back to the default rather than refusing the ride. `POST /api/v1/rides/ride/<id>/bike` (`{bike_id: id or null}`) changes a ride's bike, picking its PRs again when it moves between a pedal bike and an e-bike. A GPX of type `ebike` imports as an e-bike ride. `POST /api/v1/workouts` takes `source=ios`, so walks from the iPhone aren't labelled Android. Also `commute` in the ride detail and `POST /api/v1/rides/<kind>/<id>/commute`. `tests/test_phone_sport_bike.py`.
+
+### Changed
+- The dashboard's history draws only the open month; other months load when opened.
+- The badges are worked out once and kept until a ride, segment, effort or bike changes.
+- The heatmap serves track summaries made once in the background, instead of sampling every track on each load.
+- Segment matching only reads tracks that pass near both ends of a segment, and parses each track once.
+
+### Fixed
+- **A Strava segment could miss the ride it was made on.** Its shape was cut from the shortest stretch from near its start to near its end; on a ride that first skirted both ends on a shorter line, that was the wrong shape. The pass closest to both ends is taken now.
+
 ## [0.7.4-beta] - 2026-10-18
 
 Migration, at the first start: 0.7.3's e-bike segments become ride segments (`Segment.sport` is `ride` or `foot` again), and ride segment PRs are picked again (below). `Settings` gains `segmentBikesMergedDone`; the `SegActivity` view gains `bikeId`. No Android or iOS change. A friend on 0.7.3 who sends e-bike segments has them saved as ride segments.

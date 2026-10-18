@@ -1,12 +1,13 @@
 """Endpoints for the phone app (Bearer device token, see services/device_auth.py) plus the /workouts page.
 
-  GET  /api/v1/ping        who this instance is (the app calls it right after pairing)
+  GET  /api/v1/ping        who this instance is (the app calls it right after pairing), and the rider's bikes for the app's bike picker
   GET  /api/v1/today       everything the app's home screen needs in ONE request (fast start)
-  POST /api/v1/workouts    upload a recorded walk/run (multipart: file=GPX, optional sport, name, client_id, steps) — idempotent
+  POST /api/v1/workouts    upload a recorded walk/run (multipart: file=GPX, optional sport, name, client_id, steps, source=android|ios) — idempotent
   GET  /api/v1/workouts    recent workouts
   DELETE /api/v1/workouts/<id>
-  POST /api/v1/rides       upload a recorded cycling ride (multipart: file=GPX) — saved as a ride, not a workout, via the
+  POST /api/v1/rides       upload a recorded cycling ride (multipart: file=GPX, optional bike_id) — saved as a ride, not a workout, via the
                             same pipeline as the web's single-file import (best efforts, segment matching, MQTT, weather)
+  POST /api/v1/rides/ride/<id>/bike   change a ride's bike (JSON {bike_id: id or null})
 The nutrition endpoints the app also uses (/nutrition/api/log, /water, /search, /lookup/<barcode> ...) accept the same token.
 """
 import logging
@@ -46,7 +47,28 @@ def ping():
     s = query_db('SELECT units, calorieAdjustPct FROM Settings WHERE id=1', one=True)
     return jsonify({'ok': True, 'api': 1, 'rider': r['name'] if r else None, 'units': (s['units'] if s else None) or 'imperial',
                     'calorie_adjust_pct': (s['calorieAdjustPct'] if s and s['calorieAdjustPct'] is not None else 0),
-                    'server_time': tz.now().isoformat(timespec='seconds')})
+                    'server_time': tz.now().isoformat(timespec='seconds'), 'bikes': _bikes(r['id']) if r else []})
+
+
+def _bikes(rider_id):
+    """The rider's bikes that aren't archived, for the app's bike picker: id, name, kind (services/gear.BIKE_KINDS) and which is the default."""
+    from services import gear
+    db = get_db()
+    d = db.execute('SELECT defaultBikeId FROM Rider WHERE id=?', [rider_id]).fetchone()
+    return [{'id': b['id'], 'name': b['name'], 'kind': b['kind'], 'is_default': bool(d and b['id'] == d[0])}
+            for b in gear.list_bikes(db, rider_id)]
+
+
+def _own_bike(rider_id, bike_id):
+    """bike_id as an int if it is one of the rider's bikes that isn't archived, else None."""
+    from services import gear
+    if isinstance(bike_id, bool):
+        return None
+    try:
+        b = gear.get_bike(get_db(), int(bike_id))
+    except (TypeError, ValueError):
+        return None
+    return b['id'] if b and b['riderId'] == rider_id and not b['archived'] else None
 
 
 def _weight_kg(rider_id):
@@ -203,7 +225,9 @@ def upload_ride():
     way as any single-file GPX import (services/parser.parse_gpx), best-efforts scan, segment matching + PR
     refresh, weather, MQTT push. Multipart: file=GPX. Idempotent for free: parse_gpx's activity id is content-
     addressed (sha1 of start time + distance) and _process_single_file also guards near-duplicates (same rider,
-    start within 90s, distance within 3%) — no client_id needed, unlike /workouts."""
+    start within 90s, distance within 3%) — no client_id needed, unlike /workouts. An optional bike_id puts the ride on that
+    bike instead of the default; one that isn't the rider's (deleted or archived since the app last asked) falls back to the default
+    rather than refusing the ride."""
     from routes.import_rides import _process_single_file
     import json as _json
 
@@ -223,7 +247,8 @@ def upload_ride():
         result = {'imported': 0, 'skipped': 0, 'errors': 0}
         ride = None
         duplicate = None
-        for ev in _process_single_file(tmp.name, f.filename, rider['id']):
+        bike_id = _own_bike(rider['id'], request.form.get('bike_id')) if request.form.get('bike_id') else None
+        for ev in _process_single_file(tmp.name, f.filename, rider['id'], bike_id=bike_id):
             payload = _json.loads(ev[len('data: '):]) if ev.startswith('data: ') else {}
             if payload.get('complete'):
                 result = {k: payload.get(k, 0) for k in ('imported', 'skipped', 'errors')}
@@ -455,10 +480,11 @@ def post_workout():
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     steps = request.form.get('steps')
+    source = request.form.get('source') if request.form.get('source') in ('android', 'ios') else 'android'   # older Android apps send none
     try:
         w, created = workouts.save_from_gpx(rider['id'], data, sport=request.form.get('sport'), name=request.form.get('name'),
                                             client_id=(request.form.get('client_id') or '').strip() or None,
-                                            steps=int(steps) if steps and steps.isdigit() else None)
+                                            steps=int(steps) if steps and steps.isdigit() else None, source=source)
     except ValueError as e:
         return jsonify({'error': str(e)}), 422
     if created:
@@ -544,6 +570,31 @@ def change_sport(kind, rid):
     if res['changed']:
         _refresh_after_change('ride'); _refresh_after_change('workout')
     return jsonify(res)
+
+
+@bp.route('/rides/<kind>/<rid>/bike', methods=['POST'])
+def set_bike(kind, rid):
+    """Put a ride on another bike, or on none: JSON {bike_id: id or null}. Moving between a pedal bike and an e-bike picks its PRs again
+    (services/gear.set_ride_bike)."""
+    from services import gear
+    from services.sports import is_ride
+    rider = _rider()
+    db = get_db()
+    row = db.execute('SELECT riderId, sportType FROM Activity WHERE id=?', [rid]).fetchone() if kind in ('ride', 'workout') else None
+    if not rider or not row or row['riderId'] != rider['id']:
+        return jsonify({'error': 'not found'}), 404
+    if not is_ride(row['sportType']):
+        return jsonify({'error': 'only rides have a bike'}), 400
+    raw = (request.get_json(silent=True) or {}).get('bike_id')
+    bike_id = None if raw is None else _own_bike(rider['id'], raw)
+    if raw is not None and bike_id is None:
+        return jsonify({'error': 'that bike is not available'}), 400
+    gear.set_ride_bike(db, rid, bike_id)
+    if bike_id:
+        gear.evaluate_alerts(db, rider_id=rider['id'])     # as the web's routes/gear.ride_bike: the new bike's parts may now be due
+    db.commit()
+    _refresh_after_change('ride')
+    return jsonify({'id': rid, 'bike_id': bike_id})
 
 
 @bp.route('/rides/<kind>/<rid>/commute', methods=['POST'])
