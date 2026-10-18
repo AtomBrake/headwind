@@ -675,8 +675,9 @@ IMPORT_TOL_M = 50       # a Strava segment's ends sit on the track it was drawn 
 
 def shape_from_streams(streams, start, end, tol_m=IMPORT_TOL_M):
     """(polyline, distance_m, elevation_gain_m) of the stretch of a track from near `start` to near `end` after it, or None if the track doesn't
-    go from one to the other. Of every pass by the start, the shortest way on to the end is taken, so a loop that passes the start twice
-    gives the segment, not the loop."""
+    go from one to the other. Of every pass by the start, the one that comes closest to both ends is taken (a Strava segment's ends are points
+    of the track it was drawn on, so another pass that only skirts them is a different line); of passes as close as that, the shortest, so a
+    loop that passes the start twice gives the segment, not the loop."""
     s = _parsed(streams)
     ll = (s.get('latlng') or {}).get('data') or []
     alt = (s.get('altitude') or {}).get('data') or []
@@ -691,7 +692,7 @@ def shape_from_streams(streams, start, end, tol_m=IMPORT_TOL_M):
     sw, ew = _window(start[0], start[1], tol_m), _window(end[0], end[1], tol_m)
     ds = [_near(sw, la, ln, tol_m) for la, ln in pts]
     de = [_near(ew, la, ln, tol_m) for la, ln in pts]
-    best = None
+    found = []                                          # (how far from the two ends, length, si, ei) of each pass
     i, n = 0, len(pts)
     while i < n:
         if ds[i] is None:
@@ -710,13 +711,12 @@ def shape_from_streams(streams, start, end, tol_m=IMPORT_TOL_M):
                 m += 1
             ei = min(range(k, m + 1), key=lambda q: de[q])
             if ei > si:
-                length = _path_length_m(pts[si:ei + 1])
-                if best is None or length < best[2]:
-                    best = (si, ei, length)
+                found.append((ds[si] + de[ei], _path_length_m(pts[si:ei + 1]), si, ei))
         i = j + 1
-    if not best:
+    if not found:
         return None
-    si, ei, length = best
+    closest = min(f[0] for f in found)
+    _, length, si, ei = min((f for f in found if f[0] <= closest + 10), key=lambda f: f[1])
     shape = clean_polyline(pts[si:ei + 1], max_points=400)
     if not shape:
         return None
