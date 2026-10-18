@@ -8,7 +8,7 @@ Project-wide list of planned work. Tick items off as they land and note the vers
   - [ ] the friend feed (`routes/friends.py` `/api/feed`)
   - [ ] the route published to Home Assistant (MQTT attribute sensors)
   - [ ] heatmap exports
-- [ ] **One token per friend** instead of the single shared feed token, so one person can be revoked on their own and each friend can be given a chosen subset: rides, segments, foods, or a date window.
+- [x] **One token per friend** instead of the single shared feed token, so one person can be revoked on their own and each friend can be given a chosen subset: rides, segments, foods, or a date window. Done in 0.6.1-beta: `FeedToken` table and `services/feed_tokens.py`, managed on the Friends page; the old shared token carries over as one token that shares everything. `tests/test_feed_tokens.py`.
 
 ## Users
 
@@ -22,7 +22,7 @@ Project-wide list of planned work. Tick items off as they land and note the vers
 - [ ] **Choose which riders' data friends can see.** The friend feed shares every local rider: `OWN_RIDERS_SQL` in `routes/friends.py` only leaves out riders synced from friends, so `/api/riders` lists, and `/api/feed` serves, every person on this instance to anyone with the feed token.
   - [ ] A per-rider "share with friends" choice, off by default for new riders. A standard user decides for their own rider, and an admin can't switch it on for someone else.
   - [ ] When a friend is linked (and when a new rider is added), show which riders will be visible and ask for confirmation before anything is served.
-  - [ ] Combine this with **One token per friend** (Privacy, above), so the choice can be per friend: rider X to friend A only.
+  - [ ] Make the choice per friend: rider X to friend A only. Per-friend tokens exist now (`FeedToken`, `services/feed_tokens.py`), so this is a rider list on each token, checked in `/api/riders` and `/api/feed` alongside the token's rides/segments/foods flags.
   - [ ] Tests: a rider who isn't shared is missing from `/api/riders`, and `/api/feed?rider=<name>` returns nothing for them.
 
 ## Security
@@ -85,7 +85,7 @@ From two code reviews of `ios/`, 2026-10-17. Most severe first. The iOS code liv
 
 ## AI
 
-- [x] **Claude as an AI source** — done (unreleased). `claude` is an `aiProvider` alongside `openai` and `ollama`, with `claudeKey` / `claudeModel` columns on `Settings`.
+- [x] **Claude as an AI source** — done in 0.6.1-beta. `claude` is an `aiProvider` alongside `openai` and `ollama`, with `claudeKey` / `claudeModel` columns on `Settings`.
   - [x] Every caller goes through `services.ai.Chat` (from `get_chat()`, or `make_chat()` for the Test AI button), which uses the Anthropic SDK for Claude and the OpenAI SDK for OpenAI and Ollama.
   - [ ] Check the food-screenshot, recipe and meal-photo readers against the real Claude API with real screenshots. The image and JSON handling is covered by `tests/test_ai_providers.py` with a faked client only.
   - [x] The key is stored with the others, and the "add an API key" errors name the chosen provider (`ai.missing_key_message`).

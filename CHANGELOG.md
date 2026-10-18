@@ -1,11 +1,15 @@
 # Changelog
 
-## [Unreleased]
+## [0.6.1-beta] - 2026-10-18
 
-Migration: two `Settings` columns (`claudeKey`, `claudeModel`), added automatically at startup. New Python dependency: `anthropic`. No Android change.
+Migration: a new `FeedToken` table and two `Settings` columns (`claudeKey`, `claudeModel`), added automatically at startup. The old shared feed token moves into the new table. New Python dependency: `anthropic` (included in the Docker image). No Android change.
 
 ### Added
 - **Claude as an AI provider.** Settings → AI Provider now offers Claude next to OpenAI and Ollama: paste an Anthropic API key and pick Claude Opus 5.5 (the default), Sonnet 5.5 or Haiku 5.5. It does the ride coaching and reads food-diary screenshots, recipe screenshots and meal photos. "Test AI" works with it, and the "add a key" messages now name whichever provider you chose. All AI calls now go through one helper, `services.ai.Chat`, which talks to each provider in its own format. `tests/test_ai_providers.py`.
+- **One feed token per friend.** The Friends page used to have a single token for everyone, so you couldn't cut off one person without updating all of them. Now you make a token for each friend and choose what it shares: rides, segments, foods, and optionally only rides between two dates. You can change that later, or revoke one friend's token without affecting anyone else. Each token shows when it was last used. A token is shown once when you make it and only a hash is kept, like phone pairing. If a token stops sharing foods, the friend's copy of your foods is cleared on their next sync. Rides they already pulled stay on their instance. `services/feed_tokens.py`, `tests/test_feed_tokens.py`.
+
+### Changed
+- **Your existing feed token keeps working** as one token named "Shared token (everyone, from before per-friend tokens)" that shares everything, so friends already linked keep syncing. Give each of them their own token, have them update it on their Friends page, then revoke the shared one. A new **Token** button on each connected instance lets you paste the new token a friend gives you, keeping their rides (before, the only way was to remove the friend, which deleted their rides). The token is no longer shown on the page, and the Regenerate button is gone. Revoke it and make a new one instead.
 
 ## [0.6.0-beta] - 2026-10-18
 
