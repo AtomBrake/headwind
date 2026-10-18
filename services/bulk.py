@@ -2,7 +2,7 @@
 so derived data stays right: deletes leave tombstones and re-pick segment PRs, a type change between a ride and a workout drops or rebuilds what only a ride has, and so on.
 Nothing here commits; the caller commits once."""
 MAX_IDS = 5000
-ACTIONS = ('delete', 'sport', 'bike', 'rider', 'rename', 'dismiss')
+ACTIONS = ('delete', 'sport', 'bike', 'rider', 'rename', 'dismiss', 'commute')
 
 
 def own_riders(db):
@@ -10,7 +10,7 @@ def own_riders(db):
     return db.execute('SELECT id, name FROM Rider WHERE id NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL) ORDER BY isDefault DESC, name').fetchall()
 
 
-def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None):
+def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None, commute=None):
     """Returns {'done': n, 'skipped': n, 'kinds': {'ride', 'workout'} touched}. Raises ValueError for a bad action or missing parameter."""
     from services import convert, duplicates, gear, sanity, workouts
     from services.sports import kind_of
@@ -22,6 +22,8 @@ def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None):
         raise ValueError('pick one of your riders')
     if action == 'rename' and not (name or '').strip():
         raise ValueError('type a name')
+    if action == 'commute' and commute not in ('0', '1'):
+        raise ValueError('pick commute or not a commute')
     done = skipped = 0
     kinds = set()
     for act_id in list(dict.fromkeys(ids))[:MAX_IDS]:
@@ -52,6 +54,8 @@ def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None):
                 _move_to_rider(db, kind, act_id, rider_id)
             elif action == 'rename':
                 db.execute('UPDATE Activity SET name=? WHERE id=?', [name.strip()[:200], act_id])
+            elif action == 'commute':                       # 0, not NULL, for "not a commute": a Strava import then leaves it alone (routes/rides.set_commute)
+                db.execute('UPDATE Activity SET commute=? WHERE id=?', [int(commute), act_id])
             elif action == 'dismiss':
                 if kind != 'ride':
                     skipped += 1

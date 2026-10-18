@@ -1,4 +1,5 @@
 from collections import defaultdict
+from urllib.parse import urlencode
 
 from flask import Blueprint, g, jsonify, render_template, request, url_for
 
@@ -322,7 +323,7 @@ def index():
         all_riders=all_riders,
         active_rider=active_rider,
         sf=sf,
-        sport_links=[(label, icon, url_for('data.index', **dict(rider_args + [('skip', skip)])), active) for label, icon, skip, active in sf.shortcuts()],
+        sport_links=[(label, icon, url_for('data.index') + '?' + urlencode(rider_args + sf.args(skip)), active) for label, icon, skip, active in sf.shortcuts()],
     )
 
 

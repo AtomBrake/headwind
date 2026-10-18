@@ -1,6 +1,6 @@
 import json
 import re
-from flask import Blueprint, abort, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, redirect, render_template, request, send_from_directory, url_for
 from database import query_db, get_db
 from services import sports
 from routes.riders import _compute_badges
@@ -238,7 +238,8 @@ def detail(rid):
     phone_sensors = _sensors.for_ride(get_db(), str(activity['id']))
     from services import origin
     source_links = origin.links(get_db(), activity['id'], activity['originId'])
-    return render_template('ride.html', source_links=source_links, phone_sensors=phone_sensors, activity=activity, coords=coords, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.RIDES + sports.ON_FOOT),
+    from services import photos as _photos
+    return render_template('ride.html', source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.RIDES + sports.ON_FOOT),
                            charts=charts, has_memory=memory_count > 0,
                            seg_efforts=seg_efforts, alt_raw=alt_raw,
                            co_riders=co_riders, seg_rivals=seg_rivals,
@@ -328,6 +329,58 @@ def save_notes(rid):
     db.execute('UPDATE Activity SET notes=? WHERE id=?', [notes, rid])
     db.commit()
     return ('', 204)
+
+
+@bp.route('/<rid>/commute', methods=['POST'])
+def set_commute(rid):
+    """Tick or untick 'Commute'. Unticking stores 0, not NULL, so importing a Strava export again doesn't tick it back."""
+    db = get_db()
+    n = db.execute('UPDATE Activity SET commute=? WHERE id=?', [1 if request.form.get('commute') == '1' else 0, rid]).rowcount
+    db.commit()
+    return ('', 204) if n else abort(404)
+
+
+@bp.route('/photo/<name>')
+def photo(name):
+    from services import photos
+    if not photos.valid_name(name):
+        abort(404)
+    return send_from_directory(photos.photo_dir(current_app.config['DATABASE']), name, max_age=86400)
+
+
+@bp.route('/<rid>/photos', methods=['POST'])
+def add_photos(rid):
+    """Pictures picked on the activity page (field 'photos', up to photos.MAX_UPLOAD at once), each through photos.save. One that can't be read is
+    named in the message and the rest are still added."""
+    from flask import flash
+    from services import photos
+    db = get_db()
+    if not db.execute('SELECT 1 FROM Activity WHERE id=?', [rid]).fetchone():
+        abort(404)
+    files = [f for f in request.files.getlist('photos') if f and f.filename][:photos.MAX_UPLOAD]
+    pos, added, failed = photos.next_position(db, rid), 0, []
+    for f in files:
+        try:
+            photos.save(db, rid, f.read(photos.MAX_BYTES + 1), current_app.config['DATABASE'], position=pos + added)
+            added += 1
+        except ValueError as e:
+            heic = f.filename.lower().endswith(('.heic', '.heif'))
+            failed.append(f"{f.filename}: {'HEIC pictures cannot be read yet; save it as a JPEG first' if heic else e}")
+    db.commit()
+    if added:
+        flash(f"Added {added} photo{'' if added == 1 else 's'}.", 'success')
+    if failed:
+        flash('Not added: ' + '; '.join(failed) + '.', 'error')
+    return redirect(url_for('rides.detail', rid=rid) + '#photosCard')
+
+
+@bp.route('/<rid>/photos/<int:pid>/delete', methods=['POST'])
+def delete_photo(rid, pid):
+    from services import photos
+    db = get_db()
+    photos.delete(db, pid, rid, current_app.config['DATABASE'])
+    db.commit()
+    return redirect(url_for('rides.detail', rid=rid) + '#photosCard')
 
 
 def gpx_for(activity):
@@ -429,7 +482,8 @@ def bulk():
     db = get_db()
     try:
         res = _bulk.apply(db, action, ids, sport=request.form.get('sport'), bike_id=to_int(request.form.get('bike')),
-                          rider_id=to_int(request.form.get('rider')), name=request.form.get('name'))
+                          rider_id=to_int(request.form.get('rider')), name=request.form.get('name'),
+                          commute=request.form.get('commute'))
     except ValueError as e:
         db.rollback()
         flash(str(e), 'error')
@@ -444,9 +498,12 @@ def bulk():
     except Exception:
         pass
     verb = {'delete': 'Deleted', 'sport': 'Changed the type of', 'bike': 'Set the bike on', 'rider': 'Moved',
-            'rename': 'Renamed', 'dismiss': 'Cleared the flag on'}[action]
+            'rename': 'Renamed', 'dismiss': 'Cleared the flag on', 'commute': 'Marked'}[action]
     n = res['done']
-    msg = f"{verb} {n} activit{'y' if n == 1 else 'ies'}."
+    msg = f"{verb} {n} activit{'y' if n == 1 else 'ies'}"
+    if action == 'commute':
+        msg += ' as a commute' if request.form.get('commute') == '1' else ' as not a commute'
+    msg += '.'
     if res['skipped']:
         msg += f" {res['skipped']} could not be changed" + (' (only rides have a bike or a flag)' if action in ('bike', 'dismiss') else '') + '.'
     flash(msg, 'success')
