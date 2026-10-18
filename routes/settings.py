@@ -390,6 +390,10 @@ def backup_export():
             if os.path.isdir(bi_dir):
                 for name in os.listdir(bi_dir):
                     zf.write(os.path.join(bi_dir, name), f'bikeimg/{name}')
+            ri_dir = os.path.join(os.path.dirname(os.path.abspath(db)), 'rideimg')
+            if os.path.isdir(ri_dir):
+                for name in os.listdir(ri_dir):
+                    zf.write(os.path.join(ri_dir, name), f'rideimg/{name}')
 
         @after_this_request
         def _cleanup(resp):

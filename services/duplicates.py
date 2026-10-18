@@ -233,7 +233,11 @@ def park(db, loser_id, primary_id, reason):
         for col in ('notes', 'description') + (('bikeId',) if is_ride(winner['sportType']) else ()):
             if col in row.keys() and row[col] and not winner[col]:
                 db.execute(f'UPDATE Activity SET {col}=? WHERE id=?', [row[col], primary_id])
+        if 'commute' in row.keys() and row['commute'] is not None and winner['commute'] is None:
+            db.execute('UPDATE Activity SET commute=? WHERE id=?', [row['commute'], primary_id])
         _take_better_name(db, primary_id, winner['name'], row['name'])
+        from services import photos
+        photos.move(db, loser_id, primary_id)
     db.execute('INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson) VALUES (?,?,?,?,?,?,?)',
                [loser_id, primary_id, row['riderId'], source_label(row), reason, 'parked', json.dumps(dict(row))])
     seg_ids = _drop_derived(db, loser_id)
@@ -289,6 +293,12 @@ def tombstone(db, act_id, rider_id):
                [act_id, '', rider_id, 'deleted', 'deleted by you', 'deleted', '{}'])
 
 
+def _drop_photos(db, act_ids):
+    from flask import current_app
+    from services import photos
+    photos.delete_for(db, act_ids, current_app.config['DATABASE'])
+
+
 def delete_activity(db, act_id):
     """The one place a ride is deleted (web button, phone app): derived data, parked duplicates of it, then a tombstone. Does not commit."""
     from services.segments import _refresh_prs
@@ -297,6 +307,7 @@ def delete_activity(db, act_id):
         return False
     seg_ids = _drop_derived(db, act_id)
     db.execute('DELETE FROM Activity WHERE id=?', [act_id])
+    _drop_photos(db, [act_id])
     db.execute('UPDATE RideSensor SET rideKind=NULL, rideId=NULL WHERE rideId=?', [act_id])      # the phone's sensor recording stays, waiting for another ride
     db.execute("UPDATE ActivityDuplicate SET primaryId='' WHERE primaryId=? AND status='kept_both'", [act_id])
     for sid in seg_ids:

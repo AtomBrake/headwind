@@ -111,3 +111,38 @@ def test_the_phone_weekly_bars_stay_rides_only(client):
     with client.application.app_context():
         from routes.dashboard import _weekly_data
         assert _weekly_data(1)[-1]['dist_m'] == 40000
+
+
+def test_the_commute_filter_on_the_dashboard_and_the_data_page(client):
+    assert 'aria-label="Commutes"' not in client.get('/dashboard').get_data(as_text=True)      # offered once there's a commute
+    with client.application.app_context():
+        db = database.get_db()
+        db.execute("UPDATE Activity SET commute = CASE id WHEN 'r1' THEN 1 WHEN 'walk1' THEN 0 END")
+        db.commit()
+    html = client.get('/dashboard').get_data(as_text=True)
+    assert 'aria-label="Commutes"' in html and re.search(r'<option value="only"\s*>Commutes', html)
+    html = client.get('/dashboard?commute=only').get_data(as_text=True)
+    assert '/rides/r1' in html and '/rides/run1' not in html and '<option value="only" selected>' in html
+    assert 'commute=only' in html                                                  # the links keep it
+    hrefs = re.findall(r'<a class="sport-only[^"]*" href="([^"]+)"', html)
+    assert hrefs and all('commute=only' in h for h in hrefs)                       # so do "only rides" and the rest
+    html = client.get('/dashboard?commute=no').get_data(as_text=True)
+    assert '/rides/r1' not in html and all(f'/rides/{a}' in html for a in ('run1', 'walk1', 'swim1'))   # unticked and never said alike
+    html = client.get('/dashboard?commute=no&skip=Swim&skip=Ride').get_data(as_text=True)
+    assert 'Total Distance' in html and '9.3 mi' in html                           # with the sport filter: the run and the walk
+    html = client.get('/dashboard/history?commute=only&from=2000-01-01').get_data(as_text=True)
+    assert '/rides/r1' in html and '/rides/run1' not in html
+    html = client.get('/data?commute=only').get_data(as_text=True)
+    assert 'Avg Speed Per Activity (mph)' in html and '<option value="only" selected>' in html      # only the ride is left
+    html = client.get('/dashboard?commute=bogus').get_data(as_text=True)          # anything else: no filter
+    assert '/rides/r1' in html and '/rides/run1' in html and '<option value="" selected>Every activity' in html
+
+
+def test_the_commute_filter_needs_no_second_sport(client):
+    with client.application.app_context():
+        db = database.get_db()
+        db.execute("DELETE FROM Activity WHERE id != 'r1'")
+        db.execute("UPDATE Activity SET commute=1")
+        db.commit()
+    html = client.get('/dashboard').get_data(as_text=True)
+    assert 'aria-label="Commutes"' in html and 'data-sport value=' not in html
