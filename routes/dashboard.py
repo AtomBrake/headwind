@@ -19,7 +19,7 @@ def _weekly_data(rider_id):
         ws = monday - timedelta(weeks=i)
         we = ws + timedelta(days=7)
         row = query_db(
-            "SELECT SUM(distance) as total, SUM(totalElevationGain) as elev, SUM(calories) as cals FROM Activity "
+            "SELECT SUM(distance) as total, SUM(totalElevationGain) as elev, SUM(calories) as cals FROM Ride "
             "WHERE riderId=? AND date(startDateLocal) >= ? AND date(startDateLocal) < ?",
             [rider_id, ws.isoformat(), we.isoformat()], one=True,
         )
@@ -130,6 +130,7 @@ def dashboard():
     date_to   = request.args.get('to', '').strip()
     min_dist, max_dist, min_m, max_m = dist_filters(request.args)
     sport     = request.args.get('sport', '').strip()
+    skip      = [x for x in dict.fromkeys(request.args.getlist('skip')) if x][:50]   # sports left out of the list (every sport is shown by default)
     is_filtered = any([q, date_from, date_to, min_dist, max_dist, sport])
 
     where  = ['a.riderId=?']
@@ -146,12 +147,15 @@ def dashboard():
         where.append('a.distance <= ?'); params.append(max_m)
     if sport:
         where.append('lower(a.sportType) LIKE ?'); params.append(f'%{sport.lower()}%')
+    if skip:
+        where.append(f"COALESCE(a.sportType, '') NOT IN ({','.join('?' * len(skip))})"); params += skip
 
+    # The headline numbers are the rides' (a swim's distance doesn't add to a ride's), unless one sport is picked: then that sport's own.
     totals = query_db(f'''
         SELECT COUNT(*) as rides, SUM(a.distance) as dist,
                SUM(a.totalElevationGain) as elev, SUM(a.movingTime) as secs,
                SUM(a.calories) as cals
-        FROM Activity a
+        FROM {'Activity' if sport else 'Ride'} a
         WHERE {' AND '.join(where)}
     ''', params, one=True)
 
@@ -167,34 +171,14 @@ def dashboard():
         ORDER BY a.startDateLocal DESC
     ''', params)
 
-    # Runs are a proper sport: they sit in the same history list as rides (they are recorded in the Workout table, so ride totals and charts stay ride-only).
-    run_where = ['w.riderId=?', "w.sport='Run'"]
-    run_params = [rid]
-    if q:
-        run_where.append("COALESCE(w.name, 'Run') LIKE ?"); run_params.append(f'%{q}%')
-    if date_from:
-        run_where.append('date(w.startDateLocal) >= ?'); run_params.append(date_from)
-    if date_to:
-        run_where.append('date(w.startDateLocal) <= ?'); run_params.append(date_to)
-    for val, op in ((min_m, '>='), (max_m, '<=')):
-        if val is not None:
-            run_where.append(f'w.distance {op} ?'); run_params.append(val)
-    if not sport or 'run' in sport.lower():
-        runs = query_db(f'''
-            SELECT w.id, COALESCE(NULLIF(w.name, ''), 'Run') AS name, 'Run' AS sportType, w.startDateLocal, w.distance, w.movingTime,
-                   w.totalElevationGain, w.averageSpeed, NULL AS averageWatts, w.averageHeartrate, NULL AS city, NULL AS country, NULL AS aiKudos,
-                   r.name AS riderName, r.avatarPath AS riderAvatar, r.isDefault AS riderIsDefault, r.id AS riderId
-            FROM Workout w LEFT JOIN Rider r ON r.id = w.riderId
-            WHERE {' AND '.join(run_where)}''', run_params)
-        if runs:
-            activities = sorted([*activities, *runs], key=lambda a: str(a['startDateLocal'] or ''), reverse=True)
-            if sport and 'run' in sport.lower():          # filtering to runs: the headline numbers are the runs' own
-                totals = {'rides': len(runs), 'dist': sum(r['distance'] or 0 for r in runs), 'elev': sum(r['totalElevationGain'] or 0 for r in runs),
-                          'secs': sum(r['movingTime'] or 0 for r in runs), 'cals': None}
+    from services.sports import is_ride
+    from services.workouts import label
+    activities = [dict(a, name=a['name'] if (a['name'] or '').strip() or is_ride(a['sportType']) else label({'name': None, 'sport': a['sportType'], 'startDateLocal': a['startDateLocal']}))
+                  for a in activities]                  # a walk or run without a name of its own gets "Morning walk", as on the Workouts page
 
     year_speed_rows = query_db(
         "SELECT id, date(startDateLocal) as d, averageSpeed, name "
-        "FROM Activity "
+        "FROM Ride "
         "WHERE riderId=? AND strftime('%Y', startDateLocal) = strftime('%Y', 'now') "
         "AND averageSpeed > 0 ORDER BY startDateLocal",
         [rid],
@@ -205,11 +189,9 @@ def dashboard():
     ]
 
     sport_types = query_db(
-        'SELECT DISTINCT sportType FROM Activity WHERE riderId=? AND sportType IS NOT NULL ORDER BY sportType',
+        "SELECT DISTINCT sportType FROM Activity WHERE riderId=? AND sportType IS NOT NULL AND sportType <> '' ORDER BY sportType",
         [rid]
     )
-    if query_db("SELECT 1 FROM Workout WHERE riderId=? AND sport='Run' LIMIT 1", [rid], one=True) and not any(t['sportType'] == 'Run' for t in sport_types):
-        sport_types = [*sport_types, {'sportType': 'Run'}]
 
     recovery = None
     if active_rider and active_rider['isDefault']:
@@ -264,7 +246,7 @@ def dashboard():
         year_speed=year_speed,
         now=date.today(),
         q=q, date_from=date_from, date_to=date_to,
-        min_dist=min_dist, max_dist=max_dist, sport=sport,
+        min_dist=min_dist, max_dist=max_dist, sport=sport, skip=skip,
         sport_types=sport_types,
         all_riders=all_riders,
         active_rider=active_rider,

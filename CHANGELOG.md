@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.0-beta] - 2026-10-18
+
+Migration, one way: walks, runs, swims and every other workout move into `Activity`, the table rides are in, at the first start. Before anything changes, the whole database is copied to `bike.db.pre-0.7.0` beside it; the old `Workout` table is also kept, untouched, as `WorkoutPreMerge`. 0.6 can't open the merged database, so going back means restoring that copy. `Activity` gains `steps` and `source`; `Ride` and `Workout` become views of it; `Settings` gains `workoutDupCheckDone`. No Android or iOS change: the phone API keeps its shape.
+
+### Added
+- **The Activities list on the dashboard shows every sport.** Walks, hikes, swims and the rest sit beside rides and runs, and "Leave out" ticks drop any sport from the list. The choice is kept in the URL, so a list can be bookmarked. A walk with no name of its own gets one ("Afternoon walk"), as on the Workouts page.
+
+### Fixed
+- **A Garmin run or walk and its Strava copy were both kept.** Garmin saved it as a workout and the Strava export as a ride, and the duplicate check only compared rides. Every sport is now one table, so the check sees every activity. At start-up each walk, run and other workout is checked once; the weaker copy (normally Strava's) is set aside, not deleted, and the count is on the Tasks page. New ones are checked as they arrive from Garmin, the phone or a typed-in entry. A phone upload of a recording that was set aside gets the kept one back instead of saving it again.
+- **Strava walks, runs, swims and gym sessions counted as rides.** A Strava export stored every activity type as a ride, so they added to the ride totals, the Performance chart, the Data page, badges and the Home Assistant sensors. These now read rides only, so **ride totals drop** by whatever those were. They appear on the Workouts page instead, and still count once in the day's calorie burn.
+- **Deleting a rider left their workouts behind.** They go with the rider now, with their run best times.
+- **The AI coach's "Other training" missed phone and Garmin workouts.** It read only the non-ride activities that had been saved as rides.
+
+### Changed
+- **Changing an activity's type keeps its id.** A walk recorded as a ride used to be moved to the other table under a new id (the old id kept as a tombstone, the original Garmin or Strava id in `originId`). It is now the same row with a new sport: what only a ride has (best efforts, ride segments, the bike) goes, calories are estimated again, and links and bookmarks keep working. The phone API still returns the id.
+
+`services/sports.py` (what counts as a ride), `database._merge_workouts`, `services/duplicates.recheck_workouts`, `services/convert.py`, `routes/dashboard.py`, `docs/ONE-TABLE-PLAN.md`, `tests/test_one_table.py`.
+
 ## [0.6.6-beta] - 2026-10-18
 
 Migration: one `Settings` column (`awayStartRecheckDone`), added automatically at startup, and a one-time duplicate recheck (below). No Android change.

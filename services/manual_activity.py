@@ -66,18 +66,19 @@ def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, 
     kg = goal_model.current_weight_kg(rider_id) or 70.0
 
     if sport in WORKOUT_SPORTS:
-        if db.execute('SELECT 1 FROM Workout WHERE id=?', [aid]).fetchone():
+        if duplicates.exists_anywhere(db, aid):
             return {'kind': 'workout', 'id': aid, 'created': False, 'duplicate': None}
         from services.workouts import estimate_calories
         from services.calorie_adjust import pair as _kcal_pair
         kcal_raw = None                                  # a number the user typed is theirs: never adjusted
         if kcal is None:
             kcal_raw, kcal = _kcal_pair(estimate_calories(sport, dist, secs, gain, kg))
-        db.execute('''INSERT INTO Workout (id, riderId, sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain,
-                                           averageSpeed, calories, source, caloriesRaw) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                   [aid, rider_id, sport, name, utc, local, dist, secs, secs, gain, avg, kcal, 'manual', kcal_raw])
+        db.execute('''INSERT INTO Activity (id, riderId, type, sportType, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain,
+                                            averageSpeed, calories, source, caloriesRaw, rawData) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
+                   [aid, rider_id, sport, sport, name, utc, local, dist, secs, secs, gain, avg, kcal, 'manual', kcal_raw])
+        dup = duplicates.resolve(db, aid)                # already recorded by a device? the recording wins over typed-in numbers
         db.commit()
-        return {'kind': 'workout', 'id': aid, 'created': True, 'duplicate': None}
+        return {'kind': 'workout', 'id': (dup or {}).get('kept', aid), 'created': True, 'duplicate': dup}
 
     if duplicates.exists_anywhere(db, aid):
         return {'kind': 'ride', 'id': aid, 'created': False, 'duplicate': None}

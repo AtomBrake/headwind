@@ -304,7 +304,7 @@ def _gather_nutrition():
     )
     garmin = query_db('SELECT totalCalories FROM GarminDaily WHERE date=?', [today], one=True)
     rides  = query_db('''
-        SELECT COALESCE(SUM(calories),0) as cal FROM Activity
+        SELECT COALESCE(SUM(calories),0) as cal FROM Ride
         WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL
     ''', [rid, today], one=True)
     from services import workouts as _wk
@@ -457,7 +457,7 @@ def _ride_route_payloads(rid):
     """{'nutrition_ride_route': ..., 'nutrition_ride_segments': ...} for the rider's latest ride, plus every segment's personal best."""
     from database import query_db
     out = {}
-    act = query_db("SELECT id, name, startDateLocal, distance, movingTime, streams FROM Activity WHERE riderId=? ORDER BY startDate DESC LIMIT 1", [rid], one=True)
+    act = query_db("SELECT id, name, startDateLocal, distance, movingTime, streams FROM Ride WHERE riderId=? ORDER BY startDate DESC LIMIT 1", [rid], one=True)
     if not act:
         return {'nutrition_ride_route': {'pts': []}, 'nutrition_ride_segments': {'efforts': [], 'all': []}}
     try:
@@ -469,7 +469,7 @@ def _ride_route_payloads(rid):
     segs = []
     detail = []
     for e in efforts:
-        own = query_db("""SELECT e2.elapsedSecs secs, a2.startDateLocal d FROM SegmentEffort e2 JOIN Activity a2 ON a2.id=e2.activityId
+        own = query_db("""SELECT e2.elapsedSecs secs, a2.startDateLocal d FROM SegmentEffort e2 JOIN Ride a2 ON a2.id=e2.activityId
                           WHERE e2.segmentId=? AND a2.riderId=? ORDER BY a2.startDateLocal""", [e['segmentId'], rid])
         times = [o['secs'] for o in own]
         before = [o['secs'] for o in own if o['d'] < act['startDateLocal']]
@@ -485,7 +485,7 @@ def _ride_route_payloads(rid):
             segs.append({'n': e['name'], 'pr': bool(e['isPR']), 'pts': _thin(sp, 22)})
     allsegs = query_db("""SELECT s.id, s.name, s.distanceM, MIN(x.secs) best, COUNT(x.secs) tries, MAX(x.d) last
                           FROM Segment s LEFT JOIN (SELECT e.segmentId sid, e.elapsedSecs secs, a.startDateLocal d FROM SegmentEffort e
-                                                    JOIN Activity a ON a.id=e.activityId WHERE a.riderId=?) x ON x.sid=s.id
+                                                    JOIN Ride a ON a.id=e.activityId WHERE a.riderId=?) x ON x.sid=s.id
                           WHERE s.friendId IS NULL AND COALESCE(s.sport, 'ride') = 'ride' GROUP BY s.id ORDER BY s.name""", [rid])
     out['nutrition_ride_route'] = {'id': act['id'], 'name': act['name'], 'date': (act['startDateLocal'] or '')[:10],
                                    'mi': round((act['distance'] or 0) / 1609.344, 1), 'pts': _thin(ll, 140), 'segs': segs}
@@ -570,7 +570,7 @@ def _history_payloads():
         rows = {r['m']: r for r in query_db('''
             SELECT CAST(strftime('%m', startDateLocal) AS INTEGER) m, COUNT(*) n, SUM(distance) d, SUM(movingTime) t,
                    SUM(totalElevationGain) e, SUM(calories) k
-            FROM Activity WHERE riderId=? AND strftime('%Y', startDateLocal)=? GROUP BY m''', [rid, str(yr)])}
+            FROM Ride WHERE riderId=? AND strftime('%Y', startDateLocal)=? GROUP BY m''', [rid, str(yr)])}
         months = list(range(1, today.month + 1))
         pick = lambda key, f: [f((rows.get(m) or {key: 0})[key] or 0) for m in months]
         payload = {
@@ -591,7 +591,7 @@ def _history_payloads():
         yrs = query_db('''
             SELECT strftime('%Y', startDateLocal) y, COUNT(*) n, SUM(distance) d, SUM(movingTime) t, SUM(totalElevationGain) e,
                    SUM(CASE WHEN strftime('%m-%d', startDateLocal) <= ? THEN distance ELSE 0 END) d2d
-            FROM Activity WHERE riderId=? GROUP BY y HAVING n >= 5 ORDER BY y''', [md, rid])   # >=5 rides drops stray mis-dated rides
+            FROM Ride WHERE riderId=? GROUP BY y HAVING n >= 5 ORDER BY y''', [md, rid])   # >=5 rides drops stray mis-dated rides
         out['nutrition_ride_years'] = {
             'd': [f"{r['y']}-01-01" for r in yrs], 'rides': [int(r['n']) for r in yrs],
             'mi': [round((r['d'] or 0) / 1609.344) for r in yrs], 'h': [round((r['t'] or 0) / 3600) for r in yrs],
@@ -615,7 +615,7 @@ def _history_payloads():
         rides = {r['w']: r for r in query_db('''
             SELECT date(startDateLocal, '-' || ((CAST(strftime('%w', startDateLocal) AS INTEGER) + 6) % 7) || ' days') w,
                    COUNT(*) n, SUM(distance) d, SUM(movingTime) t
-            FROM Activity WHERE riderId=? AND date(startDateLocal)>=? GROUP BY w''', [rid, first])}
+            FROM Ride WHERE riderId=? AND date(startDateLocal)>=? GROUP BY w''', [rid, first])}
         steps_by_week = {}
         g_steps = {r['date']: r['steps'] for r in query_db('SELECT date, steps FROM GarminDaily WHERE date>=? AND date<=?', [first, today.isoformat()])}
         for day_iso in sorted(set(g_steps) | {x for x in _step_days(rid, first) if x <= today.isoformat()}):
@@ -784,13 +784,13 @@ def _gather_stats():
     who = ' WHERE riderId=%d' % owner_row['id'] if owner_row else ''
     totals = query_db(
         'SELECT COUNT(*) as rides, SUM(distance) as dist, SUM(totalElevationGain) as elev, '
-        'SUM(movingTime) as secs, SUM(calories) as cals FROM Activity' + who,
+        'SUM(movingTime) as secs, SUM(calories) as cals FROM Ride' + who,
         one=True,
     )
     last = query_db(
         'SELECT name, sportType, startDateLocal, distance, movingTime, '
         'totalElevationGain, averageSpeed, averageHeartrate, averageWatts, calories '
-        'FROM Activity' + who + ' ORDER BY startDateLocal DESC LIMIT 1',
+        'FROM Ride' + who + ' ORDER BY startDateLocal DESC LIMIT 1',
         one=True,
     )
     stats = dict(totals)
@@ -810,7 +810,7 @@ def _gather_stats():
     if owner:
         rtotals = query_db(
             'SELECT COUNT(*) as rides, SUM(distance) as dist, SUM(totalElevationGain) as elev '
-            'FROM Activity WHERE riderId=?', [owner['id']], one=True)
+            'FROM Ride WHERE riderId=?', [owner['id']], one=True)
         if rtotals:
             cats = _compute_badges(owner['id'], rtotals)
             stats['badges_earned'] = sum(1 for cat in cats for b in cat['badges'] if b['earned'])
@@ -938,7 +938,7 @@ def push_update(activity=None, background=False):
             prs = query_db('SELECT COUNT(*) AS n FROM SegmentEffort WHERE activityId=? AND isPR=1', [act.get('id')], one=True)
             ytd = None
             if act.get('riderId') and act.get('startDateLocal'):
-                ytd = query_db("SELECT COUNT(*) AS n, SUM(distance) AS d FROM Activity WHERE riderId=? AND strftime('%Y', startDateLocal)=?",
+                ytd = query_db("SELECT COUNT(*) AS n, SUM(distance) AS d FROM Ride WHERE riderId=? AND strftime('%Y', startDateLocal)=?",
                                [act['riderId'], act['startDateLocal'][:4]], one=True)
             title, message = ride_summary(act, rider_name, prs['n'] if prs else 0,
                                           (ytd['n'], (ytd['d'] or 0) / 1609.344, act['startDateLocal'][:4]) if ytd else None)

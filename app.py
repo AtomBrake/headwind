@@ -147,7 +147,7 @@ def _garmin_heartbeat(app):
                     # Backfill HR for owner's recent rides that landed without it (a plain GPX import has none)
                     missing = query_db('''
                         SELECT a.id, a.startDate, a.elapsedTime, a.streams
-                        FROM Activity a
+                        FROM Ride a
                         JOIN Rider r ON r.id = a.riderId
                         WHERE r.isDefault = 1
                           AND a.averageHeartrate IS NULL

@@ -301,7 +301,7 @@ def backfill_missing(db, limit=None, since_days=None, pause=0.15, on_each=None):
     """Fetch weather for rides that have none, using the start point or else the first GPS point of the track. Returns (done, failed).
     A ride the service has no data for is skipped for this run (never retried in a loop). Commits per ride."""
     import time
-    q = """SELECT id, startLat, startLng, startDateLocal, streams FROM Activity
+    q = """SELECT id, startLat, startLng, startDateLocal, streams FROM Ride
            WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL"""
     if since_days:
         q += f" AND startDate >= datetime('now', '-{int(since_days)} days')"
@@ -338,7 +338,7 @@ def backfill_missing(db, limit=None, since_days=None, pause=0.15, on_each=None):
 def fog_candidates(db, rider_id, sport=None, limit=300):
     """Rides that were damp and still at the start (humidity 97%+, light wind, no rain, reported as clear / cloudy) and that nobody has confirmed or rejected.
     Fog is far too local for a weather model to report, so these are suggestions for the rider to confirm, never labelled automatically."""
-    q = """SELECT id, name, startDateLocal, weatherHumidity, weatherWindKph, weatherTempC FROM Activity
+    q = """SELECT id, name, startDateLocal, weatherHumidity, weatherWindKph, weatherTempC FROM Ride
            WHERE riderId=? AND weatherHumidity >= 97 AND weatherWindKph < 15 AND COALESCE(weatherRainMm, 0) < 0.1
              AND weatherCode IS NOT NULL AND weatherCode <= 3 AND weatherSource IS NULL"""
     args = [rider_id]

@@ -42,7 +42,7 @@ def add_ride(db, rid='garmin_1', start_ms=T0 - 30_000, secs=150, kind='Activity'
         db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,rawData,riderId) VALUES (?,?,?,?,?,?,?,?,?,'{}',1)",
                    [rid, 'R', 'Ride', 'Ride', iso, iso, 1000, secs, secs])
     else:
-        db.execute("INSERT INTO Workout (id,riderId,sport,startDate,startDateLocal,distance,movingTime,elapsedTime,source) VALUES (?,1,'Run',?,?,1000,?,?,'android')", [rid, iso, iso, secs, secs])
+        db.execute("INSERT INTO Activity (id,riderId,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,source) VALUES (?,1,'Run',?,?,1000,?,?,'android')", [rid, iso, iso, secs, secs])
     db.commit()
 
 

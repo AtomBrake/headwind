@@ -6,7 +6,7 @@ ACTIONS = ('delete', 'sport', 'bike', 'rider', 'rename', 'dismiss')
 
 
 def _kind(db, act_id):
-    if db.execute('SELECT 1 FROM Activity WHERE id=?', [act_id]).fetchone():
+    if db.execute('SELECT 1 FROM Ride WHERE id=?', [act_id]).fetchone():
         return 'ride'
     if db.execute('SELECT 1 FROM Workout WHERE id=?', [act_id]).fetchone():
         return 'workout'
@@ -51,14 +51,14 @@ def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None):
                     skipped += 1
                     continue
             elif action == 'bike':
-                if kind != 'ride' or not gear.is_ride_row(db.execute('SELECT sportType FROM Activity WHERE id=?', [act_id]).fetchone()):
+                if kind != 'ride' or not gear.is_ride_row(db.execute('SELECT sportType FROM Ride WHERE id=?', [act_id]).fetchone()):
                     skipped += 1                             # only rides have a bike
                     continue
                 gear.set_ride_bike(db, act_id, bike_id)
             elif action == 'rider':
                 _move_to_rider(db, kind, act_id, rider_id)
             elif action == 'rename':
-                db.execute(f"UPDATE {'Activity' if kind == 'ride' else 'Workout'} SET name=? WHERE id=?", [name.strip()[:200], act_id])
+                db.execute('UPDATE Activity SET name=? WHERE id=?', [name.strip()[:200], act_id])
             elif action == 'dismiss':
                 if kind != 'ride':
                     skipped += 1
@@ -75,9 +75,6 @@ def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None):
 def _move_to_rider(db, kind, act_id, rider_id):
     """Give an activity to another of this instance's riders: its bike (the old rider's) is cleared, and segment PRs are re-picked for both riders."""
     from services.segments import _refresh_prs
-    if kind == 'workout':
-        db.execute('UPDATE Workout SET riderId=? WHERE id=?', [rider_id, act_id])
-    else:
-        db.execute('UPDATE Activity SET riderId=?, bikeId=NULL WHERE id=?', [rider_id, act_id])
+    db.execute('UPDATE Activity SET riderId=?, bikeId=NULL WHERE id=?', [rider_id, act_id])      # only rides have a bike: clearing it on a workout is a no-op
     for (sid,) in db.execute('SELECT DISTINCT segmentId FROM SegmentEffort WHERE activityId=?', [act_id]).fetchall():
         _refresh_prs(db, sid)

@@ -19,7 +19,7 @@ def backfill(db, apply=False, rewind_wind=False):
     """Returns counts. With apply=False nothing is written. Caller commits."""
     counts = {'rides': 0, 'maxSpeed': 0, 'maxHeartrate': 0, 'maxWatts': 0, 'windRel': 0}
     rows = db.execute("SELECT id, streams, averageSpeed, maxSpeed, maxHeartrate, maxWatts, weatherWindDir, weatherWindKph, weatherWindRel "
-                      "FROM Activity WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')").fetchall()
+                      "FROM Ride WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')").fetchall()
     for r in rows:
         counts['rides'] += 1
         try:
@@ -55,7 +55,7 @@ def fix_spiky_max_speed(db):
     from services.parser import _MAX_PLAUSIBLE
     from services import sanity
     fixed = 0
-    for r in db.execute('SELECT id, streams FROM Activity WHERE maxSpeed > ?', [_MAX_PLAUSIBLE['speed']]).fetchall():
+    for r in db.execute('SELECT id, streams FROM Ride WHERE maxSpeed > ?', [_MAX_PLAUSIBLE['speed']]).fetchall():
         try:
             ex = extremes_from_streams(json.loads(r['streams'] or '{}'))
         except (ValueError, TypeError):

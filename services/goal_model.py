@@ -162,7 +162,7 @@ def day_burn(rider_id, date_iso):
     if not (p['sex'] and p['age'] and p['height_cm'] and kg):
         return None
     bmr = bmr_mifflin(kg, p['height_cm'], p['age'], p['sex'])
-    rides = query_db('SELECT calories, movingTime FROM Activity WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL',
+    rides = query_db('SELECT calories, movingTime FROM Ride WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL',
                      [rider_id, date_iso])
     net = sum(max(0.0, (r['calories'] or 0) - bmr * (r['movingTime'] or 0) / 86400) for r in rides)
     from services import workouts

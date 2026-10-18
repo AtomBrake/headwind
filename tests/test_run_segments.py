@@ -30,7 +30,7 @@ def db(tmp_path):
 
 def add_run(db, wid, secs=1200, speed=3.0, day='2026-10-07', sport='Run'):
     st = line(secs, speed)
-    db.execute("INSERT INTO Workout (id,riderId,sport,startDateLocal,distance,movingTime,streams,source) VALUES (?,1,?,?,?,?,?,'android')", [wid, sport, f'{day}T10:00:00', secs * speed, secs, st])
+    db.execute("INSERT INTO Activity (id,riderId,sportType,startDateLocal,distance,movingTime,streams,source) VALUES (?,1,?,?,?,?,?,'android')", [wid, sport, f'{day}T10:00:00', secs * speed, secs, st])
     db.commit()
     workouts.refresh_derived(db, wid)
     db.commit()
@@ -84,7 +84,7 @@ def test_the_faster_run_takes_the_pr_and_deleting_it_hands_it_back(db):
     add_run(db, 'wk_fast', speed=3.4, secs=1200, day='2026-10-07')
     pr = db.execute('SELECT activityId FROM SegmentEffort WHERE segmentId=? AND isPR=1', [sid]).fetchone()
     assert pr['activityId'] == 'wk_fast'
-    workouts.forget(db, 'wk_fast'); db.execute("DELETE FROM Workout WHERE id='wk_fast'"); db.commit()
+    workouts.forget(db, 'wk_fast'); db.execute("DELETE FROM Activity WHERE id='wk_fast'"); db.commit()
     pr = db.execute('SELECT activityId FROM SegmentEffort WHERE segmentId=? AND isPR=1', [sid]).fetchone()
     assert pr['activityId'] == 'wk_slow'
 
@@ -107,7 +107,7 @@ def test_changing_a_run_to_a_walk_removes_its_efforts(db):
 
 def test_run_stats_gives_best_times_and_ignores_test_recordings(db):
     add_run(db, 'wk_a', secs=1800, speed=3.0)           # 5.4 km
-    db.execute("INSERT INTO Workout (id,riderId,sport,startDateLocal,distance,movingTime,streams,source) VALUES ('wk_tiny',1,'Run','2026-10-08T10:00:00',16,9,?, 'android')", [line(9)]); db.commit()
+    db.execute("INSERT INTO Activity (id,riderId,sportType,startDateLocal,distance,movingTime,streams,source) VALUES ('wk_tiny',1,'Run','2026-10-08T10:00:00',16,9,?, 'android')", [line(9)]); db.commit()
     out = run_stats.payloads(1)['nutrition_run_stats']
     assert out['runs'] == 1
     five_k = [b for b in out['bests'] if b['label'] == '5 km'][0]

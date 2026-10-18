@@ -79,10 +79,10 @@ ok('wrong action -> 400, wrong ride -> 404', phone.post(f'/api/v1/rides/ride/{di
 slow = datetime(2026, 8, 20, 17, 0, 0, tzinfo=timezone.utc)
 j = upload(slow).get_json(); rid = j['ride']['id']
 r = phone.post(f'/api/v1/rides/ride/{rid}/sport', headers=H, json={'sport': 'Walk'}); body = r.get_json()
-ok('phone: change a ride to a Walk', r.status_code == 200 and body['kind'] == 'workout' and body['changed'] and rid not in live(), body)
+ok('phone: change a ride to a Walk', r.status_code == 200 and body['kind'] == 'workout' and body['changed'] and body['id'] == rid and not con.execute('select 1 from Ride where id=?', [rid]).fetchone(), body)
 w = con.execute('select sport, calories from Workout where id=?', [body['id']]).fetchone()
 ok('...it is now a workout with a walking calorie estimate', w['sport'] == 'Walk' and w['calories'] is not None)
-ok('wrong type / unknown id / other kind are clean errors', phone.post(f"/api/v1/rides/workout/{body['id']}/sport", headers=H, json={'sport': 'Swim'}).status_code == 400
+ok('wrong type / unknown id / other kind are clean errors', phone.post(f"/api/v1/rides/workout/{body['id']}/sport", headers=H, json={'sport': 'Quidditch'}).status_code == 400
    and phone.post('/api/v1/rides/ride/nope/sport', headers=H, json={'sport': 'Walk'}).status_code == 404)
 back = phone.post(f"/api/v1/rides/workout/{body['id']}/sport", headers=H, json={'sport': 'Ride'}).get_json()
 ok('...and back to a ride', back['kind'] == 'ride' and back['id'] in live(), back)

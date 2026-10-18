@@ -54,13 +54,12 @@ def reapply_all(pct=None, include_unrecorded=False):
     db = get_db()
     out = {}
     if include_unrecorded:
-        # own rides only: friends' rides are stored under ids that start f<friendId>_
-        db.execute("UPDATE Activity SET caloriesRaw=calories WHERE caloriesRaw IS NULL AND calories IS NOT NULL AND id NOT LIKE 'f%\\_%' ESCAPE '\\'")
-        db.execute("UPDATE Workout SET caloriesRaw=calories WHERE caloriesRaw IS NULL AND calories IS NOT NULL AND COALESCE(source,'')<>'manual'")
+        # own activities only (friends' rides are stored under ids that start f<friendId>_), and never a workout's typed-in figure
+        db.execute("UPDATE Activity SET caloriesRaw=calories WHERE caloriesRaw IS NULL AND calories IS NOT NULL AND id NOT LIKE 'f%\\_%' ESCAPE '\\' "
+                   "AND COALESCE(source,'')<>'manual'")
         db.execute("UPDATE GarminDaily SET totalCaloriesRaw=totalCalories WHERE totalCaloriesRaw IS NULL AND totalCalories IS NOT NULL")
         db.execute("UPDATE GarminDaily SET activeCaloriesRaw=activeCalories WHERE activeCaloriesRaw IS NULL AND activeCalories IS NOT NULL")
     out['Activity'] = db.execute('UPDATE Activity SET calories=ROUND(caloriesRaw*?,1) WHERE caloriesRaw IS NOT NULL', [f]).rowcount
-    out['Workout'] = db.execute('UPDATE Workout SET calories=ROUND(caloriesRaw*?,1) WHERE caloriesRaw IS NOT NULL', [f]).rowcount
     out['GarminDaily'] = db.execute('UPDATE GarminDaily SET totalCalories=CAST(ROUND(totalCaloriesRaw*?) AS INTEGER) WHERE totalCaloriesRaw IS NOT NULL', [f]).rowcount
     db.execute('UPDATE GarminDaily SET activeCalories=CAST(ROUND(activeCaloriesRaw*?) AS INTEGER) WHERE activeCaloriesRaw IS NOT NULL', [f])
     db.commit()
