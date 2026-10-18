@@ -154,19 +154,60 @@ def index():
     return redirect('/dashboard')
 
 
+def _riders(args):
+    """(every rider, the rider shown, their id): ?rider= or the owner."""
+    all_riders = query_db('SELECT * FROM Rider ORDER BY isDefault DESC, name')
+    owner      = next((r for r in all_riders if r['isDefault']), all_riders[0] if all_riders else None)
+    try:
+        rid = int(args.get('rider') or owner['id'])
+    except (TypeError, ValueError):
+        rid = owner['id'] if owner else None
+    active_rider = query_db('SELECT * FROM Rider WHERE id=?', [rid], one=True) or owner
+    return all_riders, active_rider, rid
+
+
+def _rider_args(active_rider):
+    return [] if not active_rider or active_rider['isDefault'] else [('rider', active_rider['id'])]
+
+
+def _activities(where, params):
+    """The history list's activities under these filters, newest first."""
+    rows = query_db(f'''
+        SELECT a.id, a.name, a.sportType, a.startDateLocal, a.distance, a.movingTime,
+               a.totalElevationGain, {speed_sql('a.')} AS averageSpeed, a.averageWatts, a.averageHeartrate,
+               a.city, a.country, a.aiKudos,
+               r.name AS riderName, r.avatarPath AS riderAvatar, r.isDefault AS riderIsDefault,
+               r.id AS riderId
+        FROM Activity a
+        LEFT JOIN Rider r ON r.id = a.riderId
+        WHERE {' AND '.join(where)}
+        ORDER BY a.startDateLocal DESC
+    ''', params)
+    return [dict(a, name=_name(a)) for a in rows]
+
+
+@bp.route('/dashboard/history')
+def history():
+    """The days of one stretch of the history tree (a month, from= to=), drawn when it is opened: the dashboard draws only the open month, so it
+    doesn't carry every activity ever recorded. Same rider and sport filter as the dashboard it came from."""
+    _, active_rider, rid = _riders(request.args)
+    sf = SportFilter(get_db(), rid, request.args)
+    date_from, date_to = request.args.get('from', '').strip(), request.args.get('to', '').strip()
+    clause, cparams = sf.sql('a.sportType')
+    where, params = ['a.riderId=?', clause], [rid] + cparams
+    if date_from:
+        where.append('date(a.startDateLocal) >= ?'); params.append(date_from)
+    if date_to:
+        where.append('date(a.startDateLocal) <= ?'); params.append(date_to)
+    days = [d for yr in _group_activities(_activities(where, params)) for mo in yr['months'] for d in mo['days']]
+    return render_template('_history_days.html', days=days, sf=sf, rider_query=urlencode(_rider_args(active_rider) + sf.args()))
+
+
 @bp.route('/dashboard')
 def dashboard():
     athlete = query_db('SELECT * FROM Athlete LIMIT 1', one=True)
 
-    all_riders = query_db('SELECT * FROM Rider ORDER BY isDefault DESC, name')
-    owner      = next((r for r in all_riders if r['isDefault']), all_riders[0] if all_riders else None)
-
-    try:
-        rid = int(request.args.get('rider') or owner['id'])
-    except (TypeError, ValueError):
-        rid = owner['id'] if owner else None
-
-    active_rider = query_db('SELECT * FROM Rider WHERE id=?', [rid], one=True) or owner
+    all_riders, active_rider, rid = _riders(request.args)
 
     q         = request.args.get('q', '').strip()
     date_from = request.args.get('from', '').strip()
@@ -175,7 +216,7 @@ def dashboard():
     sf        = SportFilter(get_db(), rid, request.args)     # the sports left in, for the totals, the chart and the list alike
     is_filtered = any([q, date_from, date_to, min_dist, max_dist])
 
-    rider_args = [] if not active_rider or active_rider['isDefault'] else [('rider', active_rider['id'])]
+    rider_args = _rider_args(active_rider)
     def link(skip):
         return '/dashboard' + ('?' + urlencode(rider_args + sf.args(skip)) if rider_args or skip else '')
 
@@ -204,19 +245,7 @@ def dashboard():
     ''', params, one=True)
     group_totals = [] if sf.group else _group_totals(where, params, sf, link)
 
-    activities = query_db(f'''
-        SELECT a.id, a.name, a.sportType, a.startDateLocal, a.distance, a.movingTime,
-               a.totalElevationGain, {speed_sql('a.')} AS averageSpeed, a.averageWatts, a.averageHeartrate,
-               a.city, a.country, a.aiKudos,
-               r.name AS riderName, r.avatarPath AS riderAvatar, r.isDefault AS riderIsDefault,
-               r.id AS riderId
-        FROM Activity a
-        LEFT JOIN Rider r ON r.id = a.riderId
-        WHERE {' AND '.join(where)}
-        ORDER BY a.startDateLocal DESC
-    ''', params)
-
-    activities = [dict(a, name=_name(a)) for a in activities]
+    activities = _activities(where, params)
 
     # Speed (or pace) per activity this year: only when the sports left in share one, so a walk's pace never sits on a line of ride speeds.
     year_speed = []
