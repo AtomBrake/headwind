@@ -1,0 +1,22 @@
+{# The selection bar for activity lists. Include once on a page whose rows carry data-pick="<activity id>" (a ride or a workout) inside an element
+   with data-pick-list; a button with data-pick-toggle turns select mode on. static/js/bulk.js does the rest; routes/rides.py bulk* does the work. #}
+<form method="POST" action="{{ url_for('rides.bulk') }}" id="bulkBar" class="bulk-bar" hidden>
+  <input type="hidden" name="back" value="{{ request.full_path if request.query_string else request.path }}">
+  <input type="hidden" name="action" value="">
+  <div class="bulk-ids"></div>
+  <span class="bulk-count">0 picked</span>
+  <button type="button" class="bulk-link" data-bulk="all">All</button>
+  <button type="button" class="bulk-link" data-bulk="none">None</button>
+  <span class="bulk-sep"></span>
+  <select name="sport" aria-label="Change the type"><option value="">Type…</option></select>
+  <select name="bike" aria-label="Set the bike"><option value="">Bike…</option></select>
+  <select name="rider" aria-label="Move to rider"><option value="">Rider…</option></select>
+  <button type="button" class="btn btn-secondary" data-bulk="rename">Rename</button>
+  <button type="button" class="btn btn-secondary" data-bulk="dismiss" title="Clear the &quot;looks wrong&quot; flag">It's right</button>
+  <button type="button" class="btn btn-secondary" data-bulk="download" title="GPX files in a zip">Download</button>
+  <button type="button" class="btn btn-secondary bulk-delete" data-bulk="delete">Delete</button>
+  <span class="bulk-sep"></span>
+  <button type="button" class="bulk-link" data-bulk="done">Done</button>
+  <input type="hidden" name="name" value="">
+</form>
+<script src="{{ url_for('static', filename='js/bulk.js') }}"></script>

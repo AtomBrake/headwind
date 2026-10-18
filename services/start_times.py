@@ -16,11 +16,11 @@ _SKIP = ('garmin_%', 'man_%', 'conv_%', 'demo_%')
 def fix_utc_starts(db):
     """Run once (Settings.utcStartFixDone). Moves each such ride's start to local time, keeps the UTC instant in startDate, and runs the duplicate
     check on every ride it moved, so the Garmin twin of an imported ride is found and the weaker copy is set aside (not deleted; it can be swapped
-    back from the ride page). Commits. Returns {'moved', 'duplicates'}."""
+    back from the ride page). Commits. Returns {'moved', 'duplicates', 'ran'}."""
     from services import duplicates
     s = db.execute('SELECT utcStartFixDone FROM Settings WHERE id=1').fetchone()
     if not s or s['utcStartFixDone']:
-        return {'moved': 0, 'duplicates': 0}
+        return {'moved': 0, 'duplicates': 0, 'ran': False}
     skip_sql = ' AND '.join('a.id NOT LIKE ?' for _ in _SKIP)
     rows = db.execute(f'''SELECT a.id, a.startDateLocal FROM Activity a
                           WHERE {skip_sql} AND a.riderId NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)
@@ -44,4 +44,4 @@ def fix_utc_starts(db):
     db.commit()
     if moved:
         log.warning('Start times: moved %d imported ride(s) from UTC to local time; %d turned out to be a ride already here', len(moved), found)
-    return {'moved': len(moved), 'duplicates': found}
+    return {'moved': len(moved), 'duplicates': found, 'ran': True}
