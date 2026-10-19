@@ -427,6 +427,7 @@ def migrate_db():
         ('sportEffortsDone',       'INTEGER DEFAULT 0'), # best times worked out for every run and swim already saved (services/sport_records.ensure)
         ('movingTimePausedDone',   'INTEGER DEFAULT 0'), # moving times that counted the stops (auto-pause off) taken from the track (services/moving_time.repair_paused)
         ('bestEffortsCleanDone',   'INTEGER DEFAULT 0'), # best times worked out again without GPS jumps and speed-sensor faults (services/best_efforts.rescan_clean)
+        ('sensorTopSpeedDone',     'INTEGER DEFAULT 0'), # top speeds from the GPS where the speed sensor went wrong (services/max_stats.fix_sensor_top_speed)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
         ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
@@ -952,6 +953,15 @@ def migrate_db():
                       f"from the track, as Strava does ({saved_h:,.0f} hours in all, so average speeds go up): "
                       + '; '.join(f"{f[1] or f[0]} ({f[2] // 60} → {f[3] // 60} min)" for f in sorted(res['fixed'], key=lambda f: f[3] - f[2])[:5])
                       + ('…' if n > 5 else '') + '.')
+        db.commit()
+    from services.max_stats import fix_sensor_top_speed as _fix_sensor_top_speed
+    res = _fix_sensor_top_speed(db)
+    if res:
+        from services import units as _units
+        _tasks.record(db, 'startup:sensor_top_speed', 'Top speeds from a faulty speed sensor',
+                      f"{len(res)} activit{'y' if len(res) == 1 else 'ies'} whose speed sensor logged far more distance than the GPS shows now take "
+                      "their top speed from the GPS: " + '; '.join(f"{f[1] or f[0]} ({_units.fmt_speed(f[2])} → {_units.fmt_speed(f[3])})" for f in res[:5])
+                      + ('…' if len(res) > 5 else '') + '.')
         db.commit()
     from services.best_efforts import rescan_clean as _rescan_clean
     res = _rescan_clean(db)

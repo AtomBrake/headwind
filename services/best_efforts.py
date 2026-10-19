@@ -33,6 +33,28 @@ CEILING_MPS = {'ride': 30.0, 'run': 10.0, 'swim': 2.5}
 AHEAD_M = 20            # the device's distance may run this far ahead of the GPS in one step (and half as much again) before the GPS is believed
 
 
+SENSOR_FAULT_M = 500   # this much distance the device logged beyond the GPS, over the whole activity, is a speed sensor gone wrong
+
+
+def sensor_excess_m(streams):
+    """Metres the device's distance ran ahead of the GPS, counting only the steps where it ran well ahead (more than half as much again, plus
+    AHEAD_M). 0 when there is no device distance or no GPS to hold it against."""
+    t = (streams.get('time') or {}).get('data') or []
+    d = (streams.get('distance') or {}).get('data') or []
+    ll = (streams.get('latlng') or {}).get('data') or []
+    if not d or len(d) != len(t) or len(ll) != len(t):
+        return 0.0
+    excess = 0.0
+    for i in range(1, len(d)):
+        a, b = ll[i - 1], ll[i]
+        if not (a and b and a[0] is not None and b[0] is not None) or d[i] is None or d[i - 1] is None:
+            continue
+        step, gps = d[i] - d[i - 1], _haversine(a[0], a[1], b[0], b[1])
+        if step > gps * 1.5 + AHEAD_M:
+            excess += step - gps
+    return excess
+
+
 def effort_series(streams, ceiling):
     """(distance, time) for the best-time search, or (None, None): the cumulative distance with the stretches that can't be real taken out.
 
