@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.7.7-beta] - 2026-10-19
+
+Migration, at the first start: a new `SportEffort` table replaces `RunEffort` (a cache: every run is worked out again), `TaskLog` gains `logId`, and `Settings` gains `segmentMatchFixDone`, `movingTimeFixDone`, `sportEffortsDone`, `movingTimePausedDone`, `bestEffortsCleanDone` and `sensorTopSpeedDone`, one for each start-up repair below. The repairs run once and are listed on the Tasks page; on a database of 3,400 activities they took about 25 seconds in all. No Android or iOS change.
+
+**Every sport in the stats, and figures that match Strava's.** Runs and swims get best times, badges and Home Assistant sensors of their own. Moving times that counted every stop, best times from GPS jumps or a faulty speed sensor, and segment times that couldn't be right are put right. A Strava export import now takes Strava's own distance, moving time and crops.
+
+### Added
+- **Run and swim best times.** 1 km to the marathon for runs (trail and virtual runs too), 100 m to 3.8 km for swims, on the Data page and your profile beside the ride ones. They're worked out on import, and once at the first start for everything already saved.
+- **Records by sport** on the Data page: each sport's longest, longest time, most climbing and fastest, all time or by year.
+- **Badges for every sport:** Running, Walking & Hiking, Swimming, Other Sports and All Sports (two kinds of training in a day, a triathlon day, 100 to 5,000 hours). Each category shows once you've done that sport.
+- **Home Assistant sensors for every sport:** total activities and training time, this week's activities, time, calories and distance (rides, on foot and swims apart), and your last activity of any sport. `nutrition_training_weekly` holds 12 weeks of it for a chart. The ride sensors are unchanged.
+- **Logs.** Headwind keeps a log file (`logs/headwind.log` beside the database, `/data/logs` in Docker), set with `LOG_LEVEL`. The Tasks page shows it, with a filter and a search, and every line carries the id of the request or background run it came from. An error page quotes its id. **Tasks → Download diagnostics** zips the logs with the version and settings, secrets left out.
+- **A segment can be switched between ride and on foot** from its own page.
+
+### Changed
+- **Strava export import uses Strava's own figures.** Distance and moving time come from the export's `activities.csv`, not the file: they carry the "correct distance" and crops you made on Strava, and a ski day's distance without the lifts. **A ride cropped on Strava is cropped here too:** the track is cut to the part Strava kept, and the climb and top speed are Strava's. To bring activities you've already imported into line, import the export again: the differences wait on the Import page ("Track" for a crop), where "Use the import for all" applies them.
+- **Moving time without the stops.** A device with auto-pause off counted every stop as moving, so a bike park day came in at 7 hours instead of 2. FIT and TCX imports now take the moving time from the track when the device's is well over it, as Strava does, and activities already saved are put right once (on the test data: 934 activities, 5,009 hours in all down to 4,284, against Strava's 4,304). Not swims, surfs and paddles, where slow swimming or waiting for a wave looks stopped. Average speeds go up to match.
+- **Best times leave out what can't be real:** a stretch where the device's distance ran far ahead of the GPS (a speed sensor gone wrong), or faster than 108 km/h on a bike, 10 m/s on foot or 2.5 m/s in the water. Every best time is worked out again once.
+- **Segment matching** no longer gives impossible times: loops and short segments are timed properly, a road beside a trail no longer counts as the trail, and efforts over a sane speed are dropped. Every segment is matched again once, so segment PRs and leaderboard places can move.
+- The Ride Count badges say "rides", which is what they count.
+
+### Fixed
+- **A ski run, a walk or a run could be a ride's best time.** Ride achievements and your profile's Best Efforts counted every sport with a track; they count rides only now.
+- **A faulty speed sensor's top speed.** Where the device's distance ran far ahead of the GPS, the top speed is now no more than the GPS shows (one ride: 107.5 km/h down to 49).
+- **Tracks whose GPS and times were out of step** (a device that writes records before its first fix) are lined up again, and importing the file again repairs one that can't be.
+- **A Garmin that went flat could give a moving time of seconds** for a whole ride (2,766 mph); it's taken from the track now.
+
 ## [0.7.6-beta] - 2026-10-19
 
 Migration, at the first start: `Activity` gains `srcUpdatedAt` (so it is rebuilt once more with the GPS streams last, as in 0.7.5-beta: a few seconds on a few thousand activities), `Segment` gains `matchPending`, `Settings` gains `garminSweepAt`, and there is a new `GarminFailure` table. A new trigger, `Activity_touch`, moves an activity's `updatedAt` on whenever something a friend can see changes. No Android or iOS change. Friends on 0.7.5-beta or older still sync both ways, the old way (below).
