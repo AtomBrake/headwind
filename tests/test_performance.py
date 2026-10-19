@@ -159,7 +159,7 @@ def test_badges_are_kept_until_something_they_count_changes(db, app, monkeypatch
     v = data_version.current(db)
     db.execute("UPDATE Activity SET distance = 9000 WHERE id='a1'")
     db.commit()
-    assert data_version.current(db) == v + 1
+    assert data_version.current(db) > v            # two writes: database.Activity_touch moves updatedAt on too
     riders._compute_badges(1, totals)
     assert len(counted) == 2
     db.execute("INSERT INTO Bike (riderId, name) VALUES (1, 'Road')")           # a bike can make a ride an e-bike ride

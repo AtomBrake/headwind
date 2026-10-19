@@ -130,6 +130,19 @@ def overview(db):
         jobs.append(_card('Garmin sync', state, detail, (g or {}).get('finishedAt') or s.get('garminLastOk'),
                           {'url': '/tasks/run/garmin', 'label': 'Sync now'} if state != 'running' else None))
 
+        # Activities the Garmin sync gave up on (services/garmin_failures): skipped until an update or Try again
+        from services import garmin_failures
+        gone = garmin_failures.given_up(db)
+        if gone:
+            why = {'download': "wouldn't download", 'parse': "its file couldn't be read", 'insert': "couldn't be saved"}
+            listed = '; '.join(f"{r['name'] or 'activity ' + r['activityId']} ({r['startDate'] or 'no date'}): {why.get(r['kind'], r['kind'])}"
+                               for r in gone[:5])
+            more = f' and {len(gone) - 5} more' if len(gone) > 5 else ''
+            jobs.append(_card('Garmin activities not imported', 'failed',
+                              f"{len(gone)} activit{'y' if len(gone) == 1 else 'ies'} the sync gave up on: {listed}{more}. "
+                              'Each is tried once more after Headwind is updated.',
+                              gone[0]['lastAt'], {'url': '/tasks/run/garmin-retry', 'label': 'Try again'}))
+
     # Garmin health history and weigh-ins (Settings columns kept by services/garmin.backfill_history / backfill_weigh_ins)
     for name, done, status, retry, key in (('Garmin health history', 'garminHistoryDone', 'garminHistoryStatus', 'garminHistoryRetryAt', 'history'),
                                            ('Garmin weight history', 'garminWeightsDone', 'garminWeightsStatus', 'garminWeightsRetryAt', 'weights')):
