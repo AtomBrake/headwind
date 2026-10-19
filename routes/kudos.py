@@ -1,7 +1,10 @@
+import logging
 from flask import Blueprint, jsonify, request
 from database import get_db, query_db
 from services.ai import generate_analysis
 from services.context import save_ride_memory
+
+log = logging.getLogger(__name__)
 
 bp = Blueprint('kudos', __name__)
 
@@ -23,7 +26,7 @@ def _ensure_weather(activity, db):
             db.commit()
             return query_db('SELECT * FROM Activity WHERE id=?', [activity['id']], one=True)
     except Exception:
-        pass
+        log.warning('Weather fetch before the AI analysis failed', exc_info=True)
     return activity
 
 
@@ -54,4 +57,5 @@ def kudos(rid):
         save_ride_memory(activity, text)
         return jsonify({'kudos': text})
     except Exception as e:
+        log.exception('AI analysis failed')
         return jsonify({'error': str(e)}), 500

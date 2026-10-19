@@ -521,7 +521,7 @@ def upload_avatar(rid):
         log.warning('Avatar rejected, not a decodable image: %s', e)
         return redirect(url_for('riders.detail', rid=rid))
 
-    log.warning('Avatar saved to %s', save_path)
+    log.info('Avatar saved to %s', save_path)
 
     db = get_db()
     db.execute('UPDATE Rider SET avatarPath=? WHERE id=?', [filename, rid])

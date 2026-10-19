@@ -516,7 +516,7 @@ def delete_workout(wid):
             from services.mqtt import push_update_nutrition
             push_update_nutrition()
         except Exception:
-            pass
+            log.warning('Home Assistant nutrition update after a phone upload failed', exc_info=True)
     return jsonify({'deleted': bool(n)}), (200 if n else 404)
 
 

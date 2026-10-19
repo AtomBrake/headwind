@@ -8,7 +8,9 @@ from flask import Flask, g, jsonify, redirect, request, session, url_for, render
 from config import Config
 from database import close_db, get_db, migrate_db
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+from services import logs
+
+logs.setup()                    # stderr only until create_app knows where the database (and so the log folder) is
 log = logging.getLogger(__name__)
 
 
@@ -114,7 +116,7 @@ def _mqtt_heartbeat(app):
                 from services.goal_model import auto_update
                 auto_update()
         except Exception:
-            pass
+            log.warning('Home Assistant / goal sweep in the heartbeat failed', exc_info=True)
         time.sleep(300)  # MQTT safety net + Home Assistant import poll (HA honours its own interval)
 
 
@@ -204,11 +206,11 @@ def _garmin_heartbeat(app):
                                             [hr['avg'], hr['max'], json.dumps(streams), act['id']],
                                         )
                                         db.commit()
-                                        log.warning('Garmin HR backfill: enriched %s — avg=%s max=%s', act['id'], hr['avg'], hr['max'])
+                                        log.info('Garmin HR backfill: enriched %s — avg=%s max=%s', act['id'], hr['avg'], hr['max'])
                                 except Exception as hre:
                                     log.warning('Garmin HR backfill failed for %s: %s', act['id'], hre)
                         except Exception:
-                            pass
+                            log.warning('Garmin HR backfill failed', exc_info=True)
 
                     # Record the outcome and tell HA straight away (last-sync time, fresh steps). The upload time only once a sync has read
                     # what came with it, so a failed one is read again next time.
@@ -228,7 +230,7 @@ def _garmin_heartbeat(app):
                         from services.mqtt import push_update
                         push_update()
                     except Exception:
-                        pass
+                        log.warning('Home Assistant update after the Garmin sync failed', exc_info=True)
                     if not ok:
                         fails = (query_db('SELECT garminFailCount c FROM Settings WHERE id=1', one=True) or {'c': 1})['c'] or 1
                         interval_hours = min(interval_hours, 0.17 * min(fails, 3))   # retry after 10, 20, then 30 minutes
@@ -270,6 +272,11 @@ def create_app():
     app.wsgi_app = trusted_proxy.wrap(app.wsgi_app)   # X-Forwarded-* only from a trusted proxy
     app.config.from_object(Config)
     app.teardown_appcontext(close_db)
+    logs.setup(app.config['DATABASE'])                # adds the log file beside the database
+    logs.init_app(app)                                # request ids before any other before_request hook
+    from version import __version__
+    log.info('Headwind %s starting: log level %s, log file %s', __version__, logging.getLevelName(logs.level()),
+             logs.file_path() or 'none')
 
     # Generates + logs the first-login password now (not lazily at first sign-in) when none is configured
     from services import credentials

@@ -164,7 +164,7 @@ def strava_save():
         from services.mqtt import push_update
         push_update(background=True)
     except Exception:
-        pass
+        log.warning('Home Assistant update after matching Strava bikes failed', exc_info=True)
     n, m = len(res['created']), res['moved']
     done = (f"Added {n} bike{'s' if n != 1 else ''}; " if n else '') + (f"{m:,} rides put on their Strava bikes." if m != 1 else "1 ride put on its Strava bike.")
     return redirect(url_for('gear.strava_page', rider=rid, done=done))

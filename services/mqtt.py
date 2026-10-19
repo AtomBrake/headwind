@@ -364,7 +364,7 @@ def _gather_nutrition():
             from services import insights
             rate = insights.weight_rate_kg_per_week(rid)   # regression over the raw weigh-ins, not the lagging trend
     except Exception:
-        pass
+        log.warning('Weight trend for Home Assistant failed', exc_info=True)
 
     return {
         'eaten':        eaten,
@@ -820,9 +820,11 @@ def _broker_send(msgs, host, port, auth):
     import paho.mqtt.publish as mqtt_publish
     old = socket.getdefaulttimeout()
     socket.setdefaulttimeout(5)
+    from services import logs
     try:
-        mqtt_publish.multiple(msgs, hostname=host, port=port, auth=auth,
-                              client_id=f'bike-tracker-{os.getpid()}')
+        with logs.timed(f'PUBLISH {len(msgs)} message(s) to', f'mqtt://{host}:{port}'):
+            mqtt_publish.multiple(msgs, hostname=host, port=port, auth=auth,
+                                  client_id=f'bike-tracker-{os.getpid()}')
     finally:
         socket.setdefaulttimeout(old)
 
@@ -857,7 +859,7 @@ def publish(settings, stats):
             msgs.append({'topic': state_topic,  'payload': state_map[uid], 'retain': True, 'qos': 1})
             if uid in HISTORY_UIDS:
                 msgs.append({'topic': _attr_topic(uid), 'payload': _hist_now().get(uid, '{}'), 'retain': True, 'qos': 1})
-            log.info("MQTT queued %s = %s", uid, state_map[uid])
+            log.debug("MQTT queued %s = %s", uid, state_map[uid])
 
     _broker_send(msgs, host, port, auth)
     # Reset cache so next heartbeat sees the freshly published values as the baseline
@@ -866,7 +868,7 @@ def publish(settings, stats):
     all_states.update(garmin_states)
     all_states.update(nutrition_states)
     _last_state.update(all_states)
-    log.warning("MQTT publish complete — %d sensors", len(SENSORS) + len(GARMIN_SENSORS) + len(_nutrition_sensors()))
+    log.info("MQTT publish complete — %d sensors", len(SENSORS) + len(GARMIN_SENSORS) + len(_nutrition_sensors()))
 
 
 def push_update(activity=None, background=False):
@@ -953,14 +955,14 @@ def push_update(activity=None, background=False):
         if msgs:
             _broker_send(msgs, host, port, auth)
             _last_state.update({uid: all_states[uid] for uid in changed})
-            log.warning("MQTT push_update — %d sensor(s) changed%s",
+            log.info("MQTT push_update — %d sensor(s) changed%s",
                         len(changed), ", ride notification sent" if activity else "")
         elif activity:
             _broker_send(msgs, host, port, auth)
-            log.warning("MQTT push_update — ride notification sent (no sensor changes)")
+            log.info("MQTT push_update — ride notification sent (no sensor changes)")
 
         if _fail_count:
-            log.warning("MQTT broker reachable again after %d failed attempt(s)", _fail_count)
+            log.info("MQTT broker reachable again after %d failed attempt(s)", _fail_count)
         _fail_count = 0
         _next_retry = 0.0
 
@@ -1036,6 +1038,6 @@ def push_update_nutrition():
 
         _broker_send(msgs, host, port, auth)
         _last_state.update({uid: nutrition_states[uid] for uid in changed})
-        log.warning("MQTT nutrition push — %d sensor(s) changed", len(changed))
+        log.info("MQTT nutrition push — %d sensor(s) changed", len(changed))
     except Exception as e:
         log.warning("MQTT push_update_nutrition failed (non-fatal): %s", e)

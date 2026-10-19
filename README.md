@@ -610,6 +610,10 @@ Set these in a `.env` file next to `docker-compose.yml` (Compose reads it automa
 | `HEADWIND_ENV` | `./.env` | Point an instance at a different env file (useful for running two instances from one code folder). |
 | `PORT` | `5001` | Port for `python3 app.py`. |
 | `HEADWIND_DEBUG` | *(unset)* | `1` turns on Flask's debug mode for `python3 app.py` (never on a reachable machine). |
+| `LOG_LEVEL` | `INFO` | How much goes in the log. `DEBUG` adds every page load and every call to Strava, Garmin, the weather, food lookup and the AI; use it while chasing a fault. |
+| `LOG_DIR` | `logs` beside the database (`./data/logs` in Docker) | Where the log files go (`headwind.log`, rotated at 5 MB, 5 kept). `off` keeps the log on the console only. |
+| `LOG_FORMAT` | text | `json` writes one JSON object per line, for a log collector. |
+| `LOG_CONSOLE_LEVEL` | same as `LOG_LEVEL` | Keep the console quieter than the log file (the Windows build sets `WARNING`). |
 
 Windows-build only: `HEADWIND_HOST`, `HEADWIND_DATA`, `HEADWIND_NO_TRAY`.
 
@@ -762,6 +766,7 @@ A native Kotlin/Jetpack Compose companion — nutrition logging with barcode sca
 | **Map is blank** | Your browser needs to reach the tile and CDN hosts listed under [Privacy](#privacy-and-telemetry). |
 | **Windows SmartScreen warning** | The build is unsigned. More info → Run anyway, or use Docker. |
 | **Restore says "not compatible"** | The backup's database couldn't be migrated. Nothing was changed — your current data is intact. |
+| **Reporting a bug** | **Tasks → Download diagnostics** gives one zip to attach: the recent logs, the version, settings without passwords, keys or addresses, and row counts. An error page shows a reference such as `3f9c2a1b`; quote it, and the matching log lines carry `[3f9c2a1b]`. The log file is `./data/logs/headwind.log`. Set `LOG_LEVEL=DEBUG` in `.env` and recreate the container for more detail. |
 | **Want to start over** | Stop the container and move `./data` aside (don't delete it until you're sure). |
 
 ---

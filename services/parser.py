@@ -1,8 +1,11 @@
+import logging
 import hashlib
 import io
 import json
 import re
 from math import atan2, cos, radians, sin, sqrt
+
+log = logging.getLogger(__name__)
 
 
 def _utc_iso(dt):
@@ -55,7 +58,7 @@ def _ext_value(extensions, local_name):
                         except (TypeError, ValueError):
                             pass
         except Exception:
-            pass
+            log.debug('Reading an optional FIT/GPX extension failed', exc_info=True)
     return None
 
 
