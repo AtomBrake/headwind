@@ -174,7 +174,7 @@ def forget(db, wid):
     from services.segments import _refresh_prs
     seg_ids = [r[0] for r in db.execute('SELECT DISTINCT segmentId FROM SegmentEffort WHERE activityId=?', [wid]).fetchall()]
     db.execute('DELETE FROM SegmentEffort WHERE activityId=?', [wid])
-    db.execute('DELETE FROM RunEffort WHERE runId=?', [wid])
+    db.execute('DELETE FROM SportEffort WHERE activityId=?', [wid])
     db.execute('UPDATE RideSensor SET rideKind=NULL, rideId=NULL WHERE rideId=?', [wid])
     for sid in seg_ids:
         _refresh_prs(db, sid)
@@ -197,17 +197,16 @@ def delete(db, wid, rider_id):
 
 
 def refresh_derived(db, wid):
-    """(Re)build everything derived from one workout: best times (runs) and foot-segment efforts (walks, runs and hikes). Safe to call after any
-    change. Does not commit."""
-    from services import run_stats
+    """(Re)build everything derived from one workout: best times (runs and swims) and foot-segment efforts (walks, runs and hikes). Safe to call
+    after any change. Does not commit."""
+    from services import sport_records
     from services.segments import scan_activity_against_segments, _refresh_prs
     from services.sports import segment_family
     forget(db, wid)
     w = db.execute('SELECT id, sportType AS sport, startDateLocal, streams FROM Activity WHERE id=?', [wid]).fetchone()
     if not w or not w['streams']:
         return
-    if w['sport'] == 'Run':
-        run_stats.index_run(db, wid, w['startDateLocal'], w['streams'])
+    sport_records.index(db, wid, w['startDateLocal'], w['sport'], w['streams'])
     if segment_family(w['sport']) != 'foot':
         return
     try:

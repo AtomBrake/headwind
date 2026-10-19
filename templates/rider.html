@@ -126,17 +126,20 @@
     {% endif %}
   </div>
 
-  <!-- Best Efforts -->
+  <!-- Best Efforts: rides, then runs and swims -->
   <div class="card">
     <div class="card-title">Best Efforts</div>
-    {% if best_by_dist %}
+    {% if best_by_dist or sport_bests %}
+    {% set head = 'font-size:0.75rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-muted); padding:0.75rem 0 0.25rem;' %}
     <table style="width:100%;">
       <tbody>
+        {% if best_by_dist %}
+        {% if sport_bests %}<tr><td colspan="3" style="{{ head }}">Rides</td></tr>{% endif %}
         {% for dist in brackets %}
           {% if dist in best_by_dist %}
           {% set e = best_by_dist[dist] %}
           <tr style="border-bottom:1px solid var(--border);">
-            <td style="padding:0.6rem 0; font-weight:600;">{{ (dist * 1609.344) | fmt_dist(0 if units != 'metric' else 1) }}</td>
+            <td style="padding:0.6rem 0; font-weight:600;"><a href="/rides/{{ e.activityId }}" style="color:var(--text); text-decoration:none;">{{ (dist * 1609.344) | fmt_dist(0 if units != 'metric' else 1) }}</a></td>
             <td style="padding:0.6rem 0; text-align:right; font-weight:600; color:var(--accent); font-variant-numeric:tabular-nums;">
               {{ e.elapsedSecs | fmt_duration }}
             </td>
@@ -145,6 +148,19 @@
             </td>
           </tr>
           {% endif %}
+        {% endfor %}
+        {% endif %}
+        {% for heading, kind, rows in sport_bests %}
+        <tr><td colspan="3" style="{{ head }}">{{ heading }}</td></tr>
+        {% for label, e, mps in rows %}
+          <tr style="border-bottom:1px solid var(--border);">
+            <td style="padding:0.6rem 0; font-weight:600;"><a href="/rides/{{ e.activityId }}" style="color:var(--text); text-decoration:none;">{{ label }}</a></td>
+            <td style="padding:0.6rem 0; text-align:right; font-weight:600; color:var(--accent); font-variant-numeric:tabular-nums;">
+              {{ e.elapsedSecs | fmt_duration }}
+            </td>
+            <td style="padding:0.6rem 0; text-align:right; color:var(--text-muted); font-size:0.8125rem;">{{ mps | fmt_rate(e.sportType) }}</td>
+          </tr>
+        {% endfor %}
         {% endfor %}
       </tbody>
     </table>

@@ -103,7 +103,7 @@ def test_changing_a_run_to_a_walk_keeps_its_foot_efforts_but_not_its_run_best_ti
     add_run(db, 'wk_a')
     convert.change_sport(db, 'workout', 'wk_a', 'Walk'); db.commit()
     assert db.execute('SELECT COUNT(*) FROM SegmentEffort WHERE segmentId=?', [sid]).fetchone()[0] == 1
-    assert db.execute('SELECT COUNT(*) FROM RunEffort WHERE runId=?', ['wk_a']).fetchone()[0] == 0
+    assert db.execute('SELECT COUNT(*) FROM SportEffort WHERE activityId=?', ['wk_a']).fetchone()[0] == 0
     convert.change_sport(db, 'workout', 'wk_a', 'Swim'); db.commit()
     assert db.execute('SELECT COUNT(*) FROM SegmentEffort WHERE segmentId=?', [sid]).fetchone()[0] == 0
 
