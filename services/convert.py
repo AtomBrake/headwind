@@ -1,7 +1,7 @@
 """Change what kind of activity something is: a walk that was recorded as a ride, a ride that was typed in as a run, and so on.
 
 Every sport is a row in Activity, so a change keeps the row and its id. Between the two families (rides, and the rest: services/sports.is_ride) it
-is more than a label: what only a ride has (best efforts, ride segments, the bike) goes or comes back, and calories are re-estimated for the new sport
+is more than a label: what only a ride has (best efforts, ride segments, the bike) goes or comes back, as does the kit (shoes and the like), and calories are re-estimated for the new sport
 (a walk logged as a ride carries a cycling estimate, which badly over-counts). Nothing here commits: the caller does.
 """
 
@@ -39,8 +39,9 @@ def _ride_to_workout(db, row, sport, discard_parked=False):
         _refresh_prs(db, sid)
     db.execute("UPDATE Activity SET type=?, sportType=?, name=?, calories=?, caloriesRaw=?, bikeId=NULL, flagReason=NULL, source=COALESCE(source, 'converted'), "
                "updatedAt=datetime('now') WHERE id=?", [sport, sport, name, kcal, kcal_raw, row['id']])
-    from services import workouts as _wk
+    from services import workouts as _wk, kit
     _wk.refresh_derived(db, row['id'])
+    kit.stamp_new_activity(db, row['id'])                # the rider's default shoes (or other kit) for the new sport
     return {'kind': 'workout', 'id': row['id'], 'sport': sport}
 
 
@@ -54,8 +55,8 @@ def _workout_to_ride(db, row, sport):
         kcal_raw, kcal = row['caloriesRaw'], row['calories']
     name = row['name'] if (row['name'] or '').strip() else workouts.label({'name': None, 'sport': row['sportType'], 'startDateLocal': row['startDateLocal']})
     workouts.forget(db, row['id'])                       # run best times and foot-segment efforts
-    db.execute("UPDATE Activity SET type=?, sportType=?, name=?, calories=?, caloriesRaw=?, updatedAt=datetime('now') WHERE id=?",
-               [sport, sport, name, kcal, kcal_raw, row['id']])
+    db.execute("UPDATE Activity SET type=?, sportType=?, name=?, calories=?, caloriesRaw=?, kitId=NULL, updatedAt=datetime('now') WHERE id=?",
+               [sport, sport, name, kcal, kcal_raw, row['id']])        # a ride has a bike, not shoes
     duplicates.rebuild_derived(db, row['id'])           # best efforts + segment efforts, now that it is a ride
     gear.on_ride_added(db, row['id'])                   # the rider's default bike
     return {'kind': 'ride', 'id': row['id'], 'sport': sport}

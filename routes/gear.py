@@ -1,4 +1,5 @@
-"""Gear: bikes, the parts on them, a service log, and which bike rode which ride. See services/gear.py for the rules and docs/GEAR.md for the tour."""
+"""Gear: bikes, the parts on them, a service log, and which bike rode which ride; and kit, the gear that isn't a bike (shoes first). See services/gear.py
+and services/kit.py for the rules and docs/GEAR.md for the tour."""
 import json
 import logging
 import os
@@ -6,7 +7,7 @@ import os
 from flask import Blueprint, abort, current_app, jsonify, redirect, render_template, request, send_from_directory, url_for
 
 from database import get_db, query_db
-from services import gear
+from services import gear, kit
 from services.gear_catalog import CATALOG, GROUPS
 from services.rider_mode import multi_rider, owner_rider_id
 
@@ -68,7 +69,12 @@ def index():
     default = query_db('SELECT defaultBikeId FROM Rider WHERE id=?', [rid], one=True)
     from services import strava_gear
     strava = {'pending': strava_gear.pending(db, rid), 'any': bool(query_db('SELECT 1 FROM StravaBike WHERE riderId=?', [rid], one=True))}
-    return render_template('gear.html', bikes=bikes, strava=strava, default_id=default['defaultBikeId'] if default else None, due=gear.due_items(db, rid), span=gear.ride_span(db, rid), rid=rid,
+    used = kit.all_stats(db, rid)
+    items = [{'kit': k, 'stats': used.get(k['id'], {}), 'status': kit.status(db, k, used.get(k['id'], {}).get('distance', 0)), 'defaults': kit.defaults_of(db, k['id']),
+              'icon': kit.KIND_ICONS.get(k['kind'], '')}
+             for k in kit.list_kit(db, rid, include_retired=request.args.get('retired') == '1')]
+    return render_template('gear.html', bikes=bikes, kit_items=items, kit_due=kit.due_items(db, rid), show_retired=request.args.get('retired') == '1',
+                           has_retired=bool(query_db('SELECT 1 FROM Kit WHERE riderId=? AND retiredOn IS NOT NULL', [rid], one=True)), strava=strava, default_id=default['defaultBikeId'] if default else None, due=gear.due_items(db, rid), span=gear.ride_span(db, rid), rid=rid,
                            riders=query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name') if multi_rider() else [], error=request.args.get('error'), units=units,
                            show_archived=request.args.get('archived') == '1', has_archived=bool(query_db('SELECT 1 FROM Bike WHERE riderId=? AND archived=1', [rid], one=True)))
 
@@ -303,6 +309,113 @@ def log_delete(log_id):
     gear.delete_log(db, log_id)
     db.commit()
     return redirect(url_for('gear.bike', bike_id=row['bikeId']) + '#log')
+
+
+# ---------- kit: shoes and the other gear that isn't a bike (services/kit.py) ----------
+def _kit_or_404(kit_id):
+    k = kit.get(get_db(), kit_id)
+    if not k:
+        abort(404)
+    return k
+
+
+def _sport_choices(db, rider_id, have=()):
+    """The sports a default can be set for: the rider's own non-ride sports, most done first, then the usual ones, then any already picked."""
+    from services.sports import is_ride
+    seen, out = set(), []
+    rows = db.execute('SELECT sportType, COUNT(*) n FROM Activity WHERE riderId=? GROUP BY sportType ORDER BY n DESC', [rider_id]).fetchall()
+    for s in [r['sportType'] for r in rows if not is_ride(r['sportType'])] + kit.DEFAULT_SPORTS + list(have):
+        key = kit.sport_key(s)
+        if s and key and key not in seen:
+            seen.add(key)
+            out.append((key, s))
+    return out
+
+
+@bp.route('/kit/new')
+@bp.route('/kit/<int:kit_id>/edit')
+def kit_form(kit_id=None):
+    db = get_db()
+    k = _kit_or_404(kit_id) if kit_id else None
+    units = _units()
+    rid = k['riderId'] if k else _rider_id()
+    have = kit.defaults_of(db, kit_id) if k else []
+    taken = {s: kid for s, kid in kit.defaults(db, rid).items() if kid != kit_id}
+    names = {x['id']: x['name'] for x in kit.list_kit(db, rid, include_retired=True)}
+    return render_template('gear_kit_form.html', kit=k, kinds=kit.KINDS, units=units, rid=rid, error=request.args.get('error'),
+                           kind=(k['kind'] if k else request.args.get('kind') or 'shoes'), sports=_sport_choices(db, rid, have), have=set(have),
+                           taken={s: names.get(kid, '') for s, kid in taken.items()},
+                           start_disp=_disp_dist(k['startMeters'], units) if k and k['startMeters'] else '',
+                           replace_disp=(_disp_dist(k['replaceAtM'], units) if k['replaceAtM'] else '') if k else _disp_dist(kit.REPLACE_DEFAULT_M['shoes'], units))
+
+
+@bp.route('/kit/save', methods=['POST'])
+def kit_save():
+    db = get_db()
+    f = request.form
+    units = _units()
+    kit_id = f.get('id', type=int)
+    try:
+        start = gear.to_meters(f['start'], units) if f.get('start') not in (None, '') else 0
+        replace = gear.to_meters(f['replace'], units) if f.get('replace') not in (None, '') else 0      # blank: never
+        fields = dict(name=f.get('name'), kind=f.get('kind'), brand=f.get('brand'), model=f.get('model'), boughtOn=f.get('boughtOn'),
+                      startMeters=start, replaceAtM=replace, notes=f.get('notes'))
+        if kit_id:
+            _kit_or_404(kit_id)
+            kit.update(db, kit_id, **fields)
+        else:
+            kit_id = kit.create(db, f.get('rider', type=int) or _rider_id(), f.get('name'), f.get('kind') or 'shoes', f.get('brand'), f.get('model'),
+                                f.get('boughtOn') or None, start, replace, f.get('notes'))
+        if not kit.get(db, kit_id)['retiredOn']:
+            kit.set_defaults(db, kit_id, f.getlist('sport'))
+        kit.evaluate_alerts_for(db, kit_id)
+        db.commit()
+    except (ValueError, TypeError) as e:
+        db.rollback()
+        return _flash_redirect(url_for('gear.kit_form', kit_id=f.get('id', type=int)) if f.get('id') else url_for('gear.kit_form'), e)
+    return redirect(url_for('gear.kit_page', kit_id=kit_id))
+
+
+@bp.route('/kit/<int:kit_id>')
+def kit_page(kit_id):
+    db = get_db()
+    k = _kit_or_404(kit_id)
+    recent = db.execute('SELECT id, name, sportType, startDateLocal, distance, movingTime FROM Activity WHERE kitId=? ORDER BY startDateLocal DESC LIMIT 12',
+                        [kit_id]).fetchall()
+    from services.strava_gear import strava_kit_name
+    return render_template('gear_kit.html', kit=k, stats=kit.stats(db, kit_id), status=kit.status(db, k), recent=recent, defaults=kit.defaults_of(db, kit_id),
+                           kind_label=kit.kind_label(k['kind']), icon=kit.KIND_ICONS.get(k['kind'], ''), strava_name=strava_kit_name(db, kit_id),
+                           error=request.args.get('error'))
+
+
+@bp.route('/kit/<int:kit_id>/retire', methods=['POST'])
+def kit_retire(kit_id):
+    db = get_db()
+    _kit_or_404(kit_id)
+    kit.retire(db, kit_id, request.form.get('undo') != '1')
+    db.commit()
+    return redirect(url_for('gear.kit_page', kit_id=kit_id))
+
+
+@bp.route('/kit/<int:kit_id>/delete', methods=['POST'])
+def kit_delete(kit_id):
+    db = get_db()
+    k = _kit_or_404(kit_id)
+    kit.delete(db, kit_id)
+    db.commit()
+    return redirect(url_for('gear.index', rider=k['riderId']))
+
+
+@bp.route('/activity/<rid>/kit', methods=['POST'])
+def activity_kit(rid):
+    db = get_db()
+    try:
+        kit.set_activity_kit(db, rid, request.form.get('kit', type=int))
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        return _flash_redirect(url_for('rides.detail', rid=rid), e)
+    return redirect(url_for('rides.detail', rid=rid))
 
 
 # ---------- which bike on which ride ----------

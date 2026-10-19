@@ -268,11 +268,16 @@ def parse_fit(data: bytes):
     records = []
     session_msg = None
 
+    lap_msgs, length_msgs = [], []
     for msg in ff.get_messages():
         if msg.name == 'record':
             records.append({f.name: f.value for f in msg})
         elif msg.name == 'session':
             session_msg = {f.name: f.value for f in msg}
+        elif msg.name == 'lap':
+            lap_msgs.append({f.name: f.value for f in msg})
+        elif msg.name == 'length':
+            length_msgs.append({f.name: f.value for f in msg})
 
     start = None
     if session_msg:
@@ -357,7 +362,72 @@ def parse_fit(data: bytes):
         'startLat':           latlng[0][0] if latlng else None,
         'startLng':           latlng[0][1] if latlng else None,
         'streams':            json.dumps(streams),
+        'laps':               fit_laps(lap_msgs, length_msgs, s, start),
     }
+
+
+def _num_or_none(v, places=1):
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return None
+    return round(v, places)
+
+
+def fit_laps(lap_msgs, length_msgs, session, start):
+    """The device's laps, and a pool swim's lengths, as JSON for Activity.laps (services/activity_detail reads it), or None when there's only the
+    one lap and no lengths. Times are seconds from the start of the activity, so a crop can shift them (crop_laps). A length is a pool length
+    swum ('active': strokes, stroke type) or a rest at the wall ('active' false)."""
+    def offset(m):
+        t = m.get('start_time') or m.get('timestamp')
+        try:
+            return max(0, int(round((t - start).total_seconds())))
+        except (TypeError, AttributeError):
+            return None
+    laps = []
+    for m in lap_msgs:
+        mps = m.get('enhanced_avg_speed') if m.get('enhanced_avg_speed') is not None else m.get('avg_speed')
+        lap = {'t': offset(m), 'secs': _num_or_none(m.get('total_timer_time') or m.get('total_elapsed_time')), 'dist': _num_or_none(m.get('total_distance')),
+               'mps': _num_or_none(mps, 3), 'hr': _num_or_none(m.get('avg_heart_rate'), 0), 'maxHr': _num_or_none(m.get('max_heart_rate'), 0),
+               'cad': _num_or_none(m.get('avg_cadence'), 0), 'watts': _num_or_none(m.get('avg_power'), 0),
+               'up': _num_or_none(m.get('total_ascent'), 0), 'down': _num_or_none(m.get('total_descent'), 0),
+               'strokes': _num_or_none(m.get('total_strokes'), 0), 'stroke': m.get('swim_stroke') if isinstance(m.get('swim_stroke'), str) else None}
+        laps.append({k: v for k, v in lap.items() if v is not None})
+    lengths = []
+    for m in length_msgs:
+        active = m.get('length_type') != 'idle'
+        ln = {'t': offset(m), 'secs': _num_or_none(m.get('total_timer_time') or m.get('total_elapsed_time')), 'active': active}
+        if active:
+            ln.update({'strokes': _num_or_none(m.get('total_strokes'), 0), 'cad': _num_or_none(m.get('avg_swimming_cadence'), 0),
+                       'stroke': m.get('swim_stroke') if isinstance(m.get('swim_stroke'), str) else None})
+        lengths.append({k: v for k, v in ln.items() if v is not None})
+    pool_m = _num_or_none(session.get('pool_length'), 2)  # metres, whichever way the swimmer counts: a 25 yd pool is 22.86
+    if len(laps) < 2 and not lengths:
+        return None
+    out = {'laps': laps if len(laps) > 1 else []}
+    if lengths:
+        out['lengths'] = lengths
+        out['pool_m'] = pool_m
+        out['pool_unit'] = 'yd' if session.get('pool_length_unit') == 'statute' else 'm'
+    return json.dumps(out)
+
+
+def crop_laps(laps_json, off, seconds):
+    """Activity.laps cut to a crop's window (crop): the laps and lengths that start inside it, their times shifted to its start."""
+    try:
+        d = json.loads(laps_json) if laps_json else None
+    except ValueError:
+        return None
+    if not d:
+        return None
+    def keep(items):
+        return [dict(x, t=int(x['t'] - off)) for x in items or [] if x.get('t') is not None and off - 1 <= x['t'] <= off + seconds]
+    d['laps'] = keep(d.get('laps'))
+    if d.get('lengths'):
+        d['lengths'] = keep(d['lengths'])
+    if len(d['laps']) < 2 and not d.get('lengths'):
+        return None
+    return json.dumps(d)
 
 
 ACTIVITY_EXTENSIONS = ('.gpx', '.fit', '.tcx', '.gpx.gz', '.fit.gz', '.tcx.gz')
@@ -566,6 +636,7 @@ def crop(act, start, seconds, strava_m=None):
     from gpxpy.geo import calculate_uphill_downhill
     new['totalElevationGain'] = round(calculate_uphill_downhill(alts)[0], 1) if alts else None
     new['calories'] = None                                 # the whole recording's
+    new['laps'] = crop_laps(act.get('laps'), off, seconds)
     new['cropped'] = True
     return new
 

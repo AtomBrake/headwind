@@ -32,15 +32,18 @@
   function loadOptions() {
     optionsLoaded = true;
     fetch('/rides/bulk/options').then(function (r) { return r.json(); }).then(function (d) {
-      var sport = bar.querySelector('[name=sport]'), bike = bar.querySelector('[name=bike]'), rider = bar.querySelector('[name=rider]');
+      var sport = bar.querySelector('[name=sport]'), bike = bar.querySelector('[name=bike]'), rider = bar.querySelector('[name=rider]'), kit = bar.querySelector('[name=kit]');
       d.sports.forEach(function (s) { sport.add(new Option(s.label, s.value)); });
       d.riders.forEach(function (r) {
         rider.add(new Option(r.name, r.id));
-        if (!r.bikes.length) return;
-        var g = document.createElement('optgroup');
-        g.label = r.name;
-        r.bikes.forEach(function (b) { g.appendChild(new Option(b.name, b.id)); });
-        bike.appendChild(g);
+        [[bike, r.bikes], [kit, r.kit || []]].forEach(function (p) {        // one group of bikes (and of shoes and other kit) per rider
+          if (!p[1].length) return;
+          var g = document.createElement('optgroup');
+          g.label = r.name;
+          p[1].forEach(function (b) { g.appendChild(new Option(b.name, b.id)); });
+          p[0].appendChild(g);
+          p[0].hidden = false;
+        });
       });
       if (d.riders.length < 2) rider.hidden = true;
     }).catch(function () {});
@@ -116,6 +119,7 @@
     var label = sel.options[sel.selectedIndex].text;
     var q = { sport: 'Change ' + plural(n) + ' to ' + label + '? Rides that become walks, runs or other sports move to Workouts.',
               bike: 'Set the bike on ' + plural(n) + ' to ' + label + '? Only rides of that bike’s rider change.',
+              kit: 'Set the gear on ' + plural(n) + ' to ' + label + '? Rides keep their bike; only that rider’s other activities change.',
               rider: 'Move ' + plural(n) + ' to ' + label + '? Their bikes are cleared.',
               commute: (sel.value === '1' ? 'Mark ' + plural(n) + ' as a commute?' : 'Mark ' + plural(n) + ' as not a commute?') }[sel.name];
     if (!q || !confirm(q)) { sel.value = ''; return; }

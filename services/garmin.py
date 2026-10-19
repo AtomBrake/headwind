@@ -647,6 +647,12 @@ def backfill_weigh_ins(email, password, today=None):
     return msg
 
 
+def save_laps(db, act_id, laps):
+    """The file's laps and pool lengths (services/parser.fit_laps) on an activity that has none yet. Does not commit."""
+    if laps:
+        db.execute('UPDATE Activity SET laps=? WHERE id=? AND laps IS NULL', [laps, act_id])
+
+
 def _save_workout(db, wid, rider_id, sport, name, start_utc, start_local, parsed, max_speed):
     """Store a Garmin activity that is not a ride (a workout), keeping the watch's calories (the walking/running estimate would be wrong for a swim).
     Does not commit."""
@@ -659,11 +665,14 @@ def _save_workout(db, wid, rider_id, sport, name, start_utc, start_local, parsed
                [wid, rider_id, sport, sport, (name or '').strip() or None, start_utc, start_local, parsed.get('distance') or 0, parsed.get('movingTime') or 0,
                 parsed.get('elapsedTime') or 0, parsed.get('totalElevationGain') or 0, parsed.get('averageSpeed') or 0, max_speed,
                 parsed.get('averageHeartrate'), cal_adj, parsed.get('startLat'), parsed.get('startLng'), parsed.get('streams'), 'garmin', cal_raw])
+    save_laps(db, wid, parsed.get('laps'))
     workouts.refresh_derived(db, wid)                     # a run gets its best times and run-segment efforts
-    from services import duplicates
-    if duplicates.resolve(db, wid):                       # the same session from Strava, a file or the phone: keep the better recording
+    from services import duplicates, gear
+    dup = duplicates.resolve(db, wid)                     # the same session from Strava, a file or the phone: keep the better recording
+    if dup:
         import logging
         logging.getLogger(__name__).warning('Garmin activity %s matched an existing recording; kept the better one', wid)
+    gear.on_ride_added(db, (dup or {}).get('kept', wid))  # the rider's default shoes (or other kit) for the sport
 
 
 def _from_summary(a):
@@ -883,6 +892,7 @@ def sync_garmin_activities(email, password, rider_id, api=None):
             except Exception as e:
                 failed(activity_id, 'insert', e, start_date, label)
                 continue
+            save_laps(db, db_id, parsed.get('laps'))
             garmin_failures.clear(db, activity_id)
 
             if parsed.get('startLat') and parsed.get('startLng') and start_local:

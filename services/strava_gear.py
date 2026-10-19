@@ -11,7 +11,12 @@ Rules:
   bike's mileage never takes rides that were on something else.
 * Saving a match fills in the rides that have no bike, and moves the rides the previous match put on a bike. A bike set any other way (by
   hand, by the calendar, the default stamped on when it was first imported) is changed only when asked (`replace`).
-* Shoes are left alone until shoe tracking exists; only rides take a bike.
+* Only rides take a bike.
+
+Shoes (shoes.csv) become kit (services/kit.py) without a match page: there was no shoe tracking before, so there's nothing of the rider's to
+match them to. Each shoe a walk, run or hike names becomes an item (or joins one with the same name), shoes last used more than a year ago come
+in retired, and shoes.csv's default sport types become the item's defaults. Its activities that have no kit are put on it. A shoe whose item
+the rider deletes is left out of later imports (StravaKit.status 'ignored').
 """
 import csv
 import io
@@ -41,6 +46,15 @@ def ensure_schema(db):
         activityId TEXT PRIMARY KEY,
         gear       TEXT NOT NULL)                 -- StravaBike.name''')
     db.execute('CREATE INDEX IF NOT EXISTS idx_stravagear_gear ON StravaGear(gear)')
+    db.execute('''CREATE TABLE IF NOT EXISTS StravaKit (
+        riderId INTEGER NOT NULL,
+        name    TEXT NOT NULL,                    -- the shoe as activities.csv 'Activity Gear' names it: brand, model (not "Other") and name
+        label   TEXT,                             -- what the item is called here: the shoe's name, else brand and model
+        brand   TEXT, model TEXT,
+        sports  TEXT,                             -- shoes.csv 'Shoe Default Sport Types', e.g. 'Run|Walk|Trail Run'
+        kitId   INTEGER,
+        status  TEXT NOT NULL DEFAULT 'new',      -- new | matched | ignored (the rider deleted its item)
+        PRIMARY KEY (riderId, name))''')
 
 
 def norm(name):
@@ -56,11 +70,13 @@ def _csv(zf, names, filename):
 
 # ---------- recording, at import ----------
 def record(db, zf, names, rows, rider_id):
-    """Read the bikes, the shoes and each ride's gear from a Strava export (rows: activities.csv as dicts). Returns {activity id: Strava bike
-    name} for the rides that name a bike. A new Strava bike named like one of the rider's bikes is matched to it. Does not commit."""
+    """Read the bikes, the shoes and each activity's gear from a Strava export (rows: activities.csv as dicts). Returns {activity id: Strava gear
+    name} for the rides that name a bike and the other activities that name a shoe: those don't get the default bike or kit when imported.
+    A new Strava bike named like one of the rider's bikes is matched to it. Does not commit."""
     if not rider_id:
         return {}
     shoes = {norm(r.get('Shoe Name')) for r in _csv(zf, names, 'shoes.csv')} - {''}
+    kit_gear = _record_shoes(db, zf, names, rows, rider_id)
     for r in _csv(zf, names, 'bikes.csv'):
         name = (r.get('Bike Name') or '').strip()
         if name:
@@ -74,9 +90,81 @@ def record(db, zf, names, rows, rider_id):
         by_id[act_id] = name
     for name in set(by_id.values()):                 # a bike the export names on a ride but leaves out of bikes.csv
         _upsert(db, rider_id, name)
-    db.executemany('INSERT OR REPLACE INTO StravaGear (activityId, gear) VALUES (?,?)', list(by_id.items()))
+    db.executemany('INSERT OR REPLACE INTO StravaGear (activityId, gear) VALUES (?,?)', list(by_id.items()) + list(kit_gear.items()))
     _match_by_name(db, rider_id)
-    return by_id
+    return {**kit_gear, **by_id}
+
+
+def shoe_label(row):
+    """(how activities.csv names a shoes.csv row, what to call it here). Strava writes brand, model and name, leaving out a model of "Other":
+    "Mizuno Inspire", "Altra timp 3 Altra", "No name"."""
+    brand, model, name = ((row.get(k) or '').strip() for k in ('Shoe Brand', 'Shoe Model', 'Shoe Name'))
+    model = '' if model.lower() == 'other' else model
+    strava = ' '.join(x for x in (brand, model, name) if x)
+    return strava, name or ' '.join(x for x in (brand, model) if x) or strava
+
+
+def _record_shoes(db, zf, names, rows, rider_id):
+    """The shoes, and which of them each activity that isn't a ride names: {activity id: StravaKit.name}. Does not commit."""
+    known = {}
+    for r in _csv(zf, names, 'shoes.csv'):
+        strava, label = shoe_label(r)
+        if not strava:
+            continue
+        for alias in (label, (r.get('Shoe Name') or '').strip(), strava):      # the full string wins over a shorter one two shoes might share
+            if alias:
+                known[norm(alias)] = strava
+        db.execute('INSERT OR IGNORE INTO StravaKit (riderId, name) VALUES (?,?)', [rider_id, strava])
+        db.execute('UPDATE StravaKit SET label=?, brand=?, model=?, sports=? WHERE riderId=? AND name=?',
+                   [label, (r.get('Shoe Brand') or '').strip() or None, (r.get('Shoe Model') or '').strip() or None,
+                    (r.get('Shoe Default Sport Types') or '').strip() or None, rider_id, strava])
+    out = {}
+    for row in rows:
+        act_id = str(row.get('Activity ID') or '').strip()
+        name = (row.get('Activity Gear') or '').strip()
+        if act_id and name and norm(name) in known and not is_ride((row.get('Activity Type') or '').strip() or 'Ride'):
+            out[act_id] = known[norm(name)]
+    return out
+
+
+def apply_kit(db, rider_id):
+    """After an import: an item for every Strava shoe that has activities here (or the rider's item of the same name), then each shoe's activities
+    with no kit put on it. Returns {'added': items made, 'filled': activities given kit}. Does not commit."""
+    from services import kit
+    mine = {norm(k['name']): k['id'] for k in kit.list_kit(db, rider_id, include_retired=True)}
+    stale = (gear.today() - timedelta(days=RETIRE_AFTER_DAYS)).isoformat()
+    added = filled = 0
+    for sk in db.execute("SELECT * FROM StravaKit WHERE riderId=? AND status != 'ignored'", [rider_id]).fetchall():
+        acts = _rides(db, rider_id, sk['name'])
+        kid = sk['kitId'] if sk['kitId'] and kit.get(db, sk['kitId']) else None
+        if not kid and not acts:
+            continue                                       # a shoe nothing here was done in
+        if not kid:
+            label = sk['label'] or sk['name']
+            kid = mine.get(norm(label))
+            if not kid:
+                last = max((a['day'] for a in acts if a['day']), default=None)
+                kid = kit.create(db, rider_id, label, 'shoes', sk['brand'], None if (sk['model'] or '').lower() == 'other' else sk['model'])
+                mine[norm(label)] = kid
+                added += 1
+                if last and last < stale:
+                    kit.retire(db, kid)                    # long since worn out: its history, but no alerts and not a default
+                else:
+                    kit.set_defaults(db, kid, [s for s in (sk['sports'] or '').split('|') if s.strip()] + kit.defaults_of(db, kid))
+            db.execute("UPDATE StravaKit SET kitId=?, status='matched' WHERE riderId=? AND name=?", [kid, rider_id, sk['name']])
+        ids = [a['id'] for a in acts if not db.execute('SELECT kitId FROM Activity WHERE id=?', [a['id']]).fetchone()[0] and not is_ride(a['sportType'])]
+        if ids:
+            filled += kit.set_activities_kit(db, ids, kid)
+    return {'added': added, 'filled': filled}
+
+
+def strava_kit_name(db, kit_id):
+    """The Strava shoe matched to this item, or None."""
+    try:
+        r = db.execute("SELECT name FROM StravaKit WHERE kitId=? AND status='matched' LIMIT 1", [kit_id]).fetchone()
+    except Exception:                                       # no StravaKit table (a bare test database)
+        return None
+    return r[0] if r else None
 
 
 def _upsert(db, rider_id, name, brand=None, model=None, sports=None):
