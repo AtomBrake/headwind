@@ -559,9 +559,16 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
 
     bikes = {}
     if ride_gear and rider_id:
+        try:                                            # shoes: an item for each, and their walks, runs and hikes put on it (services/strava_gear.apply_kit)
+            k = strava_gear.apply_kit(db, rider_id)
+            bikes.update({'kit_added': k['added'], 'kit_filled': k['filled']})
+            db.commit()
+        except Exception as e:
+            log.error('Strava import: could not put activities on their shoes (%s)', e)
+            db.rollback()
         try:                                            # rides of the Strava bikes already matched go on their bike; the rest wait for /gear/strava
-            bikes = {'bikes_filled': strava_gear.apply_matched(db, rider_id), 'bikes_to_match': strava_gear.pending(db, rider_id),
-                     'bikes_url': f'/gear/strava?rider={rider_id}'}
+            bikes.update({'bikes_filled': strava_gear.apply_matched(db, rider_id), 'bikes_to_match': strava_gear.pending(db, rider_id),
+                          'bikes_url': f'/gear/strava?rider={rider_id}'})
             db.commit()
         except Exception as e:
             log.error('Strava import: could not put rides on their bikes (%s)', e)
@@ -692,6 +699,9 @@ def _insert(db, act, rider_id=None):
         act.get('streams'),       '{}',
         rider_id, act.get('maxHeartrate'), act.get('maxWatts'), calories_raw,
     ])
+    if result.rowcount:
+        from services.garmin import save_laps
+        save_laps(db, act.get('id'), act.get('laps'))
     if result.rowcount and act.get('startLat') and act.get('startLng'):
         try:
             from services.weather import fetch_weather, save_weather

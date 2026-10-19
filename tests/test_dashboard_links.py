@@ -129,3 +129,25 @@ def test_activity_type_review_page_lists_pending_changes(client):
         db = database.get_db()
         assert db.execute("SELECT 1 FROM Activity WHERE sportType='Swim'").fetchone()
         assert not db.execute("SELECT 1 FROM Ride WHERE id='good'").fetchone()
+
+
+def test_activities_page_lists_every_sport_and_keeps_its_links(client):
+    with client.application.app_context():
+        db = database.get_db()
+        db.execute("INSERT INTO Activity (id, name, riderId, sportType, type, startDateLocal, distance, movingTime) "
+                   "VALUES ('walk', 'Evening walk', 1, 'Walk', 'Walk', ?, 3000, 2400)", [date.today().isoformat() + 'T19:00:00'])
+        db.commit()
+
+    html = client.get('/activities').get_data(as_text=True)
+    assert 'class="nav-item active"' in html and '4 activities' in html
+    listed = set(re.findall(r'<a href="/rides/([^"]+)" class="dash-link"', html))
+    assert {'walk', 'good'} <= listed                       # this month's rides and walk together, newest first
+    assert 'action="/activities"' in html and 'tree-list-link" href="/activities?' in html
+
+    html = client.get('/activities?skip=Walk&q=go').get_data(as_text=True)
+    assert set(re.findall(r'<a href="/rides/([^"]+)" class="dash-link"', html)) == {'good'}
+
+    days = client.get(f"/dashboard/history?from={date.today().replace(day=1)}&to={date.today()}&list=/activities").get_data(as_text=True)
+    assert 'href="/activities?from=' in days
+    days = client.get(f"/dashboard/history?from={date.today().replace(day=1)}&list=https://evil.example").get_data(as_text=True)
+    assert 'evil' not in days and 'href="/dashboard?from=' in days

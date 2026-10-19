@@ -97,7 +97,8 @@ def test_the_ai_coach_is_given_metric_numbers_not_asked_to_convert(client, monke
 
 def test_numbers_are_converted_not_just_relabelled(client):
     html = client.get('/rides/r1').get_data(as_text=True)
-    assert '19.9 km' in html and '25.2 km/h' in html and '300 m' in html and '2:23 /km' in html
+    assert '19.9 km' in html and '25.2 km/h' in html and '300 m' in html
+    assert '5:00 /km' in client.get('/rides/wk_1').get_data(as_text=True)      # a run's page shows pace, a ride's speed
     html = client.get('/dashboard').get_data(as_text=True)
     assert 'window.UNITS = {"dist": "km"' in html or '"dist": "km"' in html
     week = json.loads(re.search(r'const weeklyData\s+=\s+(.*);', html).group(1))
