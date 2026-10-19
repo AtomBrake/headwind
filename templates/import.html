@@ -15,7 +15,8 @@
     <strong style="color:var(--text);">Strava data export zip</strong>
     (contains <code>activities.csv</code>).
     An activity that's already here is skipped, unless the file differs from what's saved (it was broken the first time, say):
-    those are listed below for you to decide.
+    those are listed below for you to decide. Importing the same file again is quick: what hasn't changed since the last import isn't read
+    again, unless this version of Headwind reads files differently from the one that imported it.
   </p>
 
   <div id="dropZone" class="drop-zone">
@@ -232,6 +233,7 @@ function handleEvent(d) {
     document.getElementById('doneStats').innerHTML =
       `<strong style="color:var(--success)">${d.imported}</strong> rides imported<br>` +
       `<span style="color:var(--text-muted)">${d.skipped} already existed / skipped</span>` +
+      (d.unchanged ? `<br><span style="color:var(--text-muted)">${d.unchanged} unchanged since the last import, so not read again</span>` : '') +
       (d.errors ? `<br><span style="color:var(--danger)">${d.errors} files could not be parsed</span>` : '') +
       (d.changed ? `<br><a href="/import#changes" onclick="location.reload()" style="color:var(--accent)">${d.changed} differ from what's saved: review them</a>` : '') +
       (d.bikes_filled ? `<br><span style="color:var(--text-muted)">${d.bikes_filled} rides put on their Strava bike</span>` : '') +
