@@ -9,7 +9,7 @@ on the Data page (longest, longest time, most climbing, fastest)."""
 import json
 import logging
 
-from services.best_efforts import _dist_from_latlng
+from services.best_efforts import CEILING_MPS, effort_series, fastest
 
 log = logging.getLogger(__name__)
 
@@ -57,42 +57,24 @@ def ensure_schema(db):
     db.execute('DROP TABLE IF EXISTS RunEffort')
 
 
-def _series(streams_json):
-    try:
-        s = json.loads(streams_json or '{}')
-    except Exception:
-        return None, None
-    t = (s.get('time') or {}).get('data') or []
-    d = (s.get('distance') or {}).get('data') or []
-    if not d:
-        ll = (s.get('latlng') or {}).get('data') or []
-        if ll and t and len(ll) == len(t):
-            d = _dist_from_latlng(ll)
-    if not d or not t or len(d) != len(t) or len(d) < 2:
-        return None, None
-    return d, t
-
-
 def compute(streams_json, k):
-    """[(distance_m, best_elapsed_secs)] for every one of kind k's distances the activity is long enough to contain."""
-    d, t = _series(streams_json)
+    """[(distance_m, best_elapsed_secs)] for every one of kind k's distances the activity is long enough to contain. Stretches that can't be real
+    (the device's distance far ahead of the GPS, or faster than a runner or swimmer can go) are left out: services/best_efforts.effort_series."""
+    try:
+        streams = json.loads(streams_json or '{}')
+    except Exception:
+        return []
+    d, t = effort_series(streams, CEILING_MPS[k])
     if not d:
         return []
-    total = d[-1] - d[0]
     out = []
     for target, _label in DISTANCES[k]:
-        if total < target:
-            break
-        best, lo = None, 0
-        for hi in range(1, len(d)):
-            while lo + 1 < hi and d[hi] - d[lo + 1] >= target:
-                lo += 1
-            if d[hi] - d[lo] >= target:
-                e = t[hi] - t[lo]
-                if e > 0 and (best is None or e < best):
-                    best = e
-        if best:
-            out.append((target, int(best)))
+        best = fastest(d, t, target)
+        if best is None:
+            if d[-1] - d[0] < target:
+                break
+            continue
+        out.append((target, int(best)))
     return out
 
 
