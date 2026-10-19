@@ -140,3 +140,59 @@ def test_import_page_lists_changes_and_applies_a_choice(tmp_path, monkeypatch):
     with app.app_context():
         assert database.get_db().execute("SELECT distance FROM Activity").fetchone()[0] == 45959.5
     assert 'id="changes"' not in c.get('/import').get_data(as_text=True)
+
+
+def _saved_track(db, ride_id):
+    s = json.loads(db.execute('SELECT streams FROM Activity WHERE id=?', [ride_id]).fetchone()[0])
+    return s['time']['data'], s['distance']['data'], s['latlng']['data']
+
+
+def test_a_ride_cropped_on_strava_keeps_only_the_window_strava_kept(db):
+    # the file runs 09:00:00 to 09:09:50; on Strava the ride starts at 09:02 and lasts 3 minutes
+    z = strava_zip(['55,"Jul 4, 2026, 9:02:00 AM",Cropped,Ride,180,0.33,170,180,333.0,activities/1.gpx\n'], [('activities/1.gpx', GPX)])
+    assert run_import(db, z)['imported'] == 1
+    t, d, ll = _saved_track(db, '55')
+    assert t[0] == 0 and t[-1] == 180 and d[0] == 0 and len(ll) == len(t) == 19
+    assert abs(ll[0][0] - (50.4 + 120 * 0.0001)) < 1e-6                                        # the file's point at 09:02:00
+    r = db.execute("SELECT distance, movingTime, elapsedTime, startLat FROM Activity WHERE id='55'").fetchone()
+    assert (r['distance'], r['movingTime'], r['elapsedTime']) == (333.0, 170, 180) and abs(r['startLat'] - ll[0][0]) < 1e-9
+
+
+def test_a_clock_that_is_out_is_not_taken_for_a_crop(db):
+    # Strava's start an hour before the file's (a device that wrote local time as UTC): the window doesn't fit the recording, so nothing is cut
+    z = strava_zip(['56,"Jul 4, 2026, 8:00:00 AM",Clock,Ride,590,0.66,590,590,660.0,activities/1.gpx\n'], [('activities/1.gpx', GPX)])
+    run_import(db, z)
+    t, _, _ = _saved_track(db, '56')
+    assert len(t) == 60 and t[-1] == 590
+
+
+def test_importing_again_after_a_crop_on_strava_offers_the_cropped_track(db):
+    run_import(db, strava_zip(['57,"Jul 4, 2026, 9:00:00 AM",Whole,Ride,590,0.66,590,590,660.0,activities/1.gpx\n'], [('activities/1.gpx', GPX)]))
+    done = run_import(db, strava_zip(['57,"Jul 4, 2026, 9:02:00 AM",Whole,Ride,180,0.33,170,180,333.0,activities/1.gpx\n'], [('activities/1.gpx', GPX)]))
+    assert done['changed'] == 1
+    [c] = reimport.pending(db)
+    track = next(x for x in c['diffs'] if x['label'] == 'Track')
+    assert track['old'] == '9:50 recorded' and track['new'] == '3:00 recorded'
+    assert reimport.resolve(db, '57', 'replace')
+    db.commit()
+    assert _saved_track(db, '57')[0][-1] == 180
+
+
+def test_a_crop_takes_stravas_climb_and_top_speed_even_a_climb_of_nothing(db):
+    """Like "A Cracking Ride": 7 hours recorded, 27:33 kept on Strava, 0.61 km, 0 m climbed, 29.2 km/h top speed."""
+    head = 'Activity ID,Activity Date,Activity Name,Activity Type,Elapsed Time,Distance,Moving Time,Elapsed Time,Distance,Elevation Gain,Max Speed,Filename\n'
+
+    def zip_of(row):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as z:
+            z.writestr('activities.csv', head + row)
+            z.writestr('activities/1.gpx', GPX)
+        buf.seek(0)
+        return zipfile.ZipFile(buf)
+
+    run_import(db, zip_of('58,"Jul 4, 2026, 9:00:00 AM",Cracking,Ride,590,0.66,590,590,660.0,12.0,9.0,activities/1.gpx\n'))
+    run_import(db, zip_of('58,"Jul 4, 2026, 9:02:00 AM",Cracking,Ride,180,0.33,110,180,333.0,0,8.1,activities/1.gpx\n'))
+    assert reimport.resolve(db, '58', 'replace')
+    db.commit()
+    r = db.execute("SELECT distance, movingTime, elapsedTime, totalElevationGain, maxSpeed FROM Activity WHERE id='58'").fetchone()
+    assert (r['distance'], r['movingTime'], r['elapsedTime'], r['totalElevationGain'], r['maxSpeed']) == (333.0, 110, 180, 0, 8.1)
