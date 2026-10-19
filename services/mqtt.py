@@ -21,7 +21,7 @@ _BACKOFF_STEPS = (60, 300, 900)  # seconds
 # so the first instance's HA entities are untouched. HEADWIND_MQTT_NUTRITION=0 publishes only the ride sensors.
 # Read lazily (functions, not module constants) so the env file loaded by config.py is always in effect.
 _DEFAULT_PREFIX = 'bike_tracker'
-_RIDE_ONLY_NUTRITION_UIDS = {'nutrition_ride_months', 'nutrition_ride_years', 'nutrition_ride_route', 'nutrition_ride_segments', 'nutrition_run_stats', 'nutrition_run_route', 'nutrition_run_segments',        # the Riding charts live in this list
+_RIDE_ONLY_NUTRITION_UIDS = {'nutrition_training_weekly', 'nutrition_ride_months', 'nutrition_ride_years', 'nutrition_ride_route', 'nutrition_ride_segments', 'nutrition_run_stats', 'nutrition_run_route', 'nutrition_run_segments',        # the Riding charts live in this list
                              'nutrition_steps_today', 'nutrition_steps_goal', 'nutrition_steps_avg_7d',   # steps (phone / watch / manual)
                              'nutrition_steps_source', 'nutrition_recovery_history'}
 
@@ -66,6 +66,18 @@ SENSORS = [
     ("last_ride_avg_hr",         "Last Ride Avg Heart Rate",  "mdi:heart-pulse",         "bpm"),
     ("last_ride_avg_watts",      "Last Ride Avg Power",       "mdi:lightning-bolt",      "W"),
     ("last_ride_calories",       "Last Ride Calories",        "mdi:fire",                "kcal"),
+    # ── Every sport (the totals and last ride above count rides only) ──
+    ("total_activities",         "Total Activities",          "mdi:medal-outline",       None),
+    ("total_training_hours",     "Total Training Time",       "mdi:timer-outline",       "h"),
+    ("week_activities",          "Activities This Week",      "mdi:calendar-week",       None),
+    ("week_training_hours",      "Training This Week",        "mdi:timer-sand",          "h"),
+    ("week_training_calories",   "Training Calories This Week", "mdi:fire",              "kcal"),
+    ("week_ride_distance_mi",    "Ride Distance This Week",   "mdi:bike",                "mi"),
+    ("week_foot_distance_mi",    "On Foot Distance This Week", "mdi:walk",               "mi"),
+    ("week_swim_distance_m",     "Swim Distance This Week",   "mdi:swim",                "m"),
+    ("last_activity_name",       "Last Activity Name",        "mdi:tag-outline",         None),
+    ("last_activity_sport",      "Last Activity Sport",       "mdi:run",                 None),
+    ("last_activity_date",       "Last Activity Date",        "mdi:calendar",            None),
     # ── Trophy case ──────────────────────────────────────────────
     ("badges_earned",            "Badges Earned",             "mdi:trophy",              None),
     ("badges_total",             "Total Badges",              "mdi:trophy-outline",      None),
@@ -154,6 +166,7 @@ NUTRITION_SENSORS = [
     ("nutrition_run_stats",         "Nutrition Run Stats",          "mdi:run-fast",          None),      # best times, totals, weekly volume, recent runs
     ("nutrition_run_route",         "Nutrition Run Route",          "mdi:map-marker-path",   None),      # latest run's track (+ the run segments it crossed)
     ("nutrition_run_segments",      "Nutrition Run Segments",       "mdi:flag-checkered",    None),      # that run's run-segment efforts
+    ("nutrition_training_weekly",   "Nutrition Training Weekly",    "mdi:chart-bar-stacked", None),      # every sport: 12 weeks of time and distance by kind
     # ── Weight (trend is Headwind's smoothed figure; the raw scale reading is already in HA) ──
     ("nutrition_weight_trend_kg",    "Nutrition Weight Trend",       "mdi:scale-bathroom",    "kg"),
     ("nutrition_weight_rate_kg_wk",  "Nutrition Weight Change per Week", "mdi:trending-down", "kg"),
@@ -164,7 +177,7 @@ NUTRITION_SENSORS = [
 ]
 
 # uids that can legitimately be 'unknown' — everything else is always numeric, so HA can keep long-term statistics
-HISTORY_UIDS = {"nutrition_weight_history", "nutrition_diary_history", "nutrition_recovery_history", "nutrition_reality_check", "nutrition_goal_projection", "nutrition_plan", "nutrition_activity_weekly", "nutrition_ride_months", "nutrition_ride_years", "nutrition_ride_route", "nutrition_ride_segments", "nutrition_run_stats", "nutrition_run_route", "nutrition_run_segments"}
+HISTORY_UIDS = {"nutrition_weight_history", "nutrition_diary_history", "nutrition_recovery_history", "nutrition_reality_check", "nutrition_goal_projection", "nutrition_plan", "nutrition_activity_weekly", "nutrition_ride_months", "nutrition_ride_years", "nutrition_ride_route", "nutrition_ride_segments", "nutrition_run_stats", "nutrition_run_route", "nutrition_run_segments", "nutrition_training_weekly"}
 _NON_NUMERIC_OK = HISTORY_UIDS | {"nutrition_activity_status", "nutrition_garmin_watch_sync", "nutrition_steps_source", "nutrition_garmin_last_sync", "nutrition_garmin_status", "nutrition_calories_burned", "nutrition_weight_trend_kg", "nutrition_weight_rate_kg_wk"}
 
 
@@ -640,6 +653,11 @@ def _history_payloads():
         log.warning('plan status failed: %s', e)
         out['nutrition_plan'] = {'status': 'error'}
     try:
+        out['nutrition_training_weekly'] = _training_weekly(rid, today)
+    except Exception as e:
+        log.warning('training weekly failed: %s', e)
+        out['nutrition_training_weekly'] = {'d': []}
+    try:
         from services import run_stats
         out.update(run_stats.payloads(rid))
     except Exception as e:
@@ -767,9 +785,76 @@ def _state_values(stats):
         "last_ride_avg_hr":        str(round(last_hr))    if last_hr    else 'unknown',
         "last_ride_avg_watts":     str(round(last_watts)) if last_watts else 'unknown',
         "last_ride_calories":      str(int(last_cals))    if last_cals  else 'unknown',
+        # every sport
+        "total_activities":        str(stats.get('all_n') or 0),
+        "total_training_hours":    str(round((stats.get('all_secs') or 0) / 3600, 1)),
+        "week_activities":         str(stats.get('week_n') or 0),
+        "week_training_hours":     str(round((stats.get('week_secs') or 0) / 3600, 1)),
+        "week_training_calories":  str(int(stats.get('week_cals') or 0)),
+        "week_ride_distance_mi":   str(round((stats.get('week_ride_m') or 0) / 1609.344, 1)),
+        "week_foot_distance_mi":   str(round((stats.get('week_foot_m') or 0) / 1609.344, 1)),
+        "week_swim_distance_m":    str(round(stats.get('week_swim_m') or 0)),
+        "last_activity_name":      str(stats.get('any_name') or 'Unknown'),
+        "last_activity_sport":     str(stats.get('any_sport') or 'Ride'),
+        "last_activity_date":      str((stats.get('any_date') or '')[:10]),
         "badges_earned":           str(stats.get('badges_earned') or 0),
         "badges_total":            str(stats.get('badges_total')  or 0),
     }
+
+
+def _training_stats(rid):
+    """Every sport, for the owner: lifetime count and time, this week's (Monday to today) count, time, calories and distance by kind (a swim's
+    metres never add to a ride's miles: services/sports.stat_group), and the latest activity of any sport."""
+    from database import query_db
+    from datetime import timedelta
+    from services import sports, tz
+    today = tz.today()
+    monday = (today - timedelta(days=today.weekday())).isoformat()
+    out = {}
+    row = query_db('SELECT COUNT(*) n, SUM(movingTime) s FROM Activity WHERE riderId=?', [rid], one=True)
+    out['all_n'], out['all_secs'] = row['n'], row['s']
+    week = query_db('SELECT sportType, COUNT(*) n, SUM(movingTime) s, SUM(calories) k, SUM(distance) m FROM Activity '
+                    'WHERE riderId=? AND date(startDateLocal) >= ? GROUP BY sportType', [rid, monday])
+    out['week_n'] = sum(r['n'] for r in week)
+    out['week_secs'] = sum(r['s'] or 0 for r in week)
+    out['week_cals'] = sum(r['k'] or 0 for r in week)
+    for g in ('ride', 'foot', 'swim'):
+        out[f'week_{g}_m'] = sum(r['m'] or 0 for r in week if sports.stat_group(r['sportType']) == g)
+    last = query_db('SELECT name, sportType, startDateLocal FROM Activity WHERE riderId=? ORDER BY startDateLocal DESC LIMIT 1', [rid], one=True)
+    if last:
+        out['any_name'], out['any_sport'], out['any_date'] = last['name'], sports.label(last['sportType'] or None), last['startDateLocal']
+    return out
+
+
+def _training_weekly(rid, today, weeks=12):
+    """The last `weeks` weeks (Monday to Sunday) of every sport: activities, hours and calories a week, and each kind's hours and distance
+    (metres) on its own, for a stacked chart. Kinds are services/sports.stat_group: rides, on foot, swims, then each other sport."""
+    from database import query_db
+    from datetime import timedelta
+    from services import sports
+    this_mon = today - timedelta(days=today.weekday())
+    mons = [this_mon - timedelta(weeks=k) for k in range(weeks - 1, -1, -1)]
+    rows = query_db("""SELECT date(startDateLocal, '-' || ((CAST(strftime('%w', startDateLocal) AS INTEGER) + 6) % 7) || ' days') w, sportType,
+                              COUNT(*) n, SUM(movingTime) s, SUM(calories) k, SUM(distance) m
+                       FROM Activity WHERE riderId=? AND date(startDateLocal) >= ? GROUP BY w, sportType""", [rid, mons[0].isoformat()])
+    idx = {m.isoformat(): i for i, m in enumerate(mons)}
+    n, h, kcal, groups = [0] * weeks, [0.0] * weeks, [0] * weeks, {}
+    for r in rows:
+        i = idx.get(r['w'])
+        if i is None:
+            continue
+        g = sports.stat_group(r['sportType'])
+        grp = groups.setdefault(g, {'key': g, 'label': sports.stat_label(g), 'h': [0.0] * weeks, 'm': [0] * weeks})
+        n[i] += r['n']
+        h[i] += (r['s'] or 0) / 3600
+        kcal[i] += r['k'] or 0
+        grp['h'][i] += (r['s'] or 0) / 3600
+        grp['m'][i] += r['m'] or 0
+    for grp in groups.values():
+        grp['h'] = [round(v, 2) for v in grp['h']]
+        grp['m'] = [round(v) for v in grp['m']]
+    return {'d': [m.isoformat() for m in mons], 'n': n, 'h': [round(v, 1) for v in h], 'kcal': [round(v) for v in kcal],
+            'groups': sorted(groups.values(), key=lambda g: sports.stat_order(g['key']))}
 
 
 def _gather_stats():
@@ -802,6 +887,7 @@ def _gather_stats():
         stats['last_hr']    = last['averageHeartrate']
         stats['last_watts'] = last['averageWatts']
         stats['last_cals']  = last['calories']
+    stats.update(_training_stats(owner_row['id']) if owner_row else {})
     # Badge counts for default rider
     owner = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
     if owner:

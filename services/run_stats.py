@@ -1,89 +1,25 @@
 """Running stats, derived from the recorded runs themselves: best times for the standard distances, pace, totals, weekly
 volume, recent runs and the latest route.
 
-A run is an Activity row with sportType 'Run', from the phone app, a Garmin or a Strava export. It carries GPS+time streams, so the best-times work is the same sliding-window search the ride best-efforts use,
-cached per run in RunEffort so publishing to Home Assistant stays cheap.
+A run is an Activity row whose sport is a run (Run, Trail Run, Virtual Run: services/sport_records.kind), from the phone app, a Garmin or a Strava
+export. Its best times are the ones services/sport_records keeps for every run and swim, so publishing to Home Assistant only reads them.
 """
 import json
-from datetime import date, datetime, timedelta
+from datetime import timedelta
 
 from database import get_db, query_db
-from services.best_efforts import _dist_from_latlng
-from services import tz
+from services import sport_records, tz
 
-DISTANCES = [(1000.0, '1 km'), (1609.344, '1 mile'), (3000.0, '3 km'), (5000.0, '5 km'), (10000.0, '10 km'),
-             (15000.0, '15 km'), (21097.5, 'Half marathon'), (42195.0, 'Marathon')]
+DISTANCES = sport_records.RUN_DISTANCES
 KM_PER_MILE = 1.609344
 MIN_RUN_M, MIN_RUN_S = 400, 120          # a 9-second test recording is not a run
 
 
-def _series(streams_json):
-    try:
-        s = json.loads(streams_json or '{}')
-    except Exception:
-        return None, None
-    t = (s.get('time') or {}).get('data') or []
-    d = (s.get('distance') or {}).get('data') or []
-    if not d:
-        ll = (s.get('latlng') or {}).get('data') or []
-        if ll and t and len(ll) == len(t):
-            d = _dist_from_latlng(ll)
-    if not d or not t or len(d) != len(t) or len(d) < 2:
-        return None, None
-    return d, t
-
-
-def compute_efforts(streams_json):
-    """[(distance_m, best_elapsed_secs)] for every standard distance the run is long enough to contain."""
-    d, t = _series(streams_json)
-    if not d:
-        return []
-    total = d[-1] - d[0]
-    out = []
-    for target, _label in DISTANCES:
-        if total < target:
-            continue
-        best, lo = None, 0
-        for hi in range(1, len(d)):
-            while lo + 1 < hi and d[hi] - d[lo + 1] >= target:
-                lo += 1
-            if d[hi] - d[lo] >= target:
-                e = t[hi] - t[lo]
-                if e > 0 and (best is None or e < best):
-                    best = e
-        if best:
-            out.append((target, int(best)))
-    return out
-
-
-def index_run(db, run_id, run_date, streams_json):
-    """Cache a run's best efforts (replaces any earlier rows for it). Does not commit."""
-    db.execute('DELETE FROM RunEffort WHERE runId=?', [run_id])
-    for dist, secs in compute_efforts(streams_json):
-        db.execute('INSERT OR REPLACE INTO RunEffort (runId, runDate, distanceM, elapsedSecs) VALUES (?,?,?,?)', [run_id, str(run_date or '')[:10], dist, secs])
-
-
 def _runs(rid):
-    """Every run for the rider, newest first, from any source."""
-    return [dict(r) for r in query_db("SELECT id, name, startDateLocal d, distance, movingTime, totalElevationGain gain, averageHeartrate hr, streams, 'workout' kind "
-                                      "FROM Activity WHERE riderId=? AND sportType='Run' AND distance>=? AND movingTime>=? ORDER BY startDateLocal DESC",
-                                      [rid, MIN_RUN_M, MIN_RUN_S])]
-
-
-def _ensure_indexed(runs):
-    db = get_db()
-    have = {r['runId'] for r in db.execute('SELECT DISTINCT runId FROM RunEffort').fetchall()}
-    marked = {r['runId'] for r in db.execute("SELECT runId FROM RunEffort WHERE distanceM=0").fetchall()}   # 0 = looked, too short for any distance
-    changed = False
-    for r in runs:
-        if r['id'] in have or r['id'] in marked:
-            continue
-        index_run(db, r['id'], r['d'], r['streams'])
-        if not db.execute('SELECT 1 FROM RunEffort WHERE runId=?', [r['id']]).fetchone():
-            db.execute('INSERT OR REPLACE INTO RunEffort (runId, runDate, distanceM, elapsedSecs) VALUES (?,?,0,0)', [r['id'], str(r['d'] or '')[:10]])
-        changed = True
-    if changed:
-        db.commit()
+    """Every run for the rider, newest first, from any source (streams left out: only the latest run's track is wanted)."""
+    return [dict(r) for r in query_db("SELECT id, name, startDateLocal d, distance, movingTime, totalElevationGain gain, averageHeartrate hr, 'workout' kind "
+                                      f"FROM Activity WHERE riderId=? AND {sport_records.kind_sql()}='run' AND distance>=? AND movingTime>=? "
+                                      "ORDER BY startDateLocal DESC", [rid, MIN_RUN_M, MIN_RUN_S])]
 
 
 def _thin(points, n):
@@ -101,7 +37,6 @@ def payloads(rid):
     units = (s['units'] if s and s['units'] else 'imperial')
     if not runs:
         return {'nutrition_run_stats': {'runs': 0, 'units': units}, 'nutrition_run_route': {'pts': []}, 'nutrition_run_segments': {'efforts': []}}
-    _ensure_indexed(runs)
     today = tz.today()
     mon = today - timedelta(days=today.weekday())
     month0, year0 = today.replace(day=1), today.replace(month=1, day=1)
@@ -118,21 +53,26 @@ def payloads(rid):
         sel = [r for r in runs if w0.isoformat() <= (r['d'] or '')[:10] < w1.isoformat()]
         weeks.append({'d': w0.isoformat(), 'm': round(sum(r['distance'] or 0 for r in sel)), 'n': len(sel)})
 
+    sport_records.ensure(get_db(), rid)
+    ids = {r['id'] for r in runs}
+    by_dist = {}
+    for e in sport_records.efforts(get_db(), rid, 'run'):
+        if e['activityId'] in ids:                        # test recordings and the like are left out, as from the totals
+            by_dist.setdefault(e['distanceM'], []).append(e)
     bests = []
     for dist, label in DISTANCES:
-        b = query_db('SELECT e.runId, e.runDate, e.elapsedSecs FROM RunEffort e WHERE e.distanceM=? AND e.runId IN (%s) ORDER BY e.elapsedSecs ASC LIMIT 1'
-                     % ','.join('?' * len(runs)), [dist] + [r['id'] for r in runs], one=True)
-        if b:
-            prior = query_db('SELECT MIN(elapsedSecs) m FROM RunEffort WHERE distanceM=? AND runId IN (%s) AND runId<>?' % ','.join('?' * len(runs)),
-                             [dist] + [r['id'] for r in runs] + [b['runId']], one=True)
-            bests.append({'label': label, 'm': dist, 'secs': b['elapsedSecs'], 'date': b['runDate'], 'run': b['runId'],
-                          'next': prior['m'] if prior and prior['m'] else None})
+        rows = by_dist.get(dist)
+        if rows:
+            b = rows[0]
+            bests.append({'label': label, 'm': dist, 'secs': b['elapsedSecs'], 'date': b['activityDate'], 'run': b['activityId'],
+                          'next': next((r['elapsedSecs'] for r in rows[1:] if r['activityId'] != b['activityId']), None)})
 
     def card(r):
         return {'id': r['id'], 'name': r['name'] or 'Run', 'date': (r['d'] or '')[:10], 'm': round(r['distance'] or 0), 's': int(r['movingTime'] or 0),
                 'gain': round(r['gain'] or 0), 'hr': round(r['hr']) if r['hr'] else None}
 
     latest = runs[0]
+    latest['streams'] = (query_db('SELECT streams FROM Activity WHERE id=?', [latest['id']], one=True) or {'streams': None})['streams']
     longest = max(runs, key=lambda r: r['distance'] or 0)
     fastest = max((r for r in runs if (r['distance'] or 0) >= 1000 and r['movingTime']), key=lambda r: (r['distance'] or 0) / r['movingTime'], default=None)
     try:
