@@ -73,8 +73,8 @@ def test_rides_that_name_a_strava_bike_wait_for_it_instead_of_taking_the_default
     assert done['imported'] == 4 and done['bikes_to_match'] == 3 and done['bikes_filled'] == 0
     assert bike_of(db, 'r1') is None and bike_of(db, 'r2') is None          # not stamped with the default
     assert bike_of(db, 'r4') == road                                        # no Strava bike: the default, as before
-    assert bike_of(db, 'r3') is None                                        # a run in shoes is left alone
-    assert dict(db.execute('SELECT activityId, gear FROM StravaGear').fetchall()) == {'r1': 'Stumpy Evo', 'r2': 'Co Bikes'}
+    assert bike_of(db, 'r3') is None                                        # a run in shoes has no bike: it goes on the shoes (tests/test_kit.py)
+    assert dict(db.execute('SELECT activityId, gear FROM StravaGear').fetchall()) == {'r1': 'Stumpy Evo', 'r2': 'Co Bikes', 'r3': 'Altra timp 3 Altra'}
 
     rows = by_name(strava_gear.overview(db, 1))
     assert set(rows) == {'Stumpy Evo', 'Co Bikes', 'Orange Crush'}

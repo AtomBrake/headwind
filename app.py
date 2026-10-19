@@ -297,6 +297,7 @@ def create_app():
     app.template_filter('fmt_elev')(lambda m: _units.fmt_elev(m))
     app.template_filter('fmt_speed')(lambda mps, places=1: _units.fmt_speed(mps, places=places))
     app.template_filter('fmt_pace')(lambda mps: _units.fmt_pace(mps))
+    app.template_filter('fmt_swim_pace')(lambda mps: _units.fmt_swim_pace(mps))
     app.template_filter('pace_mi')(lambda mps: _units.fmt_pace(mps))       # old name, still used by a few templates
     from services import sports as _sports
     app.template_filter('fmt_rate')(lambda mps, sport: _units.fmt_rate(mps, _sports.rate_style(sport)))   # speed, pace or per 100 m, by sport

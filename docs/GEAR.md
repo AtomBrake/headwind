@@ -1,4 +1,4 @@
-# Gear: bikes, parts and service
+# Gear: bikes, parts, service, shoes and other gear
 
 Track which bike rode which ride, what is fitted to each bike, how far every chain, tyre and cassette has gone, and get a nudge when something is due.
 Everything is computed from your rides, so correcting a ride's bike corrects all the mileage. It lives in **Gear** in the sidebar.
@@ -45,8 +45,20 @@ A part is **soon** at 90% of an interval, **due** at 100% and **overdue** at 125
 You are also notified (ntfy, and a Home Assistant push if MQTT is set up) once for each level, never repeatedly: the alert resets when you check or replace the part.
 Turn alerts off per part. Time-based parts are re-checked about hourly, so sealant becomes due even if you do not ride.
 
+## 6. Shoes and other gear
+Below the bikes, **Shoes and other gear** keeps everything else an activity is done in or on: shoes, a wetsuit, skis, a board, a boat. **Gear > + Add shoes or gear**:
+name, type, brand, model, when you bought it, any distance it had before Headwind, and a **replace at** distance (700 km to start with for shoes; blank for never).
+
+* Tick the sports it's the **default** for (runs, walks, hikes, ...): each new activity of those sports is put on it, as a new ride is put on the default bike. A sport has one default; ticking it on another item moves it there.
+* Its distance and time are added up from its activities, so moving an activity to other shoes corrects both pairs.
+* At 90%, 100% and 125% of its replace-at distance you get the same nudge as a bike part, once each, and it shows under "Needs attention" and on the dashboard.
+* **Retire** a pair when it's done: it keeps its history, stops being a default and stops nudging.
+* On an activity's page the **Gear** dropdown changes that activity; on the Activities page, **Select** then **Gear…** changes many. Rides keep their bike and never take kit.
+
+Importing a **Strava export** makes an item for each pair of shoes your walks, runs and hikes name in it, and puts those activities on it. Pairs last worn more than a year ago come in retired.
+
 ## Data and backups
-Gear adds tables `Bike`, `Part`, `ServiceLog` and `PartAlert`, a `bikeId` on rides and a `defaultBikeId` on riders. They are created automatically on upgrade (nothing is dropped).
+Gear adds tables `Bike`, `Part`, `ServiceLog` and `PartAlert`, a `bikeId` on rides and a `defaultBikeId` on riders; shoes and other gear add `Kit`, `KitDefault`, `KitAlert` and `StravaKit`, and a `kitId` on activities. They are created automatically on upgrade (nothing is dropped).
 Bike photos live in `<data folder>/bikeimg/`: `/data/bikeimg/` in Docker, `%LOCALAPPDATA%\Headwind\bikeimg\` for the Windows build. Settings > Backup includes them and Restore brings them back.
 
 ## Not in v1 (planned)
