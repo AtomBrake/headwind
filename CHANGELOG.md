@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.10-beta] - 2026-10-20
 
 Migration, at the first start: a new `ImportSeen` table. No Android or iOS change.
 
