@@ -77,8 +77,9 @@ def test_ensure_works_out_each_run_and_swim_once_and_again_after_a_change_of_spo
         assert db.execute("SELECT distanceM FROM SportEffort WHERE activityId='trail1' AND distanceM=5000").fetchone() is None
         db.execute("UPDATE Activity SET sportType='Swim' WHERE id='trail1'"); db.commit()
         assert sport_records.ensure(db) == 1                                       # its run rows don't count as a swim's
-        assert 'trail1' in {r['activityId'] for r in sport_records.efforts(db, 1, 'swim')}
+        assert db.execute("SELECT kind FROM SportEffort WHERE activityId='trail1'").fetchone()[0] == 'swim'
         assert 'trail1' not in {r['activityId'] for r in sport_records.efforts(db, 1, 'run')}
+        assert 'trail1' not in {r['activityId'] for r in sport_records.efforts(db, 1, 'swim')}       # 3.5 m/s is faster than anyone swims
 
 
 def test_data_page_best_times_per_sport_and_records_by_sport(client):
@@ -148,3 +149,58 @@ def test_no_climbing_record_on_the_water():
     from services import sports
     assert sports.has_climbing('Ride') and sports.has_climbing('Hike') and sports.has_climbing('Alpine Ski')
     assert not any(sports.has_climbing(s) for s in ('Swim', 'Kitesurf', 'Stand Up Paddling', 'Sail', 'Kayaking', 'Rowing'))
+
+
+# ── Bad recordings: impossible stretches, stops counted as moving, Strava's own figures ──
+
+def _ride_with_a_faulty_sensor():
+    """A 2,000 s ride at 8 m/s along a straight line; for 300 s in the middle the speed sensor says 37 m/s while the GPS still shows 8."""
+    lat0, d_lat = 50.6, 8.0 / 111_320.0
+    ll = [[lat0 + i * d_lat, -3.5] for i in range(2001)]
+    d, acc = [0.0], 0.0
+    for i in range(1, 2001):
+        acc += 37.0 if 800 <= i < 1100 else 8.0
+        d.append(acc)
+    return {'latlng': {'data': ll}, 'time': {'data': list(range(2001))}, 'distance': {'data': d}}
+
+
+def test_best_times_leave_out_a_speed_sensor_fault_and_gps_jumps():
+    from services.best_efforts import CEILING_MPS, compute_best_efforts, effort_series
+    efforts = compute_best_efforts(json.dumps(_ride_with_a_faulty_sensor()))
+    five = next(e for e in efforts if e['distanceMi'] == 5)
+    assert abs(five['avgSpeedMps'] - 8.0) < 0.1                                     # not 37 m/s: the GPS is believed
+    jump = {'time': {'data': [0, 1, 2, 3]}, 'distance': {'data': [0, 8, 1008, 1016]}}  # no GPS: a 1 km jump in one second counts for nothing
+    d, _ = effort_series(jump, CEILING_MPS['ride'])
+    assert d[-1] == 16
+
+
+def test_moving_time_comes_from_the_track_when_the_device_counted_its_stops():
+    from services.parser import pick_moving_time
+    assert pick_moving_time(7200, 7150) == 7200          # auto-pause on: the device's
+    assert pick_moving_time(9511, 7488) == 7488          # auto-pause off: every stop counted
+    assert pick_moving_time(9, 2700) == 2700             # a flat battery's lap timer
+    assert pick_moving_time(0, 0, 600) == 600            # nothing to go on: the elapsed time
+    assert pick_moving_time(3000, 1200, sport='Swim') == 3000       # a slow swim looks stopped on the track: the watch's
+
+
+def test_start_up_repairs_put_right_what_is_saved(app):
+    from services import best_efforts, moving_time
+    with app.app_context():
+        db = database.get_db()
+        streams = _ride_with_a_faulty_sensor()
+        stops = {'time': {'data': list(range(0, 2001)) + list(range(5000, 7001))},   # 2,000 s moving, a 50 minute stop, 2,000 s more
+                 'distance': {'data': [i * 8.0 for i in range(2001)] + [16000 + i * 8.0 for i in range(2001)]}}
+        db.execute("UPDATE Activity SET streams=?, movingTime=7000 WHERE id='r1'", [json.dumps(stops)])
+        db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime, streams) "
+                   "VALUES ('bad', 'Morning Paddle', 1, 'Ride', '2021-05-16T10:45:00', 26000, 2000, ?)", [json.dumps(streams)])
+        db.execute("INSERT INTO BestEffort (activityId, activityDate, distanceMi, elapsedSecs, avgSpeedMps) VALUES ('bad', '2021-05-16', 5, 215, 37.4)")
+        db.execute('UPDATE Settings SET movingTimePausedDone=0, bestEffortsCleanDone=0')
+        db.commit()
+        res = moving_time.repair_paused(db)
+        assert [f[0] for f in res['fixed']] == ['r1'] and db.execute("SELECT movingTime FROM Activity WHERE id='r1'").fetchone()[0] == 4000
+        res = best_efforts.rescan_clean(db)
+        five = next(c for c in res['changed'] if c[0] == 5)
+        assert res['ran'] and five[1] == 215 and five[2] > 900                             # the rider's 5-mile record: 3:35 before, a real one now
+        assert db.execute("SELECT MIN(elapsedSecs) FROM BestEffort WHERE activityId='bad' AND distanceMi=5").fetchone()[0] > 900
+        assert db.execute('SELECT COUNT(*) FROM SportEffort').fetchone()[0] == 0          # runs and swims are worked out again on the next read
+        assert best_efforts.rescan_clean(db) == {'ran': False} and moving_time.repair_paused(db) == {'ran': False}

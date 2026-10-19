@@ -425,6 +425,8 @@ def migrate_db():
         ('movingTimeFixDone',      'INTEGER DEFAULT 0'), # moving times a broken lap timer made a few seconds, taken from the track (services/moving_time.repair)
         ('segmentMatchFixDone',    'INTEGER DEFAULT 0'), # 0.7.7's matching fixes: loops cut again, tracks realigned, every segment matched again (services/segments.repair_matching)
         ('sportEffortsDone',       'INTEGER DEFAULT 0'), # best times worked out for every run and swim already saved (services/sport_records.ensure)
+        ('movingTimePausedDone',   'INTEGER DEFAULT 0'), # moving times that counted the stops (auto-pause off) taken from the track (services/moving_time.repair_paused)
+        ('bestEffortsCleanDone',   'INTEGER DEFAULT 0'), # best times worked out again without GPS jumps and speed-sensor faults (services/best_efforts.rescan_clean)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
         ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
@@ -942,6 +944,25 @@ def migrate_db():
                       + (f"; {res['misaligned']} more can't be put right here, and their segment times are left out until they're imported "
                          "again from their files (the same Strava export or file: they're repaired as they come in)" if res['misaligned'] else '') + '.')
         db.commit()
+    res = _moving_time.repair_paused(db)
+    if res.get('fixed'):
+        n, saved_h = len(res['fixed']), sum(f[2] - f[3] for f in res['fixed']) / 3600
+        _tasks.record(db, 'startup:moving_time_paused', 'Moving times without the stops',
+                      f"{n} activit{'y' if n == 1 else 'ies'} recorded with auto-pause off counted every stop as moving; they now take the moving time "
+                      f"from the track, as Strava does ({saved_h:,.0f} hours in all, so average speeds go up): "
+                      + '; '.join(f"{f[1] or f[0]} ({f[2] // 60} → {f[3] // 60} min)" for f in sorted(res['fixed'], key=lambda f: f[3] - f[2])[:5])
+                      + ('…' if n > 5 else '') + '.')
+        db.commit()
+    from services.best_efforts import rescan_clean as _rescan_clean
+    res = _rescan_clean(db)
+    if res.get('ran') and res['scanned']:
+        from services import units as _units
+        moved = '; '.join(f"{_units.localise(f'{mi:g} miles')}: {_mmss(old)} → {_mmss(new)}" for mi, old, new in res['changed'][:7])
+        _tasks.record(db, 'startup:best_efforts_clean', 'Best times without GPS jumps',
+                      f"Best times worked out again for {res['scanned']:,} rides, and for every run and swim, leaving out the stretches that can't be "
+                      "real (faster than 108 km/h on a bike, or the speed sensor's distance far ahead of the GPS). "
+                      + (f"Ride records that changed: {moved}." if moved else 'No ride record changed.'))
+        db.commit()
     from services import sport_records as _sport_records
     done = db.execute('SELECT sportEffortsDone FROM Settings WHERE id=1').fetchone()
     n_efforts = _sport_records.ensure(db)              # every start: anything that came in without its best times; the first time, every run and swim
@@ -959,6 +980,13 @@ def migrate_db():
     from services.origin import backfill as _origin_backfill
     _origin_backfill(db)
     db.commit()
+
+
+def _mmss(secs):
+    if not secs:
+        return '—'
+    h, m, sec = secs // 3600, secs % 3600 // 60, secs % 60
+    return f'{h}:{m:02d}:{sec:02d}' if h else f'{m}:{sec:02d}'
 
 
 def get_db():

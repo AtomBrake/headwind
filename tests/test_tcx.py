@@ -45,7 +45,7 @@ def test_strava_leading_whitespace_and_a_bom_parse():
 def test_totals_come_from_the_laps():
     act = parse_tcx(_tcx(_outdoor()))
     assert act['distance'] == 155.0                      # lap distances, not the last trackpoint's 99 m
-    assert act['movingTime'] == 900                      # lap timer time
+    assert act['movingTime'] == 9                        # the trackpoints span 9 s: a 900 s lap timer can't be the moving time (parser.pick_moving_time)
     assert act['elapsedTime'] == 9
     assert act['calories'] == 50
     assert act['maxSpeed'] == 13.0 and act['maxHeartrate'] == 155
