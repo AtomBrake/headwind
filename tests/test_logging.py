@@ -175,3 +175,50 @@ def test_diagnostics_zip_has_the_logs_and_no_secrets(client):
     assert settings['units'] == 'imperial' and settings['garminLastError'] == 'login failed for <email>'
     assert json.loads(z.read('row_counts.json'))['Rider'] == 1
     assert json.loads(z.read('about.json'))['version']
+
+
+def test_the_logs_card_reads_the_file_back_newest_first_with_tracebacks(client):
+    rid = client.get('/boom').headers['X-Request-Id']
+    logging.getLogger('services.weather').warning('weather API slow')
+    d = client.get('/tasks/logs').get_json()
+    assert d['records'][0]['message'] == 'weather API slow' and d['records'][0]['level'] == 'WARNING'
+    err = next(r for r in d['records'] if r['id'] == rid and r['logger'] == 'headwind.error')
+    assert err['level'] == 'ERROR' and 'Traceback' in err['detail'] and 'RuntimeError: kaboom token=***' in err['detail']
+
+
+def test_the_logs_card_filters_by_level_and_by_id(client):
+    rid = client.get('/boom').headers['X-Request-Id']
+    client.post('/tasks/run/history')
+    errors = client.get('/tasks/logs?level=error').get_json()['records']
+    assert errors and all(r['level'] in ('ERROR', 'CRITICAL') for r in errors)
+    mine = client.get(f'/tasks/logs?q={rid}&level=DEBUG').get_json()['records']
+    assert mine and all(r['id'] == rid for r in mine)
+    assert {r['logger'] for r in mine} == {'headwind.error', 'headwind.request'}     # the traceback and the request's own line
+    few = client.get('/tasks/logs?limit=1').get_json()
+    assert len(few['records']) == 1 and few['more']
+
+
+def test_the_tasks_page_and_error_page_link_to_the_lines(client):
+    html = client.get('/tasks').get_data(as_text=True)
+    assert 'id="logs"' in html and 'id="logList"' in html
+    r = client.get('/boom')
+    assert f'/tasks?log={r.headers["X-Request-Id"]}#logs' in r.get_data(as_text=True)
+
+
+def test_reading_json_lines_and_a_mixed_file():
+    text = ('2026-10-19 16:13:04,633 INFO [38530cb3] headwind.request: POST /login → 302 in 0.000s\n'
+            '{"time": "2026-10-19 16:14:00,000", "level": "ERROR", "id": "ab12cd34", "logger": "x", "message": "bad", "exception": "Traceback ..."}\n'
+            '2026-10-19 16:15:00,000 WARNING [-] app: two\nline message\n')
+    recs = logs._records(text)
+    assert [r['level'] for r in recs] == ['INFO', 'ERROR', 'WARNING']
+    assert recs[1]['detail'] == 'Traceback ...' and recs[2]['detail'] == 'line message' and recs[0]['logger'] == 'headwind.request'
+
+
+def test_an_id_search_is_exact(app):
+    with open(logs.file_path(), 'a', encoding='utf-8') as f:
+        f.write('2026-10-19 17:01:02,100 INFO [t7] services.tasks: Garmin sync started\n'
+                '2026-10-19 17:01:03,100 INFO [t70] services.tasks: Friend sync started\n'
+                '2026-10-19 17:01:04,100 INFO [-] app: mentions t7 in passing\n')
+    assert [r['message'] for r in logs.read(query='t7')['records']] == ['Garmin sync started']
+    assert [r['message'] for r in logs.read(query='[t7]')['records']] == ['Garmin sync started']
+    assert len(logs.read(query='sync started')['records']) == 2
