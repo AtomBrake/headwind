@@ -419,8 +419,21 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
     yield _event({'total': total, 'source': 'strava'})
 
     db = get_db()
-    imported = skipped = errors = changed = 0
+    imported = skipped = errors = changed = unchanged = 0
     n_photos = n_commutes = 0
+    from services import reimport
+
+    def extras(ride_id, row):
+        """Photos and the commute tick for a ride already saved (cheap: from the row, not the file). Returns (photos added, commutes ticked)."""
+        try:                                            # an export imported before these were read: add them to the saved ride
+            p, c = _strava_extras(db, zf, names, row, ride_id, photos, captions)
+            db.commit()
+            return p, c
+        except Exception as e:
+            log.error('Strava import: photos / commute for %s failed: %s', ride_id, e)
+            db.rollback()
+            return 0, 0
+
     try:
         captions = _strava_captions(zf, names) if photos else {}
     except Exception as e:
@@ -444,8 +457,21 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
 
         already = bool(db.execute('SELECT id FROM Activity WHERE id = ?', [act_id]).fetchone())      # read it anyway: it may differ from what's saved
 
-        act = {}
         filename = row.get('Filename', '').strip()
+        seen_key = 'strava:' + act_id
+        seen_fp = reimport.fingerprint(rider_id, row, reimport.zip_fingerprint(zf, filename) if filename in names else '')
+        if reimport.unchanged(db, seen_key, seen_fp):                # the same file and row, read before by the same code: nothing new in it
+            unchanged += 1
+            if db.execute('SELECT 1 FROM ImportChange WHERE rideId=?', [act_id]).fetchone():
+                changed += 1                            # its differences from last time still wait on the Import page
+            else:
+                skipped += 1
+            p, c = extras(act_id, row)
+            n_photos, n_commutes = n_photos + p, n_commutes + c
+            yield _progress(i + 1, total, imported, skipped, errors)
+            continue
+
+        act, read_ok = {}, True
         if filename and filename in names:
             try:
                 data = safe_zip_read(zf, filename)
@@ -453,6 +479,7 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
                     data = safe_gunzip(data)
                 act = parse_activity_file(filename, data) or {}
             except Exception as e:
+                read_ok = False                         # not remembered: the next import tries the file again
                 log.warning('Strava import: could not read %s (%s); using activities.csv only', filename, e)
 
         act['id'] = act_id
@@ -509,19 +536,17 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
         if already:
             try:
                 differs = _offer_change(db, act, 'Strava export')
+                if read_ok:
+                    reimport.remember(db, seen_key, act_id, seen_fp)
                 db.commit()
             except Exception as e:
                 log.error('Re-import compare failed for %s: %s', act_id, e)
+                db.rollback()
                 differs = False
             changed += bool(differs)
             skipped += not differs
-            try:                                        # an export imported before these were read: add them to the saved ride
-                p, c = _strava_extras(db, zf, names, row, act_id, photos, captions)
-                db.commit()
-                n_photos, n_commutes = n_photos + p, n_commutes + c
-            except Exception as e:
-                log.error('Strava import: photos / commute for %s failed: %s', act_id, e)
-                db.rollback()
+            p, c = extras(act_id, row)
+            n_photos, n_commutes = n_photos + p, n_commutes + c
             yield _progress(i + 1, total, imported, skipped, errors)
             continue
 
@@ -540,6 +565,8 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
             after_ride_added(db, kept)
             p, c = _strava_extras(db, zf, names, row, kept, photos, captions)     # on the ride that was kept, if this one was a duplicate
             n_photos, n_commutes = n_photos + p, n_commutes + c
+            if read_ok:
+                reimport.remember(db, seen_key, act_id, seen_fp)
             db.commit()
             imported += 1
         except Exception as e:
@@ -573,9 +600,9 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
         except Exception as e:
             log.error('Strava import: could not put rides on their bikes (%s)', e)
             db.rollback()
-    log.info('Strava import done — imported=%d skipped=%d changed=%d errors=%d photos=%d commutes=%d bikes=%s',
-                imported, skipped, changed, errors, n_photos, n_commutes, bikes)
-    yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'changed': changed, 'errors': errors, **bikes,
+    log.info('Strava import done — imported=%d skipped=%d (unchanged since the last import, not read: %d) changed=%d errors=%d photos=%d commutes=%d bikes=%s',
+                imported, skipped, unchanged, changed, errors, n_photos, n_commutes, bikes)
+    yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'unchanged': unchanged, 'changed': changed, 'errors': errors, **bikes,
                   'photos': n_photos, 'commutes': n_commutes, **segs})
 
 
@@ -588,10 +615,18 @@ def _process_generic_zip(zf, names, rider_id=None):
     yield _event({'total': total, 'source': 'files'})
 
     db = get_db()
-    imported = skipped = errors = changed = 0
+    imported = skipped = errors = changed = unchanged = 0
+    from services import reimport
 
     for i, name in enumerate(activity_files):
         try:
+            seen_key = 'file:' + reimport.zip_fingerprint(zf, name)          # by its contents: the same file under another name is the same file
+            seen_fp = reimport.fingerprint(rider_id, seen_key)
+            if reimport.unchanged(db, seen_key, seen_fp):                     # read before by the same code, and its activity is still here
+                unchanged += 1
+                skipped += 1
+                yield _progress(i + 1, total, imported, skipped, errors)
+                continue
             data = safe_zip_read(zf, name)
             if name.lower().endswith('.gz'):
                 data = safe_gunzip(data)
@@ -600,6 +635,7 @@ def _process_generic_zip(zf, names, rider_id=None):
                 from services import duplicates as _d
                 if _d.exists_anywhere(db, act['id']):
                     differs = _offer_change(db, act, name)
+                    reimport.remember(db, seen_key, act['id'], seen_fp)
                     db.commit()
                     log.info('Import %s: %s', 'differs from the saved ride' if differs else 'skip (duplicate)', name)
                     changed += bool(differs)
@@ -616,6 +652,7 @@ def _process_generic_zip(zf, names, rider_id=None):
                     gear.on_ride_added(db, act.get('id'))
                     from services.ingest import after_ride_added
                     after_ride_added(db, (dup or {}).get('kept', act.get('id')))
+                    reimport.remember(db, seen_key, act['id'], seen_fp)
                     db.commit()
                     imported += 1
             else:
@@ -627,9 +664,9 @@ def _process_generic_zip(zf, names, rider_id=None):
 
         yield _progress(i + 1, total, imported, skipped, errors)
 
-    log.info('Generic import done — imported=%d skipped=%d errors=%d',
-                imported, skipped, errors)
-    yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'changed': changed, 'errors': errors})
+    log.info('Generic import done — imported=%d skipped=%d (unchanged since the last import, not read: %d) errors=%d',
+                imported, skipped, unchanged, errors)
+    yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'unchanged': unchanged, 'changed': changed, 'errors': errors})
 
 
 def _split_start(act):
