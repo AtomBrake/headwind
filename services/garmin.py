@@ -23,21 +23,8 @@ def garmin_sport(type_key):
     EBikeRide (an e-bike ride races other e-bike rides for segment PRs: services/sports.segment_class);
     everything else is saved as a workout under its own sport. Anything not recognised is 'Other', never a ride: a ride that is really a
     swim breaks the ride totals and the sanity checks."""
-    k = (type_key or '').lower()
-    if 'motor' in k or 'snowmobil' in k:                      # motorcycling, motocross: 'cycl' but not a bike ride
-        return 'Other'
-    if k in ('indoor_cycling', 'virtual_ride') or ('virtual' in k and ('cycl' in k or 'bik' in k or 'ride' in k)):
-        return 'VirtualRide'
-    if k.startswith('e_') and ('bik' in k or 'mtb' in k):        # e_bike_fitness, e_bike_mountain, e_enduro_mtb
-        return 'EBikeRide'
-    if 'cycl' in k or 'bik' in k or k in ('ride', 'bmx'):
-        return 'Ride'
-    for needle, sport in (('run', 'Run'), ('walk', 'Walk'), ('hik', 'Hike'), ('mountaineer', 'Hike'), ('swim', 'Swim'), ('surf', 'Surf'),
-                          ('paddl', 'Paddle'), ('kayak', 'Paddle'), ('canoe', 'Paddle'), ('raft', 'Paddle'), ('row', 'Row'),
-                          ('ski', 'Ski'), ('snowboard', 'Ski'), ('skat', 'Skate'), ('golf', 'Golf'), ('climb', 'Climb')):
-        if needle in k:
-            return sport
-    return 'Other'
+    from services.sports import from_type
+    return from_type(type_key)                                # the same rules as a file's own sport (services/parser._map_sport)
 
 
 import os as _os

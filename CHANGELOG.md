@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+Migration, at the first start: a new `ImportSeen` table. No Android or iOS change.
+
+### Changed
+- **Importing the same export again is quick.** Reading the files is nearly all of an import's time (half a second for a FIT file), so Headwind now remembers each file it imported, by the zip's own checksum, its row in `activities.csv`, and the version of the code that reads files. Next time, an activity whose file and row are the same, read by the same code, isn't read again: on the test data, 200 activities went from 38 s to under a tenth of a second. Photos, commute ticks and shoes are still added. A release that changes how files are read (as 0.7.9-beta did, for laps) reads every file again by itself, so importing the same zip after an upgrade still picks up what's new. The first import after this upgrade reads everything once, as before. Zips of activity files get the same, by each file's contents.
+
+### Fixed
+- **A file of any sport but a ride, run, swim, walk or hike came in as a ride** when uploaded on its own or in a zip of files: a ski day, a paddle, a windsurf, yoga. Now the file's own sport is used, as the Garmin sync reads Garmin's: a FIT file's indoor and e-bike rides keep what they are, a Strava GPX of an e-MTB ride is an e-bike ride, and a sport Headwind doesn't know is Other, never a ride. A Strava export import was never affected (it takes the sport from activities.csv). Activities uploaded as files before keep their sport; change it on the activity page.
+
 ## [0.7.9-beta] - 2026-10-19
 
 Migration, at the first start: `Activity` gains `laps` and `kitId` (so it is rebuilt once with the GPS streams last, as in 0.7.6-beta: a few seconds on a few thousand activities), and there are new tables `Kit`, `KitDefault`, `KitAlert` and `StravaKit`. No Android or iOS change.
