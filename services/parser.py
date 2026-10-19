@@ -202,44 +202,24 @@ def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
                 moving += max(0.0, min(30.0, (timed_pts[i + 1].time - timed_pts[i].time).total_seconds()))
         moving_time = moving
 
-    latlng, altitude, hr_s, cad_s, time_s, dist_s, pwr_s = [], [], [], [], [], [], []
-    acc_dist = 0.0
-    prev_ll = None
-
+    rows, hr_s, pwr_s = [], [], []
     for pt in points:
-        has_ll = pt.latitude is not None and pt.longitude is not None
-        if has_ll:
-            latlng.append([pt.latitude, pt.longitude])
-            if prev_ll:
-                acc_dist += _haversine(prev_ll[0], prev_ll[1], pt.latitude, pt.longitude)
-            dist_s.append(round(acc_dist, 1))
-            prev_ll = (pt.latitude, pt.longitude)
-        if pt.elevation is not None:
-            altitude.append(round(pt.elevation, 1))
-        if pt.time is not None:
-            time_s.append(int((pt.time - start).total_seconds()))
         hr = _ext_value(pt.extensions, 'hr')
-        if hr is not None:
-            hr_s.append(int(hr))
         cad = _ext_value(pt.extensions, 'cad') or _ext_value(pt.extensions, 'cadence')
-        if cad is not None:
-            cad_s.append(int(cad))
         pwr = _ext_value(pt.extensions, 'power')
         if pwr is None:
             pwr = _ext_value(pt.extensions, 'powerinwatts')
         if pwr is None:
             pwr = _ext_value(pt.extensions, 'watts')
+        rows.append({'time': pt.time,
+                     'latlng': [pt.latitude, pt.longitude] if pt.latitude is not None and pt.longitude is not None else None,
+                     'altitude': pt.elevation, 'heartrate': hr, 'cadence': cad, 'watts': pwr})
+        if hr is not None:
+            hr_s.append(int(hr))
         if pwr is not None:
             pwr_s.append(int(pwr))
-
-    streams = {}
-    if latlng:    streams['latlng']   = {'data': latlng}
-    if altitude:  streams['altitude'] = {'data': altitude}
-    if hr_s:      streams['heartrate'] = {'data': hr_s}
-    if cad_s:     streams['cadence']  = {'data': cad_s}
-    if pwr_s:     streams['watts']    = {'data': pwr_s}
-    if time_s:    streams['time']     = {'data': time_s}
-    if dist_s:    streams['distance'] = {'data': dist_s}
+    streams, _ = aligned_streams(rows, start)            # one value per point in every stream (distance measured along the track)
+    latlng = (streams.get('latlng') or {}).get('data') or []
 
     avg_hr = (sum(hr_s) / len(hr_s)) if hr_s else None
     avg_pwr = (sum(pwr_s) / len(pwr_s)) if pwr_s else None
@@ -307,44 +287,21 @@ def parse_fit(data: bytes):
     calories   = s.get('total_calories')
     sport_type = _map_sport(s.get('sport', 'cycling'))
 
-    latlng, alt_s, hr_s, pwr_s, cad_s, spd_s, time_s, dist_s = [], [], [], [], [], [], [], []
-
+    points, hr_s = [], []
     for r in records:
-        lat = r.get('position_lat')
-        lng = r.get('position_long')
-        if lat is not None and lng is not None:
-            latlng.append([lat * 180 / 2 ** 31, lng * 180 / 2 ** 31])
+        lat, lng = r.get('position_lat'), r.get('position_long')
         alt = r.get('altitude') if r.get('altitude') is not None else r.get('enhanced_altitude')   # newer devices write only enhanced_*
-        if alt is not None:
-            alt_s.append(round(float(alt), 1))
-        hr = r.get('heart_rate')
-        if hr is not None:
-            hr_s.append(int(hr))
-        pwr = r.get('power')
-        if pwr is not None:
-            pwr_s.append(int(pwr))
-        cad = r.get('cadence')
-        if cad is not None:
-            cad_s.append(int(cad))
         spd = r.get('speed') if r.get('speed') is not None else r.get('enhanced_speed')
-        if spd is not None:
-            spd_s.append(round(float(spd), 3))
-        ts = r.get('timestamp')
-        if ts is not None:
-            time_s.append(int((ts - start).total_seconds()))
-        d = r.get('distance')
-        if d is not None:
-            dist_s.append(round(float(d), 1))
-
-    streams = {}
-    if latlng:  streams['latlng']          = {'data': latlng}
-    if alt_s:   streams['altitude']        = {'data': alt_s}
-    if hr_s:    streams['heartrate']       = {'data': hr_s}
-    if pwr_s:   streams['watts']           = {'data': pwr_s}
-    if cad_s:   streams['cadence']         = {'data': cad_s}
-    if spd_s:   streams['velocity_smooth'] = {'data': spd_s}
-    if time_s:  streams['time']            = {'data': time_s}
-    if dist_s:  streams['distance']        = {'data': dist_s}
+        num = lambda v: float(v) if isinstance(v, (int, float)) else None
+        p = {'time': r.get('timestamp'),
+             'latlng': [lat * 180 / 2 ** 31, lng * 180 / 2 ** 31] if lat is not None and lng is not None else None,
+             'altitude': num(alt), 'heartrate': num(r.get('heart_rate')), 'watts': num(r.get('power')), 'cadence': num(r.get('cadence')),
+             'velocity_smooth': num(spd), 'distance': num(r.get('distance'))}
+        points.append(p)
+        if p['heartrate'] is not None:
+            hr_s.append(p['heartrate'])
+    streams, _ = aligned_streams(points, start)          # one value per point in every stream: a record with no fix used to shift `time`
+    latlng = (streams.get('latlng') or {}).get('data') or []
 
     if avg_hr is None and hr_s:
         avg_hr = sum(hr_s) / len(hr_s)
@@ -431,6 +388,61 @@ def _carried(vals):
     return out
 
 
+MOVING_MPS = 0.3        # track_moving_time: slower than this between two points is stopped (on a real export, within 1% of Strava's moving times)
+
+
+def track_moving_time(streams):
+    """Seconds spent moving, from the time and distance streams (distance measured along latlng when there's no distance stream), or 0."""
+    t = (streams.get('time') or {}).get('data') or []
+    d = (streams.get('distance') or {}).get('data') or []
+    if len(d) != len(t):
+        ll = (streams.get('latlng') or {}).get('data') or []
+        if len(ll) != len(t):
+            return 0
+        d, acc = [0.0], 0.0
+        for a, b in zip(ll, ll[1:]):
+            acc += _haversine(a[0], a[1], b[0], b[1])
+            d.append(acc)
+    moving = 0
+    for i in range(1, len(t)):
+        dt = t[i] - t[i - 1]
+        if dt > 0 and (d[i] - d[i - 1]) / dt >= MOVING_MPS:
+            moving += dt
+    return moving
+
+
+_STREAM_KEYS = (('latlng', None), ('altitude', 1), ('heartrate', 0), ('cadence', 0), ('watts', 0), ('velocity_smooth', 3), ('distance', 1))
+
+
+def aligned_streams(points, start):
+    """Streams with one value per kept point in every one of them, so latlng[i], time[i], heartrate[i], ... are the same moment: segments, best
+    efforts, roughness and the charts all index them so. `points`: dicts with 'time' (a datetime) and any of the _STREAM_KEYS. A point with no
+    time, or a repeated or backwards one, is dropped, and so (when the track has any GPS) is one with no position: a device that writes a record
+    before its first fix, or more records than fixes, used to make `time` longer than `latlng`, so every time read against a position was off.
+    A channel's gaps are filled (_carried). With no distance channel, it is measured along the track. Returns (streams, the kept points)."""
+    timed, prev = [], None
+    has_gps = any(p.get('latlng') for p in points)
+    for p in points:
+        if p.get('time') is not None and (prev is None or p['time'] > prev) and (p.get('latlng') or not has_gps):
+            timed.append(p)
+            prev = p['time']
+    if not timed:
+        return {}, []
+    streams = {'time': {'data': [int((p['time'] - start).total_seconds()) for p in timed]}}
+    for key, nd in _STREAM_KEYS:
+        vals = [p.get(key) for p in timed]
+        if any(v is not None for v in vals):
+            vals = _carried(vals)
+            streams[key] = {'data': vals if nd is None else [round(v, nd) if nd else int(v) for v in vals]}
+    if 'distance' not in streams and 'latlng' in streams:
+        ll, acc, dist = streams['latlng']['data'], 0.0, [0.0]
+        for a, b in zip(ll, ll[1:]):
+            acc += _haversine(a[0], a[1], b[0], b[1])
+            dist.append(round(acc, 1))
+        streams['distance'] = {'data': dist}
+    return streams, timed
+
+
 def parse_tcx(data: bytes):
     """Garmin Training Center XML (.tcx): older Garmins (the Edge 705), TrainerRoad and Strava's own exports. Laps hold the device's totals
     (timer time, distance, calories, maxima); trackpoints hold time, position, altitude, distance, heart rate, cadence, and speed / power / run
@@ -502,29 +514,14 @@ def parse_tcx(data: bytes):
     start = min(first_lap or times[0], times[0])
     elapsed_s = (max(times) - start).total_seconds()
 
-    timed, prev = [], None                       # drop repeated or backwards timestamps, and (outdoors) the points with no position
-    has_gps = any(p.get('latlng') for p in points)
-    for p in points:
-        if (prev is None or p['time'] > prev) and (p.get('latlng') or not has_gps):
-            timed.append(p)
-            prev = p['time']
-
-    streams = {'time': {'data': [int((p['time'] - start).total_seconds()) for p in timed]}}
-    for key, nd in (('latlng', None), ('altitude', 1), ('heartrate', 0), ('cadence', 0), ('watts', 0), ('velocity_smooth', 3), ('distance', 1)):
-        vals = [p.get(key) for p in timed]
-        if any(v is not None for v in vals):
-            vals = _carried(vals)
-            streams[key] = {'data': vals if nd is None else [round(v, nd) if nd else int(v) for v in vals]}
-    if 'distance' not in streams and 'latlng' in streams:
-        ll, acc, dist = streams['latlng']['data'], 0.0, [0.0]
-        for a, b in zip(ll, ll[1:]):
-            acc += _haversine(a[0], a[1], b[0], b[1])
-            dist.append(round(acc, 1))
-        streams['distance'] = {'data': dist}
+    streams, timed = aligned_streams(points, start)     # drops repeated or backwards timestamps, and (outdoors) the points with no position
 
     track_dist = ((streams.get('distance') or {}).get('data') or [0])[-1]
     distance = lap_dist if lap_dist >= track_dist / 2 else track_dist      # an Edge 25 wrote a 100 km ride's lap as 42 m; its trackpoints were right
-    moving_time = int(lap_time or elapsed_s)
+    on_track = track_moving_time(streams)
+    # A Garmin whose battery went flat (or that restarted) can write a lap timer of a few seconds for a whole ride: 9 s for 11 km, so 2,766 mph.
+    # Strava works moving time out from the track; so do we when the device's is under half of that.
+    moving_time = int(lap_time if lap_time and lap_time >= on_track / 2 else (on_track or elapsed_s))
     alts = (streams.get('altitude') or {}).get('data') or []
     raw = lambda key, keep=lambda v: True: [p[key] for p in timed if p.get(key) is not None and keep(p[key])]
     hr, watts, cad = raw('heartrate'), raw('watts'), raw('cadence', lambda v: v > 0)     # Garmin's average cadence leaves out coasting
