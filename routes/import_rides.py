@@ -453,16 +453,21 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
         act['name'] = row.get('Activity Name', 'Imported Activity').strip() or 'Imported Activity'
         act['sportType'] = row.get('Activity Type', 'Ride').strip() or 'Ride'
 
-        start_dt = _parse_strava_date(row.get('Activity Date', ''))
-        if start_dt:                                    # activities.csv gives the start in UTC
-            act['startDateLocal'] = start_dt.replace(tzinfo=timezone.utc).isoformat()
-
         def csv_num(key):
             v = row.get(key, '').strip()
             try:
                 return float(v) if v else None
             except ValueError:
                 return None
+
+        start_dt = _parse_strava_date(row.get('Activity Date', ''))
+        if start_dt:                                    # activities.csv gives the start in UTC
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+            if act.get('streams'):                      # cropped on Strava: the file is the whole recording, activities.csv the window kept
+                from services.parser import crop
+                act = crop(act, start_dt, csv_num('Elapsed Time (2)') or csv_num('Elapsed Time'))
+            act['startDateLocal'] = start_dt.isoformat()
+        cropped = act.get('cropped', False)              # kept on the act: accepting it on the Import page takes Strava's 0 m climb as a figure
 
         # Strava's own distance and moving time win over the file's: they carry the rider's crops and "correct distance" on Strava, its moving
         # time from the track, and a ski day's distance without the lifts. The file's are what the device wrote (a speed sensor gone wrong,
@@ -482,7 +487,11 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
             t = csv_num('Elapsed Time')
             if t:
                 act['elapsedTime'] = int(t)
-        if act.get('totalElevationGain') is None:
+        if cropped and csv_num('Elevation Gain') is not None:
+            act['totalElevationGain'] = csv_num('Elevation Gain')          # Strava's, 0 included
+        if cropped and csv_num('Max Speed'):
+            act['maxSpeed'] = csv_num('Max Speed')                          # m/s; the track's is read off a few points, Strava's off the original
+        elif act.get('totalElevationGain') is None:
             act['totalElevationGain'] = csv_num('Elevation Gain') or 0
         if act.get('averageHeartrate') is None:
             act['averageHeartrate'] = csv_num('Average Heart Rate')
