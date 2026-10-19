@@ -49,8 +49,31 @@
   <p style="color:var(--text-muted); font-size:0.875rem; margin:0 0 0.75rem;">Download one file to attach to a bug report: the recent log files, Headwind's version, your settings
     with passwords, keys, addresses and body measurements left out, how many rows each table holds, and the recent runs below. The logs do include
     activity names and dates, so look through it before posting it anywhere public.
-    {% if log_file %}Headwind writes its log to <code>{{ log_file }}</code>.{% endif %}</p>
+    {% if log_file %}Headwind writes its log to <code style="overflow-wrap:anywhere;">{{ log_file }}</code>.{% endif %}</p>
   <a class="btn btn-secondary" href="{{ url_for('tasks.diagnostics') }}">Download diagnostics</a>
+</div>
+
+<div class="card" id="logs" style="margin-bottom:1.25rem;">
+  <div class="card-title">Logs</div>
+  {% if log_file %}
+  <p style="color:var(--text-muted); font-size:0.8125rem; margin:0 0 0.75rem;">The newest lines first. Every line carries the id of the page request or background run
+    that wrote it: click one to see only that request's lines, or paste the reference from an error page.</p>
+  <form id="logForm" style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem;" onsubmit="loadLogs(); return false;">
+    <input type="text" id="logQ" placeholder="Search, or a reference like 3f9c2a1b" autocomplete="off" style="flex:3 1 14rem; min-width:0;">
+    <select id="logLevel" style="flex:1 1 9rem; min-width:0;" onchange="loadLogs()">
+      <option value="ERROR">Errors</option>
+      <option value="WARNING">Warnings and errors</option>
+      <option value="INFO" selected>Everything logged</option>
+      <option value="DEBUG">Including debug</option>
+    </select>
+    <button class="btn btn-secondary" style="flex:0 0 auto;">Show</button>
+  </form>
+  <div id="logList" style="font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:0.75rem; line-height:1.45;"></div>
+  <p id="logFoot" style="color:var(--text-muted); font-size:0.75rem; margin:0.5rem 0 0;"></p>
+  {% else %}
+  <p style="color:var(--text-muted); font-size:0.875rem; margin:0;">Headwind isn't writing a log file (<code>LOG_DIR=off</code>, or its folder couldn't be created), so
+    there's nothing to show here. The log still goes to the console (<code>docker logs headwind</code>).</p>
+  {% endif %}
 </div>
 
 <div class="card">
@@ -60,7 +83,7 @@
     <span style="color:{{ badge[r.status][1] }}; min-width:4.5rem;">● {{ badge[r.status][0] }}</span>
     <span style="min-width:7rem;">{{ r.label }}</span>
     <span style="color:var(--text-muted); min-width:9rem;" data-when="{{ r.startedAt }}">{{ r.startedAt }}</span>
-    <span style="color:var(--text-muted); flex:1 1 14rem;">{{ r.error or r.result or '' }}{% if r.status == 'failed' and r.logId %} · log lines marked <code>[{{ r.logId }}]</code>{% endif %}</span>
+    <span style="color:var(--text-muted); flex:1 1 14rem;">{{ r.error or r.result or '' }}{% if r.status == 'failed' and r.logId %} · <a href="?log={{ r.logId }}#logs" onclick="return showLogId('{{ r.logId }}')">log lines marked <code>[{{ r.logId }}]</code></a>{% endif %}</span>
   </div>
   {% else %}
   <p style="color:var(--text-muted); font-size:0.875rem;">No runs recorded yet.</p>
@@ -77,8 +100,90 @@ document.querySelectorAll('[data-when]').forEach(function (el) {
   var t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   el.textContent = (d.toDateString() === new Date().toDateString() ? 'today ' : d.getDate() + ' ' + _MONTHS[d.getMonth()] + ' ') + t;
 });
+
+// The Logs card: filters live in the address (?log=…&level=…), so the page's own refresh and a link from the error page keep them.
+var LOG_COLOURS = { ERROR: '#ef4444', CRITICAL: '#ef4444', WARNING: '#f59e0b', DEBUG: 'var(--text-muted)' };
+function loadLogs() {
+  var list = document.getElementById('logList');
+  if (!list) return;
+  var q = document.getElementById('logQ').value.trim(), level = document.getElementById('logLevel').value;
+  var url = new URL(location.href);
+  q ? url.searchParams.set('log', q) : url.searchParams.delete('log');
+  level !== 'INFO' ? url.searchParams.set('level', level) : url.searchParams.delete('level');
+  history.replaceState(null, '', url);
+  fetch('/tasks/logs?' + new URLSearchParams({ q: q, level: level, limit: 200 }))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      list.textContent = '';
+      d.records.forEach(function (r) {
+        var row = document.createElement('div');
+        row.style.cssText = 'padding:0.3rem 0; border-top:1px solid var(--border); overflow-wrap:anywhere;';
+        var head = document.createElement('div');
+        var when = document.createElement('span');
+        when.style.color = 'var(--text-muted)';
+        when.textContent = r.time.slice(0, 19) + ' ';
+        var lvl = document.createElement('span');
+        lvl.style.cssText = 'font-weight:600; color:' + (LOG_COLOURS[r.level] || 'inherit');
+        lvl.textContent = r.level + ' ';
+        head.append(when, lvl);
+        if (r.id && r.id !== '-') {
+          var id = document.createElement('a');
+          id.href = '?log=' + encodeURIComponent(r.id) + '#logs';
+          id.textContent = '[' + r.id + ']';
+          id.title = 'Only this request’s lines';
+          id.onclick = function () { return showLogId(r.id); };
+          head.append(id, ' ');
+        }
+        var who = document.createElement('span');
+        who.style.color = 'var(--text-muted)';
+        who.textContent = r.logger + ': ';
+        var msg = document.createElement('span');
+        msg.style.whiteSpace = 'pre-wrap';
+        msg.textContent = r.message;
+        head.append(who, msg);
+        row.append(head);
+        if (r.detail) {
+          var det = document.createElement('details');
+          var sum = document.createElement('summary');
+          sum.textContent = r.detail.indexOf('Traceback') === 0 ? 'Traceback' : 'More';
+          sum.style.cssText = 'cursor:pointer; color:var(--text-muted);';
+          var pre = document.createElement('pre');
+          pre.style.cssText = 'white-space:pre-wrap; margin:0.25rem 0 0; font-size:0.7rem;';
+          pre.textContent = r.detail;
+          det.append(sum, pre);
+          row.append(det);
+        }
+        list.append(row);
+      });
+      document.getElementById('logFoot').textContent = d.records.length
+        ? (d.more ? 'The newest ' + d.records.length + ' matching lines; narrow the search to see older ones.' : d.records.length + ' matching line' + (d.records.length === 1 ? '' : 's') + '.')
+        : 'No matching lines' + (level === 'ERROR' ? ': no errors logged.' : '.');
+    })
+    .catch(function () { document.getElementById('logFoot').textContent = 'Could not load the log.'; });
+}
+function showLogId(id) {
+  document.getElementById('logQ').value = id;
+  document.getElementById('logLevel').value = 'DEBUG';
+  loadLogs();
+  document.getElementById('logs').scrollIntoView({ behavior: 'smooth' });
+  return false;
+}
+(function () {
+  if (!document.getElementById('logList')) return;
+  var p = new URLSearchParams(location.search);
+  document.getElementById('logQ').value = p.get('log') || '';
+  if (p.get('level')) document.getElementById('logLevel').value = p.get('level').toUpperCase();
+  else if (p.get('log')) document.getElementById('logLevel').value = 'DEBUG';   // a request's own lines: all of them
+  loadLogs();
+  if (p.get('log') && location.hash === '#logs') document.getElementById('logs').scrollIntoView();
+})();
 {% if jobs | selectattr('state', 'in', ['running', 'waiting']) | list %}
-setTimeout(function () { location.reload(); }, 20000);
+// Refresh while something runs, but not under someone reading or typing in the Logs card
+setTimeout(function reload() {
+  var busy = document.activeElement && document.activeElement.closest && document.activeElement.closest('#logs');
+  if (busy || document.querySelector('#logs details[open]')) { setTimeout(reload, 20000); return; }
+  location.reload();
+}, 20000);
 {% endif %}
 </script>
 {% endblock %}

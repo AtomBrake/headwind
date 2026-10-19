@@ -1,7 +1,7 @@
 """The Tasks page: what Headwind is doing in the background and what the start-up repairs changed (services/tasks.py)."""
 from datetime import datetime
 
-from flask import Blueprint, current_app, flash, redirect, render_template, send_file, url_for
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 
 from database import get_db
 
@@ -49,3 +49,16 @@ def diagnostics():
     data = diag.build_zip(get_db(), current_app.config['DATABASE'])
     return send_file(io.BytesIO(data), mimetype='application/zip', as_attachment=True,
                      download_name=f"headwind-diagnostics-{datetime.now():%Y-%m-%d-%H%M}.zip")
+
+
+@bp.route('/tasks/logs')
+def logs_json():
+    """The Logs card: the newest log records, filtered by level and by text (a request id finds that request's lines)."""
+    from services import logs
+    if not logs.file_path():
+        return jsonify(records=[], more=False, files=0, off=True)
+    try:
+        limit = max(1, min(int(request.args.get('limit') or 200), 1000))
+    except ValueError:
+        limit = 200
+    return jsonify(logs.read(limit, (request.args.get('level') or 'INFO').upper(), request.args.get('q') or ''))
