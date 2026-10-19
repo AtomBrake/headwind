@@ -225,3 +225,12 @@ def test_a_faulty_speed_sensor_gives_no_top_speed_beyond_what_the_gps_shows(app)
         fixed = max_stats.fix_sensor_top_speed(db)
         assert [f[0] for f in fixed] == ['mp'] and db.execute("SELECT maxSpeed FROM Activity WHERE id='mp'").fetchone()[0] < 8.2
         assert max_stats.fix_sensor_top_speed(db) is None
+
+
+def test_a_flag_set_before_a_repair_put_the_ride_right_is_cleared_at_start_up(app):
+    with app.app_context():
+        db = database.get_db()
+        db.execute("UPDATE Activity SET flagReason='average speed of 2,766 mph is not possible on a bike' WHERE id='r1'")   # its figures are fine now
+        db.commit()
+        database.migrate_db()
+        assert database.get_db().execute("SELECT flagReason FROM Activity WHERE id='r1'").fetchone()[0] is None
