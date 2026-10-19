@@ -254,7 +254,7 @@ def sync(days=None):
             from services.mqtt import push_update_nutrition
             push_update_nutrition()   # the weight-trend sensors changed
         except Exception:
-            pass
+            log.warning('Home Assistant nutrition update after the weight import failed', exc_info=True)
     return summary
 
 

@@ -4,9 +4,12 @@ when the API is down and common foods come back instantly.
 Uses its own short-lived SQLite connections (not Flask's request-scoped one) so it is safe to call from
 worker threads. Call init_path() once from a request/app context before using it in threads.
 """
+import logging
 import hashlib
 import re
 import sqlite3
+
+log = logging.getLogger(__name__)
 
 _path = None
 FRESH_DAYS = 14
@@ -61,7 +64,7 @@ def store(products):
                       p['kcal_per_100g'], p.get('protein_per_100g'), p.get('carbs_per_100g'), p.get('fat_per_100g'),
                       p.get('_sugars_per_100g'), p.get('fibre_per_100g'), p.get('serving_g'), p.get('image_url'), p.get('nutri_score_grade'), p.get('abv')])
     except Exception:
-        pass
+        log.debug('Food cache write failed', exc_info=True)
 
 
 def _row_to_product(r):
@@ -113,7 +116,7 @@ def bump_use(barcode):
         with _conn() as c:
             c.execute("UPDATE FoodCache SET useCount=useCount+1, lastUsed=datetime('now') WHERE key=?", [str(barcode)])
     except Exception:
-        pass
+        log.debug('Food cache use count failed', exc_info=True)
 
 
 def stats():

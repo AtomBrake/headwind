@@ -1,3 +1,4 @@
+import logging
 import os
 import sqlite3
 import re
@@ -21,6 +22,8 @@ from services.weight_trend import (
     stone_lb_to_kg,
     stone_milestones,
 )
+
+log = logging.getLogger(__name__)
 
 OFF_IMAGE_HOSTS = ('openfoodfacts.org', 'openfoodfacts.net')
 
@@ -179,7 +182,7 @@ def _mqtt_nutrition():
         from services.mqtt import push_update_nutrition
         push_update_nutrition()
     except Exception:
-        pass
+        log.warning('Home Assistant nutrition update failed', exc_info=True)
 
 
 # ── Manual steps ─────────────────────────────────────────────────────
@@ -314,6 +317,7 @@ def estimate_meal_photo():
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
+        log.warning('AI meal estimate failed', exc_info=True)
         return jsonify({'error': f'AI request failed: {e}'}), 502
     try:
         img = Image.open(io.BytesIO(raw)).convert('RGB')
@@ -467,7 +471,7 @@ def search_food():
                 if p:
                     products.append(p)
     except Exception:
-        pass
+        log.warning('Open Food Facts search failed', exc_info=True)
 
     if products:
         food_cache.store(products)  # every product we see is kept for when the API is down
@@ -536,7 +540,7 @@ def lookup(barcode):
             sugars = product.pop('_sugars_per_100g', None)
             return jsonify(_with_quality(_apply_override(product), sugars))
     except Exception:
-        pass
+        log.warning('Open Food Facts barcode lookup failed', exc_info=True)
     # API down or product missing there: a stale local copy beats nothing
     stale = food_cache.get_by_barcode(barcode)
     if stale:
@@ -570,7 +574,7 @@ def stock_image():
                 if img:
                     return jsonify({'image_url': img})
     except Exception:
-        pass
+        log.debug('Open Food Facts image lookup failed', exc_info=True)
     return jsonify({'image_url': None})
 
 
@@ -719,7 +723,7 @@ def image_search():
             try:
                 candidates.extend(j.result())
             except Exception:
-                pass
+                log.debug('A food image search failed', exc_info=True)
     seen, out = set(), []
     for c in candidates:
         if c['url'] not in seen and food_cache.image_allowed(c['url']):

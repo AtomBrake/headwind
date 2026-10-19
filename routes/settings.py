@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import sqlite3
@@ -21,6 +22,8 @@ ENV_PATH = Path(os.environ.get('HEADWIND_ENV') or Path(__file__).parent.parent /
 
 OPENAI_MODELS = ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini', 'gpt-4-turbo', 'gpt-3.5-turbo']
 from services.ai import CLAUDE_MODELS
+
+log = logging.getLogger(__name__)
 
 
 @bp.route('/', methods=['GET', 'POST'])
@@ -211,6 +214,7 @@ def test_mqtt():
         client.loop_stop()
         client.disconnect()
     except Exception as e:
+        log.warning('MQTT test connection failed', exc_info=True)
         return jsonify({'error': str(e)[:200]}), 400
     if 'rc' not in result:
         return jsonify({'error': 'Broker did not respond'}), 400
@@ -231,6 +235,7 @@ def version_check():
         data = json.loads(resp.read())
         return jsonify({'last_updated': data.get('last_updated')})
     except Exception as e:
+        log.warning('Update check failed', exc_info=True)
         return jsonify({'error': str(e)}), 502
 
 
@@ -263,7 +268,7 @@ def calorie_adjust_history():
         from services import mqtt
         mqtt.push_update()
     except Exception:
-        pass
+        log.warning('Home Assistant update after reapplying calorie adjustments failed', exc_info=True)
     return jsonify({'ok': True, 'pct': calorie_adjust.get_pct(), 'touched': touched})
 
 
@@ -403,6 +408,7 @@ def backup_export():
         return send_file(zip_path, as_attachment=True, download_name='headwind-backup.zip',
                          mimetype='application/zip')
     except Exception as e:
+        log.exception('Backup export failed')
         shutil.rmtree(tmp_dir, ignore_errors=True)
         flash(f'Export failed: {e}', 'error')
         return redirect('/settings')
@@ -424,9 +430,11 @@ def backup_import():
         backup.apply(_db_path(), tmp_db, assets, _avatar_dir())
         migrate_db()   # an older backup may predate current columns/tables
     except backup.BackupError as e:
+        log.warning('Restore refused: %s', e)
         flash(str(e), 'error')
         return redirect('/settings')
     except Exception as e:
+        log.exception('Restore failed')
         flash(f'Restore failed: {e}', 'error')
         return redirect('/settings')
     finally:

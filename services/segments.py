@@ -545,7 +545,7 @@ def scan_all_activities(db, segment_ids=None):
         _refresh_prs(db, seg['id'])
 
     db.commit()
-    log.warning('Segment scan complete — %d activities with GPS, %d near enough to read, %d segments', with_gps, len(todo), len(segments))
+    log.info('Segment scan complete — %d activities with GPS, %d near enough to read, %d segments', with_gps, len(todo), len(segments))
     return with_gps
 
 

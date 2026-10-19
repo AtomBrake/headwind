@@ -1,5 +1,7 @@
 """The Tasks page: what Headwind is doing in the background and what the start-up repairs changed (services/tasks.py)."""
-from flask import Blueprint, flash, redirect, render_template, url_for
+from datetime import datetime
+
+from flask import Blueprint, current_app, flash, redirect, render_template, send_file, url_for
 
 from database import get_db
 
@@ -13,7 +15,8 @@ def index():
     view = tasks.overview(db)
     db.execute("UPDATE TaskLog SET seen=1 WHERE task LIKE 'startup:%' AND seen=0")      # the notice has done its job
     db.commit()
-    return render_template('tasks.html', **view)
+    from services import logs
+    return render_template('tasks.html', log_file=logs.file_path(), **view)
 
 
 @bp.route('/tasks/run/<job>', methods=['POST'])
@@ -36,3 +39,13 @@ def run_now(job):
         garmin.HISTORY_WAKE.set()
         flash('Trying again now.', 'success')
     return redirect(url_for('tasks.index'))
+
+
+@bp.route('/tasks/diagnostics')
+def diagnostics():
+    """One zip to attach to a bug report: recent logs, version, settings without secrets, row counts, recent runs (services/diagnostics.py)."""
+    import io
+    from services import diagnostics as diag
+    data = diag.build_zip(get_db(), current_app.config['DATABASE'])
+    return send_file(io.BytesIO(data), mimetype='application/zip', as_attachment=True,
+                     download_name=f"headwind-diagnostics-{datetime.now():%Y-%m-%d-%H%M}.zip")

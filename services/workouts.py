@@ -75,7 +75,7 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
             w = fetch_weather(act['startLat'], act['startLng'], local, act.get('streams'))
             weather = (w or {}).get('summary') or (w or {}).get('weatherSummary')
         except Exception:
-            pass
+            log.warning('Weather for a workout failed', exc_info=True)
     db = get_db()
     db.execute('''INSERT INTO Activity (id, riderId, type, sportType, name, startDate, startDateLocal, distance, movingTime, elapsedTime,
                                         totalElevationGain, averageSpeed, averageHeartrate, calories, steps, startLat, startLng,
@@ -91,7 +91,7 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
         from services import sensors
         sensors.attach_for_ride(db, (dup or {}).get('kept', wid))
     except Exception:
-        pass
+        log.warning('Attaching sensor data to a workout failed', exc_info=True)
     db.commit()
     if dup and dup['parked'] == wid:
         return _kept_instead(wid), False
@@ -216,4 +216,4 @@ def refresh_derived(db, wid):
             for s in segs:
                 _refresh_prs(db, s['id'])
     except Exception:
-        pass
+        log.warning('Segment scan of a run failed: its segment efforts are missing', exc_info=True)

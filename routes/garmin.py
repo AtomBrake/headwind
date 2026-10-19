@@ -35,6 +35,7 @@ def connect():
             shutil.rmtree(TOKEN_DIR, ignore_errors=True)
         result = start_login(email, password)
     except Exception as e:
+        log.warning('Garmin sign-in failed', exc_info=True)
         return jsonify({'error': str(e)}), 400   # nothing saved: the previous working credentials stay in place
 
     # Reached only once Garmin accepted the password (or is waiting on an MFA code)
@@ -64,6 +65,7 @@ def connect_mfa():
         result = complete_mfa(token, code)
         return jsonify(result)
     except Exception as e:
+        log.warning('Garmin MFA failed', exc_info=True)
         return jsonify({'error': str(e)}), 400
 
 
@@ -111,6 +113,7 @@ def sync():
         push_update()
         return jsonify({'synced': days})
     except Exception as e:
+        log.exception('Garmin health sync from the page failed')
         return jsonify({'error': str(e)}), 500
 
 
@@ -132,6 +135,7 @@ def sync_activities():
             for status in sync_garmin_activities(s['garminEmail'], s['garminPassword'], rider['id']):
                 yield f"data: {json.dumps(status)}\n\n"
         except Exception as e:
+            log.exception('Garmin activity sync from the page failed')
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
     return Response(
@@ -204,7 +208,7 @@ def sports_apply():
         from services.mqtt import push_update_nutrition
         push_update_nutrition()
     except Exception:
-        pass
+        log.warning('Home Assistant nutrition update after the activity type fix failed', exc_info=True)
     msg = f"Changed {res['changed']}." + (f" {res['failed']} could not be changed (see below)." if res['failed'] else '') + \
           (f" Left {res['kept']} as {'it is' if res['kept'] == 1 else 'they are'}." if res['kept'] else '')
     return redirect(url_for('garmin.sports_page', msg=msg))

@@ -1,3 +1,4 @@
+import logging
 import contextlib
 import io
 import json
@@ -40,6 +41,9 @@ def garmin_sport(type_key):
 
 
 import os as _os
+
+log = logging.getLogger(__name__)
+
 TOKEN_DIR = Path(_os.environ['HEADWIND_TOKEN_DIR']) if _os.environ.get('HEADWIND_TOKEN_DIR') else Path(__file__).parent.parent / '.garmin_tokens'
 
 # In-memory holding pen for logins paused on an MFA challenge. Keyed by a random
@@ -261,7 +265,7 @@ def fetch_ride_hr(api, start_utc_iso, elapsed_secs, time_stream=None):
         if row and row['hrStream']:
             raw = json.loads(row['hrStream'])
     except Exception:
-        pass
+        log.debug('Reading the stored Garmin HR day failed', exc_info=True)
 
     # Fall back to live API if local data is absent
     if not raw:
@@ -400,7 +404,7 @@ def _push_weights():
         from services.mqtt import push_update_nutrition
         push_update_nutrition()   # the weight-trend sensors changed
     except Exception:
-        pass
+        log.warning('Home Assistant nutrition update after Garmin weigh-ins failed', exc_info=True)
 
 
 def health_days(prev_upload, new_upload, last_sweep, now=None):
@@ -887,7 +891,7 @@ def sync_garmin_activities(email, password, rider_id, api=None):
                     if w:
                         save_weather(db, db_id, w)
                 except Exception:
-                    pass
+                    log.warning('Weather for a Garmin activity failed', exc_info=True)
 
             try:
                 dup = duplicates.resolve(db, db_id)

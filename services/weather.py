@@ -1,6 +1,9 @@
+import logging
 import math
 import requests
 from datetime import datetime, timedelta
+
+log = logging.getLogger(__name__)
 
 
 _WMO = {
@@ -51,7 +54,7 @@ def origin(row):
             if pt and pt[0] and pt[1]:
                 return pt[0], pt[1]
     except Exception:
-        pass
+        log.debug('First GPS point for the weather failed', exc_info=True)
     return None, None
 
 

@@ -1,8 +1,11 @@
 
+import logging
 import requests as _requests
 from flask import Blueprint, Response, abort, render_template, request
 from database import get_db, query_db
 from services import tracks as _tracks
+
+log = logging.getLogger(__name__)
 
 bp = Blueprint('heatmap', __name__)
 
@@ -68,7 +71,7 @@ def tile_proxy(z, x, y):
                 return Response(r.content, mimetype=r.headers.get('Content-Type', 'image/png'), headers={
                     'Cache-Control': 'public, max-age=86400', 'Access-Control-Allow-Origin': '*'})
     except Exception:
-        pass
+        log.debug('Satellite tile fetch failed', exc_info=True)
     abort(502)
 
 
