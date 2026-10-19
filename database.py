@@ -984,6 +984,14 @@ def migrate_db():
                           f"Worked out for {n_efforts} run{'s' if n_efforts != 1 else ''} and swim{'s' if n_efforts != 1 else ''}: "
                           "1 km to the marathon on foot, 100 m to 3.8 km in the water. They're on the Data page and your profile.")
         db.commit()
+    from services import sanity as _sanity              # after the repairs above: a flag set before one put the ride right is out of date
+    cleared = [r[1] for r in db.execute('SELECT id, name FROM Activity WHERE flagReason IS NOT NULL AND COALESCE(flagDismissed, 0) = 0').fetchall()
+               if _sanity.flag(db, r[0]) is None]
+    if cleared:
+        _tasks.record(db, 'startup:stale_flags', 'Rides that no longer look wrong',
+                      f"{len(cleared)} ride{'s' if len(cleared) != 1 else ''} flagged before a repair put {'them' if len(cleared) != 1 else 'it'} right "
+                      f"{'are' if len(cleared) != 1 else 'is'} off the list: " + '; '.join(n or '(no name)' for n in cleared[:5]) + ('…' if len(cleared) > 5 else '') + '.')
+    db.commit()
     from services.reimport import ensure_schema as _reimport_schema
     _reimport_schema(db)
     from services.sport_fix import ensure_schema as _sport_fix_schema
