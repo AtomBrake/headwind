@@ -204,3 +204,24 @@ def test_start_up_repairs_put_right_what_is_saved(app):
         assert db.execute("SELECT MIN(elapsedSecs) FROM BestEffort WHERE activityId='bad' AND distanceMi=5").fetchone()[0] > 900
         assert db.execute('SELECT COUNT(*) FROM SportEffort').fetchone()[0] == 0          # runs and swims are worked out again on the next read
         assert best_efforts.rescan_clean(db) == {'ran': False} and moving_time.repair_paused(db) == {'ran': False}
+
+
+def test_a_faulty_speed_sensor_gives_no_top_speed_beyond_what_the_gps_shows(app):
+    from services import max_stats
+    from services.parser import extremes_from_streams, sensor_fault
+    streams = _ride_with_a_faulty_sensor()
+    streams['velocity_smooth'] = {'data': [37.0 if 800 <= i < 1100 else 8.0 for i in range(2001)]}
+    assert sensor_fault(streams)
+    assert abs(extremes_from_streams(streams)['maxSpeed'] - 8.0) < 0.2                # the GPS's 8 m/s, not the sensor's 37
+    noisy = {**streams, 'velocity_smooth': {'data': [3.0] * 2001}}                       # a device that says slower than the GPS: kept
+    assert extremes_from_streams(noisy)['maxSpeed'] == 3.0
+    assert not sensor_fault({'time': {'data': [0, 1]}, 'distance': {'data': [0, 8]}, 'latlng': {'data': [[50.6, -3.5], [50.60007, -3.5]]}})
+    with app.app_context():
+        db = database.get_db()
+        db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime, maxSpeed, streams) "
+                   "VALUES ('mp', 'Morning Paddle', 1, 'Ride', '2021-05-16T10:45:00', 26000, 2000, 29.86, ?)", [json.dumps(streams)])
+        db.execute('UPDATE Settings SET sensorTopSpeedDone=0')
+        db.commit()
+        fixed = max_stats.fix_sensor_top_speed(db)
+        assert [f[0] for f in fixed] == ['mp'] and db.execute("SELECT maxSpeed FROM Activity WHERE id='mp'").fetchone()[0] < 8.2
+        assert max_stats.fix_sensor_top_speed(db) is None
