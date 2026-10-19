@@ -471,7 +471,7 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
             start_dt = start_dt.replace(tzinfo=timezone.utc)
             if act.get('streams'):                      # cropped on Strava: the file is the whole recording, activities.csv the window kept
                 from services.parser import crop
-                act = crop(act, start_dt, csv_num('Elapsed Time (2)') or csv_num('Elapsed Time'))
+                act = crop(act, start_dt, csv_num('Elapsed Time (2)') or csv_num('Elapsed Time'), _strava_csv_distance_m(row))
             act['startDateLocal'] = start_dt.isoformat()
         cropped = act.get('cropped', False)              # kept on the act: accepting it on the Import page takes Strava's 0 m climb as a figure
 
