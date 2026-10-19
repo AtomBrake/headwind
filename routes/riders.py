@@ -32,6 +32,11 @@ def _compute_badges(rid, totals):
     """Every badge category for a rider, earned or not. Counting them takes about 80 queries over the rider's whole history, and the ride page
     wants them on every view (to show the badges that ride earned), so a result is kept until a ride, segment, effort or bike changes."""
     try:
+        from services import sport_records
+        sport_records.ensure(get_db(), rid)     # before the key: working out a new run's best times changes the version
+    except Exception:
+        pass
+    try:
         key = _badge_key(rid, totals)
     except Exception:
         key = None
@@ -171,16 +176,16 @@ def _count_badges(rid, totals):
         return {'icon': icon, 'name': units.localise(name), 'desc': units.localise(desc), **r}
 
     ride_count = [
-        _b('🚴', 'First Pedal',     '1 activity',       _rc(1)),
-        _b('🎯', 'Getting Started', '10 activities',    _rc(10)),
-        _b('🔥', 'Regular Rider',   '50 activities',    _rc(50)),
-        _b('💯', 'Centurion',       '100 activities',   _rc(100)),
-        _b('⚡', 'Dedicated',       '250 activities',   _rc(250)),
-        _b('🏆', 'Five Hundred',    '500 activities',   _rc(500)),
-        _b('🌟', 'One Thousand',    '1,000 activities', _rc(1000)),
-        _b('💫', 'Two Thousand',    '2,000 activities', _rc(2000)),
-        _b('👑', 'Elite',           '3,000 activities', _rc(3000)),
-        _b('🔮', 'Five Thousand',   '5,000 activities', _rc(5000)),
+        _b('🚴', 'First Pedal',     '1 ride',           _rc(1)),
+        _b('🎯', 'Getting Started', '10 rides',         _rc(10)),
+        _b('🔥', 'Regular Rider',   '50 rides',         _rc(50)),
+        _b('💯', 'Centurion',       '100 rides',        _rc(100)),
+        _b('⚡', 'Dedicated',       '250 rides',        _rc(250)),
+        _b('🏆', 'Five Hundred',    '500 rides',        _rc(500)),
+        _b('🌟', 'One Thousand',    '1,000 rides',      _rc(1000)),
+        _b('💫', 'Two Thousand',    '2,000 rides',      _rc(2000)),
+        _b('👑', 'Elite',           '3,000 rides',      _rc(3000)),
+        _b('🔮', 'Five Thousand',   '5,000 rides',      _rc(5000)),
     ]
     distance = [
         _b('📍', 'Road Tripper',  '100 miles total',     _dm(100)),
@@ -384,7 +389,164 @@ def _count_badges(rid, totals):
         {'name': 'Segments',            'badges': seg_ride},
         {'name': 'E-Bike Segments',     'badges': seg_eride},
         {'name': 'Segments on Foot',    'badges': seg_foot},
-    ]
+    ] + _sport_badges(rid, _b)
+
+
+def _sport_badges(rid, _b):
+    """The badge categories for the sports other than riding, each shown once the rider has done that sport: Running, Walking & Hiking, Swimming,
+    Other Sports (a few for each), and All Sports once they do more than one kind. Counted in Python from one pass over the rider's activities and
+    their run and swim best times (services/sport_records), so they add two queries, not one per badge."""
+    from services import sport_records, sports, units
+    from services.run_stats import MIN_RUN_M, MIN_RUN_S
+    acts = [dict(r) for r in query_db('SELECT id, startDateLocal, sportType, distance, movingTime, totalElevationGain FROM Activity '
+                                      'WHERE riderId=? ORDER BY startDateLocal, id', [rid])]
+    for a in acts:
+        a['group'] = sports.stat_group(a['sportType'])
+        a['day'] = str(a['startDateLocal'] or '')[:10]
+    runs = [a for a in acts if sport_records.kind(a['sportType']) == 'run' and (a['distance'] or 0) >= MIN_RUN_M and (a['movingTime'] or 0) >= MIN_RUN_S]
+    walks = [a for a in acts if a['group'] == 'foot' and sport_records.kind(a['sportType']) != 'run']
+    swims = [a for a in acts if a['group'] == 'swim']
+    times = query_db(f'''SELECT e.kind, e.distanceM, e.elapsedSecs, a.id, a.startDateLocal FROM SportEffort e JOIN Activity a ON a.id = e.activityId
+                         WHERE a.riderId=? AND e.distanceM > 0 AND {sport_records.kind_sql('a.sportType')} = e.kind ORDER BY a.startDateLocal''', [rid])
+
+    def at(a):
+        return (a['day'], a['id']) if a else (None, None)
+
+    def count(lst, n):
+        d, i = at(lst[n - 1]) if len(lst) >= n else (None, None)
+        return {'earned': len(lst) >= n, 'earned_date': d, 'ride_id': i, 'progress': len(lst), 'target': n}
+
+    def single(lst, col, value):
+        hit = next((a for a in lst if (a[col] or 0) >= value), None)
+        d, i = at(hit)
+        return {'earned': bool(hit), 'earned_date': d, 'ride_id': i}
+
+    def total(lst, metres, unit_m=units.MI):
+        """Distance added up to `metres`; the bar counts in miles / km (unit_m: metres per step, 1000 for swims)."""
+        run = 0
+        for a in lst:
+            run += a['distance'] or 0
+            if run >= metres:
+                return {'earned': True, 'earned_date': a['day'], 'ride_id': a['id']}
+        step = unit_m if unit_m != units.MI else units.spec()['distM']
+        return {'earned': False, 'earned_date': None, 'ride_id': None, 'progress': round(run / step), 'target': round(metres / step)}
+
+    def under(k, dist, secs):
+        hit = next((t for t in times if t['kind'] == k and t['distanceM'] == dist and t['elapsedSecs'] < secs), None)
+        return {'earned': bool(hit), 'earned_date': str(hit['startDateLocal'])[:10] if hit else None, 'ride_id': hit['id'] if hit else None}
+
+    finished = 0.99           # a race the GPS measured a touch short still counts as finished
+    cats = []
+    if runs:
+        cats.append({'name': 'Running', 'badges': [
+            *[_b(icon, name, f"{n:,} run{'s' if n != 1 else ''}", count(runs, n)) for icon, name, n in (
+                ('👟', 'First Run', 1), ('🎯', 'Getting Going', 10), ('🔥', 'Regular Runner', 50), ('💯', 'Century of Runs', 100),
+                ('⚡', 'Dedicated Runner', 250), ('🏆', 'Five Hundred Runs', 500))],
+            *[_b(icon, name, f'{label} in one run', single(runs, 'distance', m * finished)) for icon, name, label, m in (
+                ('🏅', '5K Finisher', '5 km', 5000), ('🎽', '10K Finisher', '10 km', 10000), ('🥈', 'Half Marathoner', 'A half marathon', 21097.5),
+                ('🥇', 'Marathoner', 'A marathon', 42195), ('🦄', 'Ultra Runner', '50 km', 50000))],
+            *[_b(icon, name, f'{mi:,} miles run in total', total(runs, mi * units.MI)) for icon, name, mi in (
+                ('📍', 'Hundred Miler', 100), ('🗺️', 'Long Haul Runner', 500), ('🌍', 'Thousand Mile Club', 1000), ('🚀', 'Road Warrior', 2500))],
+            *[_b(icon, name, desc, under('run', m, secs)) for icon, name, desc, m, secs in (
+                ('🐢', '5K Under 30', '5 km in under 30:00', 5000, 1800), ('🏃', '5K Under 25', '5 km in under 25:00', 5000, 1500),
+                ('💨', '5K Under 20', '5 km in under 20:00', 5000, 1200), ('⏱️', '10K Under the Hour', '10 km in under 1:00:00', 10000, 3600),
+                ('⚡', '10K Under 50', '10 km in under 50:00', 10000, 3000), ('🔥', 'Sub-2 Half', 'A half marathon in under 2:00:00', 21097.5, 7200),
+                ('👑', 'Sub-4 Marathon', 'A marathon in under 4:00:00', 42195, 14400))],
+        ]})
+    if walks:
+        cats.append({'name': 'Walking & Hiking', 'badges': [
+            *[_b(icon, name, f"{n:,} walk{'s' if n != 1 else ''} or hike{'s' if n != 1 else ''}", count(walks, n)) for icon, name, n in (
+                ('🚶', 'Out for a Walk', 1), ('🌳', 'Stroller', 10), ('🥾', 'Rambler', 50), ('🧭', 'Wanderer', 100), ('🏕️', 'Trekker', 250),
+                ('🗺️', 'Pathfinder', 500))],
+            *[_b(icon, name, f'{mi} miles in one walk or hike', single(walks, 'distance', mi * units.MI)) for icon, name, mi in (
+                ('📍', 'Long Walk', 5), ('🌄', 'Big Day Out', 10), ('💪', 'Long Haul', 20), ('🏆', 'Marathon Walker', 26))],
+            *[_b(icon, name, f'{ft:,}ft+ on one walk or hike', single(walks, 'totalElevationGain', ft / units.FT_PER_M)) for icon, name, ft in (
+                ('⛰️', 'Hill Walker', 1000), ('🏔️', 'Fell Walker', 2000), ('🧗', 'Mountaineer', 3000), ('👑', 'High Peaks', 5000))],
+            *[_b(icon, name, f'{mi:,} miles walked in total', total(walks, mi * units.MI)) for icon, name, mi in (
+                ('👣', 'Hundred Mile Walker', 100), ('🌍', 'Long Walk Home', 500), ('💎', 'Thousand Mile Walker', 1000))],
+        ]})
+    if swims:
+        cats.append({'name': 'Swimming', 'badges': [
+            *[_b(icon, name, f"{n:,} swim{'s' if n != 1 else ''}", count(swims, n)) for icon, name, n in (
+                ('💧', 'First Dip', 1), ('🏊', 'Regular Swimmer', 10), ('🐸', 'Water Baby', 25), ('🐟', 'Fish', 50), ('🐬', 'Dolphin', 100))],
+            *[_b(icon, name, f'{label} in one swim', single(swims, 'distance', m * finished)) for icon, name, label, m in (
+                ('🎯', 'Kilometre Swim', '1 km', 1000), ('🏅', 'Olympic Distance', '1,500 m', 1500), ('🥇', 'Iron Distance', '3.8 km', 3800),
+                ('🌊', 'Long Distance', '5 km', 5000), ('👑', 'Marathon Swim', '10 km', 10000))],
+            *[_b(icon, name, desc, total(swims, km * 1000, 1000)) for icon, name, desc, km in (
+                ('📏', 'Ten K in the Water', '10 km swum in total', 10), ('⛴️', 'Channel Crosser', 'The English Channel (34 km) swum in total', 34),
+                ('🌍', 'Hundred K Swimmer', '100 km swum in total', 100), ('🐋', 'Open Ocean', '250 km swum in total', 250))],
+            *[_b(icon, name, desc, under('swim', m, secs)) for icon, name, desc, m, secs in (
+                ('🐢', 'Steady Stroke', '400 m in under 10:00', 400, 600), ('🏊', 'Smooth Stroke', '400 m in under 8:00', 400, 480),
+                ('💨', 'Quick Stroke', '400 m in under 7:00', 400, 420), ('⚡', 'Fast Kilometre', '1 km in under 20:00', 1000, 1200),
+                ('🔥', 'Olympic Pace', '1,500 m in under 30:00', 1500, 1800))],
+        ]})
+    others = {}
+    for a in acts:
+        if a['group'] not in ('ride', 'foot', 'swim'):
+            others.setdefault(sports.label(a['sportType']), []).append(a)
+    if others:
+        cats.append({'name': 'Other Sports', 'badges': [
+            _b(sports.icon(sport), name.format(sport=sport), f"{n:,} session{'s' if n != 1 else ''}", count(lst, n))
+            for sport, lst in sorted(others.items()) for name, n in (('First {sport}', 1), ('{sport} Regular', 10), ('{sport} Devotee', 50))]})
+
+    groups = {a['group'] for a in acts}
+    if len(groups) > 1:
+        def first_day(test):
+            """The first day whose activities pass test(set of stat groups), and the activity that made it pass."""
+            seen, day = set(), None
+            for a in acts:
+                if a['day'] != day:
+                    seen, day = set(), a['day']
+                seen.add(a['group'])
+                if test(seen):
+                    return {'earned': True, 'earned_date': a['day'], 'ride_id': a['id']}
+            return {'earned': False, 'earned_date': None, 'ride_id': None}
+
+        def first_week(n):
+            seen, week, best = set(), None, 0
+            from datetime import date, timedelta
+            for a in acts:
+                try:
+                    d = date.fromisoformat(a['day'])
+                except ValueError:
+                    continue
+                w = d - timedelta(days=d.weekday())
+                if w != week:
+                    seen, week = set(), w
+                seen.add(a['group'])
+                best = max(best, len(seen))
+                if len(seen) >= n:
+                    return {'earned': True, 'earned_date': a['day'], 'ride_id': a['id'], 'progress': n, 'target': n}
+            return {'earned': False, 'earned_date': None, 'ride_id': None, 'progress': best, 'target': n}
+
+        def kinds(n):
+            seen = set()
+            for a in acts:
+                seen.add(a['group'])
+                if len(seen) >= n:
+                    return {'earned': True, 'earned_date': a['day'], 'ride_id': a['id']}
+            return {'earned': False, 'earned_date': None, 'ride_id': None, 'progress': len(seen), 'target': n}
+
+        def hours(h):
+            run = 0
+            for a in acts:
+                run += a['movingTime'] or 0
+                if run >= h * 3600:
+                    return {'earned': True, 'earned_date': a['day'], 'ride_id': a['id']}
+            return {'earned': False, 'earned_date': None, 'ride_id': None, 'progress': round(run / 3600), 'target': h}
+
+        cats.append({'name': 'All Sports', 'badges': [
+            _b('🔀', 'Double Day', 'Two kinds of training on the same day', first_day(lambda g: len(g) >= 2)),
+            _b('🧱', 'Brick', 'A ride and a run (or walk) on the same day', first_day(lambda g: {'ride', 'foot'} <= g)),
+            _b('🔱', 'Triathlete', 'A swim, a ride and a run on the same day', first_day(lambda g: {'swim', 'ride', 'foot'} <= g)),
+            _b('🗓️', 'All-Rounder', 'Three kinds of training in one week', first_week(3)),
+            _b('🧭', 'Explorer', '5 different kinds of training', kinds(5)),
+            _b('🃏', 'Jack of All Trades', '10 different kinds of training', kinds(10)),
+            *[_b(icon, name, f'{h:,} hours of training, every sport', hours(h)) for icon, name, h in (
+                ('⏱️', 'Hundred Hours', 100), ('⌛', 'Five Hundred Hours', 500), ('🏆', 'Thousand Hours', 1000), ('💎', 'Devotion', 2500),
+                ('👑', 'Lifer', 5000))],
+        ]})
+    return cats
 
 
 def _avatar_dir():
@@ -441,10 +603,10 @@ def detail(rid):
         SELECT e.distanceMi, e.elapsedSecs, e.avgSpeedMps, e.activityDate,
                a.name AS rideName, e.activityId
         FROM BestEffort e
-        JOIN Activity a ON a.id = e.activityId
+        JOIN Ride a ON a.id = e.activityId
         WHERE a.riderId=?
         ORDER BY e.distanceMi, e.elapsedSecs ASC
-    ''', [rid])
+    ''', [rid])      # the Ride view: BestEffort has rows for anything with a track, and a ski run is not a ride's best 5 miles
 
     best_by_dist = {}
     for e in effort_rows:
@@ -452,13 +614,20 @@ def detail(rid):
         if d not in best_by_dist:
             best_by_dist[d] = e
 
-    badges = _compute_badges(rid, totals)
+    badges = _compute_badges(rid, totals)        # works out any run and swim best times still missing (services/sport_records.ensure)
+    from services import sport_records
+    sport_bests = []                                # [(heading, [(distance label, effort row, m/s)])] for runs and swims
+    for k in ('run', 'swim'):
+        got = sport_records.bests(get_db(), rid, k)
+        rows = [(label, got[d], d / got[d]['elapsedSecs']) for d, label in sport_records.DISTANCES[k] if d in got]
+        if rows:
+            sport_bests.append((sport_records.LABELS[k], k, rows))
 
     from services import gear as gear_svc
     rider_bikes = gear_svc.list_bikes(get_db(), rid)
     return render_template('rider.html', rider=rider, totals=totals, rider_bikes=rider_bikes,
                            recent=recent, seg_prs=seg_prs,
-                           best_by_dist=best_by_dist, brackets=BRACKETS_MI,
+                           best_by_dist=best_by_dist, brackets=BRACKETS_MI, sport_bests=sport_bests,
                            badges=badges)
 
 
@@ -561,8 +730,8 @@ def delete(rid):
                '(SELECT id FROM Activity WHERE riderId=?)', [rid])
     db.execute('DELETE FROM RideMemory WHERE rideId IN '
                '(SELECT id FROM Activity WHERE riderId=?)', [rid])
-    db.execute('DELETE FROM RunEffort WHERE runId IN '
-               '(SELECT id FROM Activity WHERE riderId=?)', [rid])          # their runs' best times (walks, runs, ... are Activity rows too)
+    db.execute('DELETE FROM SportEffort WHERE activityId IN '
+               '(SELECT id FROM Activity WHERE riderId=?)', [rid])          # their run and swim best times
     from services import photos
     photos.delete_for(db, [r[0] for r in db.execute('SELECT id FROM Activity WHERE riderId=?', [rid])], current_app.config['DATABASE'])
     db.execute('DELETE FROM Activity WHERE riderId=?', [rid])
