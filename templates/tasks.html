@@ -44,6 +44,15 @@
   {% endfor %}
 </div>
 
+<div class="card" style="margin-bottom:1.25rem;">
+  <div class="card-title">Reporting a problem</div>
+  <p style="color:var(--text-muted); font-size:0.875rem; margin:0 0 0.75rem;">Download one file to attach to a bug report: the recent log files, Headwind's version, your settings
+    with passwords, keys, addresses and body measurements left out, how many rows each table holds, and the recent runs below. The logs do include
+    activity names and dates, so look through it before posting it anywhere public.
+    {% if log_file %}Headwind writes its log to <code>{{ log_file }}</code>.{% endif %}</p>
+  <a class="btn btn-secondary" href="{{ url_for('tasks.diagnostics') }}">Download diagnostics</a>
+</div>
+
 <div class="card">
   <div class="card-title">Recent runs</div>
   {% for r in history %}
@@ -51,7 +60,7 @@
     <span style="color:{{ badge[r.status][1] }}; min-width:4.5rem;">● {{ badge[r.status][0] }}</span>
     <span style="min-width:7rem;">{{ r.label }}</span>
     <span style="color:var(--text-muted); min-width:9rem;" data-when="{{ r.startedAt }}">{{ r.startedAt }}</span>
-    <span style="color:var(--text-muted); flex:1 1 14rem;">{{ r.error or r.result or '' }}</span>
+    <span style="color:var(--text-muted); flex:1 1 14rem;">{{ r.error or r.result or '' }}{% if r.status == 'failed' and r.logId %} · log lines marked <code>[{{ r.logId }}]</code>{% endif %}</span>
   </div>
   {% else %}
   <p style="color:var(--text-muted); font-size:0.875rem;">No runs recorded yet.</p>

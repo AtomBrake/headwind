@@ -7,6 +7,9 @@
 *.db-wal
 *.db.corrupted
 
+# Log files (services/logs.py writes them beside the database)
+logs/
+
 # Personal avatar photos
 static/avatars/rider_*.jpg
 # The default picture, copied in from static/img at startup

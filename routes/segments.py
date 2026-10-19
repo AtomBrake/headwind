@@ -251,7 +251,7 @@ def detail(sid):
                     db.commit()
                     seg = query_db('SELECT * FROM Segment WHERE id=?', [sid], one=True)
         except Exception:
-            pass
+            log.warning('Working out the segment climb failed', exc_info=True)
 
     # Shape for the map: validated stored shape, else rebuilt from the source ride / a matching effort (and saved so matching
     # gets its interior checkpoints back). If neither works the page says so — it never invents a straight line.
