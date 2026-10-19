@@ -5,6 +5,14 @@
 
 {% block topbar_actions %}
   <a href="{{ url_for('segments.index', sport=family, only=only) }}" class="btn btn-secondary">← Segments</a>
+  {% if not seg.friend_name %}
+  <form method="POST" action="{{ url_for('segments.set_sport', sid=seg.id) }}" style="display:inline;"
+        onsubmit="return confirm('Change this segment\'s sport? Its efforts are matched again, from the activities of the new sport.')">
+    <input type="hidden" name="sport" value="{{ 'ride' if family == 'foot' else 'foot' }}">
+    <button class="btn btn-secondary" title="Strava's export doesn't say which sport a segment is for, so an import can guess wrong">
+      Make it {{ 'a ride' if family == 'foot' else 'an on-foot' }} segment</button>
+  </form>
+  {% endif %}
   <form method="POST" action="{{ url_for('segments.delete', sid=seg.id) }}" style="display:inline;"
         onsubmit="return confirm('Delete this segment and all its efforts?')">
     <button class="btn" style="background:var(--danger,#ef4444);color:#fff;border:none;">Delete</button>

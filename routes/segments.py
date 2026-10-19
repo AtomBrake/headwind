@@ -5,7 +5,7 @@ from flask import Blueprint, abort, jsonify, redirect, render_template, request,
 
 from database import get_db, query_db
 from services.segments import (scan_all_activities, scan_activity_against_segments, _refresh_prs,
-                               clean_polyline, recover_polyline, seg_sport, valid_coord)
+                               clean_polyline, recover_polyline, seg_sport, valid_coord, MIN_SEGMENT_M)
 from services.sports import CLASS_ICONS, CLASS_LABELS, FAMILIES, FAMILY_ICONS, FAMILY_LABELS, class_sql, ebike_sql, family_of
 
 log = logging.getLogger(__name__)
@@ -178,6 +178,8 @@ def create():
         polyline    = request.form.get('polyline') or None
         if not valid_coord(start_lat, start_lng) or not valid_coord(end_lat, end_lng):
             abort(400)
+        if 0 < distance_m < MIN_SEGMENT_M:
+            abort(400)                                  # a start and end picked on the same spot: every effort would be a second or two
         shape = clean_polyline(polyline)
         polyline = json.dumps(shape) if shape else None
         elev_gain   = request.form.get('elevGainM')
@@ -317,6 +319,22 @@ def delete(sid):
     db.execute('DELETE FROM Segment WHERE id=?', [sid])
     db.commit()
     return redirect(url_for('segments.index', sport=fam[0] if fam else None))
+
+
+@bp.route('/segments/<int:sid>/sport', methods=['POST'])
+def set_sport(sid):
+    """Make one of our own segments a ride or an on-foot one (a Strava export's segments.csv doesn't say which, so an import can guess wrong):
+    its efforts go and every activity of the new family near it is matched again. A friend's segment keeps the family the friend gave it."""
+    db = get_db()
+    fam = request.form.get('sport')
+    seg = db.execute("SELECT COALESCE(sport, 'ride') AS sport, friendId FROM Segment WHERE id=?", [sid]).fetchone()
+    if not seg or fam not in FAMILIES or seg['friendId']:
+        abort(400)
+    if fam != seg['sport']:
+        db.execute('UPDATE Segment SET sport=? WHERE id=?', [fam, sid])
+        db.commit()
+        scan_all_activities(db, segment_ids=[sid])           # clears its efforts, matches the new family's activities, picks PRs
+    return redirect(url_for('segments.detail', sid=sid))
 
 
 @bp.route('/segments/<int:sid>/efforts/<int:eid>/delete', methods=['POST'])

@@ -12,10 +12,20 @@ TOLERANCE_M = 30  # metres — how close to a segment endpoint counts as a hit
 CHECKPOINT_M = 60  # metres — tolerance for interior waypoints (wider to absorb GPS drift)
 CHECKPOINT_N = 4   # number of evenly-spaced interior checkpoints to sample
 MIN_SPEED_MPS = {'ride': 2.0, 'foot': 0.5}   # slower than this is a false match (4.5 mph on a bike; on foot, a steep hike's pace)
+MAX_SPEED_MPS = {'ride': 30.0, 'foot': 10.0}  # faster than this is a GPS jump, not an effort (67 mph down a mountain pass; a sprinter's top speed)
+MIN_SEGMENT_M = 10      # a hand-made segment shorter than this is a start and end picked on the same spot
+MIN_COVERED = 0.7       # an exact effort's own track must be at least this share of the segment's length (a shortcut between the ends isn't it)
 CLOSE_TOL_M = 75        # a ride counts as "on the shape" within this many metres (GPS drift, a different lane, a cycle path beside the road)
 CLOSE_COVER = 0.85      # share of the segment's length the ride must follow, in order, to count as a close (approximate) match
 CLOSE_DETOUR = 1.35     # the ride's own path over that stretch may be at most this much longer than the segment (no loops / wandering)
+CLOSE_MIN_PATH = 0.85   # ... and at least this much of it: a straighter line nearby (a road beside a twisty trail) isn't the segment. Exact
+                        # efforts on a real export never came under 0.89; the false close ones were 0.70-0.78
+CLOSE_MEDIAN_M = 12     # ... and half its points within this of the shape: GPS drift wanders either side, while a road or path running beside
+                        # the segment sits a steady 15-50 m off the whole way (exact efforts on a real export: half within 3 m, 9 in 10 within 5)
+CLOSE_MIN_LEN_M = 3 * CLOSE_TOL_M   # shorter segments get no close matching: within CLOSE_TOL_M of every sample, any track nearby would do
 _BATCH = 50             # activities whose streams are read at a time in a full scan (~1 MB each)
+MISALIGNED_MAX = 10     # a track whose time stream has more points than its positions (records with no fix, stored before 0.7.7) is timed only
+                        # when the gap is this small: at most that many seconds off. More, and an effort could be minutes out: not matched
 
 
 def seg_sport(seg):
@@ -235,6 +245,33 @@ def _sample_checkpoints(polyline_json, n=CHECKPOINT_N):
     return [interior[min(i * step, len(interior) - 1)] for i in range(1, n + 1)]
 
 
+def _track(streams):
+    """(latlng, time) of parsed streams, cut to the same length, or (None, None) when they are too far out of step to time (MISALIGNED_MAX)."""
+    ll = (streams.get('latlng') or {}).get('data') or []
+    tm = (streams.get('time') or {}).get('data') or []
+    if not ll or not tm or abs(len(ll) - len(tm)) > MISALIGNED_MAX:
+        return None, None
+    n = min(len(ll), len(tm))
+    return ll[:n], tm[:n]
+
+
+def realign(streams):
+    """Streams stored before 0.7.7 with records from before the first GPS fix (services/parser.aligned_streams): `time` and the channels recorded
+    with it have k more points than `latlng`. Fixed only when it's certain those k are at the start, before any movement (the device's distance
+    stays put over them): they're dropped from every stream of time's length. Returns the fixed streams (parsed), or None."""
+    ll = (streams.get('latlng') or {}).get('data') or []
+    tm = (streams.get('time') or {}).get('data') or []
+    ds = (streams.get('distance') or {}).get('data') or []
+    k = len(tm) - len(ll)
+    if not ll or k <= 0 or len(ds) != len(tm) or len(set(ds[:k + 1])) != 1:
+        return None
+    out = {}
+    for key, v in streams.items():
+        data = v.get('data') if isinstance(v, dict) else None
+        out[key] = {**v, 'data': data[k:]} if isinstance(data, list) and len(data) == len(tm) else v
+    return out
+
+
 def match_segment(activity_streams_json, seg):
     """
     Returns elapsed_secs (int) for the fastest valid effort on this segment,
@@ -248,15 +285,9 @@ def match_segment(activity_streams_json, seg):
       - Direction is enforced (end must follow start in the GPS stream)
       - Multiple laps of the same segment return the fastest lap
     """
-    streams = _parsed(activity_streams_json)
-    latlng = (streams.get('latlng') or {}).get('data') or []
-    times  = (streams.get('time')   or {}).get('data') or []
-
-    if not latlng or not times:
+    latlng, times = _track(_parsed(activity_streams_json))
+    if not latlng:
         return None
-    n = min(len(latlng), len(times))
-    latlng = latlng[:n]
-    times  = times[:n]
 
     dist_m      = seg['distanceM'] or 0
     checkpoints = [_window(cp[0], cp[1], CHECKPOINT_M) for cp in _sample_checkpoints(seg['polyline'])] if seg['polyline'] else []
@@ -266,12 +297,20 @@ def match_segment(activity_streams_json, seg):
 
     def _try_start(start_idx):
         nonlocal best_elapsed
-        # Find the first entry into the end zone (mirrors start-zone logic).
-        # Committing to the first crossing prevents a later near-miss on the
-        # return leg from inflating the elapsed time.
+        # Find the first entry into the end zone (mirrors start-zone logic), once the track has covered MIN_COVERED of the segment: on a loop,
+        # or a short segment whose ends are close, the start is already in the end zone, and an end found there is only rejected below,
+        # with the real one never looked for. Committing to the first crossing after that prevents a later near-miss on the return leg from
+        # inflating the elapsed time.
+        first = start_idx + 1
+        if dist_m:
+            covered = 0.0
+            while first < len(latlng) and covered < dist_m * MIN_COVERED:
+                covered += _haversine(latlng[first - 1][0], latlng[first - 1][1], latlng[first][0], latlng[first][1])
+                first += 1
+            first -= 1 if first > start_idx + 1 else 0
         in_end_zone = False
         end_idx, end_dist = None, float('inf')
-        for j in range(start_idx + 1, len(latlng)):
+        for j in range(first, len(latlng)):
             d = _near(end_win, latlng[j][0], latlng[j][1], TOLERANCE_M)
             if d is not None:
                 in_end_zone = True
@@ -285,8 +324,8 @@ def match_segment(activity_streams_json, seg):
         elapsed = times[end_idx] - times[start_idx]
         if elapsed <= 0:
             return
-        if dist_m and (dist_m / elapsed) < MIN_SPEED_MPS[seg_sport(seg)]:
-            return  # too slow to be a real effort — false match
+        if dist_m and not MIN_SPEED_MPS[seg_sport(seg)] <= dist_m / elapsed <= MAX_SPEED_MPS[seg_sport(seg)]:
+            return  # too slow to be a real effort, or too fast: a false match
         if dist_m:
             # Reject shortcut routes: actual GPS distance must be ≥70% of
             # stored segment distance so riders who take a shorter road between
@@ -295,7 +334,7 @@ def match_segment(activity_streams_json, seg):
                 _haversine(latlng[j][0], latlng[j][1], latlng[j + 1][0], latlng[j + 1][1])
                 for j in range(start_idx, end_idx)
             )
-            if actual_dist < dist_m * 0.7:
+            if actual_dist < dist_m * MIN_COVERED:
                 return
         # For segments with a polyline, require the activity to pass near each
         # sampled interior checkpoint in order. This catches rides that hit the
@@ -360,13 +399,28 @@ def _fast_m(lat1, lng1, lat2, lng2):
     return 6_371_000 * sqrt(x * x + y * y)
 
 
+def _off_line(lat, lng, shape):
+    """Metres from a point to the nearest part of a shape (a list of [lat, lng]), on a flat local projection."""
+    kx, ky = 6_371_000 * radians(1) * cos(radians(lat)), 6_371_000 * radians(1)
+    best = float('inf')
+    for a, b in zip(shape, shape[1:]):
+        ax, ay, bx, by = (a[1] - lng) * kx, (a[0] - lat) * ky, (b[1] - lng) * kx, (b[0] - lat) * ky
+        dx, dy = bx - ax, by - ay
+        L = dx * dx + dy * dy
+        t = 0.0 if L == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / L))
+        x, y = ax + t * dx, ay + t * dy
+        best = min(best, x * x + y * y)
+    return sqrt(best)
+
+
 def match_segment_close(activity_streams_json, seg):
     """
     The forgiving second chance for a ride that follows a segment but is not PERFECTLY on it (a stop short of the end marker,
     GPS drift, a lane or path beside the road). Returns (estimated_elapsed_secs, covered_fraction) or None.
 
     The ride must run along the stored shape in the right order, within CLOSE_TOL_M of it, for at least CLOSE_COVER of its
-    length, without wandering (CLOSE_DETOUR) and at a believable speed. The time is the time over the part followed, scaled up
+    length, without wandering (CLOSE_DETOUR) or cutting the bends (CLOSE_MIN_PATH), mostly within CLOSE_MEDIAN_M of the line (not on a road
+    beside it), and at a believable speed. The time is the time over the part followed, scaled up
     to the whole segment, so it is an estimate: callers store it with approx=1 and never let it take a PR.
     Segments with no stored shape cannot be matched this way. The streams are JSON text or already parsed (_parsed).
     """
@@ -374,13 +428,12 @@ def match_segment_close(activity_streams_json, seg):
     streams = _parsed(activity_streams_json)
     if len(poly) < 4:
         return None
-    ll = (streams.get('latlng') or {}).get('data') or []
-    tm = (streams.get('time') or {}).get('data') or []
-    n = min(len(ll), len(tm))
-    if n < 10:
+    ll, tm = _track(streams)
+    if not ll or len(ll) < 10:
         return None
+    n = len(ll)
     seg_len = float(seg['distanceM'] or 0) or _path_length_m(poly)
-    if seg_len <= 0:
+    if seg_len < CLOSE_MIN_LEN_M:
         return None
     shape, cum = _close_shape(poly)
     shape_len = cum[-1] or 1.0
@@ -410,13 +463,16 @@ def match_segment_close(activity_streams_json, seg):
     if len(hits) < CLOSE_COVER * (k1 - k0 + 1):            # skipped too much of the stretch it claims to cover
         return None
     path = sum(_fast_m(ll[j][0], ll[j][1], ll[j + 1][0], ll[j + 1][1]) for j in range(i0, i1))
-    if path > CLOSE_DETOUR * span:
+    if not CLOSE_MIN_PATH * span <= path <= CLOSE_DETOUR * span:
+        return None
+    offs = sorted(_off_line(ll[j][0], ll[j][1], shape) for j in range(i0, i1 + 1))
+    if offs[len(offs) // 2] > CLOSE_MEDIAN_M:              # beside the segment, not on it (a road along a trail)
         return None
     secs = tm[i1] - tm[i0]
     if secs <= 0:
         return None
     est = secs * (shape_len / span)
-    if seg_len / est < MIN_SPEED_MPS[seg_sport(seg)]:
+    if not MIN_SPEED_MPS[seg_sport(seg)] <= seg_len / est <= MAX_SPEED_MPS[seg_sport(seg)]:
         return None
     return int(round(est)), span / shape_len
 
@@ -669,15 +725,66 @@ def merge_bikes(db):
     return {'ran': True, 'merged': len(was_e), 'found': found, 'scanned': scanned, 'prs_moved': moved}
 
 
+def repair_matching(db):
+    """Run once (Settings.segmentMatchFixDone), for 0.7.7's matching fixes: loop segments a Strava import collapsed to a few metres are cut again
+    from the activity they were made on (shape_from_streams); streams with records from before the first GPS fix are realigned where that's
+    certain (realign); then every segment is matched again from scratch (scan_all_activities) under the new rules: the end looked for only after
+    MIN_COVERED of the length, no close matching of short segments or of a straighter line nearby, and MAX_SPEED_MPS. Commits.
+    Returns {'ran', 'loops', 'realigned', 'misaligned', 'before', 'after', 'prs_moved'}."""
+    s = db.execute('SELECT segmentMatchFixDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['segmentMatchFixDone']:
+        return {'ran': False}
+    loops = 0
+    for seg in db.execute('SELECT * FROM Segment WHERE friendId IS NULL AND sourceActivityId IS NOT NULL AND COALESCE(distanceM, 0) < ?',
+                          [3 * TOLERANCE_M]).fetchall():
+        if _haversine(seg['startLat'], seg['startLng'], seg['endLat'], seg['endLng']) >= LOOP_GAP_M:
+            continue
+        r = db.execute('SELECT streams FROM Activity WHERE id=?', [seg['sourceActivityId']]).fetchone()
+        shape = shape_from_streams(r[0], (seg['startLat'], seg['startLng']), (seg['endLat'], seg['endLng'])) if r and r[0] else None
+        if shape and shape[1] > (seg['distanceM'] or 0) * 2:
+            db.execute('UPDATE Segment SET polyline=?, distanceM=?, elevationGainM=? WHERE id=?', [json.dumps(shape[0]), shape[1], shape[2], seg['id']])
+            loops += 1
+    db.commit()
+    realigned = misaligned = 0
+    ids = [r[0] for r in db.execute("SELECT id FROM Activity WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')")]
+    for i in range(0, len(ids), _BATCH):
+        chunk = ids[i:i + _BATCH]
+        for aid, raw in db.execute(f"SELECT id, streams FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
+            st = _parsed(raw)
+            ll, tm = (st.get('latlng') or {}).get('data') or [], (st.get('time') or {}).get('data') or []
+            if not ll or not tm or len(ll) == len(tm):
+                continue
+            fixed = realign(st)
+            if fixed:
+                db.execute('UPDATE Activity SET streams=? WHERE id=?', [json.dumps(fixed), aid])
+                realigned += 1
+            elif abs(len(ll) - len(tm)) > MISALIGNED_MAX:
+                misaligned += 1
+        db.commit()
+    held = lambda: {(r[0], r[1]) for r in db.execute('SELECT segmentId, activityId FROM SegmentEffort WHERE isPR=1')}   # efforts get new ids
+    prs = held()
+    before = db.execute('SELECT COUNT(*) FROM SegmentEffort').fetchone()[0]
+    scan_all_activities(db)
+    after = db.execute('SELECT COUNT(*) FROM SegmentEffort').fetchone()[0]
+    moved = len(held() - prs)                            # PRs now held by another activity, or held for the first time
+    db.execute('UPDATE Settings SET segmentMatchFixDone=1 WHERE id=1')
+    db.commit()
+    log.warning('Segment matching repaired: %d loop segments cut again, %d tracks realigned, %d left out of step, efforts %d -> %d',
+                loops, realigned, misaligned, before, after)
+    return {'ran': True, 'loops': loops, 'realigned': realigned, 'misaligned': misaligned, 'before': before, 'after': after, 'prs_moved': moved}
+
+
 # ---------- segments from a Strava export (segments.csv) ----------
 IMPORT_TOL_M = 50       # a Strava segment's ends sit on the track it was drawn on; allow for a different recording of the same road
+LOOP_GAP_M = 20         # a segment whose ends are closer than this is a loop: it ends where it started, after going round
 
 
 def shape_from_streams(streams, start, end, tol_m=IMPORT_TOL_M):
     """(polyline, distance_m, elevation_gain_m) of the stretch of a track from near `start` to near `end` after it, or None if the track doesn't
     go from one to the other. Of every pass by the start, the one that comes closest to both ends is taken (a Strava segment's ends are points
     of the track it was drawn on, so another pass that only skirts them is a different line); of passes as close as that, the shortest, so a
-    loop that passes the start twice gives the segment, not the loop."""
+    loop that passes the start twice gives the segment, not the loop. A loop segment (ends within LOOP_GAP_M) starts inside its own end zone,
+    so its end is looked for only once the track has left that zone: otherwise it is the next point, and the segment a few metres long."""
     s = _parsed(streams)
     ll = (s.get('latlng') or {}).get('data') or []
     alt = (s.get('altitude') or {}).get('data') or []
@@ -690,6 +797,7 @@ def shape_from_streams(streams, start, end, tol_m=IMPORT_TOL_M):
     if len(pts) < 2:
         return None
     sw, ew = _window(start[0], start[1], tol_m), _window(end[0], end[1], tol_m)
+    loop = _haversine(start[0], start[1], end[0], end[1]) < LOOP_GAP_M
     ds = [_near(sw, la, ln, tol_m) for la, ln in pts]
     de = [_near(ew, la, ln, tol_m) for la, ln in pts]
     found = []                                          # (how far from the two ends, length, si, ei) of each pass
@@ -703,6 +811,9 @@ def shape_from_streams(streams, start, end, tol_m=IMPORT_TOL_M):
             j += 1
         si = min(range(i, j + 1), key=lambda k: ds[k])
         k = si + 1
+        if loop:
+            while k < n and de[k] is not None:        # still where it started: go round first
+                k += 1
         while k < n and de[k] is None:
             k += 1
         if k < n:
@@ -741,11 +852,13 @@ def _tracks_through(db, start, end, limit=40):
         [lo_lat, hi_lat, lo_lng, hi_lng, limit])]
 
 
-def _segment_here(db, start, end, tol_m=TOLERANCE_M):
-    """True if a segment with both ends within tol_m of these is already saved."""
+def _segment_here(db, start, end, fam=None, tol_m=TOLERANCE_M):
+    """True if a segment with both ends within tol_m of these is already saved (of this family, when given: a ride segment and a foot one can
+    start and end in the same places)."""
     sw, ew = _window(start[0], start[1], tol_m), _window(end[0], end[1], tol_m)
-    for r in db.execute('SELECT startLat, startLng, endLat, endLng FROM Segment WHERE startLat BETWEEN ? AND ? AND startLng BETWEEN ? AND ?',
-                        [sw[0] - sw[2], sw[0] + sw[2], sw[1] - sw[3], sw[1] + sw[3]]):
+    for r in db.execute("SELECT startLat, startLng, endLat, endLng FROM Segment WHERE startLat BETWEEN ? AND ? AND startLng BETWEEN ? AND ? "
+                        "AND (? IS NULL OR COALESCE(sport, 'ride') = ?)",
+                        [sw[0] - sw[2], sw[0] + sw[2], sw[1] - sw[3], sw[1] + sw[3], fam, fam]):
         if _near(sw, r[0], r[1], tol_m) is not None and _near(ew, r[2], r[3], tol_m) is not None:
             return True
     return False
@@ -754,21 +867,23 @@ def _segment_here(db, start, end, tol_m=TOLERANCE_M):
 def import_strava(db, rows):
     """Make a segment for each row of a Strava export's segments.csv (Segment Name, Activity ID, Starting/Ending Latitude/Longitude) that isn't
     here yet. Its shape, length and climb come from the activity it was made on, or, when that isn't here (or the row names none), from another
-    activity that rode it. A row with no position, one already saved (both ends within TOLERANCE_M), or one no activity here rode, is skipped.
+    activity that rode it. The csv doesn't say whether it's a ride or a foot segment: the activity it was made on does, and without that, the
+    family most of the activities along it here have (not just the newest one's: a lane last walked can be a ride segment). A row with no position, one already saved (both ends within TOLERANCE_M), or one no activity here rode, is skipped.
     Returns {'created': [ids], 'existing': n, 'unridden': n, 'invalid': n}. Matches nothing yet (scan_all_activities with the new ids does) and
     does not commit."""
     out = {'created': [], 'existing': 0, 'unridden': 0, 'invalid': 0}
     for row in rows:
         start = valid_coord(row.get('Starting Latitude'), row.get('Starting Longitude'))
         end = valid_coord(row.get('Ending Latitude'), row.get('Ending Longitude'))
-        if not start or not end or start == end:
+        if not start or not end:
             out['invalid'] += 1
             continue
-        if _segment_here(db, start, end):
-            out['existing'] += 1
-            continue
+        if _segment_here(db, start, end):                  # quick: nothing saved here of either family is the common case on a second import
+            if all(_segment_here(db, start, end, f) for f in FAMILIES):
+                out['existing'] += 1
+                continue
         source = str(row.get('Activity ID') or '').strip()
-        tried, found = set(), None
+        tried, found, along = set(), None, []               # along: (activity, family, shape) of each activity here that rode it, newest first
         for aid in ([source] if source else []) + _tracks_through(db, start, end):
             if aid in tried:
                 continue
@@ -779,12 +894,22 @@ def import_strava(db, rows):
             r = db.execute('SELECT streams FROM Activity WHERE id=?', [aid]).fetchone()
             shape = shape_from_streams(r[0], start, end) if r and r[0] else None
             if shape:
-                found = (aid, fam, shape)
-                break
+                if aid == source:                           # the activity it was made on: its family, its shape
+                    found = (aid, fam, shape)
+                    break
+                along.append((aid, fam, shape))
+        if not found and along:
+            counts = {f: sum(1 for a in along if a[1] == f) for f in {a[1] for a in along}}
+            top = max(counts.values())
+            fam = next(a[1] for a in along if counts[a[1]] == top)          # the commonest; on a tie, the newest one's
+            found = next(a for a in along if a[1] == fam)
         if not found:
             out['unridden'] += 1
             continue
         aid, fam, (poly, dist, gain) = found
+        if _segment_here(db, start, end, fam):
+            out['existing'] += 1
+            continue
         name = (row.get('Segment Name') or '').strip()[:200] or 'Strava segment'
         db.execute('INSERT INTO Segment (name, startLat, startLng, endLat, endLng, distanceM, sourceActivityId, polyline, elevationGainM, sport) '
                    'VALUES (?,?,?,?,?,?,?,?,?,?)', [name, start[0], start[1], end[0], end[1], dist, aid, json.dumps(poly), gain, fam])
