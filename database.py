@@ -366,6 +366,7 @@ def migrate_db():
         ('steps',           'INTEGER'),  # walks, runs, hikes: from the phone or watch
         ('source',          'TEXT'),     # how a walk, run, ... arrived: 'android', 'garmin', 'manual', 'converted', ... (was Workout.source)
         ('commute',         'INTEGER'),  # 1 a commute, 0 the rider said it isn't, NULL never said (a Strava import may then tick it)
+        ('srcUpdatedAt',    'TEXT'),     # a friend's ride: their updatedAt for it once matched here, '' until then, NULL from before 0.7.6 (routes/friends.py)
     ]:
         if col not in act_cols:
             db.execute(f'ALTER TABLE Activity ADD COLUMN {col} {defn}')
@@ -408,6 +409,7 @@ def migrate_db():
         ('garminLastOk',         'TEXT'),
         ('garminLastError',      'TEXT'),
         ('garminDeviceSync',     'TEXT'),
+        ('garminSweepAt',        'TEXT'),      # when the Garmin sync last read all its recent days (services/garmin.health_days)
         ('garminFailCount',      'INTEGER DEFAULT 0'),
         ('garminHistoryFrom',    'TEXT'),      # how far back to pull health history: NULL = not asked yet, 'all', 'none' or a YYYY-MM-DD
         ('garminHistoryCursor',  'TEXT'),      # oldest day the history backfill has covered so far
@@ -495,6 +497,7 @@ def migrate_db():
         ('elevationGainM', 'REAL'),
         ('friendId',       'INTEGER REFERENCES Friend(id)'),
         ('sourceSegId',    'INTEGER'),
+        ('matchPending',   'INTEGER'),   # a friend's segment that is new or moved and not matched yet (routes/friends.py)
     ]:
         if col not in seg_cols:
             db.execute(f'ALTER TABLE Segment ADD COLUMN {col} {defn}')
@@ -695,6 +698,21 @@ def migrate_db():
         if not cur or ' '.join((cur[0] or '').split()) != ' '.join(sql.split()):      # only write when missing or changed, so start-up never takes a write lock needlessly
             db.execute(f'DROP VIEW IF EXISTS {name}')
             db.execute(sql)
+    # A change to anything a friend's feed shares moves updatedAt on, so the feed's manifest tells friends which rides to fetch again
+    # (routes/friends.py). Only a value that really changed: SQLite fires UPDATE OF for a column that was only rewritten. One that sets
+    # updatedAt itself is left alone. Not calories: the calorie setting (services/calorie_adjust) rewrites every activity's, and that would
+    # send every friend every ride again.
+    shared = ('name', 'type', 'sportType', 'startDate', 'startDateLocal', 'distance', 'movingTime', 'elapsedTime', 'totalElevationGain',
+              'averageSpeed', 'maxSpeed', 'averageHeartrate', 'maxHeartrate', 'averageWatts', 'weightedAvgWatts', 'averageCadence',
+              'startLat', 'startLng', 'streams', 'weatherTempC', 'weatherWindKph', 'weatherGustKph', 'weatherWindDir', 'weatherHumidity',
+              'weatherRainMm', 'weatherCode', 'weatherSummary', 'weatherWindRel', 'steps', 'riderId')
+    touch = (f"CREATE TRIGGER Activity_touch AFTER UPDATE OF {', '.join(shared)} ON Activity "
+             f"WHEN NEW.updatedAt IS OLD.updatedAt AND ({' OR '.join(f'NEW.{c} IS NOT OLD.{c}' for c in shared)}) "
+             "BEGIN UPDATE Activity SET updatedAt = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = NEW.id; END")
+    cur = db.execute("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='Activity_touch'").fetchone()
+    if not cur or ' '.join((cur[0] or '').split()) != ' '.join(touch.split()):
+        db.execute('DROP TRIGGER IF EXISTS Activity_touch')
+        db.execute(touch)
     db.execute('CREATE INDEX IF NOT EXISTS idx_activity_rider_date ON Activity(riderId, startDateLocal)')
     # SegmentEffort's own index starts with segmentId, so an activity's efforts (re-matching or deleting it, its page) scanned the whole table;
     # the food and water logs are read by rider and day and had no index at all.
@@ -825,8 +843,9 @@ def migrate_db():
     db.commit()
 
     # Start-up repairs below record what they did for the Tasks page (services/tasks.py)
-    from services import tasks as _tasks
+    from services import tasks as _tasks, garmin_failures as _garmin_failures
     _tasks.ensure_schema(db)
+    _garmin_failures.ensure_schema(db)
     _tasks.close_orphans(db)
     db.commit()
     if rebuilt.get('Activity'):
