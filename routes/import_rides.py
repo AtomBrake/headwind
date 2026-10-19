@@ -470,10 +470,20 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
             except ValueError:
                 return None
 
-        if not act.get('movingTime'):
-            t = csv_num('Moving Time') or csv_num('Elapsed Time')
+        # Strava's own distance and moving time win over the file's: they carry the rider's crops and "correct distance" on Strava, its moving
+        # time from the track, and a ski day's distance without the lifts. The file's are what the device wrote (a speed sensor gone wrong,
+        # auto-pause off). The track itself is kept as the file has it.
+        strava_moving, strava_dist = csv_num('Moving Time'), _strava_csv_distance_m(row)
+        if strava_moving:
+            act['movingTime'] = int(strava_moving)
+        elif not act.get('movingTime'):
+            t = csv_num('Elapsed Time')
             if t:
                 act['movingTime'] = int(t)
+        if strava_dist:
+            act['distance'] = round(strava_dist, 1)
+        if (strava_moving or strava_dist) and act.get('distance') and act.get('movingTime'):
+            act['averageSpeed'] = round(act['distance'] / act['movingTime'], 4)
         if not act.get('elapsedTime'):
             t = csv_num('Elapsed Time')
             if t:
@@ -486,10 +496,6 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
             act['averageWatts'] = csv_num('Average Watts')
         if act.get('calories') is None:
             act['calories'] = csv_num('Calories')
-        if not act.get('distance'):
-            d = _strava_csv_distance_m(row)
-            if d:
-                act['distance'] = d
 
         if already:
             try:

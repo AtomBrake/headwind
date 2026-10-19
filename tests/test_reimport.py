@@ -57,7 +57,7 @@ def test_a_broken_ride_imported_again_waits_for_review_then_is_repaired(db):
     db.commit()
     assert 'beyond any ride' in db.execute("SELECT flagReason FROM Activity").fetchone()[0]
 
-    z = strava_zip(['20294689368,"Jul 4, 2026, 9:00:00 AM",Lanhydrock Tour,Ride,600,45.96,590,600,45959.5,activities/1.gpx\n'], [('activities/1.gpx', GPX)])
+    z = strava_zip(['20294689368,"Jul 4, 2026, 9:00:00 AM",Lanhydrock Tour,Ride,6000,45.96,5900,6000,45959.5,activities/1.gpx\n'], [('activities/1.gpx', GPX)])
     done = run_import(db, z)
     assert done['changed'] == 1 and done['imported'] == 0
     assert db.execute("SELECT distance FROM Activity").fetchone()[0] == 45959500           # nothing overwritten yet
@@ -69,7 +69,7 @@ def test_a_broken_ride_imported_again_waits_for_review_then_is_repaired(db):
     db.commit()
     r = db.execute("SELECT name, bikeId, distance, flagReason, streams FROM Activity").fetchone()
     assert r['name'] == 'Lanhydrock loop (renamed)' and r['bikeId'] == 1                     # the rider's edits stay
-    assert r['distance'] < 10000 and r['flagReason'] is None and 'latlng' in json.loads(r['streams'])
+    assert r['distance'] == 45959.5 and r['flagReason'] is None and 'latlng' in json.loads(r['streams'])   # Strava's own figure, in metres
     assert reimport.pending(db) == []
 
 
