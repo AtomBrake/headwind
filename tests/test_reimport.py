@@ -196,3 +196,31 @@ def test_a_crop_takes_stravas_climb_and_top_speed_even_a_climb_of_nothing(db):
     db.commit()
     r = db.execute("SELECT distance, movingTime, elapsedTime, totalElevationGain, maxSpeed FROM Activity WHERE id='58'").fetchone()
     assert (r['distance'], r['movingTime'], r['elapsedTime'], r['totalElevationGain'], r['maxSpeed']) == (333.0, 110, 180, 0, 8.1)
+
+
+def test_a_gap_in_the_recording_is_not_taken_for_a_crop(db):
+    # Strava leaves a stopped device's gap out of its elapsed time: 180 s here for a 590 s recording, but its distance is the whole track's
+    whole = round(sum(__import__('services.best_efforts', fromlist=['x'])._haversine(50.4 + i * 0.0001, -4.7, 50.4 + (i + 10) * 0.0001, -4.7)
+                      for i in range(0, 590, 10)), 1)
+    run_import(db, strava_zip([f'59,"Jul 4, 2026, 9:00:00 AM",Gap,Ride,180,0.65,170,180,{whole},activities/1.gpx\n'], [('activities/1.gpx', GPX)]))
+    t, _, _ = _saved_track(db, '59')
+    assert len(t) == 60 and t[-1] == 590
+
+
+def test_a_later_start_on_strava_is_always_a_crop(db):
+    # Strava's distance said nothing useful (0.0 km in the export), but the start moved: that is a crop
+    run_import(db, strava_zip(['60,"Jul 4, 2026, 9:02:00 AM",Late,Ride,180,0,170,180,0,activities/1.gpx\n'], [('activities/1.gpx', GPX)]))
+    assert _saved_track(db, '60')[0][-1] == 180
+
+
+def test_a_paused_recording_is_not_taken_for_a_crop(db):
+    """A bike park day: the recording paused for each uplift, so the track jumps from the bottom to the top. Strava leaves the pause out of
+    its elapsed time and the jump out of its distance; that is not a crop."""
+    pts = [(s, 50.4 + s * 0.00002) for s in range(0, 300, 10)] + [(s, 50.5 + (s - 1500) * 0.00002) for s in range(1500, 1800, 10)]
+    gpx = ('<?xml version="1.0"?><gpx version="1.1" creator="t" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>'
+           + ''.join(f'<trkpt lat="{lat:.6f}" lon="-4.7"><time>2026-07-04T09:{s // 60:02d}:{s % 60:02d}Z</time></trkpt>' for s, lat in pts)
+           + '</trkseg></trk></gpx>')
+    ridden = 2 * 29 * 10 * 0.00002 * 111_195          # both runs, not the jump between them
+    run_import(db, strava_zip([f'61,"Jul 4, 2026, 9:00:00 AM",BPW,Ride,590,0.13,580,590,{ridden:.1f},activities/1.gpx\n'], [('activities/1.gpx', gpx)]))
+    t, _, _ = _saved_track(db, '61')
+    assert t[-1] == 1790
