@@ -138,6 +138,64 @@ def files():
     return [p for p in out if os.path.exists(p)]
 
 
+# ── Reading them back (the Logs card on the Tasks page) ──────────
+_TEXT_LINE = re.compile(r'^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,\d{3}) ([A-Z]+) \[([^\]]*)\] ([^:]+): ?(.*)$')
+LEVELS = ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL')
+_ID = re.compile(r'[0-9a-f]{8}|t\d+')         # a request id or a background run's: matched exactly, so t7 doesn't find t70
+
+
+def _records(text):
+    """One file's records in order: {'time', 'level', 'id', 'logger', 'message', 'detail'}. A line that doesn't start a record (a traceback, a
+    multi-line message) belongs to the one before. Reads both formats, so switching LOG_FORMAT leaves older lines readable."""
+    out = []
+    for line in text.splitlines():
+        if line.startswith('{'):
+            try:
+                j = json.loads(line)
+                out.append({'time': j.get('time', ''), 'level': j.get('level', ''), 'id': j.get('id', '-'), 'logger': j.get('logger', ''),
+                            'message': j.get('message', ''), 'detail': j.get('exception') or ''})
+                continue
+            except ValueError:
+                pass
+        m = _TEXT_LINE.match(line)
+        if m:
+            out.append({'time': m[1], 'level': m[2], 'id': m[3], 'logger': m[4], 'message': m[5], 'detail': ''})
+        elif out:
+            out[-1]['detail'] += ('\n' if out[-1]['detail'] else '') + line
+    return out
+
+
+def read(limit=200, min_level='INFO', query=''):
+    """The newest records at min_level or above whose text contains query (any case), newest first. A query that is an id (3f9c2a1b, t12,
+    with or without its brackets) finds exactly that request's or run's lines. Reads the rotated files only as far as it needs to. Returns {'records', 'more', 'files'}."""
+    floor = LEVELS.index(min_level) if min_level in LEVELS else 1
+    q = (query or '').strip().lower().strip('[]')
+    exact_id = bool(_ID.fullmatch(q))
+    found, more, used = [], False, 0
+    for path in files():
+        try:
+            with open(path, encoding='utf-8', errors='replace') as f:
+                recs = _records(f.read())
+        except OSError:
+            continue
+        used += 1
+        for r in reversed(recs):
+            if (LEVELS.index(r['level']) if r['level'] in LEVELS else 1) < floor:
+                continue
+            if exact_id:
+                if r['id'] != q:
+                    continue
+            elif q and q not in ' '.join((r['time'], r['level'], r['id'], r['logger'], r['message'], r['detail'])).lower():
+                continue
+            if len(found) == limit:
+                more = True
+                break
+            found.append(r)
+        if more:
+            break
+    return {'records': found, 'more': more, 'files': used}
+
+
 def setup(database=None):
     """Configure the root logger. Safe to call again (each create_app does): it replaces its own handlers, so the file follows the database."""
     global _file_path
