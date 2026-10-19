@@ -78,55 +78,86 @@
 {% if not sf.kept %}<div class="card" style="margin-bottom:1.5rem; color:var(--text-muted); font-size:0.875rem;">Every sport is left out. Tick one above to see its charts.</div>{% endif %}
 {% set rides_tag %}{% if rides_only_note %}<span style="font-size:0.75rem; font-weight:400; color:var(--text-muted); margin-left:0.4rem;">rides only</span>{% endif %}{% endset %}
 
-<!-- Achievements (rides: services/best_efforts) -->
-{% if sf.has_rides %}
-<div class="card" id="records" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">
+<!-- Best times: rides (services/best_efforts), runs and swims (services/sport_records); one table each -->
+{% for ach in achievements %}
+<div class="card" id="records-{{ ach.key }}" data-records="{{ ach.key }}" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">
   <div style="padding:1rem 1.25rem; border-bottom:1px solid #1e4060; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
-    <div class="card-title" style="margin:0;">Achievements{{ rides_tag }}</div>
+    <div class="card-title" style="margin:0;">{{ ach.title }}{% if ach.key == 'ride' %}{{ rides_tag }}{% endif %}</div>
     <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-      <select id="recYear" onchange="renderRecords()" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
-        {% for yr in records_by_year | sort(reverse=true) %}
+      <select class="rec-year" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
+        {% for yr in ach.by_year | sort(reverse=true) %}
         <option value="{{ yr }}">{{ yr }}</option>
         {% endfor %}
       </select>
-      <select id="recMonth" onchange="renderRecords()" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
+      <select class="rec-month" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
         <option value="all">All months</option>
       </select>
-      {% if not has_efforts %}
+      {% if ach.scan and not ach.rows %}
       <button class="btn btn-secondary" style="font-size:0.8125rem;" id="effortsBtn" onclick="computeEfforts()">Compute Achievements</button>
       {% endif %}
     </div>
   </div>
-  {% if has_efforts %}
-  <table style="width:100%; border-collapse:collapse;" id="recTable">
+  {% if ach.rows %}
+  <div style="overflow-x:auto;">
+  <table class="rec-table" style="width:100%; border-collapse:collapse;">
     <thead>
       <tr style="border-bottom:1px solid #1e4060;">
         <th style="padding:0.75rem 1.25rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Distance</th>
         <th style="padding:0.75rem 1rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Best Time</th>
-        <th style="padding:0.75rem 1rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Avg Speed</th>
-        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Ride</th>
+        <th style="padding:0.75rem 1rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">{{ ach.rate_label }}</th>
+        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">{{ ach.noun }}</th>
         <th style="padding:0.75rem 1.25rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Date</th>
       </tr>
     </thead>
-    <tbody id="recBody">
-      {% for d in effort_brackets %}
-      <tr data-dist="{{ d }}" style="border-bottom:1px solid #163352;">
-        <td style="padding:0.875rem 1.25rem; font-weight:600; color:var(--text);">{{ (d * 1609.344) | fmt_dist(0 if units != 'metric' else 1) }}</td>
+    <tbody>
+      {% for dkey, dlabel in ach.distances %}
+      <tr data-dist="{{ dkey }}" style="border-bottom:1px solid #163352;">
+        <td style="padding:0.875rem 1.25rem; font-weight:600; color:var(--text); white-space:nowrap;">{{ dlabel }}</td>
         <td class="rec-time"  style="padding:0.875rem 1rem; text-align:right; font-variant-numeric:tabular-nums; color:var(--accent); font-weight:600;">—</td>
-        <td class="rec-speed" style="padding:0.875rem 1rem; text-align:right; color:var(--text-muted); font-size:0.875rem;">—</td>
+        <td class="rec-speed" style="padding:0.875rem 1rem; text-align:right; color:var(--text-muted); font-size:0.875rem; white-space:nowrap;">—</td>
         <td class="rec-ride"  style="padding:0.875rem 1rem; font-size:0.875rem;">—</td>
-        <td class="rec-date"  style="padding:0.875rem 1.25rem; text-align:right; color:var(--text-muted); font-size:0.875rem;">—</td>
+        <td class="rec-date"  style="padding:0.875rem 1.25rem; text-align:right; color:var(--text-muted); font-size:0.875rem; white-space:nowrap;">—</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
-  <div id="recEmpty" style="display:none; padding:1.5rem 1.25rem; color:var(--text-muted); font-size:0.875rem;">No records for this period.</div>
+  </div>
+  <div class="rec-empty" style="display:none; padding:1.5rem 1.25rem; color:var(--text-muted); font-size:0.875rem;">No records for this period.</div>
   {% else %}
   <div style="padding:1.5rem 1.25rem; color:var(--text-muted); font-size:0.875rem;">
     Click <strong style="color:var(--text);">Compute Achievements</strong> to scan your rides for best efforts.
   </div>
   {% endif %}
-  <div id="effortsStatus" style="padding:0.75rem 1.25rem; font-size:0.8125rem; color:var(--text-muted); display:none;"></div>
+  {% if ach.scan %}<div id="effortsStatus" style="padding:0.75rem 1.25rem; font-size:0.8125rem; color:var(--text-muted); display:none;"></div>{% endif %}
+</div>
+{% endfor %}
+
+<!-- Records: each sport's biggest single activities (routes/data._sport_records) -->
+{% if sport_records %}
+<div class="card" id="sportRecords" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">
+  <div style="padding:1rem 1.25rem; border-bottom:1px solid #1e4060; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
+    <div class="card-title" style="margin:0;">Records by sport</div>
+    <select id="srPeriod" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
+      <option value="all">All time</option>
+      {% for yr in sport_records | reject('equalto', 'all') | sort(reverse=true) %}
+      <option value="{{ yr }}">{{ yr }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div style="overflow-x:auto;">
+  <table style="width:100%; border-collapse:collapse; min-width:640px;">
+    <thead>
+      <tr style="border-bottom:1px solid #1e4060;">
+        <th style="padding:0.75rem 1.25rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Sport</th>
+        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Longest</th>
+        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Longest time</th>
+        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Most climbing</th>
+        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Fastest</th>
+      </tr>
+    </thead>
+    <tbody id="srBody"></tbody>
+  </table>
+  </div>
 </div>
 {% endif %}
 
@@ -316,64 +347,77 @@
 
 {% block scripts %}
 <script>
-// ── Records ───────────────────────────────────────────────────────
+// ── Best times (one table per sport: rides, runs, swims) ──────────
 (function() {
-  const byYear  = {{ records_by_year  | tojson }};
-  const byMonth = {{ records_by_month | tojson }};
-
-  // Populate month dropdown when year changes
-  const recYear  = document.getElementById('recYear');
-  const recMonth = document.getElementById('recMonth');
-  if (!recYear || !document.getElementById('recBody')) return;  // table not rendered (no rides in the filter, or no efforts yet): carry on to the charts
-
-  function populateMonths() {
-    const yr = recYear.value;
-    recMonth.innerHTML = '<option value="all">All months</option>';
-    const mths = Object.keys(byMonth).filter(ym => ym.startsWith(yr)).sort().reverse();
-    mths.forEach(ym => {
-      const [y, m] = ym.split('-');
-      const label = fmtMonth(ym);
-      recMonth.add(new Option(label, ym));
-    });
-  }
-
-  window.renderRecords = function() {
-    const yr  = recYear.value;
-    const mth = recMonth.value;
-    const src = mth === 'all' ? (byYear[yr] || {}) : (byMonth[mth] || {});
-    const rows = document.querySelectorAll('#recBody tr[data-dist]');
-    let anyData = false;
-    rows.forEach(row => {
-      const d   = row.dataset.dist;
-      const rec = src[d];
-      if (rec) {
+  const data = {{ achievements | tojson }};
+  data.forEach(ach => {
+    const card = document.querySelector(`[data-records="${ach.key}"]`);
+    const recYear = card && card.querySelector('.rec-year'), recMonth = card && card.querySelector('.rec-month');
+    if (!recYear || !card.querySelector('.rec-table')) return;   // no efforts yet: nothing to fill in
+    function populateMonths() {
+      recMonth.innerHTML = '<option value="all">All months</option>';
+      Object.keys(ach.by_month).filter(ym => ym.startsWith(recYear.value)).sort().reverse()
+        .forEach(ym => recMonth.add(new Option(fmtMonth(ym), ym)));
+    }
+    function render() {
+      const src = recMonth.value === 'all' ? (ach.by_year[recYear.value] || {}) : (ach.by_month[recMonth.value] || {});
+      let anyData = false;
+      card.querySelectorAll('tr[data-dist]').forEach(row => {
+        const rec = src[row.dataset.dist];
+        row.style.display = rec ? '' : 'none';
+        if (!rec) return;
         anyData = true;
-        const s = rec.secs;
-        const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-        const t = h ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
-                    : `${m}:${String(sec).padStart(2,'0')}`;
-        row.querySelector('.rec-time').textContent  = t;
-        row.querySelector('.rec-speed').textContent = rec.speed + ' ' + UNITS.speed;
-        {
-          const a = document.createElement('a');
-          a.href = '/rides/' + encodeURIComponent(rec.rideId);
-          a.style.cssText = 'color:var(--text);text-decoration:none;';
-          a.textContent = rec.ride;
-          row.querySelector('.rec-ride').replaceChildren(a);
-        }
-        row.querySelector('.rec-date').textContent  = fmtDate(rec.date);
-        row.style.display = '';
-      } else {
-        row.style.display = 'none';
-      }
-    });
-    document.getElementById('recEmpty').style.display = anyData ? 'none' : '';
-    document.getElementById('recTable') && (document.getElementById('recTable').style.display = anyData ? '' : 'none');
-  };
+        row.querySelector('.rec-time').textContent = rec.time;
+        row.querySelector('.rec-speed').textContent = rec.rate;
+        const a = document.createElement('a');
+        a.href = '/rides/' + encodeURIComponent(rec.rideId);
+        a.style.cssText = 'color:var(--text);text-decoration:none;';
+        a.textContent = rec.ride;
+        row.querySelector('.rec-ride').replaceChildren(a);
+        row.querySelector('.rec-date').textContent = fmtDate(rec.date);
+      });
+      card.querySelector('.rec-empty').style.display = anyData ? 'none' : '';
+      card.querySelector('.rec-table').style.display = anyData ? '' : 'none';
+    }
+    recYear.addEventListener('change', () => { populateMonths(); render(); });
+    recMonth.addEventListener('change', render);
+    populateMonths();
+    render();
+  });
+})();
 
-  recYear.addEventListener('change', function() { populateMonths(); renderRecords(); });
-  populateMonths();
-  renderRecords();
+// ── Records by sport ──────────────────────────────────────────────
+(function() {
+  const byPeriod = {{ sport_records | tojson }};
+  const sel = document.getElementById('srPeriod'), body = document.getElementById('srBody');
+  if (!sel || !body) return;
+  function cell(rec) {
+    const td = document.createElement('td');
+    td.style.cssText = 'padding:0.75rem 1rem; font-size:0.875rem; vertical-align:top;';
+    if (!rec) { td.textContent = '—'; td.style.color = 'var(--text-muted)'; return td; }
+    const v = document.createElement('div');
+    v.style.cssText = 'font-weight:600; color:var(--accent); font-variant-numeric:tabular-nums; white-space:nowrap;';
+    v.textContent = rec.v;
+    const a = document.createElement('a');
+    a.href = '/rides/' + encodeURIComponent(rec.id);
+    a.style.cssText = 'display:block; color:var(--text-muted); text-decoration:none; font-size:0.75rem; margin-top:0.15rem;';
+    a.textContent = rec.name + ' · ' + fmtDate(rec.date);
+    td.append(v, a);
+    return td;
+  }
+  function render() {
+    body.replaceChildren(...(byPeriod[sel.value] || []).map(r => {
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid #163352';
+      const name = document.createElement('td');
+      name.style.cssText = 'padding:0.75rem 1.25rem; font-weight:600; color:var(--text); white-space:nowrap; vertical-align:top;';
+      name.textContent = r.icon + ' ' + r.sport;
+      tr.append(name, cell(r.dist), cell(r.time), cell(r.climb), cell(r.fast));
+      return tr;
+    }));
+  }
+  sel.addEventListener('change', render);
+  render();
 })();
 
 // ── Climbing Records ──────────────────────────────────────────────

@@ -2,7 +2,7 @@
 tables can be kept until it changes: the badges (routes/riders._compute_badges), which recount a rider's whole history and are wanted on every ride
 page. A new connection sees every commit, so the number is right for each request."""
 
-TABLES = ('Activity', 'Segment', 'SegmentEffort', 'Bike')
+TABLES = ('Activity', 'Segment', 'SegmentEffort', 'Bike', 'SportEffort')
 
 
 def ensure_schema(db):

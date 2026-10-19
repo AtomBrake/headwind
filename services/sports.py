@@ -47,6 +47,33 @@ def kind_of(db, act_id):
     return kind(row[0]) if row else None
 
 
+def icon(sport):
+    """An emoji for a sport, for lists and badges."""
+    t = (sport or '').lower()
+    if 'ride' in t or 'cycling' in t: return '🚴'
+    if 'run'  in t: return '🏃'
+    if 'swim' in t: return '🏊'
+    if 'surf' in t: return '🏄'
+    if 'paddl' in t or 'row' in t or 'kayak' in t or 'canoe' in t: return '🛶'
+    if 'ski' in t: return '⛷️'
+    if 'golf' in t: return '⛳'
+    if 'climb' in t: return '🧗'
+    if 'walk' in t or 'hike' in t or 'snowshoe' in t: return '🥾'
+    if 'sail' in t: return '⛵'
+    if 'yoga' in t: return '🧘'
+    if 'weight' in t: return '🏋️'
+    return '🏅'
+
+
+_WATER = ('swim', 'surf', 'sail', 'paddl', 'kayak', 'canoe', 'row')
+
+
+def has_climbing(sport):
+    """False on the water, where a track's "climbing" is the GPS bobbing up and down (a kitesurf with thousands of feet of it)."""
+    t = (sport or '').lower()
+    return not any(w in t for w in _WATER)
+
+
 def label(sport):
     """What a person reads for a sport: 'Indoor ride' for VirtualRide, 'E-bike ride' for EBikeRide, else the sport itself."""
     return LABELS.get(sport, sport or 'Ride')

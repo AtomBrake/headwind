@@ -424,6 +424,7 @@ def migrate_db():
         ('segmentBikesMergedDone', 'INTEGER DEFAULT 0'), # 0.7.3's e-bike segments merged into the ride ones, PRs per pedal / e-bike (services/segments.merge_bikes)
         ('movingTimeFixDone',      'INTEGER DEFAULT 0'), # moving times a broken lap timer made a few seconds, taken from the track (services/moving_time.repair)
         ('segmentMatchFixDone',    'INTEGER DEFAULT 0'), # 0.7.7's matching fixes: loops cut again, tracks realigned, every segment matched again (services/segments.repair_matching)
+        ('sportEffortsDone',       'INTEGER DEFAULT 0'), # best times worked out for every run and swim already saved (services/sport_records.ensure)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
         ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
@@ -740,15 +741,8 @@ def migrate_db():
         )
     ''')
     db.execute('CREATE INDEX IF NOT EXISTS idx_ridesensor_ride ON RideSensor(rideId)')
-    db.execute('''
-        CREATE TABLE IF NOT EXISTS RunEffort (
-            runId      TEXT NOT NULL,
-            runDate    TEXT,
-            distanceM  REAL NOT NULL,
-            elapsedSecs INTEGER NOT NULL,
-            PRIMARY KEY (runId, distanceM)
-        )
-    ''')
+    from services.sport_records import ensure_schema as _sport_records_schema      # run and swim best times (was RunEffort, runs only)
+    _sport_records_schema(db)
 
     from services.duplicates import ensure_schema as _dup_schema
     _dup_schema(db)
@@ -947,6 +941,16 @@ def migrate_db():
                       "whose GPS and times were out of step put right"
                       + (f"; {res['misaligned']} more can't be put right here, and their segment times are left out until they're imported "
                          "again from their files (the same Strava export or file: they're repaired as they come in)" if res['misaligned'] else '') + '.')
+        db.commit()
+    from services import sport_records as _sport_records
+    done = db.execute('SELECT sportEffortsDone FROM Settings WHERE id=1').fetchone()
+    n_efforts = _sport_records.ensure(db)              # every start: anything that came in without its best times; the first time, every run and swim
+    if done is not None and not done[0]:
+        db.execute('UPDATE Settings SET sportEffortsDone=1 WHERE id=1')
+        if n_efforts:
+            _tasks.record(db, 'startup:sport_efforts', 'Best times for runs and swims',
+                          f"Worked out for {n_efforts} run{'s' if n_efforts != 1 else ''} and swim{'s' if n_efforts != 1 else ''}: "
+                          "1 km to the marathon on foot, 100 m to 3.8 km in the water. They're on the Data page and your profile.")
         db.commit()
     from services.reimport import ensure_schema as _reimport_schema
     _reimport_schema(db)
