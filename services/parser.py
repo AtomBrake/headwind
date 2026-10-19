@@ -73,8 +73,15 @@ _SPORT_MAP = {
 }
 
 
-def _map_sport(s):
-    return _SPORT_MAP.get(str(s).lower().strip(), 'Ride')
+def _map_sport(s, sub=None):
+    """A file's own name for its sport -> one of services/sports.SPORTS: the short names above (Strava's GPX numbers, the phone apps' types),
+    else sports.from_type, which knows FIT's sports and sub-sports and GPX's and TCX's names, and makes anything it doesn't know 'Other'.
+    A file that names no sport at all is taken as a ride by its caller, as it always was."""
+    key = str(s).lower().strip()
+    if key in _SPORT_MAP and not sub:
+        return _SPORT_MAP[key]
+    from services.sports import from_type
+    return from_type(key, sub)
 
 
 _MAX_PLAUSIBLE = {'speed': 30.0, 'hr': 250, 'watts': 2500, 'cadence': 250}   # m/s (108 km/h), bpm, W, rpm — beyond this is sensor/GPS noise
@@ -303,7 +310,7 @@ def parse_fit(data: bytes):
     avg_speed  = s.get('avg_speed') if s.get('avg_speed') is not None else s.get('enhanced_avg_speed')
     avg_cad    = s.get('avg_cadence')
     calories   = s.get('total_calories')
-    sport_type = _map_sport(s.get('sport', 'cycling'))
+    sport_type = _map_sport(s.get('sport', 'cycling'), s.get('sub_sport'))     # cycling + e_bike_mountain is an e-bike ride, + indoor_cycling indoors
 
     points, hr_s = [], []
     for r in records:
