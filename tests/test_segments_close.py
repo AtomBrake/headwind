@@ -40,11 +40,13 @@ def test_stops_short_of_the_end_is_caught_as_close_not_exact():
     assert abs(secs - 3000 / 6.0) < 15              # same speed -> time scaled to the whole segment
 
 
-def test_a_lane_over_is_caught():
+def test_a_road_beside_it_is_not_it():
+    """Until 0.7.7 a line 50 m to one side the whole way counted as a close match; on a real export that was a road beside a trail segment
+    ("Avoiding the road"), at road speeds. Drift wanders either side of the line; a parallel road sits off it the whole way (CLOSE_MEDIAN_M)."""
     seg = _seg()
     ride = _ride(_line(3000, offset_m=50))           # 50 m east: too far for the exact start/end zones
     assert S.match_segment(ride, seg) is None
-    assert S.match_segment_close(ride, seg) is not None
+    assert S.match_segment_close(ride, seg) is None
 
 
 def test_only_part_of_it_is_not_a_match():

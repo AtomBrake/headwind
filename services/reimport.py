@@ -73,8 +73,25 @@ def differences(saved, act):
     return out
 
 
+def _out_of_step(streams):
+    """Streams whose GPS and time have different lengths (stored before 0.7.7: services/parser.aligned_streams), or None if unreadable."""
+    try:
+        d = json.loads(streams) if isinstance(streams, str) else (streams or {})
+    except ValueError:
+        return None
+    ll, tm = (d.get('latlng') or {}).get('data') or [], (d.get('time') or {}).get('data') or []
+    return bool(ll and tm and len(ll) != len(tm))
+
+
 def propose(db, saved, act, source):
-    """Compare an import with the ride already saved under its id. Returns True if it differs (and is now waiting on the Import page). Does not commit."""
+    """Compare an import with the ride already saved under its id. Returns True if it differs (and is now waiting on the Import page). Does not commit.
+    Saved streams whose GPS and time are out of step are replaced by the file's straight away, when the file's are in step: that's a repair, not a
+    choice, and the rider's own edits are never in the streams. The ride is matched against the segments again."""
+    if _out_of_step(saved['streams']) and _out_of_step(act.get('streams')) is False:
+        db.execute('UPDATE Activity SET streams=? WHERE id=?', [act['streams'], saved['id']])
+        from services.segments import rescan_activity
+        rescan_activity(db, saved['id'])
+        saved = {**dict(saved), 'streams': act['streams']}
     diffs = differences(saved, act)
     if not diffs:
         return False
