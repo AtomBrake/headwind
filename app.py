@@ -340,17 +340,7 @@ def create_app():
 
     @app.template_filter('sport_icon')
     def sport_icon(t):
-        t = (t or '').lower()
-        if 'ride' in t or 'cycling' in t: return '🚴'
-        if 'run'  in t: return '🏃'
-        if 'swim' in t: return '🏊'
-        if 'surf' in t: return '🏄'
-        if 'paddle' in t or 'row' in t: return '🛶'
-        if 'ski' in t: return '⛷️'
-        if 'golf' in t: return '⛳'
-        if 'climb' in t: return '🧗'
-        if 'walk' in t or 'hike' in t: return '🥾'
-        return '🏅'
+        return _sports.icon(t)
 
     @app.template_filter('wmo_label')
     def wmo_label(code):

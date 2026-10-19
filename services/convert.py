@@ -89,7 +89,7 @@ def change_sport(db, kind, act_id, sport, discard_parked=False):
         return dict(_workout_to_ride(db, row, sport), changed=True)
     db.execute('UPDATE Activity SET sportType=?, type=? WHERE id=?', [sport, sport, act_id])
     from services import workouts as _wk
-    _wk.refresh_derived(db, act_id)                      # walks, runs and hikes share foot segments; a swim has none, and only a run has best times
+    _wk.refresh_derived(db, act_id)                      # walks, runs and hikes share foot segments; a swim has none; runs and swims have best times
     from services.workouts import estimate_calories
     from services.calorie_adjust import pair as _kcal_pair
     kcal_raw, kcal = _kcal_pair(estimate_calories(sport, row['distance'] or 0, int(row['movingTime'] or 0), row['totalElevationGain'] or 0, _kg(row['riderId'])))

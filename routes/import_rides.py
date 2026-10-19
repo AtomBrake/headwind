@@ -286,6 +286,8 @@ def _process_single_file(path, original_name, rider_id=None):
         _insert(db, act, rider_id)
         from services.best_efforts import save_best_efforts
         save_best_efforts(db, act.get('id'), act.get('startDateLocal'), act.get('streams'))
+        from services import sport_records
+        sport_records.index(db, act.get('id'), act.get('startDateLocal'), act.get('sportType'), act.get('streams'))   # a run's or swim's best times
         db.commit()
         log.info('Single file import: imported id=%s name=%s', act['id'], act.get('name'))
 
@@ -506,6 +508,8 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
             _insert(db, act, rider_id)
             from services.best_efforts import save_best_efforts
             save_best_efforts(db, act.get('id'), act.get('startDateLocal'), act.get('streams'))
+            from services import sport_records
+            sport_records.index(db, act.get('id'), act.get('startDateLocal'), act.get('sportType'), act.get('streams'))   # a run's or swim's best times
             from services import duplicates
             dup = duplicates.resolve(db, act.get('id'))
             from services import gear
@@ -576,6 +580,8 @@ def _process_generic_zip(zf, names, rider_id=None):
                     _insert(db, act, rider_id)
                     from services.best_efforts import save_best_efforts
                     save_best_efforts(db, act.get('id'), act.get('startDateLocal'), act.get('streams'))
+                    from services import sport_records
+                    sport_records.index(db, act.get('id'), act.get('startDateLocal'), act.get('sportType'), act.get('streams'))   # a run's or swim's best times
                     from services import duplicates
                     dup = duplicates.resolve(db, act.get('id'))
                     from services import gear
