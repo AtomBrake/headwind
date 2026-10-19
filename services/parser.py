@@ -304,6 +304,10 @@ def parse_fit(data: bytes):
             hr_s.append(p['heartrate'])
     streams, _ = aligned_streams(points, start)          # one value per point in every stream: a record with no fix used to shift `time`
     latlng = (streams.get('latlng') or {}).get('data') or []
+    device_moving = moving_time                          # the timer counts every stop when auto-pause is off: then the track's, as Strava does
+    moving_time = pick_moving_time(moving_time, track_moving_time(streams), s.get('total_elapsed_time'), sport_type)
+    if moving_time != device_moving:
+        avg_speed = None                                 # the device's was distance over its own (wrong) time
 
     if avg_hr is None and hr_s:
         avg_hr = sum(hr_s) / len(hr_s)
@@ -391,6 +395,22 @@ def _carried(vals):
 
 
 MOVING_MPS = 0.3        # track_moving_time: slower than this between two points is stopped (on a real export, within 1% of Strava's moving times)
+
+
+PAUSED_SLACK = (1.1, 60)    # a device's moving time this much over the track's (x 1.1, + 60 s) counted stopped time: auto-pause was off
+
+
+def pick_moving_time(device, on_track, elapsed=0, sport=None):
+    """The moving time to keep: the device's, unless the track says it's wrong, as Strava works it out from the track itself. Wrong is under half
+    the track's (a flat battery or a restart wrote a lap timer of seconds for a whole ride) or well over it (auto-pause off: an uplift day at a
+    bike park, standing in the queue, comes out at 7 hours moving instead of 2). Not "well over" on the water: a slow swim, a snorkel or waiting
+    for a wave is under MOVING_MPS and would look stopped."""
+    from services.sports import on_water
+    device, on_track = int(device or 0), int(on_track or 0)
+    paused = device > on_track * PAUSED_SLACK[0] + PAUSED_SLACK[1] and not on_water(sport)
+    if on_track and (not device or device < on_track / 2 or paused):
+        return on_track
+    return device or int(elapsed or 0)
 
 
 def track_moving_time(streams):
@@ -521,9 +541,9 @@ def parse_tcx(data: bytes):
     track_dist = ((streams.get('distance') or {}).get('data') or [0])[-1]
     distance = lap_dist if lap_dist >= track_dist / 2 else track_dist      # an Edge 25 wrote a 100 km ride's lap as 42 m; its trackpoints were right
     on_track = track_moving_time(streams)
-    # A Garmin whose battery went flat (or that restarted) can write a lap timer of a few seconds for a whole ride: 9 s for 11 km, so 2,766 mph.
-    # Strava works moving time out from the track; so do we when the device's is under half of that.
-    moving_time = int(lap_time if lap_time and lap_time >= on_track / 2 else (on_track or elapsed_s))
+    # A Garmin whose battery went flat (or that restarted) can write a lap timer of a few seconds for a whole ride: 9 s for 11 km, so 2,766 mph;
+    # one with auto-pause off counts every stop. Strava works moving time out from the track; so do we when the device's is far off it.
+    moving_time = pick_moving_time(lap_time, on_track, elapsed_s, sport_type)
     alts = (streams.get('altitude') or {}).get('data') or []
     raw = lambda key, keep=lambda v: True: [p[key] for p in timed if p.get(key) is not None and keep(p[key])]
     hr, watts, cad = raw('heartrate'), raw('watts'), raw('cadence', lambda v: v > 0)     # Garmin's average cadence leaves out coasting

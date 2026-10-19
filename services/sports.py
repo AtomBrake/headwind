@@ -68,10 +68,15 @@ def icon(sport):
 _WATER = ('swim', 'surf', 'sail', 'paddl', 'kayak', 'canoe', 'row')
 
 
+def on_water(sport):
+    """Swims, surfs, sails, paddles, rows."""
+    t = (sport or '').lower()
+    return any(w in t for w in _WATER)
+
+
 def has_climbing(sport):
     """False on the water, where a track's "climbing" is the GPS bobbing up and down (a kitesurf with thousands of feet of it)."""
-    t = (sport or '').lower()
-    return not any(w in t for w in _WATER)
+    return not on_water(sport)
 
 
 def label(sport):
