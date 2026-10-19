@@ -193,7 +193,7 @@ def _drop_derived(db, act_id):
     db.execute('DELETE FROM SegmentEffort WHERE activityId=?', [act_id])
     db.execute('DELETE FROM BestEffort WHERE activityId=?', [act_id])
     db.execute('DELETE FROM RideMemory WHERE rideId=?', [act_id])
-    db.execute('DELETE FROM RunEffort WHERE runId=?', [act_id])
+    db.execute('DELETE FROM SportEffort WHERE activityId=?', [act_id])
     return seg_ids
 
 

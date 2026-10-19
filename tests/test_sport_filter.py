@@ -92,11 +92,11 @@ def test_only_shortcuts_and_old_one_sport_links(client):
 def test_data_page_follows_the_filter(client):
     html = client.get('/data').get_data(as_text=True)
     assert 'Monthly Time (hours)' in html and 'Duration Distribution' in html and 'id="speedChart"' not in html
-    assert 'id="records"' in html and 'rides only' in html                         # the ride records stay, saying they count rides
+    assert 'id="records-ride"' in html and 'rides only' in html                        # the ride records stay, saying they count rides
     assert _json(html, 'DIST_MODE') is False
 
     html = client.get('/data?skip=Ride&skip=Swim').get_data(as_text=True)
-    assert 'Monthly Distance (mi)' in html and 'Avg Pace Per Activity (/mi' in html and 'id="records"' not in html
+    assert 'Monthly Distance (mi)' in html and 'Avg Pace Per Activity (/mi' in html and 'id="records-ride"' not in html
     assert json.dumps('0–2 mi') in html                                            # buckets that fit walks and runs, not 0–5 mi rides
     assert 'Weather &amp; Performance' not in html
 

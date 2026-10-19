@@ -141,37 +141,33 @@ def index():
         heatmap = {r['d']: round((r['secs'] or 0) / 60) or 1 for r in heatmap_rows}       # minutes; a day with an activity but no time still shows
         heat_steps, heat_unit = [30, 60, 120], 'min'
 
-    # ── Best efforts / records ────────────────────────────────────
-    effort_rows = query_db('''
-        SELECT e.distanceMi, e.activityDate, e.elapsedSecs, e.avgSpeedMps,
-               e.activityId, a.name as rideName
-        FROM BestEffort e
-        JOIN Activity a ON a.id = e.activityId
-        WHERE a.riderId=? AND {ride_clause}
-        ORDER BY e.distanceMi, e.elapsedSecs ASC
-    '''.format(ride_clause=sf.sql('a.sportType')[0] if sf.has_rides else '0'), [rid] + (fparams if sf.has_rides else []))
+    # ── Best efforts: rides (services/best_efforts), runs and swims (services/sport_records) ──
+    # BestEffort holds a row for anything with a track (skis, walks, ...), so the ride table reads the Ride view: a ski run is not a ride's best 5 miles.
+    achievements = []
+    if sf.has_rides:
+        ride_rows = query_db(f'''SELECT e.distanceMi AS dist, e.activityDate, e.elapsedSecs, e.avgSpeedMps, e.activityId, a.name
+                                FROM BestEffort e JOIN Ride a ON a.id = e.activityId
+                                WHERE a.riderId=? AND {sf.sql('a.sportType')[0]} ORDER BY e.distanceMi, e.elapsedSecs''', [rid] + fparams)
+        achievements.append(_achievements('ride', 'Achievements', 'Ride', 'Avg Speed', 'speed',
+                                          [(str(d), units.fmt_dist(d * units.MI, places=0 if system != 'metric' else 1)) for d in BRACKETS_MI],
+                                          [dict(r, key=str(int(r['dist']))) for r in ride_rows], scan=True))
+    from services import sport_records
+    for k, group, title, noun in (('run', 'foot', 'Run best times', 'Run'), ('swim', 'swim', 'Swim best times', 'Swim')):
+        if group not in sf.groups:
+            continue
+        sport_records.ensure(get_db(), rid)
+        rows = sport_records.efforts(get_db(), rid, k, sf.sql('a.sportType')[0], fparams)
+        if not rows:
+            continue
+        style = 'pace' if k == 'run' else 'swim'
+        achievements.append(_achievements(k, title, noun, 'Pace', style, [(f'{d:g}', label) for d, label in sport_records.DISTANCES[k]],
+                                          [dict(r, key=f"{r['distanceM']:g}", avgSpeedMps=r['distanceM'] / r['elapsedSecs']) for r in rows]))
+    has_efforts = any(a['rows'] for a in achievements if a['key'] == 'ride')
 
-    records_by_year  = defaultdict(dict)
-    records_by_month = defaultdict(dict)
-    for e in effort_rows:
-        yr  = str(e['activityDate'])[:4]
-        ym  = str(e['activityDate'])[:7]
-        d   = int(e['distanceMi'])
-        rec = {
-            'secs':   e['elapsedSecs'],
-            'speed':  round(units.speed(e['avgSpeedMps']), 1) if e['avgSpeedMps'] else 0,
-            'ride':   e['rideName'],
-            'rideId': e['activityId'],
-            'date':   e['activityDate'],
-        }
-        if d not in records_by_year[yr]:
-            records_by_year[yr][d] = rec
-        if d not in records_by_month[ym]:
-            records_by_month[ym][d] = rec
-
-    records_by_year  = {yr: {str(d): r for d, r in v.items()} for yr, v in records_by_year.items()}
-    records_by_month = {ym: {str(d): r for d, r in v.items()} for ym, v in records_by_month.items()}
-    has_efforts = bool(effort_rows)
+    # ── Records: each sport's biggest single activities ───────────
+    sport_records_by = _sport_records(query_db(
+        f"SELECT id, name, sportType, startDateLocal, distance, movingTime, totalElevationGain, {speed_sql()} AS mps "
+        f"FROM Activity WHERE {act_where} AND {SANE_SQL}", act_params))
 
     # ── Climbing records ──────────────────────────────────────────
     metric = units.spec()['system'] == 'metric'
@@ -299,10 +295,9 @@ def index():
         heat_unit=heat_unit,
         dist_mode=dist_mode,
         rides_only_note=sf.has_rides and len(sf.groups) > 1,      # the records and weather sections count the rides in the selection only
-        records_by_year=records_by_year,
-        records_by_month=records_by_month,
-        effort_brackets=BRACKETS_MI,
+        achievements=achievements,
         has_efforts=has_efforts,
+        sport_records=sport_records_by,
         climbing_by_year=climbing_by_year,
         climbing_by_month=climbing_by_month,
         climbing_brackets=climb_brackets,
@@ -325,6 +320,81 @@ def index():
         sf=sf,
         sport_links=[(label, icon, url_for('data.index') + '?' + urlencode(rider_args + sf.args(skip)), active) for label, icon, skip, active in sf.shortcuts()],
     )
+
+
+def _hms(secs):
+    secs = int(secs or 0)
+    h, m, sec = secs // 3600, secs % 3600 // 60, secs % 60
+    return f'{h}:{m:02d}:{sec:02d}' if h else f'{m}:{sec:02d}'
+
+
+def _achievements(key, title, noun, rate_label, style, distances, rows, scan=False):
+    """One best-times table for the Data page: {key, title, noun, rate_label, distances [(key, label)], by_year, by_month, rows, scan}. by_year and
+    by_month hold the quickest effort at each distance in that year or month: {period: {distance key: {secs, time, rate, ride, rideId, date}}}.
+    `rows` are sorted quickest first within each distance."""
+    from services import units
+    by_year, by_month = defaultdict(dict), defaultdict(dict)
+    for e in rows:
+        day = str(e['activityDate'])
+        rec = {'secs': e['elapsedSecs'], 'time': _hms(e['elapsedSecs']), 'rate': units.fmt_rate(e['avgSpeedMps'], style) if e['avgSpeedMps'] else '—',
+               'ride': e['name'] or noun, 'rideId': e['activityId'], 'date': day[:10]}
+        by_year[day[:4]].setdefault(e['key'], rec)
+        by_month[day[:7]].setdefault(e['key'], rec)
+    return {'key': key, 'title': title, 'noun': noun, 'rate_label': rate_label, 'distances': distances, 'by_year': dict(by_year),
+            'by_month': dict(by_month), 'rows': len(rows), 'scan': scan}
+
+
+# the fastest average only counts an activity this long (metres), so a 200 m GPS blip isn't anyone's quickest run
+RECORD_MIN_M = {'speed': 1000, 'pace': 1000, 'swim': 100}
+
+
+def _sport_records(rows):
+    """Each sport's biggest single activities, all time and per year: {'all' | 'YYYY': [{sport, icon, dist, time, climb, fast}]}, sports in the
+    usual order (rides, on foot, swims, the rest). Each record is {v (worded), id, name, date}, or None when the sport has nothing to show (a yoga
+    session has no distance)."""
+    from services import sports, units
+    best = defaultdict(dict)        # (period, sport) -> {what: (value, row)}
+
+    def keep(period, sport, what, value, r):
+        cur = best[(period, sport)].get(what)
+        if value and (cur is None or value > cur[0]):
+            best[(period, sport)][what] = (value, r)
+
+    for r in rows:
+        sport = sports.label(r['sportType'] or None)
+        style = sports.rate_style(r['sportType'] or 'Ride')
+        lo, hi = SPEED_BOUNDS[style]
+        for period in ('all', str(r['startDateLocal'])[:4]):
+            keep(period, sport, 'dist', r['distance'] or 0, r)
+            keep(period, sport, 'time', r['movingTime'] or 0, r)
+            if sports.has_climbing(r['sportType']):
+                keep(period, sport, 'climb', r['totalElevationGain'] or 0, r)
+            if r['mps'] and lo <= r['mps'] < hi and (r['distance'] or 0) >= RECORD_MIN_M[style]:
+                keep(period, sport, 'fast', r['mps'], r)
+
+    def worded(what, value, sport_type):
+        group = sports.stat_group(sport_type or 'Ride')
+        if what == 'dist':
+            return f'{value:,.0f} m' if group == 'swim' else units.fmt_dist(value)
+        if what == 'time':
+            return _hms(value)
+        if what == 'climb':
+            return units.fmt_elev(value)
+        return units.fmt_rate(value, sports.rate_style(sport_type or 'Ride'))
+
+    out = defaultdict(list)
+    for (period, sport), recs in best.items():
+        any_row = next(iter(recs.values()))[1]
+        entry = {'sport': sport, 'icon': sports.icon(any_row['sportType'] or 'Ride'),
+                 'order': (sports.stat_order(sports.stat_group(any_row['sportType'] or 'Ride')), sport)}
+        for what in ('dist', 'time', 'climb', 'fast'):
+            v = recs.get(what)
+            entry[what] = {'v': worded(what, v[0], v[1]['sportType']), 'id': v[1]['id'], 'name': v[1]['name'] or sport,
+                           'date': str(v[1]['startDateLocal'])[:10]} if v else None
+        out[period].append(entry)
+    for period in out:
+        out[period].sort(key=lambda e: e.pop('order'))
+    return dict(out)
 
 
 @bp.route('/data/scan-efforts', methods=['POST'])
