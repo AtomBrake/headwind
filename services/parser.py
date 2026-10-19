@@ -478,14 +478,40 @@ def aligned_streams(points, start):
 
 
 CROP_SLACK_S = 5          # a window this close to the whole recording is not a crop (Strava's start and the file's differ by a second or so)
+CROP_EXPLAINS = 0.5       # an end crop must take away at least half the difference between the track's distance and Strava's
 
 
-def crop(act, start, seconds):
+PAUSE_S = 300             # no point for this long: the recording was paused (an uplift at a bike park), and the track jumps across it
+
+
+def _track_m(streams, lo=0, hi=None, skip_pauses=False):
+    """Metres along the track between two points: along the GPS when there is one in step with time, else the distance channel's.
+    skip_pauses leaves out the straight-line jump across each pause, which Strava doesn't count either."""
+    t = (streams.get('time') or {}).get('data') or []
+    ll = (streams.get('latlng') or {}).get('data') or []
+    hi = len(t) if hi is None else hi
+    if len(ll) == len(t) and len(t) > 1:
+        return sum(_haversine(ll[i - 1][0], ll[i - 1][1], ll[i][0], ll[i][1]) for i in range(max(lo, 1), hi)
+                   if ll[i - 1] and ll[i] and ll[i - 1][0] is not None and ll[i][0] is not None
+                   and i > lo and not (skip_pauses and t[i] - t[i - 1] >= PAUSE_S))
+    d = (streams.get('distance') or {}).get('data') or []
+    vals = [v for v in d[lo:hi] if v is not None] if len(d) == len(t) else []
+    return vals[-1] - vals[0] if len(vals) > 1 else None
+
+
+def crop(act, start, seconds, strava_m=None):
     """The activity cut down to the window Strava keeps after a crop: from `start` (an aware datetime) for `seconds`. A Strava export's file is
     the recording as it was uploaded, and activities.csv the activity as it is now, so the crop is the window between them. Returns a new act
     with the streams cut and starting at 0, and what is read off the track (start position, maxima, average heart rate, power and cadence)
     worked out again from what's left; distance, moving time, climb and calories are the caller's (Strava's own figures). The act as it was
-    when the window is the whole recording, or would leave nothing."""
+    when the window is the whole recording, or would leave nothing.
+
+    Strava leaves a paused recording's pauses out of its elapsed time (the uplifts at a bike park, a device stopped for an hour mid-ride), so a
+    window that ends early is not always a crop; one that starts late is (a pause never moves the start). Given Strava's distance (`strava_m`),
+    an end crop is only made when it takes away at least half the difference between the track's distance and Strava's, and comes closer to
+    it than leaving out the jumps across the pauses does: a crop does (7 hours, 23.8 km -> 0.6 km, Strava's 0.61); pauses don't (a 24 km ride
+    matching Strava's would lose half its track; a bike park day, 38.8 km with the uplifts' jumps, 30.3 without them, Strava's 30.5, would be
+    cut to 22.9)."""
     from datetime import datetime
     try:
         streams = json.loads(act.get('streams') or '{}')
@@ -508,6 +534,11 @@ def crop(act, start, seconds):
     if len(keep) < 2:
         return act
     lo, hi = keep[0], keep[-1] + 1
+    if strava_m and off <= CROP_SLACK_S:              # a later start is a crop for certain; an earlier end may be pauses Strava doesn't count
+        whole, cut, unpaused = _track_m(streams), _track_m(streams, lo, hi), _track_m(streams, skip_pauses=True)
+        if whole is not None and cut is not None and (abs(cut - strava_m) > CROP_EXPLAINS * abs(whole - strava_m)
+                                                      or (unpaused is not None and abs(unpaused - strava_m) <= abs(cut - strava_m))):
+            return act
     out_streams = {}
     for key, st in streams.items():
         data = (st or {}).get('data') if isinstance(st, dict) else None

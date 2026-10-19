@@ -960,7 +960,8 @@ def migrate_db():
         from services import units as _units
         _tasks.record(db, 'startup:sensor_top_speed', 'Top speeds from a faulty speed sensor',
                       f"{len(res)} activit{'y' if len(res) == 1 else 'ies'} whose speed sensor logged far more distance than the GPS shows now take "
-                      "their top speed from the GPS: " + '; '.join(f"{f[1] or f[0]} ({_units.fmt_speed(f[2])} → {_units.fmt_speed(f[3])})" for f in res[:5])
+                      "their top speed from the GPS: " + '; '.join(f"{f[1] or f[0]} ({_units.fmt_speed(f[2])} → {_units.fmt_speed(f[3])})"
+                                  for f in sorted(res, key=lambda f: f[3] - f[2])[:5])
                       + ('…' if len(res) > 5 else '') + '.')
         db.commit()
     from services.best_efforts import rescan_clean as _rescan_clean
