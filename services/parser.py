@@ -466,6 +466,67 @@ def aligned_streams(points, start):
     return streams, timed
 
 
+CROP_SLACK_S = 5          # a window this close to the whole recording is not a crop (Strava's start and the file's differ by a second or so)
+
+
+def crop(act, start, seconds):
+    """The activity cut down to the window Strava keeps after a crop: from `start` (an aware datetime) for `seconds`. A Strava export's file is
+    the recording as it was uploaded, and activities.csv the activity as it is now, so the crop is the window between them. Returns a new act
+    with the streams cut and starting at 0, and what is read off the track (start position, maxima, average heart rate, power and cadence)
+    worked out again from what's left; distance, moving time, climb and calories are the caller's (Strava's own figures). The act as it was
+    when the window is the whole recording, or would leave nothing."""
+    from datetime import datetime
+    try:
+        streams = json.loads(act.get('streams') or '{}')
+        file_start = datetime.fromisoformat(act['startDateLocal'])
+        if file_start.tzinfo is None:
+            from datetime import timezone
+            file_start = file_start.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError, KeyError):
+        return act
+    t = (streams.get('time') or {}).get('data') or []
+    if not t or not seconds:
+        return act
+    off = (start - file_start).total_seconds()
+    if off <= CROP_SLACK_S and t[-1] <= off + seconds + CROP_SLACK_S:
+        return act                                         # the whole recording
+    if off < -CROP_SLACK_S or off + seconds > t[-1] + CROP_SLACK_S:
+        return act                                         # a window that doesn't fit inside the recording is a clock that's out (an hour, a time
+                                                           # zone), not a crop: cutting by it would lose part of the ride
+    keep = [i for i, x in enumerate(t) if off - 1 <= x <= off + seconds + 1]
+    if len(keep) < 2:
+        return act
+    lo, hi = keep[0], keep[-1] + 1
+    out_streams = {}
+    for key, st in streams.items():
+        data = (st or {}).get('data') if isinstance(st, dict) else None
+        if not isinstance(data, list) or len(data) != len(t):
+            continue                                       # a channel out of step with time can't be cut by it
+        cut = data[lo:hi]
+        if key == 'time':
+            cut = [max(0, int(round(x - off))) for x in cut]
+        elif key == 'distance' and cut and cut[0] is not None:
+            base = cut[0]
+            cut = [round(x - base, 1) if x is not None else None for x in cut]
+        out_streams[key] = {**st, 'data': cut}
+    new = {k: v for k, v in act.items() if k not in ('maxSpeed', 'maxHeartrate', 'maxWatts', 'maxCadence')}
+    new['streams'] = json.dumps(out_streams)
+    new['elapsedTime'] = int(seconds)
+    new.update(extremes_from_streams(out_streams))
+    ll = [p for p in (out_streams.get('latlng') or {}).get('data') or [] if p and p[0] is not None]
+    new['startLat'], new['startLng'] = (ll[0][0], ll[0][1]) if ll else (act.get('startLat'), act.get('startLng'))
+    for col, key, keep_v in (('averageHeartrate', 'heartrate', lambda v: v > 0), ('averageWatts', 'watts', lambda v: v >= 0),
+                             ('averageCadence', 'cadence', lambda v: v > 0)):
+        vals = [v for v in (out_streams.get(key) or {}).get('data') or [] if v is not None and keep_v(v)]
+        new[col] = round(sum(vals) / len(vals), 1) if vals else None
+    alts = [a for a in (out_streams.get('altitude') or {}).get('data') or [] if a is not None]
+    from gpxpy.geo import calculate_uphill_downhill
+    new['totalElevationGain'] = round(calculate_uphill_downhill(alts)[0], 1) if alts else None
+    new['calories'] = None                                 # the whole recording's
+    new['cropped'] = True
+    return new
+
+
 def parse_tcx(data: bytes):
     """Garmin Training Center XML (.tcx): older Garmins (the Edge 705), TrainerRoad and Strava's own exports. Laps hold the device's totals
     (timer time, distance, calories, maxima); trackpoints hold time, position, altitude, distance, heart rate, cadence, and speed / power / run
