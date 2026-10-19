@@ -49,7 +49,7 @@ def _drop_merge_leftovers(db):
 # columns in order, so reading any column that comes after a large one means reading the whole chain: `source` or `bikeId` for every activity read
 # every activity's GPS streams. A column added later with ALTER TABLE lands after these, and the next start moves it in front (heavy_last).
 HEAVY_COLUMNS = {
-    'Activity':    ['summaryPolyline', 'description', 'notes', 'aiKudos', 'rawData', 'streams'],
+    'Activity':    ['summaryPolyline', 'description', 'notes', 'aiKudos', 'rawData', 'streams', 'laps'],
     'GarminDaily': ['hrStream', 'bodyBatteryStream'],
 }
 _HEAVY_BATCH = 50       # rows moved per commit: a big activity's streams are ~1 MB
@@ -367,6 +367,7 @@ def migrate_db():
         ('source',          'TEXT'),     # how a walk, run, ... arrived: 'android', 'garmin', 'manual', 'converted', ... (was Workout.source)
         ('commute',         'INTEGER'),  # 1 a commute, 0 the rider said it isn't, NULL never said (a Strava import may then tick it)
         ('srcUpdatedAt',    'TEXT'),     # a friend's ride: their updatedAt for it once matched here, '' until then, NULL from before 0.7.6 (routes/friends.py)
+        ('laps',            'TEXT'),     # the device's laps and a pool swim's lengths, JSON (services/parser.fit_laps); NULL for one lap and no lengths
     ]:
         if col not in act_cols:
             db.execute(f'ALTER TABLE Activity ADD COLUMN {col} {defn}')
@@ -751,6 +752,8 @@ def migrate_db():
     _dup_schema(db)
     from services.gear import ensure_schema as _gear_schema
     _gear_schema(db)
+    from services.kit import ensure_schema as _kit_schema                          # shoes and the other gear that isn't a bike
+    _kit_schema(db)
     from services.strava_gear import ensure_schema as _strava_gear_schema
     _strava_gear_schema(db)
     from services.photos import ensure_schema as _photos_schema

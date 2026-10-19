@@ -87,11 +87,8 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
     refresh_derived(db, wid)
     from services import duplicates
     dup = duplicates.resolve(db, wid)                  # the same session from Garmin, Strava or a file: keep the better recording
-    try:
-        from services import sensors
-        sensors.attach_for_ride(db, (dup or {}).get('kept', wid))
-    except Exception:
-        log.warning('Attaching sensor data to a workout failed', exc_info=True)
+    from services import gear
+    gear.on_ride_added(db, (dup or {}).get('kept', wid))  # attaches waiting phone sensors; the rider's default shoes for the sport
     db.commit()
     if dup and dup['parked'] == wid:
         return _kept_instead(wid), False

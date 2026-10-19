@@ -9,6 +9,7 @@
   {% endif %}
   {% if strava.any %}<a href="{{ url_for('gear.strava_page', rider=rid) }}" class="btn btn-secondary">Strava bikes</a>{% endif %}
   <a href="{{ url_for('gear.assign_page', rider=rid) }}" class="btn btn-secondary">Assign rides</a>
+  <a href="{{ url_for('gear.kit_form', rider=rid) }}" class="btn btn-secondary">+ Add shoes or gear</a>
   <a href="{{ url_for('gear.bike_form', rider=rid) }}" class="btn btn-primary">+ Add bike</a>
 {% endblock %}
 
@@ -31,10 +32,19 @@
 </div>
 {% endif %}
 
-{% if due %}
+{% if due or kit_due %}
 <div class="card" style="margin-bottom:1rem;">
   <div class="card-title">Needs attention</div>
   <div class="due-list">
+    {% for d in kit_due %}
+    <div class="due-row">
+      <span class="chip {{ d.status.level }}">{{ d.status.level }}</span>
+      <div class="t"><a href="{{ url_for('gear.kit_page', kit_id=d.kit.id) }}"><strong>{{ d.kit.name }}</strong></a>
+        <div class="hint">Replace: {{ d.status.meters | fmt_dist }} of {{ d.kit.replaceAtM | fmt_dist(0) }}</div></div>
+      <div class="bar {{ d.status.level }}" style="width:140px;"><i style="width:{{ [100, ((d.status.ratio or 0) * 100) | round | int] | min }}%"></i></div>
+      <a class="btn btn-secondary btn-sm" href="{{ url_for('gear.kit_page', kit_id=d.kit.id) }}">Open</a>
+    </div>
+    {% endfor %}
     {% for d in due %}
     {% set st = d.status %}
     {% set r = (st.check if st.due == 'check' else st.replace) %}
@@ -87,4 +97,34 @@
 </div>
 {% if has_archived %}<p class="hint" style="margin-top:1rem;"><a href="{{ url_for('gear.index', rider=rid, archived=(0 if show_archived else 1)) }}">{{ 'Hide' if show_archived else 'Show' }} archived bikes</a></p>{% endif %}
 {% endif %}
+
+<h3 style="margin:1.6rem 0 .7rem;">Shoes and other gear</h3>
+{% if not kit_items %}
+<div class="card" style="text-align:center;padding:1.6rem 1rem;">
+  <div style="font-size:2.4rem;">👟</div>
+  <p class="hint" style="max-width:520px;margin:.4rem auto 1rem;">Track how far your running shoes, walking boots, wetsuit or skis have gone, and get a nudge when shoes are due for replacing. Make a pair the default for runs, walks or hikes and every new one lands on it.</p>
+  <a class="btn btn-primary" href="{{ url_for('gear.kit_form', rider=rid) }}">+ Add shoes or gear</a>
+</div>
+{% else %}
+<div class="bike-grid">
+  {% for k in kit_items %}
+  <div class="bike-card">
+    <a class="ph" href="{{ url_for('gear.kit_page', kit_id=k.kit.id) }}" style="font-size:2.6rem;text-decoration:none;">{{ k.icon }}</a>
+    <div class="body">
+      <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;">
+        <h3><a href="{{ url_for('gear.kit_page', kit_id=k.kit.id) }}" style="color:inherit;text-decoration:none;">{{ k.kit.name }}</a></h3>
+        {% for s in k.defaults[:3] %}<span class="chip default">{{ s | sport_label }}</span>{% endfor %}
+        {% if k.kit.retiredOn %}<span class="chip">Retired</span>{% endif %}
+        {% if k.status.level != 'ok' %}<span class="chip {{ k.status.level }}">{{ 'replace soon' if k.status.level == 'soon' else 'replace' }}</span>{% endif %}
+      </div>
+      <div class="sub">{{ [k.kit.brand, k.kit.model] | select | join(' ') }}</div>
+      <div class="odo">{{ k.status.meters | fmt_dist }}</div>
+      {% if k.kit.replaceAtM and not k.kit.retiredOn %}<div class="bar {{ k.status.level }}" style="margin:.2rem 0;"><i style="width:{{ [100, ((k.status.ratio or 0) * 100) | round | int] | min }}%"></i></div>{% endif %}
+      <div class="sub">{{ '{:,}'.format(k.stats.n or 0) }} activit{{ 'y' if k.stats.n == 1 else 'ies' }} · {{ (k.stats.moving or 0) | fmt_hours }}{% if k.stats.last %} · last {{ k.stats.last | fmt_date }}{% endif %}</div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% if has_retired %}<p class="hint" style="margin-top:1rem;"><a href="{{ url_for('gear.index', rider=rid, retired=(0 if show_retired else 1)) }}">{{ 'Hide' if show_retired else 'Show' }} retired gear</a></p>{% endif %}
 {% endblock %}
