@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.7.9-beta] - 2026-10-19
+
+Migration, at the first start: `Activity` gains `laps` and `kitId` (so it is rebuilt once with the GPS streams last, as in 0.7.6-beta: a few seconds on a few thousand activities), and there are new tables `Kit`, `KitDefault`, `KitAlert` and `StravaKit`. No Android or iOS change.
+
+**A page for every sport, shoes, and all your activities in one list.**
+
+### Added
+- **Activities in the sidebar.** One list of every activity, rides and the rest together, newest first, with the dashboard's search, sport filter and Select bar. The dashboard's "View all" goes there.
+- **Activity pages that fit the sport.**
+  - Runs, walks and hikes: pace instead of speed, a pace chart, splits per mile or km (moving time, climb and heart rate for each, the fastest marked), cadence in steps a minute.
+  - Swims: pace per 100 m. A pool swim recorded on a watch shows its sets (the lengths between rests, with stroke, pace, strokes a length, SWOLF and the rest after), the pool length and an average SWOLF. An open-water swim gets splits per 100 m.
+  - Downhill ski and snowboard days: each run (vertical, distance, moving time, average and top speed), with time skiing against time going up, and vertical descent instead of the lifts' climb.
+  - Paddles, surfs, sails and the rest on the water: no climb (the GPS bobbing about).
+  - Yoga, weights and anything else with no distance: no distance, speed or climb cards.
+  - The laps your device recorded, for any sport, when there are two or more.
+  - A ride, or anything else, with no speed stream (a GPX from Strava) gets a speed chart worked out from its track.
+  - Notes on every activity, not only rides. Prev and Next go through the same sport (the run before this one).
+- **Laps and pool lengths are read from FIT files.** For activities imported before, import the file or your Strava export again: they're filled in without asking.
+- **Shoes and other gear.** Gear has a "Shoes and other gear" section beside the bikes: shoes, wetsuits, skis, boards, boats. Each has its distance and time (added up from its activities), a replace-at distance (700 km to start with for shoes) with a nudge at 90%, 100% and 125% in the same alerts as bike parts, and can be the default for a sport: a new run, walk or hike lands on its default pair. Retire a pair to keep its history. Pick the gear on an activity's page, or for many at once with "Gear…" in the Select bar.
+- **Shoes from a Strava export.** Importing your export makes an item for each pair your walks, runs and hikes name, puts those activities on it, makes shoes.csv's default sports their defaults, and brings in pairs last worn over a year ago as retired.
+
+### Changed
+- A ride's Distance card no longer shows a pace underneath.
+
+### Fixed
+- **Rides that no longer look wrong come off the list.** A start-up repair that put a ride right (a moving time from the track, a top speed from the GPS) left the "looks wrong" flag set before it; every flagged ride is checked again after the repairs, and those cleared are listed on the Tasks page.
+
 ## [0.7.8-beta] - 2026-10-19
 
 No migration, and no Android or iOS change.
