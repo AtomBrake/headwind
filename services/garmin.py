@@ -403,11 +403,49 @@ def _push_weights():
         pass
 
 
-def sync_garmin(email, password, days=7):
-    """Fetch the last `days` days of Garmin daily metrics and upsert into GarminDaily."""
+def health_days(prev_upload, new_upload, last_sweep, now=None):
+    """How many days (today back) the regular sync reads Garmin's daily metrics for: seven calls a day. The watch's data only reaches Garmin
+    when it uploads (Settings.garminDeviceSync, the last upload a sync was done for), so with no upload since there is nothing new, and after one,
+    the days since the one before. Once a day all HISTORY_RECENT, which also catches what that misses (a second device, Garmin's own late
+    recalculation). Returns (days, is the daily sweep)."""
+    from datetime import datetime, timezone
+    now = now or datetime.now(timezone.utc)
+    def when(v):
+        try:
+            t = datetime.fromisoformat(str(v).replace('Z', '+00:00'))
+            return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            return None
+    sweep = when(last_sweep)
+    if sweep is None or (now - sweep).total_seconds() >= 23.5 * 3600:      # a little under a day, so a 30 minute interval doesn't drift past it
+        return HISTORY_RECENT, True
+    new, prev = when(new_upload), when(prev_upload)
+    if new is None:
+        return 2, False                                  # couldn't tell: today and yesterday
+    if prev is not None and new <= prev:
+        return 0, False                                  # nothing uploaded since the last sync
+    if prev is None:
+        return HISTORY_RECENT, False
+    return max(2, min(HISTORY_RECENT, (now.date() - prev.date()).days + 2)), False
+
+
+def device_upload(api):
+    """When the watch last uploaded to Garmin's cloud (ISO, UTC), or None."""
+    from datetime import datetime, timezone
+    try:
+        up = api.get_device_last_used().get('lastUsedDeviceUploadTime')
+        return datetime.fromtimestamp(up / 1000, tz=timezone.utc).isoformat(timespec='seconds') if up else None
+    except Exception:
+        return None
+
+
+def sync_garmin(email, password, days=7, api=None, strict=False):
+    """Fetch the last `days` days of Garmin daily metrics and upsert into GarminDaily. Weigh-ins (a scale uploads by itself, not through the
+    watch) are read for at least the last two days. `api`: a client already logged in. `strict`: raise when Garmin answered none of the
+    daily-metric calls (an outage), instead of passing it off as days with no data."""
     from database import get_db
 
-    api = _client(email, password)
+    api = api or _client(email, password)
     db  = get_db()
     call = _Calls()
 
@@ -415,13 +453,15 @@ def sync_garmin(email, password, days=7):
     for i in range(days):
         d = (today - timedelta(days=i)).isoformat()
         _save_day(db, d, _fetch_day(call, api, d))
+    if strict and days and not call.ok:
+        raise RuntimeError('Garmin answered none of the daily-metric calls')
 
     # Weigh-ins (Index scale or typed into Garmin Connect) feed the Nutrition weight trend
     weights = 0
     rider = db.execute('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1').fetchone()
     if rider:
         try:
-            _, weights = _sync_weigh_ins(api, db, rider['id'], (today - timedelta(days=days - 1)).isoformat(), today.isoformat())
+            _, weights = _sync_weigh_ins(api, db, rider['id'], (today - timedelta(days=max(days, 2) - 1)).isoformat(), today.isoformat())
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning('Garmin weigh-in sync failed: %s', e)
@@ -622,38 +662,65 @@ def _save_workout(db, wid, rider_id, sport, name, start_utc, start_local, parsed
         logging.getLogger(__name__).warning('Garmin activity %s matched an existing recording; kept the better one', wid)
 
 
-def sync_garmin_activities(email, password, rider_id):
+def _from_summary(a):
+    """An activity from what Garmin's activity list says about it, in parse_fit's shape: one typed into Garmin Connect has no file. No track."""
+    dur = a.get('duration') or 0
+    return {
+        'distance': a.get('distance') or 0, 'movingTime': int(a.get('movingDuration') or dur), 'elapsedTime': int(a.get('elapsedDuration') or dur),
+        'totalElevationGain': a.get('elevationGain') or 0, 'averageSpeed': a.get('averageSpeed') or 0, 'maxSpeed': a.get('maxSpeed') or 0,
+        'averageHeartrate': a.get('averageHR'), 'averageWatts': a.get('avgPower'), 'averageCadence': None, 'calories': a.get('calories'),
+        'startLat': a.get('startLatitude'), 'startLng': a.get('startLongitude'), 'streams': None, 'name': a.get('activityName'),
+    }
+
+
+def sync_garmin_activities(email, password, rider_id, api=None):
     """
     Generator: pull activities from Garmin Connect, download FIT files, parse and insert.
     Yields dicts: {'msg': str} | {'imported': int, 'skipped': int} | {'done': True, ...}
     Incremental — stores garminActivitySyncDate in Settings so repeated calls only fetch new rides.
-    Only imports rides that don't already exist (deduplicates by timestamp & distance).
+    The whole first page (the newest `limit`, one call either way) is looked at whatever the cursor says, so an activity that reached Garmin
+    late, after a newer one from another device moved the cursor on, still comes in; one already here is skipped without a download.
+    Only imports rides that don't already exist (deduplicates by timestamp & distance). `api`: a client already logged in.
     """
     import logging
     from database import get_db
-    from services.parser import parse_fit, _map_sport
+    from services.parser import parse_fit, parse_activity_file, _map_sport
     from services.weather import fetch_weather, save_weather
 
     log = logging.getLogger(__name__)
 
-    api = _client(email, password)
+    api = api or _client(email, password)
     db  = get_db()
 
     s = db.execute('SELECT garminActivitySyncDate FROM Settings WHERE id=1').fetchone()
     since = s['garminActivitySyncDate'] if s and s['garminActivitySyncDate'] else None
+    from services import garmin_failures
+    since = garmin_failures.rewind(db, since)        # back to an activity given up on that a newer Headwind may read
 
     yield {'msg': 'Connected to Garmin Connect' + (f' — fetching rides since {since}' if since else ' — full history sync')}
 
     imported = 0
     skipped  = 0
     newest   = since  # newest date fully handled — the next incremental sync cursor
-    first_failed = None  # earliest date with a download/parse/insert failure; cursor must not pass it
+    first_failed = None  # earliest date with a download/parse/insert failure still being retried; cursor must not pass it
+
+    def failed(activity_id, kind, error, start_date, name):
+        """Remember the failure (services/garmin_failures); one still being retried holds the cursor back, one given up on counts as handled."""
+        nonlocal first_failed, skipped, newest
+        skipped += 1
+        log.warning('Garmin activity %s %s failed: %s', activity_id, kind, error)
+        if garmin_failures.record(db, activity_id, kind, error, start_date, name):
+            if start_date and (newest is None or start_date > newest):
+                newest = start_date
+        elif start_date and (first_failed is None or start_date < first_failed):
+            first_failed = start_date
 
     offset = 0
     limit  = 100
     done   = False
 
     while not done:
+        older_page = False      # this page reached past the cursor: no need for the next
         try:
             activities = api.get_activities(start=offset, limit=limit)
         except Exception as e:
@@ -674,11 +741,13 @@ def sync_garmin_activities(email, password, rider_id):
                 skipped += 1
                 continue
 
-            # Stop once we're strictly older than the cursor (activities are newest-first). The cursor day itself
+            # Stop once we're strictly older than the cursor (activities are newest-first), after the first page. The cursor day itself
             # is re-scanned so later same-day rides aren't missed; the activity-ID check below prevents re-imports.
             if since and start_date < since:
-                done = True
-                break
+                if offset:
+                    done = True
+                    break
+                older_page = True
 
             # Skip activities with no GPS (gym, yoga, strength, etc.)
             if type_key in _SKIP_TYPES:
@@ -706,33 +775,45 @@ def sync_garmin_activities(email, password, rider_id):
                     newest = start_date
                 continue
 
-            # Download FIT (ORIGINAL format = zip containing <id>_ACTIVITY.fit)
-            try:
-                zip_bytes = api.download_activity(activity_id, dl_fmt=api.ActivityDownloadFormat.ORIGINAL)
-                with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-                    fit_name = next((n for n in zf.namelist() if n.lower().endswith('.fit')), None)
-                    if not fit_name:
-                        skipped += 1
+            # One that failed before: not until its next try (services/garmin_failures), and never again once given up on
+            fail = garmin_failures.get(db, activity_id)
+            if fail and not garmin_failures.due(fail):
+                skipped += 1
+                if fail['gaveUp']:
+                    if start_date and (newest is None or start_date > newest):
+                        newest = start_date
+                elif start_date and (first_failed is None or start_date < first_failed):
+                    first_failed = start_date
+                continue
+            label = a.get('activityName')
+
+            if a.get('manualActivity'):
+                # Typed into Garmin Connect: there is no file to download, only what the list says
+                parsed = _from_summary(a)
+            else:
+                # Download the original upload (a zip: <id>_ACTIVITY.fit from a device, or the .gpx / .tcx someone uploaded)
+                try:
+                    zip_bytes = api.download_activity(activity_id, dl_fmt=api.ActivityDownloadFormat.ORIGINAL)
+                    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+                        names = zf.namelist()
+                        file_name = next((n for n in names if n.lower().endswith('.fit')), None) \
+                            or next((n for n in names if n.lower().rsplit('.', 1)[-1] in ('gpx', 'tcx')), None)
+                        file_bytes = zf.read(file_name) if file_name else None
+                except Exception as e:
+                    failed(activity_id, 'download', e, start_date, label)
+                    continue
+
+                if file_name:
+                    try:
+                        parsed = parse_fit(file_bytes) if file_name.lower().endswith('.fit') else parse_activity_file(file_name, file_bytes)
+                        err = None if parsed else 'no data in the file'
+                    except Exception as e:
+                        parsed, err = None, e
+                    if not parsed:
+                        failed(activity_id, 'parse', f'{file_name}: {err}', start_date, label)
                         continue
-                    fit_bytes = zf.read(fit_name)
-            except Exception as e:
-                log.warning('Garmin activity %s download failed: %s', activity_id, e)
-                skipped += 1
-                if start_date and (first_failed is None or start_date < first_failed):
-                    first_failed = start_date
-                continue
-
-            try:
-                parsed = parse_fit(fit_bytes)
-            except Exception as e:
-                log.warning('Garmin activity %s parse failed: %s', activity_id, e)
-                parsed = None
-
-            if not parsed:
-                skipped += 1
-                if start_date and (first_failed is None or start_date < first_failed):
-                    first_failed = start_date
-                continue
+                else:
+                    parsed = _from_summary(a)               # nothing in the zip to read: what the list says is all there is
 
             # Prefer API summary for name and sport; FIT has accurate streams
             sport_type  = garmin_sport(type_key) if type_key else _map_sport(parsed.get('sportType') or 'Ride')
@@ -753,11 +834,9 @@ def sync_garmin_activities(email, password, rider_id):
                 try:
                     _save_workout(db, db_id, rider_id, sport_type, a.get('activityName') or parsed.get('name'), start_utc, start_local, parsed, max_speed)
                 except Exception as e:
-                    log.warning('Garmin activity %s (%s) insert failed: %s', activity_id, sport_type, e)
-                    skipped += 1
-                    if start_date and (first_failed is None or start_date < first_failed):
-                        first_failed = start_date
+                    failed(activity_id, 'insert', f'{sport_type}: {e}', start_date, label)
                     continue
+                garmin_failures.clear(db, activity_id)
                 imported += 1
                 if start_date and (newest is None or start_date > newest):
                     newest = start_date
@@ -798,11 +877,9 @@ def sync_garmin_activities(email, password, rider_id):
                     cal_raw,
                 ])
             except Exception as e:
-                log.warning('Garmin activity %s insert failed: %s', activity_id, e)
-                skipped += 1
-                if start_date and (first_failed is None or start_date < first_failed):
-                    first_failed = start_date
+                failed(activity_id, 'insert', e, start_date, label)
                 continue
+            garmin_failures.clear(db, activity_id)
 
             if parsed.get('startLat') and parsed.get('startLng') and start_local:
                 try:
@@ -829,7 +906,7 @@ def sync_garmin_activities(email, password, rider_id):
                 db.commit()
                 yield {'imported': imported, 'skipped': skipped}
 
-        if not done and len(activities) < limit:
+        if not done and (len(activities) < limit or older_page):
             break
         offset += limit
 

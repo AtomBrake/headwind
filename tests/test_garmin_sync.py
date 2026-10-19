@@ -74,7 +74,12 @@ def test_failed_download_is_retried_not_skipped_forever(env):
     run([_act(2, '2026-10-02 09:00:00'), _act(1, '2026-10-01 08:00:00')], fail={'2'})
     assert _ids(db) == ['garmin_1']
     run([_act(2, '2026-10-02 09:00:00'), _act(1, '2026-10-01 08:00:00')])
+    assert _ids(db) == ['garmin_1']                 # not before its next try (services/garmin_failures)
+    db.execute("UPDATE GarminFailure SET nextAt='2000-01-01T00:00:00+00:00'")      # 25 minutes later
+    db.commit()
+    run([_act(2, '2026-10-02 09:00:00'), _act(1, '2026-10-01 08:00:00')])
     assert _ids(db) == ['garmin_1', 'garmin_2']
+    assert db.execute('SELECT COUNT(*) FROM GarminFailure').fetchone()[0] == 0
 
 
 def test_same_ride_from_another_source_keeps_the_garmin_recording(env):
@@ -405,3 +410,203 @@ def test_weight_history_retries_after_an_outage(wbenv):
     msg = run(YearlyWeighAPI({}, down=True), 'all')
     s = db.execute('SELECT garminWeightsDone, garminWeightsRetryAt, garminWeightsStatus FROM Settings').fetchone()
     assert 'could not reach Garmin' in msg and s[0] == 0 and s[1] and s[2] == msg
+
+
+# ── Late uploads, and how many days the regular sync reads ───────
+
+def test_a_ride_that_reaches_garmin_late_still_comes_in(env):
+    """The bike computer uploaded Saturday's ride and moved the cursor on; the watch's Friday run arrives on Monday."""
+    db, run = env
+    run([_act(2, '2026-10-17 09:00:00'), _act(1, '2026-10-10 08:00:00')])
+    run([_act(2, '2026-10-17 09:00:00'), _act(3, '2026-10-16 18:00:00'), _act(1, '2026-10-10 08:00:00')])
+    assert _ids(db) == ['garmin_1', 'garmin_2', 'garmin_3']
+
+
+def test_a_first_page_that_reaches_past_the_cursor_is_the_last(env, monkeypatch):
+    db, run = env
+    run([_act(2, '2026-10-17 09:00:00')])
+    pages = []
+    acts = [_act(100 + i, f'2026-10-{17 - i // 10:02d} 09:00:00') for i in range(150)]     # 150 activities over two pages
+    api = FakeAPI(acts)
+    real = api.get_activities
+    api.get_activities = lambda start=0, limit=100: pages.append(start) or real(start, limit)
+    monkeypatch.setattr(garmin, '_client', lambda e, p: api)
+    list(garmin.sync_garmin_activities('e', 'p', 1))
+    assert pages == [0]
+
+
+NOW = '2026-10-19T12:00:00+00:00'
+
+
+def _days(prev, new, sweep='2026-10-19T06:00:00+00:00'):
+    from datetime import datetime
+    return garmin.health_days(prev, new, sweep, now=datetime.fromisoformat(NOW))
+
+
+def test_no_upload_since_the_last_sync_reads_no_day():
+    assert _days('2026-10-19T11:00:00+00:00', '2026-10-19T11:00:00+00:00') == (0, False)
+
+
+def test_an_upload_reads_the_days_since_the_one_before():
+    assert _days('2026-10-19T09:00:00+00:00', '2026-10-19T11:30:00+00:00') == (2, False)       # today and yesterday at least
+    assert _days('2026-10-14T20:00:00+00:00', '2026-10-19T11:30:00+00:00') == (7, False)       # the watch was off for five days
+    assert _days('2026-08-01T20:00:00+00:00', '2026-10-19T11:30:00+00:00') == (garmin.HISTORY_RECENT, False)
+
+
+def test_unknown_uploads_read_a_little_or_everything():
+    assert _days('2026-10-19T09:00:00+00:00', None) == (2, False)
+    assert _days(None, '2026-10-19T11:30:00+00:00') == (garmin.HISTORY_RECENT, False)
+
+
+def test_once_a_day_every_recent_day_is_read():
+    assert _days('2026-10-19T11:00:00+00:00', '2026-10-19T11:00:00+00:00', sweep='2026-10-18T11:00:00+00:00') == (garmin.HISTORY_RECENT, True)
+    assert _days('2026-10-19T11:00:00+00:00', '2026-10-19T11:00:00+00:00', sweep=None) == (garmin.HISTORY_RECENT, True)
+
+
+def test_strict_sync_calls_an_outage_an_outage(wenv):
+    """The regular sync records the watch's upload as read: a sync where no daily-metric call answered must fail, or those days are lost."""
+    api = FakeWeighAPI({})                                  # every daily-metric call fails
+    with pytest.raises(RuntimeError):
+        garmin.sync_garmin('e', 'p', days=2, api=api, strict=True)
+    assert garmin.sync_garmin('e', 'p', days=0, api=api, strict=True) == 0     # nothing to read is not an outage
+
+
+# ── Activities that keep failing (services/garmin_failures) ─────
+
+class CountingAPI(FakeAPI):
+    """FakeAPI that counts downloads and can hand back a zip of any files."""
+    def __init__(self, acts, fail=(), files=None):
+        super().__init__(acts, fail)
+        self.downloads, self.files = [], files
+
+    def download_activity(self, aid, dl_fmt=None):
+        self.downloads.append(str(aid))
+        if self.files is None:
+            return super().download_activity(aid, dl_fmt)
+        b = io.BytesIO()
+        with zipfile.ZipFile(b, 'w') as z:
+            for name, data in self.files.items():
+                z.writestr(name, data)
+        return b.getvalue()
+
+
+@pytest.fixture
+def fenv(env, monkeypatch):
+    db, _ = env
+
+    def run(api):
+        monkeypatch.setattr(garmin, '_client', lambda e, p: api)
+        return list(garmin.sync_garmin_activities('e', 'p', 1))
+
+    def later():
+        db.execute("UPDATE GarminFailure SET nextAt='2000-01-01T00:00:00+00:00' WHERE gaveUp=0")     # its next try is due
+        db.commit()
+    yield db, run, later
+
+
+def _cursor(db):
+    return db.execute('SELECT garminActivitySyncDate FROM Settings WHERE id=1').fetchone()[0]
+
+
+def test_an_unreadable_file_is_given_up_on_and_stops_holding_the_cursor(fenv, monkeypatch):
+    db, run, later = fenv
+    monkeypatch.setattr('services.parser.parse_fit', lambda b: None)
+    acts = [_act(2, '2026-10-10 09:00:00')]
+    api = CountingAPI(acts)
+    run(api)
+    assert _cursor(db) == '2026-10-09'               # still being tried: the cursor waits for it
+    later()
+    run(api)
+    assert api.downloads == ['2', '2']
+    assert _cursor(db) == '2026-10-10'               # given up on: the cursor moves on
+    later()
+    run(api)
+    assert api.downloads == ['2', '2']               # and it is never downloaded again
+    from services import garmin_failures
+    assert [r['activityId'] for r in garmin_failures.given_up(db)] == ['2']
+
+
+def test_a_download_that_keeps_failing_is_tried_five_times(fenv):
+    db, run, later = fenv
+    api = CountingAPI([_act(2, '2026-10-10 09:00:00')], fail={'2'})
+    for _ in range(7):
+        run(api)
+        later()
+    assert len(api.downloads) == 5
+    assert _cursor(db) == '2026-10-10'
+
+
+def test_a_newer_headwind_tries_a_given_up_activity_once_more(fenv, monkeypatch):
+    from services import garmin_failures
+    db, run, later = fenv
+    monkeypatch.setattr('services.parser.parse_fit', lambda b: None)
+    api = CountingAPI([_act(2, '2026-10-10 09:00:00')])
+    run(api); later(); run(api)
+    assert len(api.downloads) == 2
+    monkeypatch.setattr(garmin_failures, '_version', lambda: '9.9.9')
+    monkeypatch.setattr('services.parser.parse_fit', lambda b: {'distance': 10000, 'movingTime': 1800, 'elapsedTime': 1800, 'streams': None})
+    run(api)
+    assert _ids(db) == ['garmin_2']
+    assert garmin_failures.given_up(db) == []
+
+
+def test_a_given_up_activity_past_the_first_page_is_reached_again_after_an_update(fenv, monkeypatch):
+    from services import garmin_failures
+    db, run, later = fenv
+    db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
+    db.execute("UPDATE Settings SET garminActivitySyncDate='2026-10-15'")
+    db.execute("INSERT INTO GarminFailure (activityId, startDate, kind, tries, gaveUp, version) VALUES ('7', '2026-09-01', 'parse', 2, 1, 'old')")
+    db.commit()
+    assert garmin_failures.rewind(db, '2026-10-15') == '2026-08-31'
+
+
+def test_try_again_forgets_them_and_moves_the_cursor_back(fenv, monkeypatch):
+    from services import garmin_failures
+    db, run, later = fenv
+    monkeypatch.setattr('services.parser.parse_fit', lambda b: None)
+    api = CountingAPI([_act(3, '2026-10-12 09:00:00'), _act(2, '2026-10-10 09:00:00')])
+    run(api); later(); run(api)
+    assert len(garmin_failures.given_up(db)) == 2
+    assert garmin_failures.retry_all(db) == 2
+    db.commit()
+    assert _cursor(db) == '2026-10-09' and garmin_failures.given_up(db) == []
+
+
+def test_a_manual_activity_comes_in_from_the_list_without_a_download(fenv):
+    db, run, later = fenv
+    a = {**_act(4, '2026-10-11 07:00:00'), 'manualActivity': True, 'duration': 3600, 'movingDuration': 3500, 'calories': 600}
+    api = CountingAPI([a])
+    run(api)
+    assert api.downloads == []
+    row = db.execute("SELECT distance, movingTime, elapsedTime, streams FROM Activity WHERE id='garmin_4'").fetchone()
+    assert (row['distance'], row['movingTime'], row['elapsedTime'], row['streams']) == (10000, 3500, 3600, None)
+
+
+def test_a_zip_with_no_file_comes_in_from_the_list(fenv):
+    db, run, later = fenv
+    api = CountingAPI([{**_act(5, '2026-10-11 07:00:00'), 'duration': 1800}], files={'readme.txt': b'x'})
+    run(api)
+    assert _ids(db) == ['garmin_5']
+    assert db.execute('SELECT COUNT(*) FROM GarminFailure').fetchone()[0] == 0
+
+
+def test_an_uploaded_gpx_is_read_with_its_track(fenv, monkeypatch):
+    db, run, later = fenv
+    seen = []
+    monkeypatch.setattr('services.parser.parse_activity_file',
+                        lambda name, data: seen.append(name) or {'distance': 5000, 'movingTime': 900, 'elapsedTime': 900, 'streams': '{"latlng": {"data": []}}'})
+    api = CountingAPI([_act(6, '2026-10-11 07:00:00')], files={'6.gpx': b'<gpx/>'})
+    run(api)
+    assert seen == ['6.gpx'] and _ids(db) == ['garmin_6']
+
+
+def test_the_tasks_page_lists_what_was_given_up_on(fenv):
+    from services import garmin_failures, tasks
+    db, run, later = fenv
+    db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
+    db.execute("UPDATE Settings SET garminEmail='e', garminPassword='p'")
+    garmin_failures.record(db, '8', 'parse', 'bad', '2026-10-03', 'Morning swim')
+    garmin_failures.record(db, '8', 'parse', 'bad', '2026-10-03', 'Morning swim')
+    db.commit()
+    card = next(j for j in tasks.overview(db)['jobs'] if j['name'] == 'Garmin activities not imported')
+    assert 'Morning swim (2026-10-03)' in card['detail'] and card['action']['url'] == '/tasks/run/garmin-retry'

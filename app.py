@@ -132,15 +132,22 @@ def _garmin_heartbeat(app):
                 import logging
                 from database import query_db, get_db
                 log = logging.getLogger(__name__)
-                s = query_db('SELECT garminEmail, garminPassword, garminSyncHours, garminSyncMode FROM Settings WHERE id=1', one=True)
+                s = query_db('SELECT garminEmail, garminPassword, garminSyncHours, garminSyncMode, garminDeviceSync, garminSweepAt FROM Settings WHERE id=1', one=True)
                 if s and s['garminEmail'] and s['garminPassword']:
                     interval_hours = s['garminSyncHours'] or 0.5
                     from services import tasks
-                    from services.garmin import sync_garmin, sync_garmin_activities, fetch_ride_hr, _client
+                    from services.garmin import sync_garmin, sync_garmin_activities, fetch_ride_hr, _client, health_days, device_upload
                     task_id = tasks.start(get_db(), 'garmin_sync', 'Garmin sync')
-                    result = ['Health data synced']
+                    result = []
+                    api, dev_sync, days, sweep = None, None, 0, False
                     try:
-                        sync_garmin(s['garminEmail'], s['garminPassword'], days=14)
+                        api = _client(s['garminEmail'], s['garminPassword'])      # one login for the whole run: each loads the profile and settings
+                        # When did the watch itself last reach Garmin's cloud? (Headwind can only see what has been uploaded.) It decides how
+                        # many days to read: none when nothing was uploaded since the last sync, all HISTORY_RECENT once a day.
+                        dev_sync = device_upload(api)
+                        days, sweep = health_days(s['garminDeviceSync'], dev_sync, s['garminSweepAt'])
+                        sync_garmin(s['garminEmail'], s['garminPassword'], days=days, api=api, strict=True)   # an outage must not count as read
+                        result.append(f"Health data synced ({days} day{'s' if days != 1 else ''})" if days else 'No new watch upload')
                         ok = True
                     except Exception as e:
                         ok, err = False, str(e)[:200]
@@ -151,7 +158,7 @@ def _garmin_heartbeat(app):
                         if rider:
                             try:
                                 final = {}
-                                for final in sync_garmin_activities(s['garminEmail'], s['garminPassword'], rider['id']):
+                                for final in sync_garmin_activities(s['garminEmail'], s['garminPassword'], rider['id'], api=api):
                                     pass
                                 if final.get('error'):
                                     result.append(f"rides failed: {final['error']}")
@@ -163,7 +170,8 @@ def _garmin_heartbeat(app):
                                 result.append(f'rides failed: {str(e)[:120]}')
                     tasks.finish(get_db(), task_id, '; '.join(result) + '.' if ok else None, None if ok else err)
 
-                    # Backfill HR for owner's recent rides that landed without it (a plain GPX import has none)
+                    # Backfill HR for owner's recent rides that landed without it (a plain GPX import has none). Only after a new upload
+                    # (or in the daily sweep): with nothing uploaded, Garmin has no more heart rate than last time.
                     missing = query_db('''
                         SELECT a.id, a.startDate, a.elapsedTime, a.streams
                         FROM Ride a
@@ -173,10 +181,10 @@ def _garmin_heartbeat(app):
                           AND a.startDate IS NOT NULL
                           AND a.elapsedTime IS NOT NULL
                           AND a.startDate >= datetime('now', '-7 days')
-                    ''') if ok else []
+                    ''') if ok and days else []
                     if missing:
                         try:
-                            garmin_api = _client(s['garminEmail'], s['garminPassword'])
+                            garmin_api = api
                             db = get_db()
                             for act in missing:
                                 try:
@@ -202,25 +210,17 @@ def _garmin_heartbeat(app):
                         except Exception:
                             pass
 
-                    # When did the watch itself last reach Garmin's cloud? (Headwind can only see what has been uploaded)
-                    dev_sync = None
-                    if ok:
-                        try:
-                            from datetime import datetime, timezone
-                            up = _client(s['garminEmail'], s['garminPassword']).get_device_last_used().get('lastUsedDeviceUploadTime')
-                            if up:
-                                dev_sync = datetime.fromtimestamp(up / 1000, tz=timezone.utc).isoformat(timespec='seconds')
-                        except Exception:
-                            pass
-
-                    # Record the outcome and tell HA straight away (last-sync time, fresh steps)
+                    # Record the outcome and tell HA straight away (last-sync time, fresh steps). The upload time only once a sync has read
+                    # what came with it, so a failed one is read again next time.
                     db = get_db()
-                    if dev_sync:
-                        db.execute('UPDATE Settings SET garminDeviceSync=? WHERE id=1', [dev_sync])
                     if ok:
                         from datetime import datetime, timezone
-                        db.execute("UPDATE Settings SET garminLastOk=?, garminLastError=NULL, garminFailCount=0 WHERE id=1",
-                                   [datetime.now(timezone.utc).isoformat(timespec='seconds')])
+                        now = datetime.now(timezone.utc).isoformat(timespec='seconds')
+                        if dev_sync:
+                            db.execute('UPDATE Settings SET garminDeviceSync=? WHERE id=1', [dev_sync])
+                        if sweep:
+                            db.execute('UPDATE Settings SET garminSweepAt=? WHERE id=1', [now])
+                        db.execute("UPDATE Settings SET garminLastOk=?, garminLastError=NULL, garminFailCount=0 WHERE id=1", [now])
                     else:
                         db.execute("UPDATE Settings SET garminLastError=?, garminFailCount=COALESCE(garminFailCount,0)+1 WHERE id=1", [err])
                     db.commit()

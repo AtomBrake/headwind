@@ -488,7 +488,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - Mileage is always **computed from your rides**, so fixing a ride's bike fixes every part. Photos are included in backups. See [docs/GEAR.md](docs/GEAR.md).
 
 ### Social (peer-to-peer)
-- Add a friend's Headwind by URL + feed token; their rides, segments and shared foods sync directly into your database. No central server.
+- Add a friend's Headwind by URL + feed token; their activities (rides, runs, walks, any sport), segments and shared foods sync directly into your database. No central server.
 - Auto-sync every 15 minutes by default (off / 15 / 30 / 60 / 120).
 - Works over LAN, VPN or the public internet (use HTTPS).
 
@@ -722,7 +722,7 @@ Behind a proxy Headwind trusts one `X-Forwarded-*` hop, but only from a loopback
 | CDNs (unpkg, jsDelivr) | Chart/map libraries in your browser | Normal asset requests |
 | Your AI provider (if configured) | Coaching, photo estimates | Ride summaries / the image you submit |
 | Your MQTT broker / Home Assistant (if configured) | Automation | Sensor values / notifications |
-| Linked friends (if configured) | P2P sync | Rides and segments you've chosen to share |
+| Linked friends (if configured) | P2P sync | Activities and segments you've chosen to share |
 
 **Telemetry (the one exception).** At the end of setup, Headwind can send **one single, one-time, anonymous ping** — a random install id and the version number, nothing else — so the author has a rough idea how many instances exist. No rides, food, weight, location or any personal data is ever sent. The collector does not store IP addresses. The wizard shows this text and a permanent opt-out; you can also set `TELEMETRY=off` in your `.env` to skip the question entirely. The code is [`services/telemetry.py`](services/telemetry.py) — read it rather than take our word for it.
 

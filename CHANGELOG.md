@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.7.6-beta] - 2026-10-19
+
+Migration, at the first start: `Activity` gains `srcUpdatedAt` (so it is rebuilt once more with the GPS streams last, as in 0.7.5-beta: a few seconds on a few thousand activities), `Segment` gains `matchPending`, `Settings` gains `garminSweepAt`, and there is a new `GarminFailure` table. A new trigger, `Activity_touch`, moves an activity's `updatedAt` on whenever something a friend can see changes. No Android or iOS change. Friends on 0.7.5-beta or older still sync both ways, the old way (below).
+
+**Friend sync and the Garmin sync do far less work.** A friend sync with nothing new used to match every one of your activities against every segment the friend shares, on every sync: 11 to 15 minutes each half hour for a friend with 24 segments and 1,300 activities. It now takes no time at all. The Garmin sync used to make about 100 calls to Garmin every half hour; most runs now make a handful.
+
+### Added
+- **Friends see every sport.** The friend feed shares all of a rider's activities (rides, runs, walks, swims and the rest) with their step counts, not just rides. The token's "Rides" choice is now "Activities". A friend's run races on their foot segments. A friend on this version fetches the runs and walks they're missing at their next sync; one on an older version gets those that started since its last sync.
+- **Garmin activities typed into Garmin Connect** come in from Garmin's activity list (distance, times, climb, heart rate, power, calories), and an activity uploaded to Garmin as a GPX or TCX file is read with its track. Both used to be skipped.
+- **Tasks: "Garmin activities not imported"** lists the activities the Garmin sync gave up on and why, with a Try again button.
+
+### Changed
+- **Friend sync fetches only what is new or changed.** The friend's instance sends a list of every activity it shares with when each last changed, and only the ones missing here or changed there are fetched, 100 at a time. A friend's segment is matched against your history only when it is new or has moved, and then only against the activities that pass near it. PRs are picked again only on the segments that changed.
+- **The Garmin sync reads only the health days that can have changed.** It checks when the watch last uploaded: no upload since the last sync, no days read; otherwise the days since the upload before. All of the last 14 days are still read once a day. It logs in once per run instead of up to four times, and backfills a ride's missing heart rate only after a new upload. A run where Garmin answers none of the calls counts as failed, so those days are read again.
+- **A Garmin activity that keeps failing is given up on.** A failed download or save is tried again after 25 minutes, then 1¾, 7 and 27 hours; a file that won't parse is tried once more. One given up on no longer holds the sync back or gets downloaded on every run, and is tried once more after each Headwind update. `services/garmin_failures.py`.
+
+### Fixed
+- **A friend's late upload never arrived.** Friend sync asked for activities that started after the day of the last sync, so one recorded earlier and uploaded later was missed for good.
+- **Edits and deletions never reached friends.** A renamed, re-typed or deleted activity now changes or goes on their instance at their next sync, and so do activities that a narrowed token no longer shares. Revoking a token still leaves what they already have.
+- **An interrupted friend sync lost activities.** A sync that broke part way still counted as done, and the older activities it hadn't reached were never asked for again. It only counts as done once everything has arrived, and segments and activities stored by a sync that stopped before matching them are matched next time.
+- **A Garmin activity that reached Garmin late could be missed**, when a newer one from another device had already moved the sync on. The sync looks through the 100 newest activities each time, which it already downloads.
+- **A moved friend segment kept its old efforts.** It is now matched again from scratch, against every rider's activities.
+
+`routes/friends.py`, `services/garmin.py`, `services/garmin_failures.py`, `services/tasks.py`, `routes/tasks.py`, `app.py`, `database.py`, `templates/friends.html`, `tests/test_friend_sync_segments.py`, `tests/test_garmin_sync.py`.
+
 ## [0.7.5-beta] - 2026-10-18
 
 Migration, at the first start: `Activity` (and `GarminDaily`) are rebuilt once with the GPS streams and raw data as their last columns (below). On a big database this takes a while, in batches, and a start that's stopped or times out carries on where it left off; on a Pi with years of history it can take more than one start. Afterwards each activity's track summary for the heatmap and segment matching (`ActivityTrack`) is made in the background. New: `Activity.commute`, and the `ActivityPhoto`, `ActivityTrack`, `DataVersion`, `StravaBike` and `StravaGear` tables; indexes on `SegmentEffort(activityId)`, `FoodLog(riderId, logDate)` and `HydrationLog(riderId, logDate)`. Photos are kept in `rideimg/` beside the database, and backups carry them. No Android change; the iPhone app's sport and bike choice (on the `ios-app` branch) needs this version.
