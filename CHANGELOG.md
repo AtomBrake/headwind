@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.8-beta] - 2026-10-19
+
+No migration, and no Android or iOS change.
+
+### Fixed
+- **A paused recording was taken for a crop.** Strava leaves paused time (a bike park's uplifts, a device stopped mid-ride) out of its elapsed time, so 0.7.7-beta's Strava export import offered to cut such a ride down to part of itself: a BPW day from 30.5 km to 22.9. Now a ride is only cut when that brings its track to Strava's distance, and more so than leaving out the track's jumps across the pauses does; a later start on Strava is always a crop. If you imported your Strava export again on 0.7.7-beta and haven't yet applied the differences on the Import page, import it again before you do.
+
 ## [0.7.7-beta] - 2026-10-19
 
 Migration, at the first start: a new `SportEffort` table replaces `RunEffort` (a cache: every run is worked out again), `TaskLog` gains `logId`, and `Settings` gains `segmentMatchFixDone`, `movingTimeFixDone`, `sportEffortsDone`, `movingTimePausedDone`, `bestEffortsCleanDone` and `sensorTopSpeedDone`, one for each start-up repair below. The repairs run once and are listed on the Tasks page; on a database of 3,400 activities they took about 25 seconds in all. No Android or iOS change.
