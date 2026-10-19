@@ -46,13 +46,13 @@ def test_heavy_columns_end_up_last_and_every_value_survives(db):
     names = [r[1] for r in db.execute('PRAGMA table_info(Activity)')]
     assert names[-len(database.HEAVY_COLUMNS['Activity']):] == database.HEAVY_COLUMNS['Activity']
     add(db, 'a1', line(100))
-    db.execute('ALTER TABLE Activity ADD COLUMN later INTEGER')               # a later release adds a column: it lands after streams
+    db.execute('ALTER TABLE Activity ADD COLUMN later INTEGER')               # a later release adds a column: it lands after the heavy ones
     db.execute("UPDATE Activity SET later = 7")
     db.commit()
     before = dict(db.execute("SELECT * FROM Activity WHERE id='a1'").fetchone())
     assert database.heavy_last(db, 'Activity', database.HEAVY_COLUMNS['Activity']) == 1
     names = [r[1] for r in db.execute('PRAGMA table_info(Activity)')]
-    assert names[-1] == 'streams' and 'later' in names
+    assert names[-1] == database.HEAVY_COLUMNS['Activity'][-1] and 'later' in names
     assert dict(db.execute("SELECT * FROM Activity WHERE id='a1'").fetchone()) == before
     # the views over it, its indexes and its triggers are all back
     assert db.execute("SELECT COUNT(*) FROM Ride").fetchone()[0] == 1

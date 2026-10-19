@@ -43,6 +43,10 @@
       </a>
 
       <div class="nav-section-label">Activity</div>
+      <a href="{{ url_for('dashboard.activities_page') }}"
+         class="nav-item {% if request.endpoint == 'dashboard.activities_page' %}active{% endif %}">
+        {% include 'icons/_list.svg' %} Activities
+      </a>
       <a href="{{ url_for('data.index') }}"
          class="nav-item {% if request.blueprint == 'data' %}active{% endif %}">
         {% include 'icons/_bars.svg' %} Analytics

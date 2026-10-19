@@ -1,0 +1,142 @@
+{# The activity list: the search form, then search results or the history tree (years, months, days), with the "Select" bar.
+   Shared by the dashboard and the Activities page (routes/dashboard.py); list_path is the page it's on, so its links stay there.
+   Needs list_path, rider_query, sf, active_rider, q, date_from, date_to, min_dist, max_dist, is_filtered, search_results, grouped,
+   activities, typed, back_url and sport_choices. #}
+{% set rq = rider_query %}
+{% macro list_url(f, t) %}{{ list_path }}?{% if rq %}{{ rq }}&amp;{% endif %}from={{ f }}&amp;to={{ t }}#ride-history{% endmacro %}
+<!-- Search / Filter -->
+<form method="GET" action="{{ list_path }}" class="toolbar" id="dashFilter" onsubmit="if (window.sportSkips) sportSkips(this)">
+  {% if not active_rider.isDefault %}<input type="hidden" name="rider" value="{{ active_rider.id }}">{% endif %}
+  <div class="form-group-sm" style="flex:2; min-width:140px;">
+    <label>Name</label>
+    <input type="text" name="q" value="{{ q }}" placeholder="Search activities…">
+  </div>
+  <div class="form-group-sm" style="flex:1; min-width:110px;">
+    <label>From</label>
+    <input type="date" name="from" value="{{ date_from }}">
+  </div>
+  <div class="form-group-sm" style="flex:1; min-width:110px;">
+    <label>To</label>
+    <input type="date" name="to" value="{{ date_to }}">
+  </div>
+  <div class="form-group-sm" style="flex:1; min-width:80px;">
+    <label>Min {{ U.dist }}</label>
+    <input type="number" name="min_dist" value="{{ min_dist }}" placeholder="0" min="0" step="1">
+  </div>
+  <div class="form-group-sm" style="flex:1; min-width:80px;">
+    <label>Max {{ U.dist }}</label>
+    <input type="number" name="max_dist" value="{{ max_dist }}" placeholder="&infin;" min="0" step="1">
+  </div>
+  <div style="display:flex; gap:0.4rem;">
+    <button type="submit" class="btn btn-primary" style="padding:0.35rem 0.9rem; font-size:0.875rem;">Search</button>
+    {% if is_filtered %}
+    <a href="{{ list_path }}{% if rq %}?{{ rq }}{% endif %}" class="btn btn-secondary" style="padding:0.35rem 0.75rem; font-size:0.875rem;">&times; Clear</a>
+    {% endif %}
+  </div>
+</form>
+
+<div class="card" id="ride-history" data-pick-list>
+  <div class="card-title" style="display:flex; align-items:center; gap:0.5rem;">
+    Activities
+    {% if is_filtered %}<span style="font-size:0.8125rem; font-weight:400; color:var(--text-muted); margin-left:0.5rem;">{{ search_results | length }} result{{ 's' if search_results | length != 1 }}</span>{% endif %}
+    {% if activities %}<button type="button" class="btn btn-secondary pick-toggle" data-pick-toggle title="Pick several activities to delete, re-type, move or download">Select</button>{% endif %}
+  </div>
+
+  {% if typed %}{% set t = typed.split('|') %}<div style="margin:0.4rem 0 0.8rem; padding:0.5rem 0.8rem; border:1px solid var(--border); border-radius:8px; font-size:0.85rem;">{{ t[0] }} activit{{ 'y' if t[0] == '1' else 'ies' }} changed to {{ t[2] }}{% if t[1] != '0' %}, {{ t[1] }} could not be changed{% endif %}.</div>{% endif %}
+  {% if is_filtered %}
+  {% if search_results %}
+  <form method="POST" action="/rides/bulk-sport" style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; margin:0.2rem 0 0.8rem; padding:0.55rem 0.8rem; border:1px solid var(--border); border-radius:8px;"
+        onsubmit="return confirm('Change the type of these ' + {{ search_results | length }} + ' activities to ' + this.sport.options[this.sport.selectedIndex].text + '?')">
+    <input type="hidden" name="ids" value="{{ search_results | map(attribute='id') | join(',') }}">
+    <input type="hidden" name="back" value="{{ back_url }}">
+    <span style="font-size:0.8125rem; color:var(--text-muted);">Change the type of all {{ search_results | length }} results to</span>
+    <select name="sport" style="font-size:0.8125rem;">{% for v, l in sport_choices %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>
+    <button class="btn btn-secondary" type="submit" style="padding:0.25rem 0.8rem; font-size:0.8125rem;">Change type</button>
+  </form>
+  <div>
+    {% for a in search_results %}
+    <a href="/rides/{{ a.id }}" class="dash-link" data-pick="{{ a.id }}"
+         style="display:flex; align-items:center; gap:0.75rem; padding:0.65rem 0;
+                border-bottom:1px solid rgba(22,51,82,0.5); cursor:pointer;
+                transition:background 0.1s;"
+         onmouseover="this.style.background='rgba(255,255,255,0.025)'"
+         onmouseout="this.style.background=''">
+      <div style="flex:1; min-width:0;">
+        <div style="font-size:0.9375rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+          {{ a.sportType | sport_icon }} {{ a.name }}
+          {% if a.aiKudos %}<span style="font-size:0.7rem; color:var(--accent); margin-left:0.3rem; font-weight:400;">AI</span>{% endif %}
+          {% if a.sportType == 'Run' %}<span style="font-size:0.65rem; color:#a78bfa; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">RUN</span>{% endif %}{% if a.id.startswith('garmin_') %}<span style="font-size:0.65rem; color:#5bb8d4; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">GARMIN</span>{% elif a.id.startswith('imp_') %}<span style="font-size:0.65rem; color:#c9a84c; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">IMPORT</span>{% endif %}
+        </div>
+        <div style="font-size:0.775rem; color:var(--text-muted); margin-top:0.15rem;">
+          {{ a.startDateLocal | fmt_date }}
+          &nbsp;·&nbsp;<span style="color:var(--text);">{{ a.distance | fmt_dist }}</span>
+          &nbsp;·&nbsp;{{ a.movingTime | fmt_duration }}
+          &nbsp;·&nbsp;{{ a.averageSpeed | fmt_rate(a.sportType) }}
+          {% if a.totalElevationGain %}&nbsp;·&nbsp;{{ a.totalElevationGain | fmt_elev }}{% endif %}
+        </div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p style="color:var(--text-muted); font-size:0.875rem; margin:0.5rem 0;">No activities match your filters.</p>
+  {% endif %}
+
+  {% else %}
+  {% if grouped %}
+    {% for yr in grouped %}
+    <details class="tree-year" {% if yr.is_current %}open{% endif %}>
+      <summary class="tree-year-summary">
+        <span class="tree-year-label">{{ yr.year }}</span>
+        <span class="tree-meta">{{ yr.count }} activities &middot; {{ yr.dist | fmt_dist if sf.group else yr.secs | fmt_hours }} &middot; {{ yr.elev | fmt_elev }}</span>
+        <a class="tree-list-link" href="{{ list_url(yr.year ~ '-01-01', yr.year ~ '-12-31') }}" title="List every activity in {{ yr.year }}">List</a>
+      </summary>
+
+      {% for mo in yr.months %}
+      <details class="tree-month" {% if mo.is_current %}open{% endif %}>
+        <summary class="tree-month-summary">
+          <span class="tree-month-label">{{ mo.name }}</span>
+          <span class="tree-meta">{{ mo.count }} activities &middot; {{ mo.dist | fmt_dist if sf.group else mo.secs | fmt_hours }}</span>
+          <a class="tree-list-link" href="{{ list_url(mo.from, mo.to) }}" title="List every activity in {{ mo.name }} {{ yr.year }}">List</a>
+        </summary>
+
+        {% if mo.is_current %}{% with days = mo.days %}{% include '_history_days.html' %}{% endwith %}
+        {% else %}<div class="tree-days-pending" data-history-from="{{ mo.from }}" data-history-to="{{ mo.to }}"></div>{% endif %}
+
+      </details>
+      {% endfor %}
+    </details>
+    {% endfor %}
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-icon">🚴</div>
+    <p>No activities yet. Connect Garmin in Settings, record with the phone app, or <a href="/import" style="color:var(--accent);">import files</a>.</p>
+  </div>
+  {% endif %}
+  {% endif %}{# end is_filtered #}
+</div>
+{% include '_bulk_bar.html' %}
+
+<script>
+// The history tree carries only the open month's activities; any other month's are fetched the first time it is opened (routes/dashboard.history).
+document.addEventListener('toggle', function (e) {
+  var det = e.target;
+  if (!det.open || !det.classList || !det.classList.contains('tree-month')) return;
+  var slot = det.querySelector(':scope > .tree-days-pending');
+  if (!slot || slot.dataset.loading) return;
+  slot.dataset.loading = '1';
+  slot.textContent = 'Loading…';
+  var rq = {{ rider_query | tojson }}, q = (rq ? rq + '&' : '') + 'from=' + slot.dataset.historyFrom + '&to=' + slot.dataset.historyTo;
+  fetch('/dashboard/history?' + q + '&list=' + encodeURIComponent({{ list_path | tojson }})).then(function (r) {
+    if (!r.ok) throw new Error(r.status);
+    return r.text();
+  }).then(function (html) {
+    slot.insertAdjacentHTML('beforebegin', html);
+    slot.remove();
+    document.dispatchEvent(new Event('pick-list-changed'));   // static/js/bulk.js marks rows already picked
+  }).catch(function () {
+    delete slot.dataset.loading;
+    slot.textContent = 'Could not load this month. Close it and open it again to retry, or use List.';
+  });
+}, true);
+</script>

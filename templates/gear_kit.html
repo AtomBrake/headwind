@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block title %}{{ kit.name }}{% endblock %}
+{% block page_title %}{{ kit.name }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">{% endblock %}
+{% block topbar_actions %}<a class="btn btn-secondary" href="{{ url_for('gear.index', rider=kit.riderId) }}">&larr; Gear</a>{% endblock %}
+{% block content %}
+{% if error %}<div class="gear-err">{{ error }}</div>{% endif %}
+
+<div class="gear-head">
+  <div class="big-ph" style="font-size:3.5rem;">{{ icon }}</div>
+  <div class="meta">
+    <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;">
+      <span class="chip">{{ kind_label }}</span>
+      {% for s in defaults %}<span class="chip default">Default for {{ s | sport_label | lower }}</span>{% endfor %}
+      {% if kit.retiredOn %}<span class="chip">Retired {{ kit.retiredOn | fmt_date }}</span>{% endif %}
+      {% if status.level != 'ok' %}<span class="chip {{ status.level }}">{{ 'Replace soon' if status.level == 'soon' else 'Due for replacing' if status.level == 'due' else 'Overdue for replacing' }}</span>{% endif %}
+    </div>
+    <h2>{{ kit.name }}</h2>
+    <div class="hint">{{ [kit.brand, kit.model] | select | join(' ') }}{% if kit.boughtOn %} · bought {{ kit.boughtOn | fmt_date }}{% endif %}{% if strava_name %} · Strava: {{ strava_name }}{% endif %}</div>
+    <div style="font-size:2rem;font-weight:700;font-variant-numeric:tabular-nums;margin-top:.4rem;">{{ status.meters | fmt_dist }}</div>
+    <div class="hint">so far{% if kit.startMeters %} (includes {{ kit.startMeters | fmt_dist }} before Headwind){% endif %}{% if kit.replaceAtM %} · replace at {{ kit.replaceAtM | fmt_dist(0) }}{% endif %}</div>
+    {% if kit.replaceAtM %}<div class="bar {{ status.level }}" style="max-width:320px;margin-top:.4rem;"><i style="width:{{ [100, ((status.ratio or 0) * 100) | round | int] | min }}%"></i></div>{% endif %}
+    {% if kit.notes %}<p class="hint" style="margin:.5rem 0 0;">{{ kit.notes }}</p>{% endif %}
+    <div class="gear-actions">
+      <a class="btn btn-secondary btn-sm" href="{{ url_for('gear.kit_form', kit_id=kit.id) }}">Edit</a>
+      <form method="POST" action="{{ url_for('gear.kit_retire', kit_id=kit.id) }}">{% if kit.retiredOn %}<input type="hidden" name="undo" value="1">{% endif %}<button class="btn btn-secondary btn-sm">{{ 'Bring back' if kit.retiredOn else 'Retire' }}</button></form>
+      <form method="POST" action="{{ url_for('gear.kit_delete', kit_id=kit.id) }}" onsubmit="return confirm('Delete {{ kit.name | e }}? Its activities stay, but will have no gear. Retire it instead to keep its history. This cannot be undone.')"><button class="btn btn-danger btn-sm">Delete</button></form>
+    </div>
+  </div>
+</div>
+
+<div class="stats-grid" style="margin-bottom:1rem;">
+  <div class="stat-card"><div class="stat-value">{{ '{:,}'.format(stats.n) }}</div><div class="stat-label">Activities</div></div>
+  <div class="stat-card"><div class="stat-value">{{ stats.distance | fmt_dist }}</div><div class="stat-label">Distance on Headwind</div></div>
+  <div class="stat-card"><div class="stat-value">{{ stats.moving | fmt_hours }}</div><div class="stat-label">Moving time</div></div>
+  {% if stats.gain %}<div class="stat-card"><div class="stat-value">{{ stats.gain | fmt_elev }}</div><div class="stat-label">Climbing</div></div>{% endif %}
+  {% if stats.longest %}<div class="stat-card"><div class="stat-value">{{ stats.longest | fmt_dist }}</div><div class="stat-label">Longest</div></div>{% endif %}
+  {% if stats.first %}<div class="stat-card"><div class="stat-value" style="font-size:1rem;">{{ stats.first | fmt_date }}</div><div class="stat-label">First used{% if stats.last %} · last {{ stats.last | fmt_date }}{% endif %}</div></div>{% endif %}
+</div>
+
+{% if stats.by_sport | length > 1 %}
+<div class="card" style="margin-bottom:1rem;">
+  <div class="card-title">By sport</div>
+  {% for s in stats.by_sport %}<div style="display:flex;gap:.6rem;padding:.3rem 0;border-bottom:1px solid rgba(22,51,82,.5);"><span style="flex:1;">{{ s.sport | sport_icon }} {{ s.sport | sport_label }}</span><span class="hint">{{ s.n }} · {{ s.distance | fmt_dist }}</span></div>{% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-title">Recent activities</div>
+  {% if recent %}
+  {% for a in recent %}
+  <a href="{{ url_for('rides.detail', rid=a.id) }}" class="dash-link" style="display:flex;gap:.6rem;padding:.45rem 0;border-bottom:1px solid rgba(22,51,82,.5);">
+    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ a.sportType | sport_icon }} {{ a.name or a.sportType }}</span>
+    <span class="hint" style="white-space:nowrap;">{{ a.startDateLocal | fmt_date }} · {{ a.distance | fmt_dist }} · {{ a.movingTime | fmt_duration }}</span>
+  </a>
+  {% endfor %}
+  {% else %}
+  <p class="hint">Nothing on {{ kit.name }} yet. Pick it on an activity's page, use "Gear…" in the Select bar on the Activities page, or make it the default for a sport.</p>
+  {% endif %}
+</div>
+{% endblock %}

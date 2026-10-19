@@ -200,26 +200,23 @@ def history():
     if date_to:
         where.append('date(a.startDateLocal) <= ?'); params.append(date_to)
     days = [d for yr in _group_activities(_activities(where, params)) for mo in yr['months'] for d in mo['days']]
-    return render_template('_history_days.html', days=days, sf=sf, rider_query=urlencode(_rider_args(active_rider) + sf.args()))
+    list_path = request.args.get('list') if request.args.get('list') in LIST_PATHS else '/dashboard'
+    return render_template('_history_days.html', days=days, sf=sf, rider_query=urlencode(_rider_args(active_rider) + sf.args()), list_path=list_path)
 
 
-@bp.route('/dashboard')
-def dashboard():
-    athlete = query_db('SELECT * FROM Athlete LIMIT 1', one=True)
+LIST_PATHS = ('/dashboard', '/activities')     # the pages that show the activity list (templates/_activity_list.html)
 
-    all_riders, active_rider, rid = _riders(request.args)
 
-    q         = request.args.get('q', '').strip()
-    date_from = request.args.get('from', '').strip()
-    date_to   = request.args.get('to', '').strip()
-    min_dist, max_dist, min_m, max_m = dist_filters(request.args)
-    sf        = SportFilter(get_db(), rid, request.args)     # the sports left in, for the totals, the chart and the list alike
+def _activity_list(args, list_path):
+    """The activity list's filters and rows, shared by the dashboard and the Activities page: (the template's values, where, params, the rider
+    links' args). Name, dates, distance and the sports left in (services/sport_filter) all come from the URL, so a filtered list can be linked."""
+    all_riders, active_rider, rid = _riders(args)
+    q         = args.get('q', '').strip()
+    date_from = args.get('from', '').strip()
+    date_to   = args.get('to', '').strip()
+    min_dist, max_dist, min_m, max_m = dist_filters(args)
+    sf        = SportFilter(get_db(), rid, args)     # the sports left in, for the totals, the chart and the list alike
     is_filtered = any([q, date_from, date_to, min_dist, max_dist])
-
-    rider_args = _rider_args(active_rider)
-    def link(skip):
-        args = rider_args + sf.args(skip)
-        return '/dashboard' + ('?' + urlencode(args) if args else '')
 
     where  = ['a.riderId=?']
     params = [rid]
@@ -236,6 +233,48 @@ def dashboard():
     clause, cparams = sf.sql('a.sportType')
     where.append(clause); params += cparams
 
+    rider_args = _rider_args(active_rider)
+    def link(skip):
+        args_ = rider_args + sf.args(skip)
+        return list_path + ('?' + urlencode(args_) if args_ else '')
+
+    activities = _activities(where, params)
+    ctx = dict(
+        rid=rid,
+        list_path=list_path,
+        typed=args.get('typed', ''),
+        back_url=list_path + '?' + urlencode([(k, v) for k, v in args.items(multi=True) if k != 'typed']),
+        sport_choices=[('Ride', 'Ride'), ('VirtualRide', 'Indoor ride'), ('Walk', 'Walk'), ('Run', 'Run'), ('Hike', 'Hike')],
+        activities=activities,
+        grouped=_group_activities(activities) if not is_filtered else [],
+        search_results=activities if is_filtered else [],
+        is_filtered=is_filtered,
+        q=q, date_from=date_from, date_to=date_to,
+        min_dist=min_dist, max_dist=max_dist,
+        sf=sf,
+        sport_links=[(label, icon, link(skip), active) for label, icon, skip, active in sf.shortcuts()],
+        all_riders=all_riders,
+        active_rider=active_rider,
+        rider_query=urlencode(rider_args + sf.args()),     # kept on every link the page makes: the rider and the sports left out
+    )
+    return ctx, where, params, link
+
+
+@bp.route('/activities')
+def activities_page():
+    """Every activity, rides and the rest together, newest first: the dashboard's history and search on a page of their own."""
+    ctx, where, params, _ = _activity_list(request.args, '/activities')
+    totals = query_db(f"SELECT COUNT(*) AS n, SUM(a.movingTime) AS secs FROM Activity a WHERE {' AND '.join(where)}", params, one=True)
+    return render_template('activities.html', totals=totals, **ctx)
+
+
+@bp.route('/dashboard')
+def dashboard():
+    athlete = query_db('SELECT * FROM Athlete LIMIT 1', one=True)
+
+    ctx, where, params, link = _activity_list(request.args, '/dashboard')
+    active_rider, sf, rid = ctx['active_rider'], ctx['sf'], ctx['rid']
+
     # The headline numbers are for the sports left in. A distance only when they all share one (sf.group): a swim's doesn't add to a ride's.
     totals = query_db(f'''
         SELECT COUNT(*) as rides, SUM(a.distance) as dist,
@@ -245,8 +284,6 @@ def dashboard():
         WHERE {' AND '.join(where)}
     ''', params, one=True)
     group_totals = [] if sf.group else _group_totals(where, params, sf, link)
-
-    activities = _activities(where, params)
 
     # Speed (or pace) per activity this year: only when the sports left in share one, so a walk's pace never sits on a line of ride speeds.
     year_speed = []
@@ -287,7 +324,8 @@ def dashboard():
 
     try:
         from services import gear
-        gear_due = gear.due_items(get_db(), rid, include_soon=False)[:4]
+        from services import kit
+        gear_due = (kit.due_items(get_db(), rid, include_soon=False) + gear.due_items(get_db(), rid, include_soon=False))[:4]   # shoes and the like, then bike parts
     except Exception:
         gear_due = []
 
@@ -302,27 +340,14 @@ def dashboard():
         gear_due=gear_due,
         flagged=flagged,
         garmin_full=bool(query_db("SELECT 1 FROM Settings WHERE id=1 AND garminSyncMode='full'", one=True)),
-        typed=request.args.get('typed', ''),
-        back_url='/dashboard?' + urlencode([(k, v) for k, v in request.args.items(multi=True) if k != 'typed']),
-        sport_choices=[('Ride', 'Ride'), ('VirtualRide', 'Indoor ride'), ('Walk', 'Walk'), ('Run', 'Run'), ('Hike', 'Hike')],
         athlete=athlete,
         totals=totals,
         group_totals=group_totals,
-        activities=activities,
-        grouped=_group_activities(activities) if not is_filtered else [],
-        search_results=activities if is_filtered else [],
-        is_filtered=is_filtered,
         weekly=_weekly_data(rid, sf),
         year_speed=year_speed,
         chart_groups=chart_groups(sf.groups),
         now=date.today(),
-        q=q, date_from=date_from, date_to=date_to,
-        min_dist=min_dist, max_dist=max_dist,
-        sf=sf,
-        sport_links=[(label, icon, link(skip), active) for label, icon, skip, active in sf.shortcuts()],
-        all_riders=all_riders,
-        active_rider=active_rider,
-        rider_query=urlencode(rider_args + sf.args()),     # kept on every link the page makes: the rider and the sports left out
         recovery=recovery,
         weather=weather,
+        **ctx,
     )

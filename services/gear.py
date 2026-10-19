@@ -315,8 +315,9 @@ def ride_span(db, rider_id):
 
 
 def on_ride_added(db, act_id, stamp=True):
-    """One call for every place a ride can arrive (Garmin sync, file / zip import, phone upload, typed in): give it the default bike, then see whether
-    that pushed any part over a threshold. stamp=False leaves the bike alone (a Strava export ride that names its own bike: services/strava_gear.py).
+    """One call for every place an activity can arrive (Garmin sync, file / zip import, phone upload, typed in): give a ride the default bike, and
+    anything else the default kit for its sport (services/kit.py), then see whether that pushed any part or kit over a threshold. stamp=False
+    leaves the bike and kit alone (a Strava export activity that names its own gear: services/strava_gear.py).
     Never raises: gear must not be able to break an import. Does not commit."""
     try:
         from services import sensors            # a waiting phone-sensor sidecar that overlaps this ride attaches to it, whichever arrived first
@@ -327,8 +328,11 @@ def on_ride_added(db, act_id, stamp=True):
         before = _classes(db, [act_id])
         if stamp and stamp_new_ride(db, act_id):
             _repick_moved(db, before)           # its PRs may have been picked before it had its bike: an e-bike makes it an e-bike effort
-        a = db.execute('SELECT bikeId, riderId FROM Activity WHERE id=?', [act_id]).fetchone()
-        if a and a['bikeId']:
+        from services import kit
+        if stamp:
+            kit.stamp_new_activity(db, act_id)  # a run, walk, swim, ...: the rider's default shoes (or other kit) for the sport
+        a = db.execute('SELECT bikeId, kitId, riderId FROM Activity WHERE id=?', [act_id]).fetchone()
+        if a and (a['bikeId'] or a['kitId']):
             evaluate_alerts(db, rider_id=a['riderId'])
     except Exception as e:
         log.warning('gear update after ride %s failed (non-fatal): %s', act_id, e)
@@ -469,7 +473,7 @@ def _headline(bike, part, st, what, level):
 
 
 def evaluate_alerts(db, rider_id=None, send=True):
-    """Finds parts that have newly crossed a threshold, remembers them (so each fires once per cycle) and optionally notifies.
+    """Finds parts (and kit: services/kit.evaluate_alerts) that have newly crossed a threshold, remembers them (so each fires once per cycle) and optionally notifies.
     Returns the list of new alerts [{part, bike, what, level, text}]. Does not commit."""
     q = '''SELECT p.*, b.name AS bikeName, b.riderId AS riderId FROM Part p JOIN Bike b ON b.id=p.bikeId
            WHERE p.retiredOn IS NULL AND p.notify=1 AND b.archived=0'''
@@ -492,6 +496,11 @@ def evaluate_alerts(db, rider_id=None, send=True):
                     db.execute('INSERT OR IGNORE INTO PartAlert (partId, what, level, cycle) VALUES (?,?,?,?)', [p['id'], what, l, cycle])
             bike = {'name': p['bikeName']}
             new.append({'part': p['id'], 'bikeId': p['bikeId'], 'riderId': p['riderId'], 'what': what, 'level': lvl, 'text': _headline(bike, p, st, what, lvl)})
+    try:
+        from services import kit
+        new += kit.evaluate_alerts(db, rider_id)        # shoes and other kit past their replace-at distance, in the same message
+    except Exception as e:
+        log.warning('kit alerts failed (non-fatal): %s', e)
     if send and new:
         _notify(new)
     return new

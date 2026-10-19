@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'Edit ' ~ kit.name if kit else 'Add gear' }}{% endblock %}
+{% block page_title %}{{ 'Edit ' ~ kit.name if kit else 'Add shoes or other gear' }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">{% endblock %}
+{% block topbar_actions %}<a class="btn btn-secondary" href="{{ url_for('gear.kit_page', kit_id=kit.id) if kit else url_for('gear.index', rider=rid) }}">Cancel</a>{% endblock %}
+{% block content %}
+{% if error %}<div class="gear-err">{{ error }}</div>{% endif %}
+{% set unit = 'km' if units == 'metric' else 'miles' %}
+<div class="card" style="max-width:760px;">
+  <form method="POST" action="{{ url_for('gear.kit_save') }}" class="gform">
+    {% if kit %}<input type="hidden" name="id" value="{{ kit.id }}">{% endif %}
+    <input type="hidden" name="rider" value="{{ rid }}">
+    <label class="wide">Name<input name="name" required maxlength="80" value="{{ kit.name if kit else '' }}" placeholder="e.g. Road shoes, Trail shoes, Winter wetsuit"></label>
+    <label>Type<select name="kind">{% for k, l in kinds %}<option value="{{ k }}" {{ 'selected' if kind == k }}>{{ l }}</option>{% endfor %}</select></label>
+    <label>Brand<input name="brand" maxlength="80" value="{{ kit.brand or '' if kit else '' }}"></label>
+    <label>Model<input name="model" maxlength="80" value="{{ kit.model or '' if kit else '' }}"></label>
+    <label>Bought on (optional)<input name="boughtOn" type="date" value="{{ kit.boughtOn or '' if kit else '' }}"></label>
+    <label>Already used before Headwind ({{ unit }})<input name="start" type="number" min="0" step="1" value="{{ start_disp }}" placeholder="0"></label>
+    <label>Replace at ({{ unit }}, blank for never)<input name="replace" type="number" min="0" step="1" value="{{ replace_disp }}"></label>
+    {% if not kit or not kit.retiredOn %}
+    <fieldset class="wide" style="border:1px solid var(--border);border-radius:8px;padding:.6rem .8rem;">
+      <legend class="hint" style="padding:0 .3rem;">Default for new activities of these sports</legend>
+      <div style="display:flex;flex-wrap:wrap;gap:.4rem 1rem;">
+        {% for key, label in sports %}
+        <label style="flex-direction:row;align-items:center;gap:.35rem;font-weight:400;" {% if taken.get(key) %}title="Now the default: {{ taken[key] }}"{% endif %}>
+          <input type="checkbox" name="sport" value="{{ key }}" {{ 'checked' if key in have }}> {{ label | sport_icon }} {{ label | sport_label }}{% if taken.get(key) %} <span class="hint">({{ taken[key] }})</span>{% endif %}
+        </label>
+        {% endfor %}
+      </div>
+      <div class="hint" style="margin-top:.4rem;">A new run, walk or other activity of a ticked sport is put on this automatically. Ticking a sport another item has takes it over.</div>
+    </fieldset>
+    {% endif %}
+    <label class="wide">Notes<textarea name="notes" rows="3" maxlength="1000">{{ kit.notes or '' if kit else '' }}</textarea></label>
+    <div class="wide"><button class="btn btn-primary" type="submit">{{ 'Save changes' if kit else 'Add' }}</button>
+      <span class="hint" style="margin-left:.6rem;">Distance and time add up from the activities it's on, so moving an activity to other shoes corrects both pairs.</span></div>
+  </form>
+</div>
+{% endblock %}

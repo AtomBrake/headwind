@@ -117,6 +117,24 @@ function typeChanged(sel) {
 </div>
 {% endif %}
 
+{% if not is_ride and activity.riderId %}
+<div class="card" style="margin-bottom:1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;padding:.7rem 1rem;" id="kitCard">
+  <span style="color:var(--text-muted);font-size:.78rem;letter-spacing:.07em;text-transform:uppercase;font-weight:700;">Gear</span>
+  {% if kit_items %}
+  <form method="POST" action="{{ url_for('gear.activity_kit', rid=activity.id) }}" style="margin:0;">
+    <select name="kit" onchange="this.form.submit()" aria-label="Which shoes or other gear?">
+      <option value="" {{ 'selected' if not activity.kitId }}>None</option>
+      {% for k in kit_items %}<option value="{{ k.id }}" {{ 'selected' if activity.kitId == k.id }}>{{ k.name }}{{ ' (retired)' if k.retiredOn }}</option>{% endfor %}
+    </select>
+  </form>
+  {% if activity.kitId %}<a class="btn btn-secondary btn-sm" style="padding:.25rem .6rem;font-size:.78rem;" href="{{ url_for('gear.kit_page', kit_id=activity.kitId) }}">Open</a>{% endif %}
+  {% else %}
+  <a href="{{ url_for('gear.kit_form', rider=activity.riderId) }}">Add shoes or other gear</a><span style="color:var(--text-muted);font-size:.85rem;">to track how far they've gone and when they're due for replacing.</span>
+  {% endif %}
+  {% if gear_error %}<span style="color:#fecaca;">{{ gear_error }}</span>{% endif %}
+</div>
+{% endif %}
+
 {% if dups %}
 <div class="card" style="margin-bottom:1.25rem;border-color:var(--accent,#fc4c02);">
   <div style="font-weight:600;margin-bottom:.35rem;">This ride was also recorded by another device</div>
@@ -136,16 +154,18 @@ function typeChanged(sel) {
 </div>
 {% endif %}
 
-<!-- Stats grid -->
+<!-- Stats grid: what fits the sport (services/activity_detail.view): pace on foot and in the pool, runs and vertical on a ski day, no climb on the water -->
+{% set pl = detail.pool %}{% set ski = detail.ski %}
+{% set moved = activity.distance and activity.distance > 0 %}{# yoga, weights, a session with no distance: no distance, speed or climb to show #}
 <div class="stats-grid" style="margin-bottom:1.5rem;">
 
+  {% if moved %}
   <div class="stat-card">
-    <div class="stat-value">{{ activity.distance | fmt_dist }}</div>
+    <div class="stat-value">{% if pl %}{{ '{:,}'.format(pl.dist_m | int) }} m{% else %}{{ activity.distance | fmt_dist }}{% endif %}</div>
     <div class="stat-label">Distance</div>
-    {% if activity.distance and activity.movingTime %}
-      <div class="stat-sub">{{ (activity.distance / activity.movingTime) | fmt_pace }} pace</div>
-    {% endif %}
+    {% if pl %}<div class="stat-sub">{{ pl.lengths }} &times; {{ pl.pool_m | round(2) | replace('.0', '') }} m pool{% if pl.pool_unit == 'yd' %} ({{ (pl.pool_m / 0.9144) | round | int }} yd){% endif %}</div>{% endif %}
   </div>
+  {% endif %}
 
   <div class="stat-card">
     <div class="stat-value">{{ activity.movingTime | fmt_duration }}</div>
@@ -155,14 +175,46 @@ function typeChanged(sel) {
     {% endif %}
   </div>
 
+  {% if view == 'foot' %}
   <div class="stat-card">
-    <div class="stat-value">{{ activity.averageSpeed | fmt_speed }}</div>
+    <div class="stat-value">{{ avg_mps | fmt_pace }}</div>
+    <div class="stat-label">Avg Pace</div>
+    {% if detail.best_split %}<div class="stat-sub">{{ detail.best_split.mps | fmt_pace }} fastest {{ U.dist }}</div>{% endif %}
+  </div>
+  {% elif view == 'swim' %}
+  <div class="stat-card">
+    <div class="stat-value">{{ ((pl.dist_m / pl.secs) if pl and pl.secs else avg_mps) | fmt_swim_pace }}</div>
+    <div class="stat-label">Avg Pace</div>
+    {% if pl and pl.rest_secs %}<div class="stat-sub">{{ pl.secs | fmt_duration }} swimming, {{ pl.rest_secs | fmt_duration }} rest</div>{% endif %}
+  </div>
+  {% elif view == 'ski' and ski %}
+  <div class="stat-card">
+    <div class="stat-value">{{ ski.runs | length }}</div>
+    <div class="stat-label">Runs</div>
+    <div class="stat-sub">longest {{ ski.longest_m | fmt_dist }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ ski.top_mps | fmt_speed if ski.top_mps else activity.maxSpeed | fmt_speed }}</div>
+    <div class="stat-label">Top Speed</div>
+    <div class="stat-sub">{{ ski.run_secs | fmt_duration }} skiing, {{ ski.lift_secs | fmt_duration }} going up</div>
+  </div>
+  {% elif moved %}
+  <div class="stat-card">
+    <div class="stat-value">{{ avg_mps | fmt_speed }}</div>
     <div class="stat-label">Avg Speed</div>
     {% if activity.maxSpeed %}
       <div class="stat-sub">{{ activity.maxSpeed | fmt_speed }} max</div>
     {% endif %}
   </div>
+  {% endif %}
 
+  {% if view == 'ski' %}
+  <div class="stat-card">
+    <div class="stat-value">{{ (ski.drop_m if ski else elev_loss_m) | fmt_elev }}</div>
+    <div class="stat-label">Vertical Descent</div>
+    {% if activity.totalElevationGain %}<div class="stat-sub">&uarr; {{ activity.totalElevationGain | fmt_elev }} up, mostly lifts</div>{% endif %}
+  </div>
+  {% elif has_climbing and (moved or activity.totalElevationGain) %}
   <div class="stat-card">
     <div class="stat-value">{{ activity.totalElevationGain | fmt_elev }}</div>
     <div class="stat-label">Elevation Gain</div>
@@ -170,6 +222,22 @@ function typeChanged(sel) {
       <div class="stat-sub">↓ {{ elev_loss_m | fmt_elev }} loss</div>
     {% endif %}
   </div>
+  {% endif %}
+
+  {% if pl and pl.swolf %}
+  <div class="stat-card">
+    <div class="stat-value">{{ pl.swolf }}</div>
+    <div class="stat-label">Avg SWOLF</div>
+    <div class="stat-sub">{{ '{:,}'.format(pl.strokes) }} strokes, {{ (pl.strokes / pl.lengths) | round(1) }} a length</div>
+  </div>
+  {% endif %}
+
+  {% if activity.steps %}
+  <div class="stat-card">
+    <div class="stat-value">{{ '{:,}'.format(activity.steps) }}</div>
+    <div class="stat-label">Steps</div>
+  </div>
+  {% endif %}
 
   {% if activity.averageHeartrate %}
   <div class="stat-card">
@@ -191,7 +259,7 @@ function typeChanged(sel) {
   </div>
   {% endif %}
 
-  {% if activity.weightedAvgWatts %}
+  {% if activity.weightedAvgWatts and is_ride %}
   <div class="stat-card">
     <div class="stat-value">{{ activity.weightedAvgWatts | int }} W</div>
     <div class="stat-label">Weighted Avg Power</div>
@@ -203,8 +271,16 @@ function typeChanged(sel) {
 
   {% if activity.averageCadence %}
   <div class="stat-card">
+    {% if view == 'foot' %}
+    <div class="stat-value">{{ (activity.averageCadence * 2) | int }} spm</div>
+    <div class="stat-label">Avg Cadence</div>
+    {% elif view in ('swim', 'water') %}
+    <div class="stat-value">{{ activity.averageCadence | int }} spm</div>
+    <div class="stat-label">Stroke Rate</div>
+    {% else %}
     <div class="stat-value">{{ activity.averageCadence | int }} rpm</div>
     <div class="stat-label">Avg Cadence</div>
+    {% endif %}
   </div>
   {% endif %}
 
@@ -255,8 +331,8 @@ function typeChanged(sel) {
 <!-- Weather -->
 {% if activity.weatherSummary or not is_workout %}
 <div class="card" style="margin-bottom:1.5rem; padding:1rem 1.25rem;" id="weatherCard">
-  <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); font-weight:600; margin-bottom:0.75rem;">Weather at ride start</div>
-  {% if not activity.weatherSummary %}<div style="color:var(--text-muted); font-size:0.875rem; margin-bottom:0.5rem;">No weather was recorded for this ride{% if not is_workout %}; pick the conditions below and it will count in your analytics.{% endif %}</div>{% endif %}
+  <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); font-weight:600; margin-bottom:0.75rem;">Weather at the start</div>
+  {% if not activity.weatherSummary %}<div style="color:var(--text-muted); font-size:0.875rem; margin-bottom:0.5rem;">No weather was recorded for this {{ 'ride' if is_ride else 'activity' }}{% if not is_workout %}; pick the conditions below and it will count in your analytics.{% endif %}</div>{% endif %}
   <div style="display:flex; flex-wrap:wrap; gap:2rem; align-items:flex-start;">
 
     {% if activity.weatherTempC is not none %}
@@ -276,6 +352,7 @@ function typeChanged(sel) {
         <span style="font-size:0.8125rem; color:var(--text-muted); font-weight:400;">· gusts {{ activity.weatherGustKph | int }}</span>
         {% endif %}
       </div>
+      {% if view in ('ride', 'foot') %}{# into the wind or with it: a sail, a kite or a paddle goes every way the wind allows #}
       <div style="margin-top:0.35rem;">
         {% if activity.weatherWindRel == 'headwind' %}
           <span style="font-size:0.75rem; padding:0.15rem 0.45rem; border-radius:3px; font-weight:600; background:#7f1d1d; color:#fca5a5;">Headwind</span>
@@ -289,6 +366,7 @@ function typeChanged(sel) {
           <span style="font-size:0.8125rem; color:var(--text-muted);">Calm</span>
         {% endif %}
       </div>
+      {% endif %}
     </div>
     {% endif %}
 
@@ -369,7 +447,7 @@ function typeChanged(sel) {
 {% endif %}
 
 <!-- Map + Charts -->
-{% set has_charts = charts.elevation or charts.speed or charts.heartrate or charts.power or charts.cadence %}
+{% set has_charts = charts.elevation or charts.speed or charts.pace or charts.heartrate or charts.power or charts.cadence %}
 {% if coords or has_charts %}
 <div class="map-charts-grid {% if coords and has_charts %}has-both{% endif %}">
 
@@ -393,6 +471,12 @@ function typeChanged(sel) {
       <canvas id="speedChart"></canvas>
     </div>
     {% endif %}
+    {% if charts.pace %}
+    <div class="card">
+      <div class="card-title">Pace ({{ '/100 m' if view == 'swim' else U.pace }})</div>
+      <canvas id="paceChart"></canvas>
+    </div>
+    {% endif %}
     {% if charts.heartrate and not charts.elevation %}
     <div class="card">
       <div class="card-title">Heart Rate (bpm)</div>
@@ -407,7 +491,7 @@ function typeChanged(sel) {
     {% endif %}
     {% if charts.cadence %}
     <div class="card">
-      <div class="card-title">Cadence (rpm)</div>
+      <div class="card-title">{% if view == 'foot' %}Cadence (spm){% elif view in ('swim', 'water') %}Stroke rate (spm){% else %}Cadence (rpm){% endif %}</div>
       <canvas id="cadenceChart"></canvas>
     </div>
     {% endif %}
@@ -568,6 +652,112 @@ function openPhoto(a) {
 </div>
 {% endif %}
 
+<!-- What fits the sport (services/activity_detail): splits on foot and in open water, a pool swim's sets, a ski day's runs, the device's laps -->
+{% set th = 'padding:0.45rem 0.5rem; font-size:0.75rem; color:var(--text-muted); font-weight:600; text-align:right; white-space:nowrap;' %}
+{% set td = 'padding:0.45rem 0.5rem; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap;' %}
+{% if detail.splits %}
+<div class="card" style="margin-top:1rem; overflow-x:auto;" id="splitsCard">
+  <div class="card-title">Splits <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">per {{ '100 m' if view == 'swim' else U.dist }}, moving time</span></div>
+  {% set fastest = detail.best_split.mps if detail.best_split else None %}
+  <table style="width:100%; border-collapse:collapse; font-size:0.875rem;">
+    <thead><tr style="border-bottom:1px solid var(--border);">
+      <th style="{{ th }} text-align:left;">{{ '100 m' if view == 'swim' else U.dist | capitalize }}</th><th style="{{ th }}">Time</th><th style="{{ th }}">Pace</th>
+      {% if has_climbing and view != 'swim' %}<th style="{{ th }}">Up</th><th style="{{ th }}">Down</th>{% endif %}<th style="{{ th }}">HR</th>
+    </tr></thead>
+    <tbody>
+    {% for sp in detail.splits %}
+    <tr style="border-bottom:1px solid rgba(22,51,82,0.5);{% if fastest and sp.mps == fastest %} color:var(--accent);{% endif %}">
+      <td style="{{ td }} text-align:left;">{% if loop.last and sp.dist_m < detail.splits[0].dist_m %}{{ (sp.dist_m | int ~ ' m') if view == 'swim' else sp.dist_m | fmt_dist(2) }}{% else %}{{ sp.n }}{% endif %}</td>
+      <td style="{{ td }}">{{ sp.secs | fmt_duration }}</td>
+      <td style="{{ td }}">{{ sp.mps | fmt_swim_pace if view == 'swim' else sp.mps | fmt_pace }}</td>
+      {% if has_climbing and view != 'swim' %}<td style="{{ td }}">{{ sp.up_m | fmt_elev }}</td><td style="{{ td }}">{{ sp.down_m | fmt_elev }}</td>{% endif %}
+      <td style="{{ td }}">{{ sp.hr or '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if detail.pool %}{% set pl = detail.pool %}
+<div class="card" style="margin-top:1rem; overflow-x:auto;" id="poolCard">
+  <div class="card-title">Sets <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">{{ pl.lengths }} lengths{% for k, n in pl.by_stroke %}{{ ':' if loop.first else ',' }} {{ n }} {{ k | lower }}{% endfor %}</span></div>
+  <table style="width:100%; border-collapse:collapse; font-size:0.875rem;">
+    <thead><tr style="border-bottom:1px solid var(--border);">
+      <th style="{{ th }} text-align:left;">Set</th><th style="{{ th }} text-align:left;">Stroke</th><th style="{{ th }}">Distance</th><th style="{{ th }}">Time</th>
+      <th style="{{ th }}">Pace</th><th style="{{ th }}" title="Strokes a length">Strokes</th><th style="{{ th }}" title="Seconds plus strokes a length: lower is better">SWOLF</th><th style="{{ th }}">Rest</th>
+    </tr></thead>
+    <tbody>
+    {% for st in pl.sets %}
+    <tr style="border-bottom:1px solid rgba(22,51,82,0.5);">
+      <td style="{{ td }} text-align:left;">{{ st.n }}</td>
+      <td style="{{ td }} text-align:left;">{{ st.stroke or '—' }}</td>
+      <td style="{{ td }}">{{ st.lengths }} &times; {{ pl.pool_m | round(2) | replace('.0', '') }} m</td>
+      <td style="{{ td }}">{{ st.secs | fmt_duration }}</td>
+      <td style="{{ td }}">{{ st.mps | fmt_swim_pace }}</td>
+      <td style="{{ td }}">{{ st.strokes_per_length or '—' }}</td>
+      <td style="{{ td }}">{{ st.swolf or '—' }}</td>
+      <td style="{{ td }}">{{ st.rest_after | fmt_duration if st.rest_after else '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if detail.ski %}{% set ski = detail.ski %}
+<div class="card" style="margin-top:1rem; overflow-x:auto;" id="skiCard">
+  <div class="card-title">Runs <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">each descent of 30 m or more, read off the altitude; time is moving time</span></div>
+  <table style="width:100%; border-collapse:collapse; font-size:0.875rem;">
+    <thead><tr style="border-bottom:1px solid var(--border);">
+      <th style="{{ th }} text-align:left;">Run</th><th style="{{ th }} text-align:left;">Started</th><th style="{{ th }}">Vertical</th><th style="{{ th }}">Distance</th>
+      <th style="{{ th }}">Time</th><th style="{{ th }}">Avg</th><th style="{{ th }}">Top</th>
+    </tr></thead>
+    <tbody>
+    {% for r in ski.runs %}
+    <tr style="border-bottom:1px solid rgba(22,51,82,0.5);">
+      <td style="{{ td }} text-align:left;">{{ r.n }}</td>
+      <td style="{{ td }} text-align:left;">+{{ r.t | fmt_duration }}</td>
+      <td style="{{ td }}">{{ r.drop_m | fmt_elev }}</td>
+      <td style="{{ td }}">{{ r.dist_m | fmt_dist(2) if r.dist_m else '—' }}</td>
+      <td style="{{ td }}">{{ r.secs | fmt_duration }}</td>
+      <td style="{{ td }}">{{ r.mps | fmt_speed if r.mps else '—' }}</td>
+      <td style="{{ td }}">{{ r.top_mps | fmt_speed if r.top_mps else '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if detail.laps %}
+<div class="card" style="margin-top:1rem; overflow-x:auto;" id="lapsCard">
+  <div class="card-title">Laps <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">as the device recorded them</span></div>
+  {% set any_hr = detail.laps | selectattr('hr') | list %}{% set any_watts = detail.laps | selectattr('watts') | list %}{% set any_cad = detail.laps | selectattr('cad') | list %}
+  <table style="width:100%; border-collapse:collapse; font-size:0.875rem;">
+    <thead><tr style="border-bottom:1px solid var(--border);">
+      <th style="{{ th }} text-align:left;">Lap</th><th style="{{ th }}">Distance</th><th style="{{ th }}">Time</th><th style="{{ th }}">{{ 'Speed' if view not in ('foot', 'swim') else 'Pace' }}</th>
+      {% if has_climbing and view not in ('swim',) %}<th style="{{ th }}">Up</th>{% endif %}
+      {% if any_hr %}<th style="{{ th }}">HR</th>{% endif %}{% if any_watts %}<th style="{{ th }}">Power</th>{% endif %}{% if any_cad %}<th style="{{ th }}">{{ 'Cadence' if view in ('ride', 'foot', 'other') else 'Strokes/min' }}</th>{% endif %}
+    </tr></thead>
+    <tbody>
+    {% for l in detail.laps %}
+    <tr style="border-bottom:1px solid rgba(22,51,82,0.5);">
+      <td style="{{ td }} text-align:left;">{{ l.n }}</td>
+      <td style="{{ td }}">{% if view == 'swim' %}{{ (l.dist or 0) | int }} m{% else %}{{ l.dist | fmt_dist(2) if l.dist else '—' }}{% endif %}</td>
+      <td style="{{ td }}">{{ l.secs | fmt_duration if l.secs else '—' }}</td>
+      <td style="{{ td }}">{% if view == 'swim' %}{{ l.mps | fmt_swim_pace }}{% elif view == 'foot' %}{{ l.mps | fmt_pace }}{% else %}{{ l.mps | fmt_speed if l.mps else '—' }}{% endif %}</td>
+      {% if has_climbing and view not in ('swim',) %}<td style="{{ td }}">{{ l.up | fmt_elev if l.up is not none else '—' }}</td>{% endif %}
+      {% if any_hr %}<td style="{{ td }}">{{ l.hr | int if l.hr else '—' }}</td>{% endif %}
+      {% if any_watts %}<td style="{{ td }}">{{ (l.watts | int ~ ' W') if l.watts else '—' }}</td>{% endif %}
+      {% if any_cad %}<td style="{{ td }}">{{ ((l.cad * 2) if view == 'foot' else l.cad) | int if l.cad else '—' }}</td>{% endif %}
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <!-- Segments -->
 
 {% if coords %}
@@ -686,11 +876,10 @@ function openPhoto(a) {
 </div>
 {% endif %}
 
-{% if not is_workout %}
-<!-- Ride Notes -->
+<!-- Notes -->
 <div class="card" style="margin-top:1rem;">
-  <div class="card-title">Ride Notes</div>
-  <p style="font-size:0.8125rem; color:var(--text-muted); margin:0 0 0.75rem;">Anything the AI should know — GPS dropout, mechanical, cut short, how you felt, etc.</p>
+  <div class="card-title">{{ 'Ride Notes' if is_ride else 'Notes' }}</div>
+  <p style="font-size:0.8125rem; color:var(--text-muted); margin:0 0 0.75rem;">{% if is_ride %}Anything the AI should know — GPS dropout, mechanical, cut short, how you felt, etc.{% else %}Anything worth remembering: how it went, how you felt, what was different.{% endif %}</p>
   <textarea id="rideNotes" rows="3" style="width:100%; box-sizing:border-box; background:var(--surface,#0f2535); color:var(--text); border:1px solid var(--border,#1e4060); border-radius:6px; padding:0.6rem 0.75rem; font-size:0.9375rem; font-family:inherit; resize:vertical; line-height:1.5;">{{ activity.notes or '' }}</textarea>
   <div style="display:flex; align-items:center; gap:0.75rem; margin-top:0.6rem;">
     <button class="btn btn-secondary" onclick="saveNotes('{{ activity.id }}')">Save notes</button>
@@ -698,7 +887,6 @@ function openPhoto(a) {
   </div>
 </div>
 
-{% endif %}
 
 <!-- AI Coaching Analysis -->
 {% if is_ride %}
@@ -1080,6 +1268,28 @@ function makeChart(id, data, color) {
   });
 }
 
+// Pace in seconds per mile / km / 100 m: faster at the top, minutes and seconds on the axis. A gap is a stop.
+function makePaceChart(id, data, color) {
+  var mmss = function (v) { v = Math.round(v); return Math.floor(v / 60) + ':' + String(v % 60).padStart(2, '0'); };
+  var vals = data.values.filter(function (v) { return v; }).sort(function (a, b) { return a - b; });
+  var cap = vals.length ? vals[Math.floor(vals.length * 0.95)] * 1.15 : null;      // a slow shuffle at a junction shouldn't squash the rest
+  new Chart(document.getElementById(id), {
+    type: 'line',
+    data: { labels: data.labels, datasets: [{ data: data.values.map(function (v) { return v && cap && v > cap ? cap : v; }), borderColor: color,
+            borderWidth: 1.5, pointRadius: 0, fill: false, spanGaps: false }] },
+    options: {
+      animation: false,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false,
+        callbacks: { title: function (ctx) { return ctx[0].label + ' ' + UNITS.dist; }, label: function (ctx) { return mmss(ctx.parsed.y); } } } },
+      scales: {
+        x: { ticks: { color: '#4d7d95', font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false } },
+        y: { reverse: true, ticks: { color: '#4d7d95', font: { size: 10 }, callback: mmss }, grid: { color: '#163352' } }
+      }
+    }
+  });
+}
+
 function makeElevHrChart(id, elevData, hrData) {
   new Chart(document.getElementById(id), {
     type: 'line',
@@ -1115,6 +1325,7 @@ makeElevHrChart('elevChart', {{ charts.elevation | tojson }}, {{ charts.heartrat
 makeChart('elevChart', {{ charts.elevation | tojson }}, 'rgb(16,185,129)');
 {% endif %}
 {% if charts.speed %}makeChart('speedChart',  {{ charts.speed | tojson }},     'rgb(14,165,233)');{% endif %}
+{% if charts.pace %}makePaceChart('paceChart', {{ charts.pace | tojson }}, 'rgb(14,165,233)');{% endif %}
 {% if charts.heartrate and not charts.elevation %}makeChart('hrChart', {{ charts.heartrate | tojson }}, 'rgb(239,68,68)');{% endif %}
 {% if charts.power %}makeChart('powerChart', {{ charts.power | tojson }},       'rgb(252,76,2)');{% endif %}
 {% if charts.cadence %}makeChart('cadenceChart', {{ charts.cadence | tojson }}, 'rgb(168,85,247)');{% endif %}
