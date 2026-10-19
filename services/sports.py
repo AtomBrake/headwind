@@ -94,6 +94,34 @@ def is_ebike(sport):
     return s.startswith('ebike') or s.startswith('emountainbike')
 
 
+_TYPE_NEEDLES = (('run', 'Run'), ('walk', 'Walk'), ('hik', 'Hike'), ('mountaineer', 'Hike'), ('swim', 'Swim'), ('surf', 'Surf'),
+                 ('paddl', 'Paddle'), ('kayak', 'Paddle'), ('canoe', 'Paddle'), ('raft', 'Paddle'), ('row', 'Row'),
+                 ('ski', 'Ski'), ('snowboard', 'Ski'), ('skat', 'Skate'), ('golf', 'Golf'), ('climb', 'Climb'))
+_INDOOR_SUBS = ('indoor_cycling', 'virtual_activity')
+
+
+def from_type(type_key, sub=None):
+    """A device's or service's name for a sport -> one of SPORTS. Garmin Connect's activity type ('mountain_biking', 'lap_swimming'), a FIT
+    file's sport with its sub-sport ('cycling' + 'e_bike_mountain', 'alpine_skiing'), a GPX <type> ('EMountainBikeRide', 'trail_running',
+    'StandUpPaddling') or a TCX Sport. Rides are Ride / VirtualRide / EBikeRide; anything not recognised is 'Other', never a ride: a ski day
+    saved as a ride breaks the ride totals, the segments and the bike's mileage."""
+    k = str(type_key if type_key is not None else '').lower()
+    s = str(sub if sub is not None else '').lower()
+    if 'motor' in k or 'snowmobil' in k:                      # motorcycling, motocross: 'cycl' but not a bike ride
+        return 'Other'
+    bike = 'cycl' in k or 'bik' in k or k in ('ride', 'bmx')
+    if k in ('indoor_cycling', 'virtual_ride') or ('virtual' in k and (bike or 'ride' in k)) or (bike and s in _INDOOR_SUBS):
+        return 'VirtualRide'
+    if is_ebike(k) or (k.startswith('e_') and ('bik' in k or 'mtb' in k)) or (bike and s.startswith('e_bike')):
+        return 'EBikeRide'                                    # e_bike_fitness, e_enduro_mtb, Strava's EMountainBikeRide, FIT's cycling + e_bike_mountain
+    if bike:
+        return 'Ride'
+    for needle, sport in _TYPE_NEEDLES:
+        if needle in k:
+            return sport
+    return 'Other'
+
+
 def segment_family(sport):
     """'ride', 'foot' or None (no segments). Pedal and e-bike rides share the ride segments; an indoor ride has none."""
     s = _squash(sport)
