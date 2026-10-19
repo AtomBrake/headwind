@@ -44,7 +44,7 @@ def fix_utc_starts(db):
     db.execute('UPDATE Settings SET utcStartFixDone=1 WHERE id=1')
     db.commit()
     if moved:
-        log.warning('Start times: moved %d imported ride(s) from UTC to local time; %d turned out to be a ride already here', len(moved), found)
+        log.info('Start times: moved %d imported ride(s) from UTC to local time; %d turned out to be a ride already here', len(moved), found)
     return {'moved': len(moved), 'duplicates': found, 'ran': True}
 
 

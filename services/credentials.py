@@ -89,7 +89,8 @@ def admin_login():
     except OSError as e:
         log.warning('Could not persist generated admin password (%s)', e)
     log.warning('\n%s\n  No admin password configured — generated one for first login:\n    username: %s\n    password: %s\n'
-                '  Change it under Settings. Stored in %s\n%s', '=' * 64, env_user, pw, _login_file(), '=' * 64)
+                '  Change it under Settings. Stored in %s\n%s', '=' * 64, env_user, pw, _login_file(), '=' * 64,
+                extra={'console_only': True})         # shown in `docker logs` as is, never written to the log file (services/logs.py)
     return env_user, pw, True
 
 

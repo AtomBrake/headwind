@@ -1,3 +1,4 @@
+import logging
 import json
 import re
 from flask import Blueprint, abort, current_app, redirect, render_template, request, send_from_directory, url_for
@@ -5,6 +6,8 @@ from database import query_db, get_db
 from services import sports
 from routes.riders import _compute_badges
 from services.ai import PERSONALITIES
+
+log = logging.getLogger(__name__)
 
 bp = Blueprint('rides', __name__)
 
@@ -92,7 +95,7 @@ def detail(rid):
         try:
             streams = json.loads(activity['streams'])
         except Exception:
-            pass
+            log.warning('Activity streams are not valid JSON', exc_info=True)
 
     # Prefer the raw latlng GPS stream — it's the same source the segment
     # matching algorithm uses, so segment snap coordinates are always consistent.
@@ -103,7 +106,7 @@ def detail(rid):
             import polyline as pl
             coords = pl.decode(activity['summaryPolyline'])
         except Exception:
-            pass
+            log.warning('Activity summary polyline would not decode', exc_info=True)
 
     from services import units
     charts = {
@@ -393,7 +396,7 @@ def gpx_for(activity):
         try:
             streams = json.loads(activity['streams'])
         except Exception:
-            pass
+            log.warning('Activity streams are not valid JSON', exc_info=True)
     latlng     = (streams.get('latlng')    or {}).get('data') or []
     altitude   = (streams.get('altitude')  or {}).get('data') or []
     time_data  = (streams.get('time')      or {}).get('data') or []
@@ -496,7 +499,7 @@ def bulk():
         if 'workout' in res['kinds']:
             push_update_nutrition()
     except Exception:
-        pass
+        log.warning('Home Assistant update after a bulk edit failed', exc_info=True)
     verb = {'delete': 'Deleted', 'sport': 'Changed the type of', 'bike': 'Set the bike on', 'rider': 'Moved',
             'rename': 'Renamed', 'dismiss': 'Cleared the flag on', 'commute': 'Marked'}[action]
     n = res['done']
@@ -605,7 +608,7 @@ def bulk_sport():
         from services.mqtt import push_update, push_update_nutrition
         push_update(background=True); push_update_nutrition()
     except Exception:
-        pass
+        log.warning('Home Assistant update after a bulk change failed', exc_info=True)
     sep = '&' if '?' in back else '?'
     return redirect(back + sep + 'typed=' + quote(f'{changed}|{skipped}|{sport}'))
 
@@ -629,7 +632,7 @@ def _recording(row, label, t0):
             import polyline as pl
             coords = pl.decode(row['summaryPolyline'])
         except Exception:
-            pass
+            log.warning('Activity summary polyline would not decode', exc_info=True)
     start = start_instant(row)
     offset = (start - t0).total_seconds() if start and t0 else 0
     times = (streams.get('time') or {}).get('data') or []

@@ -225,6 +225,7 @@ def probe():
             return jsonify({'riders': [{'id': None, 'name': 'Default rider', 'isDefault': 1}]})
         return jsonify({'error': f'HTTP {e.code} from remote instance'})
     except Exception as e:
+        log.warning('Fetching riders from a friend failed', exc_info=True)
         return jsonify({'error': f'Could not connect: {e}'})
 
 

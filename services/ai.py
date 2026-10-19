@@ -1,5 +1,10 @@
+import logging
+import time
+
 from openai import OpenAI
 from database import query_db
+
+log = logging.getLogger(__name__)
 
 PERSONALITIES = {
     'default': {
@@ -196,7 +201,17 @@ class Chat:
         return PROVIDER_NAMES.get(self.provider, self.provider)
 
     def __call__(self, messages, system=None, max_tokens=1000, temperature=None, json=False):
-        """Returns the reply text. json=True asks for a JSON object (the prompt must say so too)."""
+        """Returns the reply text. json=True asks for a JSON object (the prompt must say so too). Each call is logged with its time."""
+        t0 = time.monotonic()
+        try:
+            reply = self._ask(messages, system, max_tokens, temperature, json)
+        except Exception as e:
+            log.warning('AI %s %s failed after %.1fs: %s: %s', self.name, self.model, time.monotonic() - t0, type(e).__name__, e)
+            raise
+        log.info('AI %s %s replied in %.1fs (%d characters)', self.name, self.model, time.monotonic() - t0, len(reply or ''))
+        return reply
+
+    def _ask(self, messages, system, max_tokens, temperature, json):
         if self.provider == 'claude':
             return self._claude(messages, system, json)
         msgs = ([{'role': 'system', 'content': system}] if system else []) + [
@@ -372,7 +387,7 @@ def generate_analysis(activity, personality_key=None):
                 elif drift < -5:
                     hr_line += f' | HR fell {abs(drift):.0f}bpm first→last third (fading effort / pacing off)'
         except Exception:
-            pass
+            log.debug('HR drift for the AI prompt failed', exc_info=True)
 
         current += hr_line + '\n'
     if activity['averageCadence']:
