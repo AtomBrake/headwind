@@ -105,6 +105,13 @@ def _windowed_max_speed(streams, window_s=10):
     return best if best > 0 else None
 
 
+def sensor_fault(streams):
+    """True when the device's distance ran well ahead of the GPS (services/best_efforts.sensor_excess_m): an Edge's speed sensor that logged
+    134 km/h for five minutes. The top speed is then no more than the GPS shows (extremes_from_streams), and the device's own is not used."""
+    from services.best_efforts import SENSOR_FAULT_M, sensor_excess_m
+    return sensor_excess_m(streams) > SENSOR_FAULT_M
+
+
 def extremes_from_streams(streams):
     """Max speed / heart rate / power / cadence from the streams, ignoring impossible spikes. Missing -> absent keys."""
     out = {}
@@ -112,6 +119,9 @@ def extremes_from_streams(streams):
         vals = [v for v in ((streams.get(key) or {}).get('data') or []) if v is not None and 0 < v <= cap]
         return max(vals) if vals else None
     spd = mx('velocity_smooth', _MAX_PLAUSIBLE['speed'])
+    if sensor_fault(streams):                  # the speed sensor went wrong: no faster than the GPS shows (never faster: a noisy GPS overstates)
+        gps = _windowed_max_speed({k: v for k, v in streams.items() if k in ('time', 'latlng')})
+        spd = min(v for v in (spd, gps) if v is not None) if (spd is not None or gps is not None) else None
     if spd is None:
         spd = _windowed_max_speed(streams)
     for name, val in (('maxSpeed', spd), ('maxHeartrate', mx('heartrate', _MAX_PLAUSIBLE['hr'])),
@@ -318,6 +328,8 @@ def parse_fit(data: bytes):
     extremes = extremes_from_streams(streams)
     dev_max = {'maxSpeed': s.get('enhanced_max_speed') if s.get('enhanced_max_speed') is not None else s.get('max_speed'),
                'maxHeartrate': s.get('max_heart_rate'), 'maxWatts': s.get('max_power'), 'maxCadence': s.get('max_cadence')}
+    if sensor_fault(streams):
+        dev_max.pop('maxSpeed')                          # the faulty sensor's: extremes_from_streams has the GPS's
     for k, v in dev_max.items():
         try:
             v = float(v)
@@ -610,6 +622,8 @@ def parse_tcx(data: bytes):
     hr, watts, cad = raw('heartrate'), raw('watts'), raw('cadence', lambda v: v > 0)     # Garmin's average cadence leaves out coasting
 
     extremes = extremes_from_streams(streams)
+    if sensor_fault(streams):
+        dev_max.pop('maxSpeed', None)                    # the faulty sensor's: extremes_from_streams has the GPS's
     for k, v in dev_max.items():
         if v and 0 < v <= {'maxSpeed': _MAX_PLAUSIBLE['speed'], 'maxHeartrate': _MAX_PLAUSIBLE['hr']}[k]:
             extremes[k] = round(v, 3) if k == 'maxSpeed' else round(v, 1)

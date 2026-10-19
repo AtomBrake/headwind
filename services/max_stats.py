@@ -68,3 +68,30 @@ def fix_spiky_max_speed(db):
     if fixed:
         log.warning('Top speed recomputed for %d ride(s) whose stored top speed was a GPS spike', fixed)
     return fixed
+
+
+def fix_sensor_top_speed(db):
+    """Run once (Settings.sensorTopSpeedDone): every activity whose device distance ran well ahead of its GPS (a speed sensor gone wrong:
+    parser.sensor_fault) gets a top speed no faster than its GPS shows, which is what imports now do. Commits. Returns [(id, name, old, new)] in m/s."""
+    from services.parser import extremes_from_streams, sensor_fault
+    s = db.execute('SELECT sensorTopSpeedDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['sensorTopSpeedDone']:
+        return None
+    fixed = []
+    ids = [r[0] for r in db.execute("SELECT id FROM Activity WHERE streams LIKE '%\"distance\"%' AND streams LIKE '%\"latlng\"%'")]
+    for i in range(0, len(ids), 50):
+        chunk = ids[i:i + 50]
+        for r in db.execute(f"SELECT id, name, maxSpeed, streams FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
+            try:
+                streams = json.loads(r['streams'] or '{}')
+            except (TypeError, ValueError):
+                continue
+            if not sensor_fault(streams):
+                continue
+            new = extremes_from_streams(streams).get('maxSpeed')
+            if new and new < (r['maxSpeed'] or 0) - 0.01:                       # only ever lower: a noisy GPS can overstate
+                db.execute('UPDATE Activity SET maxSpeed=? WHERE id=?', [new, r['id']])
+                fixed.append((r['id'], r['name'], r['maxSpeed'], new))
+    db.execute('UPDATE Settings SET sensorTopSpeedDone=1 WHERE id=1')
+    db.commit()
+    return fixed
