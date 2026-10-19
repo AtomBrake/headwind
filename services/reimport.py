@@ -8,7 +8,8 @@ import json
 # Activity columns an import can supply (calories handled separately, through the burn adjustment)
 COLUMNS = ('distance', 'movingTime', 'elapsedTime', 'totalElevationGain', 'averageSpeed', 'maxSpeed', 'averageHeartrate', 'maxHeartrate',
            'averageWatts', 'maxWatts', 'averageCadence', 'startLat', 'startLng', 'streams', 'startDate', 'startDateLocal')
-STREAM_NAMES = {'latlng': 'GPS', 'altitude': 'altitude', 'heartrate': 'heart rate', 'watts': 'power', 'cadence': 'cadence', 'velocity_smooth': 'speed'}
+STREAM_NAMES = {'latlng': 'GPS', 'altitude': 'altitude', 'heartrate': 'heart rate', 'watts': 'power', 'cadence': 'cadence', 'velocity_smooth': 'speed',
+                'distance': 'distance'}
 
 
 def ensure_schema(db):
@@ -41,6 +42,15 @@ def _dur(secs):
     return f'{h}:{r // 60:02d}:{r % 60:02d}' if h else f'{r // 60}:{r % 60:02d}'
 
 
+def _span(v):
+    """Seconds from the first point of a track to the last, or None."""
+    try:
+        t = ((json.loads(v) if isinstance(v, str) else (v or {})).get('time') or {}).get('data') or []
+    except (ValueError, AttributeError):
+        return None
+    return t[-1] - t[0] if len(t) > 1 else None
+
+
 def _seconds_apart(a, b):
     from services.duplicates import instant
     ia, ib = instant(a), instant(b)
@@ -66,6 +76,9 @@ def differences(saved, act):
         apart = _seconds_apart(saved['startDateLocal'], act['startDateLocal'])
         if apart is not None and apart > 120:
             out.append({'label': 'Start', 'old': str(saved['startDateLocal'])[:16].replace('T', ' '), 'new': str(act['startDateLocal'])[:16].replace('T', ' ')})
+    old_span, new_span = _span(saved['streams']), _span(act.get('streams'))
+    if old_span and new_span and abs(old_span - new_span) > 60:          # cropped on Strava (or the file holds more than was saved)
+        out.append({'label': 'Track', 'old': _dur(old_span) + ' recorded', 'new': _dur(new_span) + ' recorded'})
     old_s, new_s = _streams(saved['streams']), _streams(act.get('streams'))
     if new_s - old_s:
         name = lambda s: ', '.join(STREAM_NAMES.get(k, k) for k in sorted(s) if k in STREAM_NAMES) or 'none'
@@ -95,7 +108,7 @@ def propose(db, saved, act, source):
     diffs = differences(saved, act)
     if not diffs:
         return False
-    keep = {k: act.get(k) for k in COLUMNS + ('calories', 'name') if act.get(k) is not None}
+    keep = {k: act.get(k) for k in COLUMNS + ('calories', 'name', 'cropped') if act.get(k) is not None}
     db.execute('INSERT OR REPLACE INTO ImportChange (rideId, riderId, rideName, source, diffs, act) VALUES (?,?,?,?,?,?)',
                [saved['id'], saved['riderId'], saved['name'], source, json.dumps(diffs), json.dumps(keep)])
     return True
@@ -123,7 +136,8 @@ def resolve(db, ride_id, choice):
     sets = {}
     for col in COLUMNS:
         new = act.get(col)
-        if _empty(new) or (choice == 'fill' and not _empty(saved[col])):
+        flat = col == 'totalElevationGain' and new == 0 and act.get('cropped')     # a crop on Strava that kept no climb: 0 is the figure
+        if (_empty(new) and not flat) or (choice == 'fill' and not _empty(saved[col])):
             continue
         sets[col] = new
     if choice == 'fill' and not _empty(saved['streams']) and not _empty(act.get('streams')):     # add the streams the saved ride lacks, keep its own
