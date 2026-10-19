@@ -166,7 +166,7 @@ def delete_bike(db, bike_id):
     try:                                                    # a Strava bike matched to it waits to be matched again (services/strava_gear.py)
         db.execute("UPDATE StravaBike SET bikeId=NULL, status='new' WHERE bikeId=?", [bike_id])
     except Exception:                                       # no StravaBike table (a bare test database)
-        pass
+        log.debug('Unmatching Strava bikes from a deleted bike failed', exc_info=True)
     db.execute('DELETE FROM Bike WHERE id=?', [bike_id])
 
 

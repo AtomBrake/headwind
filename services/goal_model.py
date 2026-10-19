@@ -11,9 +11,12 @@ A heavy or missed ride day never changes the goal; as weight falls, BMR falls an
 
 Macros follow: protein by body weight, fat as a share of calories, carbs take the remainder.
 """
+import logging
 from datetime import date, datetime, timedelta
 
 from database import get_db, query_db
+
+log = logging.getLogger(__name__)
 
 DEFAULT_RIDE_KCAL_WEEK = 3500   # net calories from a typical week of riding (about 2 rides)
 FLOOR_X_BMR = 1.1
@@ -148,7 +151,7 @@ def auto_update():
             from services.mqtt import push_update_nutrition
             push_update_nutrition()
         except Exception:
-            pass
+            log.warning('Home Assistant nutrition update after the goal changed failed', exc_info=True)
         return pl
     return None
 
@@ -216,7 +219,7 @@ def plan_status(rider_id=None):
         from services import insights
         rate = insights.weight_rate_kg_per_week(rider_id)
     except Exception:
-        pass
+        log.debug('Weight rate for the goal model failed', exc_info=True)
     loss_lb_wk = round(-rate * LB, 2) if rate is not None else None
     for d in downs:
         d['days'] = round(d['away_lb'] / loss_lb_wk * 7) if loss_lb_wk and loss_lb_wk > 0.05 else None
