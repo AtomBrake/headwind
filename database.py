@@ -422,6 +422,8 @@ def migrate_db():
         ('dupNameFixDone',       'INTEGER DEFAULT 0'),   # merged activities given back the name chosen on the copy set aside (services/duplicates.recover_names)
         ('segmentFamiliesDone',  'INTEGER DEFAULT 0'),   # segments split into ride / on foot, efforts and PRs picked again (services/segments.regroup)
         ('segmentBikesMergedDone', 'INTEGER DEFAULT 0'), # 0.7.3's e-bike segments merged into the ride ones, PRs per pedal / e-bike (services/segments.merge_bikes)
+        ('movingTimeFixDone',      'INTEGER DEFAULT 0'), # moving times a broken lap timer made a few seconds, taken from the track (services/moving_time.repair)
+        ('segmentMatchFixDone',    'INTEGER DEFAULT 0'), # 0.7.7's matching fixes: loops cut again, tracks realigned, every segment matched again (services/segments.repair_matching)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
         ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
@@ -924,6 +926,27 @@ def migrate_db():
                       f"{res['merged']} e-bike segment{'s' if res['merged'] != 1 else ''} became ride segment{'s' if res['merged'] != 1 else ''}; "
                       f"{res['found']} new effort{'s' if res['found'] != 1 else ''} from {res['scanned']} ride{'s' if res['scanned'] != 1 else ''}; "
                       f"{res['prs_moved']} segment PR{'s' if res['prs_moved'] != 1 else ''} changed (pedal and e-bike PRs are kept apart)")
+        db.commit()
+    from services import moving_time as _moving_time
+    res = _moving_time.repair(db)
+    if res.get('fixed'):
+        n = len(res['fixed'])
+        _tasks.record(db, 'startup:moving_time', 'Moving times put right',
+                      f"{n} activit{'y' if n == 1 else 'ies'} whose device recorded a moving time of seconds for the whole ride (a Garmin that went flat "
+                      "or restarted) now take it from the track, as Strava does: "
+                      + '; '.join(f"{f[1] or f[0]} ({f[2]} s → {f[3] // 60} min)" for f in res['fixed'][:5]) + ('…' if n > 5 else '') + '.')
+        db.commit()
+    from services.segments import repair_matching as _repair_matching
+    res = _repair_matching(db)
+    if res.get('ran') and db.execute('SELECT 1 FROM Segment LIMIT 1').fetchone():
+        _tasks.record(db, 'startup:segment_matching', 'Segment times checked again',
+                      f"Every segment was matched again with the impossible-time fixes: {res['before']:,} efforts before, {res['after']:,} now; "
+                      f"{res['prs_moved']} segment PR{'s' if res['prs_moved'] != 1 else ''} changed. "
+                      f"{res['loops']} loop segment{'s' if res['loops'] != 1 else ''} cut again from the ride{'s' if res['loops'] != 1 else ''} "
+                      f"{'they were' if res['loops'] != 1 else 'it was'} made on. {res['realigned']} track{'s' if res['realigned'] != 1 else ''} "
+                      "whose GPS and times were out of step put right"
+                      + (f"; {res['misaligned']} more can't be put right here, and their segment times are left out until they're imported "
+                         "again from their files (the same Strava export or file: they're repaired as they come in)" if res['misaligned'] else '') + '.')
         db.commit()
     from services.reimport import ensure_schema as _reimport_schema
     _reimport_schema(db)
