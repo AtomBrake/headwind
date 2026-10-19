@@ -2,7 +2,17 @@
 broken (the 1000x distances, a GPX whose times couldn't be read) could never be repaired by importing again. Now the file is read anyway and
 compared with the saved ride. Identical within rounding: skipped as before. Different: nothing is overwritten on the spot; the differences are kept
 (ImportChange) and listed on the Import page, where the rider picks for each ride: keep the saved one, use the import, or fill in only what the
-saved ride is missing. The rider's own edits (name, bike, notes, type, a dismissed flag) are never touched."""
+saved ride is missing. The rider's own edits (name, bike, notes, type, a dismissed flag) are never touched.
+
+Reading every file again is most of an import's time (a FIT file is about half a second), so a file that can't give anything new is not read
+(ImportSeen). Each one imported is remembered with a fingerprint of everything that decides what comes out of it: the file (the zip's CRC and
+size), its row in a Strava export's activities.csv, the rider, and reader_version(), a hash of the code that reads files and compares them with
+what's saved (READER_MODULES) and of the file libraries' versions. When all of that is the same and the activity is still saved, the import
+skips it. A Headwind release that changes how files are read changes reader_version() by itself, so the next import reads every file again
+and picks up what's new (0.7.9-beta's laps and pool lengths, say): nothing has to be remembered to bump."""
+import hashlib
+import importlib
+import inspect
 import json
 
 # Activity columns an import can supply (calories handled separately, through the burn adjustment)
@@ -22,6 +32,74 @@ def ensure_schema(db):
         diffs     TEXT NOT NULL,             -- [{label, old, new}] for the page
         act       TEXT NOT NULL              -- the imported ride, normalised (startDate / startDateLocal split as _insert stores them)
     )''')
+    db.execute('''CREATE TABLE IF NOT EXISTS ImportSeen (
+        sourceKey   TEXT PRIMARY KEY,        -- 'strava:<activity id>' for an export's row, 'file:<crc>:<size>' for a file in a zip
+        activityId  TEXT NOT NULL,           -- what it was saved as, or compared with
+        fingerprint TEXT NOT NULL,           -- fingerprint(): the file, its activities.csv row, the rider, reader_version()
+        seenAt      TEXT
+    )''')
+
+
+# The code that decides what an import makes of a file: reading it (parser, with best_efforts' sensor check and sports' water test), the export's
+# own figures and crops (routes.import_rides), and the comparison with what's saved (reimport, with duplicates' time parsing).
+# tests/test_import_seen.py checks every module the parser imports is here.
+READER_MODULES = ('services.parser', 'services.best_efforts', 'services.sports', 'services.reimport', 'services.duplicates', 'routes.import_rides')
+READER_LIBRARIES = ('fitparse', 'gpxpy')        # a FIT library that replaces fitparse goes here too
+_reader_version = None
+
+
+def reader_version():
+    """A hash of READER_MODULES' source and READER_LIBRARIES' versions: it changes whenever a release changes how files are read. Where the
+    source can't be read (the Windows build ships compiled code), Headwind's version stands in for it, so every release reads files again."""
+    global _reader_version
+    if _reader_version is None:
+        h = hashlib.sha1()
+        for name in READER_MODULES:
+            try:
+                src = inspect.getsource(importlib.import_module(name))
+            except (OSError, TypeError):
+                from version import __version__
+                src = 'version ' + __version__
+            h.update(name.encode() + b'\0' + src.encode() + b'\0')
+        from importlib import metadata
+        for lib in READER_LIBRARIES:
+            try:
+                h.update(f'{lib}={metadata.version(lib)}\0'.encode())
+            except metadata.PackageNotFoundError:
+                h.update(f'{lib}=none\0'.encode())
+        _reader_version = h.hexdigest()[:16]
+    return _reader_version
+
+
+def fingerprint(*parts):
+    """What an import of one activity depends on, with reader_version(): the same fingerprint means reading it again can't find anything new."""
+    h = hashlib.sha1(reader_version().encode())
+    for p in parts:
+        h.update(b'\0' + (p if isinstance(p, str) else json.dumps(p, sort_keys=True, default=str)).encode())
+    return h.hexdigest()
+
+
+def zip_fingerprint(zf, name):
+    """The zip's own record of a file (CRC-32 and size), read from its directory: free, without opening the file. '' when it's not there."""
+    try:
+        info = zf.getinfo(name)
+    except KeyError:
+        return ''
+    return f'{info.CRC:08x}:{info.file_size}'
+
+
+def unchanged(db, source_key, fp):
+    """True when this file was imported with this fingerprint and its activity is still saved, or still set aside as a duplicate of one that is
+    (a deleted one isn't: a file you import yourself may bring it back): nothing to read."""
+    return bool(db.execute("""SELECT 1 FROM ImportSeen s WHERE s.sourceKey=? AND s.fingerprint=?
+                                AND (EXISTS (SELECT 1 FROM Activity a WHERE a.id = s.activityId)
+                                     OR EXISTS (SELECT 1 FROM ActivityDuplicate d WHERE d.id = s.activityId AND d.status = 'parked'))""",
+                           [source_key, fp]).fetchone())
+
+
+def remember(db, source_key, act_id, fp):
+    """Note that this file was read in full and compared with (or saved as) act_id. Does not commit."""
+    db.execute("INSERT OR REPLACE INTO ImportSeen (sourceKey, activityId, fingerprint, seenAt) VALUES (?,?,?,datetime('now'))", [source_key, act_id, fp])
 
 
 def _empty(v):
