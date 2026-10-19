@@ -50,7 +50,7 @@ def resolve_change(ride_id, choice):
             from services.mqtt import push_update
             push_update(background=True)
         except Exception:
-            pass
+            log.warning('Home Assistant update after the import failed', exc_info=True)
     n = len(ids)
     flash({'keep': f"Kept the saved version of {n} ride{'s' if n != 1 else ''}.",
            'replace': f"Updated {changed} ride{'s' if changed != 1 else ''} from the import.",
@@ -101,7 +101,7 @@ def upload():
                     with zipfile.ZipFile(tmp.name) as zf:
                         check_zip(zf)
                         names = set(zf.namelist())
-                        log.warning('Import started — %d files in zip, has_csv=%s',
+                        log.info('Import started — %d files in zip, has_csv=%s',
                                     len(names), 'activities.csv' in names)
                         if 'activities.csv' in names:
                             gen = _process_strava_export(zf, names, rider_id, segments=opt_segments, photos=opt_photos)
@@ -290,14 +290,14 @@ def _process_single_file(path, original_name, rider_id=None, bike_id=None):
         from services.best_efforts import save_best_efforts
         save_best_efforts(db, act.get('id'), act.get('startDateLocal'), act.get('streams'))
         db.commit()
-        log.warning('Single file import: imported id=%s name=%s', act['id'], act.get('name'))
+        log.info('Single file import: imported id=%s name=%s', act['id'], act.get('name'))
 
         try:
             from services import sanity
             sanity.flag(db, act['id'])
             db.commit()
         except Exception:
-            pass
+            log.warning('Sanity check of an imported activity failed', exc_info=True)
         try:
             from services.segments import scan_activity_against_segments, _refresh_prs
             segments = db.execute('SELECT * FROM Segment').fetchall()
@@ -309,7 +309,7 @@ def _process_single_file(path, original_name, rider_id=None, bike_id=None):
                         _refresh_prs(db, seg['id'])
                     db.commit()
         except Exception:
-            pass
+            log.warning('Segment scan of an imported activity failed: its segment efforts are missing', exc_info=True)
 
         dup = None
         try:                                            # same ride already recorded by another device? keep the better one
@@ -330,7 +330,7 @@ def _process_single_file(path, original_name, rider_id=None, bike_id=None):
             if act_row:
                 push_update(act_row)
         except Exception:
-            pass
+            log.warning('Home Assistant update after an import failed', exc_info=True)
         yield _progress(1, 1, 1, 0, 0)
         yield _event({'complete': True, 'imported': 0 if (dup and dup['parked'] == act['id']) else 1, 'skipped': 0, 'errors': 0,
                       'activity': dict(act_summary, id=kept), 'duplicate': dup})
@@ -547,7 +547,7 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
         except Exception as e:
             log.error('Strava import: could not put rides on their bikes (%s)', e)
             db.rollback()
-    log.warning('Strava import done — imported=%d skipped=%d changed=%d errors=%d photos=%d commutes=%d bikes=%s',
+    log.info('Strava import done — imported=%d skipped=%d changed=%d errors=%d photos=%d commutes=%d bikes=%s',
                 imported, skipped, changed, errors, n_photos, n_commutes, bikes)
     yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'changed': changed, 'errors': errors, **bikes,
                   'photos': n_photos, 'commutes': n_commutes, **segs})
@@ -599,7 +599,7 @@ def _process_generic_zip(zf, names, rider_id=None):
 
         yield _progress(i + 1, total, imported, skipped, errors)
 
-    log.warning('Generic import done — imported=%d skipped=%d errors=%d',
+    log.info('Generic import done — imported=%d skipped=%d errors=%d',
                 imported, skipped, errors)
     yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'changed': changed, 'errors': errors})
 
@@ -648,7 +648,7 @@ def _insert(db, act, rider_id=None):
             from services.parser import estimate_ride_calories
             calories = estimate_ride_calories(act.get('distance'), act.get('movingTime'), current_weight_kg(rider_id))
         except Exception:
-            pass
+            log.debug('Ride calorie estimate failed', exc_info=True)
     from services.calorie_adjust import pair as _kcal_pair
     calories_raw, calories = _kcal_pair(calories)     # global burn adjustment, applied as the figure is pulled in
     result = db.execute('''
@@ -679,7 +679,7 @@ def _insert(db, act, rider_id=None):
             if w:
                 save_weather(db, act['id'], w)
         except Exception:
-            pass
+            log.warning('Weather for an imported activity failed', exc_info=True)
 
 
 def _event(obj):

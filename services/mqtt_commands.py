@@ -61,7 +61,7 @@ def _apply_water(app, payload):
             from services.mqtt import push_update_nutrition
             push_update_nutrition()
         except Exception:
-            pass
+            log.warning('Home Assistant nutrition update after logging water failed', exc_info=True)
 
 
 def _make_client(app, host, port, user, pw):

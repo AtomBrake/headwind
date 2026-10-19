@@ -112,7 +112,7 @@ def main():
         return
 
     import logging
-    logging.basicConfig(level=logging.WARNING, format='%(message)s')
+    os.environ.setdefault('LOG_CONSOLE_LEVEL', 'WARNING')               # a quiet console; the log file in the data folder keeps INFO (services/logs.py)
     logging.getLogger('services.credentials').setLevel(logging.ERROR)   # shown via the sign-in dialog/banner instead
 
     from app import create_app

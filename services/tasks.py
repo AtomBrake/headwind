@@ -2,10 +2,15 @@
 time one changes something), the Garmin sync and friend sync (a row per run, 'running' until it finishes). The page combines that with the state
 the jobs already keep in Settings (Garmin history and weigh-ins, the Garmin sync's last error) and in memory (an import, the MQTT link).
 
+Each run is also written to the log, and its lines carry the run's log id (services/logs.py): the request's when a page started it, else t<row id>,
+kept in TaskLog.logId so the Tasks page can point at them.
+
 Never raises into the job it describes: a logging problem must not stop a sync."""
 import logging
 from contextlib import contextmanager
 from datetime import datetime, timezone
+
+from services import logs
 
 log = logging.getLogger(__name__)
 KEEP = 300          # rows kept; older ones are pruned
@@ -28,6 +33,8 @@ def ensure_schema(db):
         seen       INTEGER DEFAULT 0            -- start-up repairs: shown in a notice until the Tasks page has been opened
     )''')
     db.execute('CREATE INDEX IF NOT EXISTS idx_tasklog_task ON TaskLog(task, id)')
+    if 'logId' not in {r[1] for r in db.execute('PRAGMA table_info(TaskLog)')}:
+        db.execute('ALTER TABLE TaskLog ADD COLUMN logId TEXT')      # the log id its lines carry
 
 
 def _prune(db):
@@ -38,9 +45,10 @@ def record(db, task, label, result, status='done', error=None):
     """A finished job in one row (the start-up repairs, which run before anyone can look). Does not commit."""
     try:
         t = now()
-        db.execute('INSERT INTO TaskLog (task, label, startedAt, finishedAt, status, result, error) VALUES (?,?,?,?,?,?,?)',
-                   [task, label, t, t, status, result, error])
+        db.execute('INSERT INTO TaskLog (task, label, startedAt, finishedAt, status, result, error, logId) VALUES (?,?,?,?,?,?,?,?)',
+                   [task, label, t, t, status, result, error, logs.current_id()])
         _prune(db)
+        log.log(logging.WARNING if error else logging.INFO, '%s: %s', label, error or result)
     except Exception as e:
         log.warning('Task log write failed: %s', e)
 
@@ -54,38 +62,43 @@ class _Run:
 def run(db, task, label):
     """with tasks.run(db, 'garmin_sync', 'Garmin sync') as t: ...; t.result = 'what happened'. Shows as running while inside, then done, or failed with
     the exception's text (which is re-raised). Commits its own rows."""
-    row_id = None
-    try:
-        row_id = db.execute("INSERT INTO TaskLog (task, label, startedAt, status) VALUES (?,?,?,'running')", [task, label, now()]).lastrowid
-        _prune(db)
-        db.commit()
-    except Exception as e:
-        log.warning('Task log write failed: %s', e)
+    row_id = start(db, task, label)
     r = _Run(db, row_id)
     try:
         yield r
     except Exception as e:
-        _finish(db, row_id, 'failed', r.result, str(e)[:300])
+        _finish(db, row_id, 'failed', r.result, str(e)[:300], exc_info=True)
         raise
     _finish(db, row_id, 'done', r.result, None)
 
 
-def _finish(db, row_id, status, result, error):
+def _finish(db, row_id, status, result, error, exc_info=False):
     if row_id is None:
         return
     try:
         db.execute('UPDATE TaskLog SET finishedAt=?, status=?, result=?, error=? WHERE id=?', [now(), status, result, error, row_id])
         db.commit()
+        label = (db.execute('SELECT label FROM TaskLog WHERE id=?', [row_id]).fetchone() or ['Task'])[0]
+        if error:
+            log.warning('%s failed: %s', label, error, exc_info=exc_info)
+        else:
+            log.info('%s finished: %s', label, result or 'done')
     except Exception as e:
         log.warning('Task log write failed: %s', e)
+    if logs.current_id() == f't{row_id}':      # the background thread's lines stop carrying this run's id
+        logs.bind(None)
 
 
 def start(db, task, label):
     """For a job that handles its own errors: a 'running' row now, finish() it later. Returns the row id (None if logging failed). Commits."""
     try:
         row_id = db.execute("INSERT INTO TaskLog (task, label, startedAt, status) VALUES (?,?,?,'running')", [task, label, now()]).lastrowid
+        if not logs.current_id():               # a background thread: its lines carry t<row id> until finish()
+            logs.bind(f't{row_id}')
+        db.execute('UPDATE TaskLog SET logId=? WHERE id=?', [logs.current_id(), row_id])
         _prune(db)
         db.commit()
+        log.info('%s started', label)
         return row_id
     except Exception as e:
         log.warning('Task log write failed: %s', e)
@@ -180,7 +193,7 @@ def overview(db):
             else:
                 jobs.append(_card('Home Assistant (MQTT)', 'done', 'Connected: sensors are published when anything changes, and every 5 minutes.'))
         except Exception:
-            pass
+            log.debug('MQTT card on the Tasks page failed', exc_info=True)
 
     # The activity type check started on the Activity types page (routes/garmin.py)
     c = last(db, 'sport_check')
@@ -202,7 +215,7 @@ def overview(db):
                 jobs.append(_card('Import', 'done', f"{st.get('imported', 0)} imported, {st.get('skipped', 0)} skipped, {st.get('errors', 0)} errors.", None,
                                   {'url': '/import', 'label': 'Open'}))
     except Exception:
-        pass
+        log.debug('Import card on the Tasks page failed', exc_info=True)
 
     startup = [dict(r) for r in db.execute("SELECT * FROM TaskLog WHERE task LIKE 'startup:%' ORDER BY id DESC LIMIT 30")]
     history = [dict(r) for r in db.execute("SELECT * FROM TaskLog WHERE task NOT LIKE 'startup:%' ORDER BY id DESC LIMIT 40")]

@@ -38,6 +38,7 @@ def sync():
             from services.mqtt import push_update
             push_update()
     except Exception as e:
+        log.exception('Sync failed')
         return jsonify({'error': str(e)}), 500
 
     # Backfill HR/weather for the owner's recent rides that are missing it, whatever their source —
@@ -77,7 +78,7 @@ def sync():
                                 [hr['avg'], hr['max'], json.dumps(streams), act['id']],
                             )
                             db.commit()
-                            log.warning('Garmin HR backfill on sync: enriched %s — avg=%s max=%s', act['id'], hr['avg'], hr['max'])
+                            log.info('Garmin HR backfill on sync: enriched %s — avg=%s max=%s', act['id'], hr['avg'], hr['max'])
                     except Exception as hre:
                         log.warning('Garmin HR backfill failed for %s: %s', act['id'], hre)
     except Exception as ge:
@@ -89,7 +90,7 @@ def sync():
         recent, _ = backfill_missing(db, since_days=7, pause=0)              # new rides first
         older, _ = backfill_missing(db, limit=25, pause=0.1)                   # then a few of the old ones each time, so history fills in by itself
         if recent or older:
-            log.warning('Weather backfill on sync: enriched %d recent and %d older rides', recent, older)
+            log.info('Weather backfill on sync: enriched %d recent and %d older rides', recent, older)
     except Exception as wxe:
         log.warning('Weather backfill (sync) failed: %s', wxe)
 

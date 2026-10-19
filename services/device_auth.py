@@ -3,6 +3,8 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta
 
+from flask import g
+
 from database import get_db, query_db
 
 PREFIX = 'hw_'
@@ -24,9 +26,10 @@ def verify(token):
     """True for a known, un-revoked token. Records last use (at most once a minute, so a chatty app doesn't write on every call)."""
     if not token or not token.startswith(PREFIX):
         return False
-    row = query_db('SELECT id, lastUsedAt FROM DeviceToken WHERE tokenHash=? AND revokedAt IS NULL', [_hash(token)], one=True)
+    row = query_db('SELECT id, name, lastUsedAt FROM DeviceToken WHERE tokenHash=? AND revokedAt IS NULL', [_hash(token)], one=True)
     if not row:
         return False
+    g.device_name = row['name']                 # for the request's log line (services/logs.py)
     now = datetime.utcnow()
     last = row['lastUsedAt']
     if not last or now - datetime.strptime(last, '%Y-%m-%d %H:%M:%S') > timedelta(minutes=1):
