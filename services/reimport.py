@@ -105,6 +105,8 @@ def propose(db, saved, act, source):
         from services.segments import rescan_activity
         rescan_activity(db, saved['id'])
         saved = {**dict(saved), 'streams': act['streams']}
+    if act.get('laps') and _empty(saved['laps'] if 'laps' in saved.keys() else None):     # laps and pool lengths, read from files since 0.7.9:
+        db.execute('UPDATE Activity SET laps=? WHERE id=?', [act['laps'], saved['id']])     # nothing the rider edits, so filled in, not offered
     diffs = differences(saved, act)
     if not diffs:
         return False

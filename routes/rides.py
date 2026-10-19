@@ -108,14 +108,20 @@ def detail(rid):
         except Exception:
             log.warning('Activity summary polyline would not decode', exc_info=True)
 
-    from services import units
+    from services import units, activity_detail
+    detail = activity_detail.for_activity(activity, streams)      # splits, pool lengths, ski runs, laps: what fits the sport
+    view = detail['view']
+    by_pace = view in ('foot', 'swim')                            # pace (faster at the top), not speed
     charts = {
-        'elevation': _stream_series(streams, 'altitude', transform=lambda v: round(units.elev(v))),
+        'elevation': _stream_series(streams, 'altitude', transform=lambda v: round(units.elev(v))) if sports.has_climbing(activity['sportType']) else None,
         'heartrate': _stream_series(streams, 'heartrate'),
         'power':     _stream_series(streams, 'watts'),
-        'speed':     _stream_series(streams, 'velocity_smooth', transform=lambda v: round(units.speed(v), 1)),
-        'cadence':   _stream_series(streams, 'cadence'),
+        'speed':     None if by_pace else _stream_series(streams, 'velocity_smooth', transform=lambda v: round(units.speed(v), 1)),
+        'pace':      detail['pace'] if by_pace else None,
+        'cadence':   _stream_series(streams, 'cadence', transform=(lambda v: v * 2) if view == 'foot' else None),   # a watch counts one foot: steps a minute are twice it
     }
+    if not by_pace and not charts['speed']:
+        charts['speed'] = activity_detail.speed_series(streams)     # no speed stream (a GPX): from the distance and time
 
     memory_count = get_db().execute(
         'SELECT COUNT(*) FROM RideMemory WHERE rideId != ?', [rid]
@@ -190,17 +196,19 @@ def detail(rid):
                     'delta': abs(delta),
                 }
 
-    prev_ride = query_db('''
-        SELECT id, name FROM Ride
-        WHERE startDateLocal < ? AND riderId IS ?
+    # Prev / Next: the rider's rides from a ride, the same sport from anything else (the run before this one)
+    same = ('Ride', '1=1', []) if is_ride else ('Activity', 'sportType IS ?', [activity['sportType']])
+    prev_ride = query_db(f'''
+        SELECT id, name FROM {same[0]}
+        WHERE startDateLocal < ? AND riderId IS ? AND {same[1]}
         ORDER BY startDateLocal DESC LIMIT 1
-    ''', [activity['startDateLocal'], activity['riderId']], one=True)
+    ''', [activity['startDateLocal'], activity['riderId']] + same[2], one=True)
 
-    next_ride = query_db('''
-        SELECT id, name FROM Ride
-        WHERE startDateLocal > ? AND riderId IS ?
+    next_ride = query_db(f'''
+        SELECT id, name FROM {same[0]}
+        WHERE startDateLocal > ? AND riderId IS ? AND {same[1]}
         ORDER BY startDateLocal ASC LIMIT 1
-    ''', [activity['startDateLocal'], activity['riderId']], one=True)
+    ''', [activity['startDateLocal'], activity['riderId']] + same[2], one=True)
 
     alt_raw = (streams.get('altitude') or {}).get('data') or []
 
@@ -228,6 +236,8 @@ def detail(rid):
 
     from services import duplicates, gear as gear_svc
     gear_bikes = gear_svc.list_bikes(get_db(), activity['riderId']) if activity['riderId'] and is_ride else []
+    from services import kit as kit_svc
+    kit_items = kit_svc.choices_for(get_db(), activity) if not is_ride else []      # a run's shoes, a swim's wetsuit, ...
     dups = []
     for d in duplicates.parked_for(get_db(), rid):
         try:
@@ -242,7 +252,8 @@ def detail(rid):
     from services import origin
     source_links = origin.links(get_db(), activity['id'], activity['originId'])
     from services import photos as _photos
-    return render_template('ride.html', source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.RIDES + sports.ON_FOOT),
+    avg_mps = activity['averageSpeed'] or ((activity['distance'] or 0) / activity['movingTime'] if activity['movingTime'] else None)   # a phone walk stores none
+    return render_template('ride.html', kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.RIDES + sports.ON_FOOT),
                            charts=charts, has_memory=memory_count > 0,
                            seg_efforts=seg_efforts, alt_raw=alt_raw,
                            co_riders=co_riders, seg_rivals=seg_rivals,
@@ -486,7 +497,7 @@ def bulk():
     try:
         res = _bulk.apply(db, action, ids, sport=request.form.get('sport'), bike_id=to_int(request.form.get('bike')),
                           rider_id=to_int(request.form.get('rider')), name=request.form.get('name'),
-                          commute=request.form.get('commute'))
+                          commute=request.form.get('commute'), kit_id=to_int(request.form.get('kit')))
     except ValueError as e:
         db.rollback()
         flash(str(e), 'error')
@@ -500,7 +511,7 @@ def bulk():
             push_update_nutrition()
     except Exception:
         log.warning('Home Assistant update after a bulk edit failed', exc_info=True)
-    verb = {'delete': 'Deleted', 'sport': 'Changed the type of', 'bike': 'Set the bike on', 'rider': 'Moved',
+    verb = {'delete': 'Deleted', 'sport': 'Changed the type of', 'bike': 'Set the bike on', 'kit': 'Set the gear on', 'rider': 'Moved',
             'rename': 'Renamed', 'dismiss': 'Cleared the flag on', 'commute': 'Marked'}[action]
     n = res['done']
     msg = f"{verb} {n} activit{'y' if n == 1 else 'ies'}"
@@ -508,20 +519,22 @@ def bulk():
         msg += ' as a commute' if request.form.get('commute') == '1' else ' as not a commute'
     msg += '.'
     if res['skipped']:
-        msg += f" {res['skipped']} could not be changed" + (' (only rides have a bike or a flag)' if action in ('bike', 'dismiss') else '') + '.'
+        msg += f" {res['skipped']} could not be changed" + {'bike': ' (only rides have a bike)', 'dismiss': ' (only rides have a flag)',
+                                                          'kit': ' (rides have a bike, not shoes)'}.get(action, '') + '.'
     flash(msg, 'success')
     return redirect(back)
 
 
 @bp.route('/bulk/options')
 def bulk_options():
-    """What the selection bar's pickers offer: this instance's riders, and each one's bikes."""
+    """What the selection bar's pickers offer: this instance's riders, and each one's bikes and kit."""
     from flask import jsonify
-    from services import bulk as _bulk, convert, gear
+    from services import bulk as _bulk, convert, gear, kit
     db = get_db()
     riders = [dict(r) for r in _bulk.own_riders(db)]
     for r in riders:
         r['bikes'] = [{'id': b['id'], 'name': b['name']} for b in gear.list_bikes(db, r['id'])]
+        r['kit'] = [{'id': k['id'], 'name': k['name']} for k in kit.list_kit(db, r['id'])]
     return jsonify({'riders': riders, 'sports': [{'value': s, 'label': sports.label(s)} for s in convert.SPORTS]})
 
 
