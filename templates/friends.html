@@ -90,16 +90,16 @@
     </label>
     <div class="fr-field">Shares
       <div class="fr-checks">
-        <label><input type="checkbox" name="shareRides" value="1" checked> Rides</label>
+        <label><input type="checkbox" name="shareRides" value="1" checked> Activities</label>
         <label><input type="checkbox" name="shareSegments" value="1" checked> Segments</label>
         <label><input type="checkbox" name="shareFoods" value="1" checked> Foods</label>
       </div>
     </div>
-    <label class="fr-field">Rides from <input name="sinceDate" type="date"></label>
+    <label class="fr-field">Activities from <input name="sinceDate" type="date"></label>
     <label class="fr-field">to <input name="untilDate" type="date"></label>
     <button type="submit" class="btn btn-primary" style="white-space:nowrap;">Create Token</button>
     <div class="fr-quick">
-      <button type="button" class="btn btn-secondary" data-range="all">All rides</button>
+      <button type="button" class="btn btn-secondary" data-range="all">All activities</button>
       <button type="button" class="btn btn-secondary" data-range="6">Past 6 months</button>
       <button type="button" class="btn btn-secondary" data-range="1">Past month</button>
       <button type="button" class="btn btn-secondary" data-range="today">From today</button>
@@ -117,24 +117,26 @@
 
   <p class="fr-note">
     Feed URL: <code>{{ request.host_url.rstrip('/') }}/api/feed</code> — token sent as <code>X-Feed-Token</code> header.
-    Revoking a token or narrowing what it shares stops future syncs; rides a friend already pulled stay on their instance.
+    Activities of every sport are shared: rides, runs, walks, swims and the rest.
+    Narrowing what a token shares takes those activities off your friend's instance at their next sync (from 0.7.6; an older version keeps
+    what it already pulled). Revoking a token stops their syncs, and what they already pulled stays on their instance.
   </p>
 
   {% if feed_tokens %}
   <table class="fr-table" style="margin-top:1rem;">
     <thead>
-      <tr><th>Friend</th><th>Shares</th><th>Rides between</th><th>Last used</th><th></th></tr>
+      <tr><th>Friend</th><th>Shares</th><th>Activities between</th><th>Last used</th><th></th></tr>
     </thead>
     <tbody>
       {% for t in feed_tokens %}
       {% set shared = [] %}
-      {% if t.shareRides %}{% set _ = shared.append('Rides') %}{% endif %}
+      {% if t.shareRides %}{% set _ = shared.append('Activities') %}{% endif %}
       {% if t.shareSegments %}{% set _ = shared.append('Segments') %}{% endif %}
       {% if t.shareFoods %}{% set _ = shared.append('Foods') %}{% endif %}
       <tr{% if t.revokedAt %} class="revoked"{% endif %}>
         <td class="name">{{ t.name }}</td>
         <td class="muted" data-label="Shares">{{ shared | join(', ') if shared else 'Nothing' }}</td>
-        <td class="muted" data-label="Rides">{% if t.sinceDate or t.untilDate %}{{ t.sinceDate or 'start' }} – {{ t.untilDate or 'now' }}{% else %}All{% endif %}</td>
+        <td class="muted" data-label="Activities">{% if t.sinceDate or t.untilDate %}{{ t.sinceDate or 'start' }} – {{ t.untilDate or 'now' }}{% else %}All{% endif %}</td>
         <td class="muted" data-label="Last used">{% if t.revokedAt %}Revoked {{ t.revokedAt[:10] }}{% elif t.lastUsedAt %}{{ t.lastUsedAt[:16] }}{% else %}Never{% endif %}</td>
         <td class="act">
           {% if not t.revokedAt %}
@@ -152,16 +154,16 @@
           <form method="POST" action="{{ url_for('friends.update_token', tid=t.id) }}" class="fr-grid fr-edit">
             <div class="fr-field">Shares
               <div class="fr-checks">
-                <label><input type="checkbox" name="shareRides" value="1" {% if t.shareRides %}checked{% endif %}> Rides</label>
+                <label><input type="checkbox" name="shareRides" value="1" {% if t.shareRides %}checked{% endif %}> Activities</label>
                 <label><input type="checkbox" name="shareSegments" value="1" {% if t.shareSegments %}checked{% endif %}> Segments</label>
                 <label><input type="checkbox" name="shareFoods" value="1" {% if t.shareFoods %}checked{% endif %}> Foods</label>
               </div>
             </div>
-            <label class="fr-field">Rides from <input type="date" name="sinceDate" value="{{ t.sinceDate or '' }}"></label>
+            <label class="fr-field">Activities from <input type="date" name="sinceDate" value="{{ t.sinceDate or '' }}"></label>
             <label class="fr-field">to <input type="date" name="untilDate" value="{{ t.untilDate or '' }}"></label>
             <button type="submit" class="btn btn-primary">Save</button>
             <div class="fr-quick">
-              <button type="button" class="btn btn-secondary" data-range="all">All rides</button>
+              <button type="button" class="btn btn-secondary" data-range="all">All activities</button>
               <button type="button" class="btn btn-secondary" data-range="6">Past 6 months</button>
               <button type="button" class="btn btn-secondary" data-range="1">Past month</button>
               <button type="button" class="btn btn-secondary" data-range="today">From today</button>
@@ -216,7 +218,7 @@
 <div class="card fr-card" style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
   <div style="flex:1 1 14rem; min-width:0;">
     <div style="font-weight:600; font-size:0.875rem; margin-bottom:0.15rem;">Auto-Sync</div>
-    <div style="font-size:0.8rem; color:var(--text-muted);">Automatically pull new rides from all friends in the background.</div>
+    <div style="font-size:0.8rem; color:var(--text-muted);">Automatically pull new activities from all friends in the background.</div>
   </div>
   <form method="POST" action="{{ url_for('friends.set_sync_interval') }}">
     <select name="interval" onchange="this.form.submit()" style="width:auto;">
@@ -255,10 +257,10 @@
           <form method="POST" action="{{ url_for('friends.set_friend_token', fid=f.id) }}"
                 onsubmit="var t = prompt('New feed token from {{ f.name }}:'); if (!t) return false; this.token.value = t; return true;">
             <input type="hidden" name="token">
-            <button type="submit" class="btn btn-secondary fr-sm" title="Paste a new token this friend gave you; their rides stay">Token</button>
+            <button type="submit" class="btn btn-secondary fr-sm" title="Paste a new token this friend gave you; their activities stay">Token</button>
           </form>
           <form method="POST" action="{{ url_for('friends.delete', fid=f.id) }}"
-                data-confirm="Remove {{ f.name }} and all their rides?" onsubmit="return confirm(this.dataset.confirm)">
+                data-confirm="Remove {{ f.name }} and all their activities?" onsubmit="return confirm(this.dataset.confirm)">
             <button type="submit" class="fr-x" title="Remove {{ f.name }}" aria-label="Remove {{ f.name }}">×</button>
           </form>
         </td>
@@ -295,7 +297,7 @@ function copyToken(text, btn) {
   }
 }
 
-// Quick ranges, on the new-token form and each Edit form: fill "Rides from", leave "to" open so new rides keep flowing.
+// Quick ranges, on the new-token form and each Edit form: fill "Activities from", leave "to" open so new activities keep flowing.
 document.querySelectorAll('.fr-quick [data-range]').forEach(function(btn) {
   btn.addEventListener('click', function() {
     var form = btn.closest('form');
@@ -398,7 +400,7 @@ function syncFriend(fid, btn) {
   fetch('/friends/' + fid + '/sync', { method: 'POST' })
     .then(r => r.json())
     .then(d => {
-      btn.textContent = d.ok ? ('✓ ' + d.synced + ' rides') : ('Error: ' + d.error);
+      btn.textContent = d.ok ? ('✓ ' + d.synced + (d.synced === 1 ? ' activity' : ' activities')) : ('Error: ' + d.error);
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
       if (d.ok) setTimeout(() => location.reload(), 1200);
     })

@@ -24,6 +24,12 @@ def run_now(job):
     if job == 'garmin':
         garmin.SYNC_WAKE.set()
         flash('Garmin sync started. Refresh in a minute to see how it went.', 'success')
+    elif job == 'garmin-retry':
+        from services import garmin_failures
+        n = garmin_failures.retry_all(db)
+        db.commit()
+        garmin.SYNC_WAKE.set()
+        flash(f"Trying {n} activit{'y' if n == 1 else 'ies'} again: the Garmin sync has started. Refresh in a minute to see how it went.", 'success')
     elif job in ('history', 'weights'):
         db.execute(f"UPDATE Settings SET {'garminHistoryRetryAt' if job == 'history' else 'garminWeightsRetryAt'}=NULL WHERE id=1")
         db.commit()
