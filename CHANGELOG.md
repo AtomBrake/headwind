@@ -1,8 +1,15 @@
 # Changelog
 
+## [0.7.14-beta] - 2026-10-20
+
+The release of 0.7.13-beta, which never got a Docker image: its build stopped installing `garminconnect` 0.3.19, which needs Python 3.12. Nothing else changed since 0.7.13-beta; read its notes below for the upgrade.
+
+### Changed
+- **Python 3.12.** The Docker image and the Windows build are now built on Python 3.12, and running Headwind outside Docker needs Python 3.12 or later.
+
 ## [0.7.13-beta] - 2026-10-20
 
-Migration, at the first start: `Settings` gains `garminSignInNeeded`, and there's a new `StravaExport` table. Dependency: `garminconnect` must now be 0.3.19 or later, which needs Python 3.12 or later (`pip install -r requirements.txt` outside Docker; the Docker image is now built on Python 3.12).
+Migration, at the first start: `Settings` gains `garminSignInNeeded`, and there's a new `StravaExport` table. Dependency: `garminconnect` must now be 0.3.19 or later, which needs Python 3.12 or later (`pip install -r requirements.txt` outside Docker).
 
 **Your Garmin password is no longer kept.** Headwind signs in to Garmin once and keeps only the sign-in tokens Garmin gives it, which renew themselves. On an upgrade, the stored password is used once more if the tokens need it, then deleted from the database. If your Garmin account uses 2-step verification and the tokens had already stopped working, Settings and the Tasks page ask you to sign in again.
 
