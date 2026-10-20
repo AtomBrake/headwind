@@ -134,8 +134,9 @@ def _garmin_heartbeat(app):
                 import logging
                 from database import query_db, get_db
                 log = logging.getLogger(__name__)
+                from services.garmin import connected
                 s = query_db('SELECT garminEmail, garminPassword, garminSyncHours, garminSyncMode, garminDeviceSync, garminSweepAt FROM Settings WHERE id=1', one=True)
-                if s and s['garminEmail'] and s['garminPassword']:
+                if connected(s):
                     interval_hours = s['garminSyncHours'] or 0.5
                     from services import tasks
                     from services.garmin import sync_garmin, sync_garmin_activities, fetch_ride_hr, _client, health_days, device_upload
@@ -143,12 +144,12 @@ def _garmin_heartbeat(app):
                     result = []
                     api, dev_sync, days, sweep = None, None, 0, False
                     try:
-                        api = _client(s['garminEmail'], s['garminPassword'])      # one login for the whole run: each loads the profile and settings
+                        api = _client()      # one login for the whole run: each loads the profile and settings
                         # When did the watch itself last reach Garmin's cloud? (Headwind can only see what has been uploaded.) It decides how
                         # many days to read: none when nothing was uploaded since the last sync, all HISTORY_RECENT once a day.
                         dev_sync = device_upload(api)
                         days, sweep = health_days(s['garminDeviceSync'], dev_sync, s['garminSweepAt'])
-                        sync_garmin(s['garminEmail'], s['garminPassword'], days=days, api=api, strict=True)   # an outage must not count as read
+                        sync_garmin(days=days, api=api, strict=True)   # an outage must not count as read
                         result.append(f"Health data synced ({days} day{'s' if days != 1 else ''})" if days else 'No new watch upload')
                         ok = True
                     except Exception as e:
@@ -160,7 +161,7 @@ def _garmin_heartbeat(app):
                         if rider:
                             try:
                                 final = {}
-                                for final in sync_garmin_activities(s['garminEmail'], s['garminPassword'], rider['id'], api=api):
+                                for final in sync_garmin_activities(rider['id'], api=api):
                                     pass
                                 if final.get('error'):
                                     result.append(f"rides failed: {final['error']}")
@@ -255,12 +256,13 @@ def _garmin_history(app):
                 s = query_db('SELECT garminEmail, garminPassword, garminHistoryFrom, garminHistoryDone, garminHistoryRetryAt, '
                              'garminWeightsDone, garminWeightsRetryAt FROM Settings WHERE id=1', one=True)
                 now = datetime.now(timezone.utc).isoformat(timespec='seconds')
-                if (s and s['garminEmail'] and s['garminPassword'] and s['garminHistoryFrom'] and not s['garminWeightsDone']
+                on = garmin.connected(s)
+                if (on and s['garminHistoryFrom'] and not s['garminWeightsDone']
                         and (not s['garminWeightsRetryAt'] or s['garminWeightsRetryAt'] <= now)):
-                    garmin.backfill_weigh_ins(s['garminEmail'], s['garminPassword'])      # quick (a year per call), so before the long day-by-day pass
-                if (s and s['garminEmail'] and s['garminPassword'] and s['garminHistoryFrom'] and not s['garminHistoryDone']
+                    garmin.backfill_weigh_ins()      # quick (a year per call), so before the long day-by-day pass
+                if (on and s['garminHistoryFrom'] and not s['garminHistoryDone']
                         and (not s['garminHistoryRetryAt'] or s['garminHistoryRetryAt'] <= now)):
-                    garmin.backfill_history(s['garminEmail'], s['garminPassword'])
+                    garmin.backfill_history()
         except Exception as e:
             log.warning('Garmin history backfill error: %s', e)
         garmin.HISTORY_WAKE.wait(600)
