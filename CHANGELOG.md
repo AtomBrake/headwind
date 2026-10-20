@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.11-beta] - 2026-10-20
 
 Migration, at the first start: `Settings` gains `localZoneFixDone`, and a one-off repair runs (below; a few seconds on a few thousand activities, listed on the Tasks page). New dependency: `tzfpy` (an offline time-zone lookup, about 3 MB). Importing an export or a zip again reads every file once more, because how files are read has changed. No Android or iOS change.
 
