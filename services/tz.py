@@ -71,6 +71,31 @@ def zone():
     return _pinned or _setting()[1] or ZoneInfo(server_zone_name())
 
 
+def zone_at(lat, lng, sport=None):
+    """The time zone where a position is, as a ZoneInfo (tzfpy: an offline lookup, Etc/GMT±N at sea); the home zone when there's no position
+    or no answer. An activity's local time is the clock where it happened: a ride in the Alps is at Paris time, whatever the home zone. Not a
+    virtual one (`sport` 'VirtualRide', Strava's 'Virtual Ride', ...): Zwift's track is in Watopia or New York, the rider was at home."""
+    if sport and 'virtual' in str(sport).lower():
+        return zone()
+    try:
+        lat, lng = float(lat), float(lng)
+    except (TypeError, ValueError):
+        return zone()
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180) or (lat == 0 and lng == 0):      # 0,0: a GPS with no fix yet
+        return zone()
+    try:
+        from tzfpy import get_tz
+        found = get_tz(lng, lat)                         # longitude first
+    except Exception:                                   # not installed, or a bad answer: never break an import over it
+        return zone()
+    return ZoneInfo(found) if valid(found) else zone()
+
+
+def local_at(utc, lat, lng, sport=None):
+    """A UTC instant (an aware datetime) as the naive local time string startDateLocal holds, at the clock where (lat, lng) is (zone_at)."""
+    return utc.astimezone(zone_at(lat, lng, sport)).strftime('%Y-%m-%dT%H:%M:%S')
+
+
 def pin_from(db):
     """For a script with its own sqlite connection (no Flask app): use that database's setting."""
     global _pinned
