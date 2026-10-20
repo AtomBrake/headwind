@@ -3,7 +3,10 @@ whole ride (9 s for 11 km: 2,766 mph), and a TCX import took it as the moving ti
 when the device's is under half of that, as Strava does; repair() puts right the activities stored before 0.7.7, from their streams.
 
 The opposite: a device with auto-pause off counts every stop, so a bike park day spent in the uplift queue came in at 7 hours moving where Strava
-says 2. FIT and TCX imports now take the track's then too (parser.pick_moving_time); repair_paused() puts right those already stored."""
+says 2. FIT and TCX imports now take the track's then too (parser.pick_moving_time); repair_paused() puts right those already stored.
+
+Neither touches a moving time that is Strava's (stravas()): a Strava export gives its own from activities.csv, which counts slow movement the
+track's 0.3 m/s floor doesn't (a bike park day of uplifts), so it can be well over or under the track's and still be right."""
 import json
 import logging
 
@@ -13,9 +16,19 @@ log = logging.getLogger(__name__)
 _BATCH = 50
 
 
+def stravas(row):
+    """True when the activity's moving time is the one a Strava export gave it (rawData.stravaMoving, kept by routes/import_rides since 0.7.13).
+    Any repair that works a moving time out again from the track leaves these alone."""
+    try:
+        strava = json.loads(row['rawData'] or '{}').get('stravaMoving')
+    except (TypeError, ValueError, AttributeError):
+        return False
+    return strava is not None and abs((row['movingTime'] or 0) - strava) <= 1
+
+
 def repair(db):
     """Run once (Settings.movingTimeFixDone): every activity whose moving time is under half what its own track shows gets the track's, and the
-    average speed that goes with it. Commits. Returns {'ran', 'fixed': [(id, name, old secs, new secs)]}."""
+    average speed that goes with it. Not one that is Strava's (stravas()). Commits. Returns {'ran', 'fixed': [(id, name, old secs, new secs)]}."""
     s = db.execute('SELECT movingTimeFixDone FROM Settings WHERE id=1').fetchone()
     if not s or s['movingTimeFixDone']:
         return {'ran': False}
@@ -23,7 +36,9 @@ def repair(db):
     ids = [r[0] for r in db.execute("SELECT id FROM Activity WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')")]
     for i in range(0, len(ids), _BATCH):
         chunk = ids[i:i + _BATCH]
-        for r in db.execute(f"SELECT id, name, distance, movingTime, streams FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
+        for r in db.execute(f"SELECT id, name, distance, movingTime, streams, rawData FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
+            if stravas(r):
+                continue
             try:
                 on_track = track_moving_time(json.loads(r['streams']))
             except (TypeError, ValueError):
@@ -42,7 +57,7 @@ def repair(db):
 
 def repair_paused(db):
     """Run once (Settings.movingTimePausedDone): every activity whose moving time is well over what its own track shows (stopped time counted)
-    gets the track's, and the average speed that goes with it. Not on the water (parser.pick_moving_time). Commits.
+    gets the track's, and the average speed that goes with it. Not on the water (parser.pick_moving_time), nor one that is Strava's. Commits.
     Returns {'ran', 'fixed': [(id, name, old secs, new secs)]}."""
     from services.sports import on_water
     s = db.execute('SELECT movingTimePausedDone FROM Settings WHERE id=1').fetchone()
@@ -52,9 +67,9 @@ def repair_paused(db):
     ids = [r[0] for r in db.execute("SELECT id FROM Activity WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}') AND movingTime > 0")]
     for i in range(0, len(ids), _BATCH):
         chunk = ids[i:i + _BATCH]
-        for r in db.execute(f"SELECT id, name, sportType, distance, movingTime, streams FROM Activity WHERE id IN ({','.join('?' * len(chunk))})",
+        for r in db.execute(f"SELECT id, name, sportType, distance, movingTime, streams, rawData FROM Activity WHERE id IN ({','.join('?' * len(chunk))})",
                             chunk).fetchall():
-            if on_water(r['sportType']):
+            if on_water(r['sportType']) or stravas(r):
                 continue
             try:
                 on_track = track_moving_time(json.loads(r['streams']))
