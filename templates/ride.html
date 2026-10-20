@@ -218,6 +218,9 @@ function typeChanged(sel) {
   <div class="stat-card">
     <div class="stat-value">{{ activity.totalElevationGain | fmt_elev }}</div>
     <div class="stat-label">Elevation Gain</div>
+    {% if file_climb is not none %}
+      <div class="stat-sub" title="The device's altitude readings can't be real, so Strava's own figure from the export is used">Strava's figure: the file said {{ file_climb | fmt_elev }}</div>
+    {% endif %}
     {% if elev_loss_m %}
       <div class="stat-sub">↓ {{ elev_loss_m | fmt_elev }} loss</div>
     {% endif %}

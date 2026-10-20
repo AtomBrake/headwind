@@ -662,7 +662,7 @@ def delete_ride(kind, rid):
 @ui.route('/workouts')
 def workouts_page():
     from services import workouts
-    from routes.dashboard import _group_activities
+    from routes.dashboard import _group_activities, climb
     rider = _rider()
     from routes.dashboard import dist_filters
     f = {k: request.args.get(k, '').strip() for k in ('q', 'from', 'to', 'sport')}
@@ -670,7 +670,7 @@ def workouts_page():
     is_filtered = any(f.values())
     rows = workouts.search(rider['id'], f['q'], f['from'], f['to'], min_m, max_m, f['sport']) if rider else []
     totals = {'count': len(rows), 'dist': sum(r['distance'] or 0 for r in rows), 'secs': sum(r['movingTime'] or 0 for r in rows),
-              'elev': sum(r['totalElevationGain'] or 0 for r in rows), 'kcal': sum(r['calories'] or 0 for r in rows), 'steps': sum(r['steps'] or 0 for r in rows)}
+              'elev': sum(climb(r) for r in rows), 'kcal': sum(r['calories'] or 0 for r in rows), 'steps': sum(r['steps'] or 0 for r in rows)}
     sports = [r[0] for r in query_db(f'SELECT DISTINCT sportType FROM Activity WHERE riderId=? AND NOT {RIDE_SQL} ORDER BY sportType', [rider['id']])] if rider else []
     st = query_db('SELECT units FROM Settings WHERE id=1', one=True)
     return render_template('workouts.html', workouts=rows, grouped=_group_activities(rows) if not is_filtered else [], totals=totals, sports=sports, f=f, is_filtered=is_filtered,

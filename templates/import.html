@@ -82,6 +82,22 @@
 </div>
 {% endif %}
 
+{% if problems %}
+<div class="card" id="problems" style="max-width:600px;margin-top:1.25rem;">
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+    <div class="card-title" style="margin:0;">{{ problems | length }} file{{ 's' if problems | length != 1 }} couldn't be read</div>
+    <form method="POST" action="{{ url_for('import_rides.clear_problems') }}" style="margin:0;">
+      <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Clear this list</button></form>
+  </div>
+  <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0.5rem 0 0;">Each activity was saved from what the export's
+    activities.csv says about it, with no track. Importing the export again tries the file again; one read then comes off this list.</p>
+  <ul style="margin:0.5rem 0 0 1.25rem; padding:0; font-size:0.875rem; line-height:1.7;">
+    {% for p in problems %}<li><a href="/rides/{{ p.rideId }}" style="color:var(--accent);">{{ p.rideName or p.rideId }}</a>
+      <span style="color:var(--text-muted);">{{ p.file }} &middot; {{ p.problem }}</span></li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 {% if changes %}
 <div class="card" id="changes" style="margin-top:1.25rem;">
   <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
@@ -228,17 +244,31 @@ function handleEvent(d) {
   }
 
   if (d.complete) {
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+    const noun = d.noun || 'activities';
+    const parked = d.parked || [], unread = d.unread || [];
     document.getElementById('progressCard').querySelector('.card-title').textContent = 'Complete';
     document.getElementById('doneCard').style.display = 'block';
     document.getElementById('doneStats').innerHTML =
-      `<strong style="color:var(--success)">${d.imported}</strong> rides imported<br>` +
+      `<strong style="color:var(--success)">${d.imported}</strong> ${d.imported === 1 ? noun.replace(/ies$/, 'y').replace(/s$/, '') : noun} imported<br>` +
+      (parked.length ? `<span>${parked.length} set aside as a second recording of one already here:</span>` +
+        `<ul style="margin:0 0 0.25rem 1.25rem;padding:0;line-height:1.6;">` +
+        parked.map(p => `<li><a href="/rides/${encodeURIComponent(p.kept)}/duplicate/${encodeURIComponent(p.id)}" style="color:var(--accent)">${esc(p.name || p.id)}</a></li>`).join('') +
+        `</ul>` : '') +
       `<span style="color:var(--text-muted)">${d.skipped} already existed / skipped</span>` +
       (d.unchanged ? `<br><span style="color:var(--text-muted)">${d.unchanged} unchanged since the last import, so not read again</span>` : '') +
-      (d.errors ? `<br><span style="color:var(--danger)">${d.errors} files could not be parsed</span>` : '') +
+      (unread.length ? `<br><span style="color:var(--danger)">${unread.length} file${unread.length === 1 ? '' : 's'} could not be read</span>` +
+        (unread.some(u => u.id) ? `<span style="color:var(--text-muted)">: saved from activities.csv only, with no track</span>` : '') +
+        `<ul style="margin:0 0 0.25rem 1.25rem;padding:0;line-height:1.6;">` +
+        unread.map(u => u.id ? `<li><a href="/rides/${encodeURIComponent(u.id)}" style="color:var(--accent)">${esc(u.name)}</a> <span style="color:var(--text-muted)">${esc(u.file)}</span></li>`
+                             : `<li style="color:var(--text-muted)">${esc(u.file)}</li>`).join('') +
+        `</ul>` : '') +
+      (d.errors ? `<br><span style="color:var(--danger)">${d.errors} could not be saved</span>` : '') +
       (d.changed ? `<br><a href="/import#changes" onclick="location.reload()" style="color:var(--accent)">${d.changed} differ from what's saved: review them</a>` : '') +
       (d.bikes_filled ? `<br><span style="color:var(--text-muted)">${d.bikes_filled} rides put on their Strava bike</span>` : '') +
       (d.bikes_to_match ? `<br><a href="${d.bikes_url}" style="color:var(--accent)">${d.bikes_to_match} bike${d.bikes_to_match === 1 ? '' : 's'} from Strava to match to yours</a>` : '') +
       (d.photos ? `<br><span style="color:var(--text-muted)">${d.photos} photo${d.photos === 1 ? '' : 's'} added</span>` : '') +
+      (d.photos_missing ? `<br><span style="color:var(--text-muted)">${d.photos_missing} photo${d.photos_missing === 1 ? '' : 's'} named in activities.csv ${d.photos_missing === 1 ? 'is' : 'are'} not in the zip (Strava leaves some out), so ${d.photos_missing === 1 ? 'it wasn\'t' : 'they weren\'t'} added</span>` : '') +
       (d.commutes ? `<br><span style="color:var(--text-muted)">${d.commutes} activit${d.commutes === 1 ? 'y' : 'ies'} ticked as a commute</span>` : '') +
       (d.segments_created !== undefined ? `<br><a href="/segments" style="color:var(--accent)">${d.segments_created} segment${d.segments_created === 1 ? '' : 's'} created</a>` +
         (d.segments_existing ? `<span style="color:var(--text-muted)">, ${d.segments_existing} already here</span>` : '') +

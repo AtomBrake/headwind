@@ -57,7 +57,7 @@ def reads(monkeypatch):
     """The files the import actually opens and parses."""
     seen = []
     real = import_rides.parse_activity_file
-    monkeypatch.setattr(import_rides, 'parse_activity_file', lambda name, data: seen.append(name) or real(name, data))
+    monkeypatch.setattr(import_rides, 'parse_activity_file', lambda name, data, **kw: seen.append(name) or real(name, data, **kw))
     return seen
 
 
@@ -130,10 +130,10 @@ def test_a_file_that_could_not_be_read_is_tried_again(db, reads, monkeypatch):
     monkeypatch.setattr(reimport, '_reader_version', 'next')
     real = import_rides.parse_activity_file             # the `reads` fixture's: it notes each file read
 
-    def flaky(name, data):
+    def flaky(name, data, **kw):
         if name == 'activities/2.gpx':
             raise ValueError('truncated')
-        return real(name, data)
+        return real(name, data, **kw)
     monkeypatch.setattr(import_rides, 'parse_activity_file', flaky)
     run(db, ROWS, FILES)
     monkeypatch.setattr(import_rides, 'parse_activity_file', real)

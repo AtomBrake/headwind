@@ -54,7 +54,7 @@ def icon(sport):
     if 'run'  in t: return '🏃'
     if 'swim' in t: return '🏊'
     if 'surf' in t: return '🏄'
-    if 'paddl' in t or 'row' in t or 'kayak' in t or 'canoe' in t: return '🛶'
+    if 'paddl' in t or 'row' in t or 'kayak' in t or 'canoe' in t or 'water' in t: return '🛶'     # Strava's "Water Sport"
     if 'ski' in t: return '⛷️'
     if 'golf' in t: return '⛳'
     if 'climb' in t: return '🧗'
@@ -65,7 +65,7 @@ def icon(sport):
     return '🏅'
 
 
-_WATER = ('swim', 'surf', 'sail', 'paddl', 'kayak', 'canoe', 'row')
+_WATER = ('swim', 'surf', 'sail', 'paddl', 'kayak', 'canoe', 'row', 'water')     # 'water': Strava's "Water Sport" (whitewater kayaking, say)
 
 
 def on_water(sport):
@@ -77,6 +77,12 @@ def on_water(sport):
 def has_climbing(sport):
     """False on the water, where a track's "climbing" is the GPS bobbing up and down (a kitesurf with thousands of feet of it)."""
     return not on_water(sport)
+
+
+def climb_sql(col='totalElevationGain', sport='sportType'):
+    """SQL for an activity's climb that counts as climbing (has_climbing): 0 on the water, so a river's GPS noise doesn't add to a total."""
+    water = ' OR '.join(f"lower(COALESCE({sport}, '')) LIKE '%{w}%'" for w in _WATER)
+    return f'(CASE WHEN {water} THEN 0 ELSE {col} END)'
 
 
 def label(sport):
