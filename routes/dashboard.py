@@ -21,7 +21,7 @@ def _weekly_data(rider_id, sf=None):
     first  = monday - timedelta(weeks=11)
     clause, cparams = sf.sql() if sf else (sports.RIDE_SQL, [])
     rows = query_db(
-        f"SELECT date(startDateLocal) AS d, sportType, distance, movingTime, totalElevationGain, calories FROM Activity "
+        f"SELECT date(startDateLocal) AS d, sportType, distance, movingTime, {sports.climb_sql()} AS totalElevationGain, calories FROM Activity "
         f"WHERE riderId=? AND date(startDateLocal) >= ? AND date(startDateLocal) < ? AND {clause}",
         [rider_id, first.isoformat(), (monday + timedelta(days=7)).isoformat()] + cparams,
     )
@@ -82,6 +82,14 @@ def dist_filters(args):
     return out[0][0], out[1][0], out[0][1], out[1][1]
 
 
+def climb(a):
+    """An activity row's climb as it adds to a total: none on the water (services/sports.has_climbing). Takes the dashboard's rows (sportType)
+    and the Workouts page's (sport)."""
+    keys = a.keys()
+    sport = a['sportType'] if 'sportType' in keys else (a['sport'] if 'sport' in keys else None)
+    return (a['totalElevationGain'] or 0) if sports.has_climbing(sport) else 0
+
+
 def _group_activities(activities):
     today = date.today()
     tree = {}
@@ -106,7 +114,7 @@ def _group_activities(activities):
             for dy in sorted(tree[year][mo], reverse=True):
                 acts = tree[year][mo][dy]
                 d_dist = sum(a['distance'] or 0 for a in acts)
-                d_elev = sum(a['totalElevationGain'] or 0 for a in acts)
+                d_elev = sum(climb(a) for a in acts)
                 d_secs = sum(a['movingTime'] or 0 for a in acts)
                 dt_day = datetime(year, mo, dy)
                 days.append({
@@ -278,7 +286,7 @@ def dashboard():
     # The headline numbers are for the sports left in. A distance only when they all share one (sf.group): a swim's doesn't add to a ride's.
     totals = query_db(f'''
         SELECT COUNT(*) as rides, SUM(a.distance) as dist,
-               SUM(a.totalElevationGain) as elev, SUM(a.movingTime) as secs,
+               SUM({sports.climb_sql('a.totalElevationGain', 'a.sportType')}) as elev, SUM(a.movingTime) as secs,
                SUM(a.calories) as cals
         FROM Activity a
         WHERE {' AND '.join(where)}

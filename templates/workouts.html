@@ -55,7 +55,7 @@
         {% if is_filtered %}{{ w.startDateLocal | fmt_date }} &nbsp;·&nbsp; {% endif %}{{ w.startDateLocal[11:16] }} &nbsp;·&nbsp;<span style="color:var(--text);">{{ w.distance | fmt_dist }}</span>
         &nbsp;·&nbsp;{{ w.movingTime | fmt_duration }}
         {% if w.averageSpeed %}&nbsp;·&nbsp;{{ w.averageSpeed | fmt_speed }}{% endif %}
-        {% if w.totalElevationGain %}&nbsp;·&nbsp;{{ w.totalElevationGain | fmt_elev }}{% endif %}
+        {% if w.totalElevationGain and w.sport | has_climbing %}&nbsp;·&nbsp;{{ w.totalElevationGain | fmt_elev }}{% endif %}
         {% if w.calories %}&nbsp;·&nbsp;{{ w.calories | round | int }} kcal{% endif %}
         {% if w.steps %}&nbsp;·&nbsp;{{ '{:,}'.format(w.steps) }} steps{% endif %}
         {% if w.weatherSummary %}&nbsp;·&nbsp;{{ w.weatherSummary }}{% endif %}
