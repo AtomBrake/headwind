@@ -773,7 +773,7 @@ A native Kotlin/Jetpack Compose companion — nutrition logging with barcode sca
 
 ## How it works
 
-**Stack** — Python 3.11 / Flask, SQLite (WAL), Jinja templates, vanilla JavaScript, Chart.js, Leaflet. One gunicorn worker with several threads (background jobs — Garmin sync, MQTT, friend sync — must not be duplicated), shipped as a multi-arch Docker image. Windows build: PyInstaller + waitress + pystray.
+**Stack** — Python 3.12 / Flask, SQLite (WAL), Jinja templates, vanilla JavaScript, Chart.js, Leaflet. One gunicorn worker with several threads (background jobs — Garmin sync, MQTT, friend sync — must not be duplicated), shipped as a multi-arch Docker image. Windows build: PyInstaller + waitress + pystray.
 
 **Layout**
 
