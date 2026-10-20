@@ -271,8 +271,8 @@ def test_garmin_sync_reads_zoneless_times_as_utc(tmp_path, monkeypatch):
         monkeypatch.setattr('services.weather.fetch_weather', lambda *a, **k: None)
         acts = [{'activityId': 936556469, 'activityType': {'typeKey': 'cycling'}, 'startTimeLocal': '2011-07-09 10:59:00',
                  'startTimeGMT': '2011-07-09 10:59:00', 'distance': 10000, 'activityName': 'Lustleigh', 'startLatitude': 50.62, 'startLongitude': -3.73}]
-        monkeypatch.setattr(garmin, '_client', lambda e, p: FakeAPI(acts, ()))
-        list(garmin.sync_garmin_activities('e', 'p', 1))
+        monkeypatch.setattr(garmin, '_client', lambda: FakeAPI(acts, ()))
+        list(garmin.sync_garmin_activities(1))
         row = d.execute("SELECT startDate, startDateLocal FROM Activity WHERE id='garmin_936556469'").fetchone()
         assert tuple(row) == ('2011-07-09T10:59:00', '2011-07-09T11:59:00')
 
