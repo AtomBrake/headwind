@@ -253,7 +253,13 @@ def detail(rid):
     source_links = origin.links(get_db(), activity['id'], activity['originId'])
     from services import photos as _photos
     avg_mps = activity['averageSpeed'] or ((activity['distance'] or 0) / activity['movingTime'] if activity['movingTime'] else None)   # a phone walk stores none
-    return render_template('ride.html', kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.RIDES + sports.ON_FOOT),
+    try:                                                # a Strava export's climb taken in place of the file's impossible one (import_rides._strava_climb_if_impossible)
+        raw = json.loads(activity['rawData'] or '{}')
+        file_climb = raw.get('fileClimb') if raw.get('fileClimb') is not None and activity['totalElevationGain'] == raw.get('stravaClimb') else None
+    except (ValueError, TypeError, AttributeError):
+        file_climb = None
+    return render_template('ride.html', kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
+                           file_climb=file_climb,
                            charts=charts, has_memory=memory_count > 0,
                            seg_efforts=seg_efforts, alt_raw=alt_raw,
                            co_riders=co_riders, seg_rivals=seg_rivals,
@@ -334,6 +340,19 @@ def dismiss_flag(rid):
     sanity.dismiss(db, rid)
     db.commit()
     return ('', 204)
+
+
+@bp.route('/<rid>/climb/strava', methods=['POST'])
+def use_strava_climb(rid):
+    """A flagged ride from a Strava export takes Strava's climb in place of the file's (services/sanity.use_strava_climb)."""
+    from flask import jsonify
+    from services import sanity
+    db = get_db()
+    if not sanity.use_strava_climb(db, rid):
+        return ('No climb from Strava for this ride', 404)
+    db.commit()
+    row = db.execute('SELECT flagReason FROM Activity WHERE id=?', [rid]).fetchone()
+    return jsonify(ok=True, flagged=bool(row and row['flagReason']))
 
 
 @bp.route('/<rid>/notes', methods=['POST'])

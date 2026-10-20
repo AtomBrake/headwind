@@ -83,10 +83,57 @@ def dismiss(db, act_id):
     db.execute('UPDATE Activity SET flagDismissed=1, flagReason=NULL WHERE id=?', [act_id])
 
 
+def strava_climb(row):
+    """Strava's climb for an activity from a Strava export (kept in rawData at import), or None."""
+    import json
+    try:
+        v = json.loads(row['rawData'] or '{}').get('stravaClimb')
+    except (ValueError, TypeError, AttributeError, KeyError, IndexError):
+        return None
+    return float(v) if isinstance(v, (int, float)) else None
+
+
 def flagged(db, rider_id):
-    """The rider's flagged rides, newest first. `isBlip`: shorter than MIN_DIST_M, a start-stop by mistake (the dashboard offers to delete them all)."""
-    return [dict(r, isBlip=bool(r['distance'] is not None and 0 < r['distance'] < MIN_DIST_M)) for r in db.execute(
-        'SELECT id, name, startDateLocal, distance, averageSpeed, flagReason FROM Ride WHERE riderId=? AND flagReason IS NOT NULL AND COALESCE(flagDismissed,0)=0 ORDER BY startDateLocal DESC', [rider_id]).fetchall()]
+    """The rider's flagged rides, newest first. `isBlip`: shorter than MIN_DIST_M, a start-stop by mistake (the dashboard offers to delete them all).
+    `stravaClimb`: Strava's climb, when the ride came from a Strava export and Strava's differs from the one saved (offered in its place)."""
+    out = []
+    for r in db.execute('SELECT id, name, startDateLocal, distance, averageSpeed, totalElevationGain, flagReason, rawData FROM Ride '
+                        'WHERE riderId=? AND flagReason IS NOT NULL AND COALESCE(flagDismissed,0)=0 ORDER BY startDateLocal DESC', [rider_id]).fetchall():
+        sc = strava_climb(r)
+        d = {k: r[k] for k in r.keys() if k != 'rawData'}
+        d['isBlip'] = bool(r['distance'] is not None and 0 < r['distance'] < MIN_DIST_M)
+        d['stravaClimb'] = sc if sc is not None and abs(sc - float(r['totalElevationGain'] or 0)) > 1 else None
+        out.append(d)
+    return out
+
+
+def use_strava_climb(db, act_id):
+    """"Use Strava's climb" on a flagged ride: Strava's figure in place of the file's, and the altitude stream dropped when it can't be real
+    (services/parser.altitude_broken), so no profile or segment climb is read from it. Checked again, and its best and segment efforts rebuilt.
+    Returns False when there's no Strava figure. Does not commit."""
+    import json
+    from services.parser import altitude_broken
+    r = db.execute('SELECT id, totalElevationGain, streams, rawData FROM Activity WHERE id=?', [act_id]).fetchone()
+    sc = strava_climb(r) if r else None
+    if sc is None:
+        return False
+    raw = json.loads(r['rawData'] or '{}')
+    raw.setdefault('fileClimb', r['totalElevationGain'])
+    sets = {'totalElevationGain': sc}
+    try:
+        streams = json.loads(r['streams'] or '{}')
+    except ValueError:
+        streams = {}
+    if altitude_broken(streams):
+        streams.pop('altitude', None)
+        sets['streams'] = json.dumps(streams)
+        raw['altitudeDropped'] = True
+    sets['rawData'] = json.dumps(raw)
+    db.execute(f"UPDATE Activity SET {', '.join(f'{k}=?' for k in sets)}, updatedAt=datetime('now') WHERE id=?", [*sets.values(), act_id])
+    flag(db, act_id)
+    from services import duplicates
+    duplicates.rebuild_derived(db, act_id)
+    return True
 
 
 def blip_ids(db, rider_id):

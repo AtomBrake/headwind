@@ -137,13 +137,19 @@ def _tracks_agree(part, whole, sp, sw):
     return checked > 0 and agree * 2 >= checked
 
 
+def is_manual(row):
+    """Typed in by hand: Headwind's own manual entries ('man_' ids), and a Strava export's rows with no file (stored with source 'manual')."""
+    return str(_get(row, 'id', '')).startswith('man_') or _get(row, 'source') == 'manual'
+
+
 def fragment_of(part, whole):
     """True if `part` is a piece of the ride `whole`: both rides, `part` starts during it (FRAGMENT_SLACK_S early at most), at least half of it
     lies inside it, it lasts at most half as long, and where both have a GPS track they were in the same place. A phone app with a Garmin speed
     sensor recorded bits of rides like this (0 m or only the wheel's distance, no GPS), often running on for a few minutes after the ride's
-    own device was stopped; a Zwift session inside the watch's "Indoor Cycling" is one too."""
+    own device was stopped; a Zwift session inside the watch's "Indoor Cycling" is one too. Never inside a manual entry: its elapsed time is
+    whatever was typed (a 2.5 km top-up on Strava "lasting" 15 hours held that evening's 24 km ride)."""
     from services.sports import is_ride
-    if not (is_ride(_get(part, 'sportType')) and is_ride(_get(whole, 'sportType'))):
+    if not (is_ride(_get(part, 'sportType')) and is_ride(_get(whole, 'sportType'))) or is_manual(whole):
         return False
     sp, sw = span(part), span(whole)
     if not sp or not sw or _secs(sw) <= 0:
@@ -217,16 +223,17 @@ def _take_better_name(db, primary_id, kept_name, other_name):
 
 
 def source_label(row):
-    return 'Garmin' if str(row['id']).startswith('garmin_') else ('Manual entry' if str(row['id']).startswith('man_') else 'Phone or file')
+    return 'Garmin' if str(row['id']).startswith('garmin_') else ('Manual entry' if is_manual(row) else 'Phone or file')
 
 
 def quality(row):
     """(score, reasons) for how much a recording is worth keeping. Higher wins; a tie keeps the one already stored."""
     s, why = 0, []
     rid = str(row['id'])
+    manual = is_manual(row)
     if rid.startswith('garmin_'):
         s += 40; why.append('recorded on a Garmin device')
-    if rid.startswith('man_'):
+    if manual:
         s -= 50; why.append('typed in by hand')
     if row['averageHeartrate']:
         s += 20; why.append('has heart rate')
@@ -242,7 +249,7 @@ def quality(row):
     except (ValueError, TypeError, AttributeError):
         pass
     s += min(10, pts // 500)
-    if pts == 0 and not rid.startswith('man_'):
+    if pts == 0 and not manual:
         s -= 5; why.append('no GPS track')
     if alt:                                             # an old Garmin copy of a run kept no elevation; the file re-uploaded later did
         s += 3; why.append('has elevation')
@@ -269,8 +276,12 @@ def _whole_beats_fragment(existing, new):
         if no_gps or short:
             mins = max(1, round(_secs(span(part)) / 60))
             what = 'with no GPS track' if no_gps else f'with {round(100 * dp / dw)}% of its distance'
-            return whole, part, (f'Kept the whole ride: the other recording is only a {mins}-minute piece of it, {what} '
-                                 '(a phone app or sensor that recorded part of the ride, or a device that stopped early).')
+            reason = (f'Kept the whole ride: the other recording is only a {mins}-minute piece of it, {what} '
+                      '(a phone app or sensor that recorded part of the ride, or a device that stopped early).')
+            if _gps_points(whole) == 0 and not no_gps:  # the totals need the whole ride, but the map, profile and segments are on the piece
+                reason += (' This ride has no GPS track and the piece has one: its map, elevation profile and segment efforts are on the '
+                           'other recording. View it, or keep both if you would rather have the track than the right totals.')
+            return whole, part, reason
     return None
 
 

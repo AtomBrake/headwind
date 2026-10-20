@@ -17,7 +17,7 @@ import json
 
 # Activity columns an import can supply (calories handled separately, through the burn adjustment)
 COLUMNS = ('distance', 'movingTime', 'elapsedTime', 'totalElevationGain', 'averageSpeed', 'maxSpeed', 'averageHeartrate', 'maxHeartrate',
-           'averageWatts', 'maxWatts', 'averageCadence', 'startLat', 'startLng', 'streams', 'startDate', 'startDateLocal')
+           'averageWatts', 'maxWatts', 'averageCadence', 'startLat', 'startLng', 'streams', 'startDate', 'startDateLocal', 'rawData')
 STREAM_NAMES = {'latlng': 'GPS', 'altitude': 'altitude', 'heartrate': 'heart rate', 'watts': 'power', 'cadence': 'cadence', 'velocity_smooth': 'speed',
                 'distance': 'distance'}
 
@@ -32,6 +32,14 @@ def ensure_schema(db):
         diffs     TEXT NOT NULL,             -- [{label, old, new}] for the page
         act       TEXT NOT NULL              -- the imported ride, normalised (startDate / startDateLocal split as _insert stores them)
     )''')
+    db.execute('''CREATE TABLE IF NOT EXISTS ImportProblem (
+        rideId    TEXT PRIMARY KEY,
+        riderId   INTEGER,
+        rideName  TEXT,
+        file      TEXT,                      -- the file the import couldn't read
+        problem   TEXT NOT NULL,             -- what was saved instead, for the page
+        foundAt   TEXT DEFAULT (datetime('now'))
+    )''')
     db.execute('''CREATE TABLE IF NOT EXISTS ImportSeen (
         sourceKey   TEXT PRIMARY KEY,        -- 'strava:<activity id>' for an export's row, 'file:<crc>:<size>' for a file in a zip
         activityId  TEXT NOT NULL,           -- what it was saved as, or compared with
@@ -45,7 +53,7 @@ def ensure_schema(db):
 # zone an activity's local time is taken in (tz).
 # tests/test_import_seen.py checks every module the parser imports is here.
 READER_MODULES = ('services.parser', 'services.best_efforts', 'services.sports', 'services.reimport', 'services.duplicates', 'services.tz',
-                  'routes.import_rides')
+                  'services.sanity', 'routes.import_rides')       # sanity: its limits decide when a Strava export's climb replaces the file's
 READER_LIBRARIES = ('fitparse', 'gpxpy', 'tzfpy')        # a FIT library that replaces fitparse goes here too; tzfpy: the local time where it happened
 _reader_version = None
 
@@ -199,6 +207,23 @@ def propose(db, saved, act, source):
 def pending(db):
     rows = db.execute('SELECT * FROM ImportChange ORDER BY foundAt DESC, rideId').fetchall()
     return [dict(r, diffs=json.loads(r['diffs'])) for r in rows]
+
+
+def note_problem(db, ride_id, rider_id, ride_name, file, problem):
+    """Remember that an import couldn't read an activity's file, for the Import page (problems). Does not commit."""
+    db.execute('INSERT OR REPLACE INTO ImportProblem (rideId, riderId, rideName, file, problem) VALUES (?,?,?,?,?)',
+               [ride_id, rider_id, ride_name, file, problem])
+
+
+def problem_solved(db, ride_id):
+    """The file was read this time. Does not commit."""
+    db.execute('DELETE FROM ImportProblem WHERE rideId=?', [ride_id])
+
+
+def problems(db):
+    """Files the imports couldn't read, newest first, for activities that are still here."""
+    return [dict(r) for r in db.execute('''SELECT p.* FROM ImportProblem p JOIN Activity a ON a.id = p.rideId
+                                           ORDER BY p.foundAt DESC, p.rideId''').fetchall()]
 
 
 def resolve(db, ride_id, choice):

@@ -139,6 +139,28 @@ def extremes_from_streams(streams):
     return out
 
 
+ALT_RANGE_M = (-450, 9000)      # lower than the Dead Sea's shore or higher than Everest's summit: a barometer gone wrong
+ALT_JUMP = (200, 10)            # metres, within this many seconds: no one climbs or drops that fast (a broken Wahoo jumped 13 km in one)
+
+
+def altitude_broken(streams):
+    """True when the altitude stream can't be real (ALT_RANGE_M, ALT_JUMP): five rides from one Wahoo ELEMNT swung between -500 m and 12,600 m
+    and claimed 9,293-41,539 m of climb. The biggest real days on the same export stay within 946-2,810 m, jumping 143 m at most over 170 s."""
+    alt = (streams.get('altitude') or {}).get('data') or []
+    t = (streams.get('time') or {}).get('data') or []
+    vals = [a for a in alt if a is not None]
+    if not vals:
+        return False
+    if min(vals) < ALT_RANGE_M[0] or max(vals) > ALT_RANGE_M[1]:
+        return True
+    if len(t) == len(alt):
+        for i in range(1, len(alt)):
+            if (alt[i] is not None and alt[i - 1] is not None and abs(alt[i] - alt[i - 1]) >= ALT_JUMP[0]
+                    and t[i] - t[i - 1] <= ALT_JUMP[1]):
+                return True
+    return False
+
+
 def _gain_smoothed(alts, threshold=3.0, window=7):
     """Total climb from a noisy altitude track (phone GPS altitude wanders by metres even when you stand still): smooth it, then only count a rise once it is
     at least `threshold` metres from the last low point."""
@@ -167,6 +189,17 @@ def _declare_missing_prefixes(text):
         return text
     decls = ''.join(f' xmlns:{p}="urn:undeclared:{p}"' for p in missing)
     return re.sub(r'<gpx(?=[\s>/])', lambda m: '<gpx' + decls, text, count=1)
+
+
+def _wrap_bare_trkpts(text):
+    """A track whose <trkpt>s sit straight in <trk> (no <trkseg>) with them wrapped in one, so gpxpy finds them. Files with a <trkseg> are untouched."""
+    if '<trkseg' in text:
+        return text
+    first, last = text.find('<trkpt'), text.rfind('</trkpt>')
+    if first < 0 or last < first:
+        return text
+    last += len('</trkpt>')
+    return text[:first] + '<trkseg>' + text[first:last] + '</trkseg>' + text[last:]
 
 
 _RUNKEEPER_NAME = re.compile(r'(\d{1,2})/(\d{1,2})/(\d{2}|\d{4})\s+(\d{1,2}):(\d{2})\s*([ap]m)', re.I)
@@ -201,6 +234,10 @@ def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
     text = data.decode('utf-8', errors='replace')
     # Trailforks writes "2026-07-21T12:05:57z" — gpxpy only accepts an upper-case T/Z and silently drops every timestamp otherwise
     text = re.sub(r'<time>([^<]*)</time>', lambda m: '<time>' + m.group(1).strip().upper() + '</time>', text)
+    # Strava's Android app (2014-16) wrote a UUID into <trk><number>, which GPX says is an integer, and gpxpy refuses the whole file for it;
+    # it also put the points straight into <trk>, with no <trkseg>, where gpxpy doesn't look
+    text = re.sub(r'<number>(?!\s*\d+\s*</number>)[^<]*</number>', '', text)
+    text = _wrap_bare_trkpts(text)
     text = _declare_missing_prefixes(text)
     gpx = gpxpy.parse(io.StringIO(text))
 
@@ -301,21 +338,30 @@ def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
 
 def parse_fit(data: bytes):
     from fitparse import FitFile
+    from fitparse.utils import FitEOFError
 
-    ff = FitFile(io.BytesIO(data))
+    if data.lstrip()[:2] == b'["':                       # a FIT saved as an escaped string in a Strava export (unescape_ruby_fit)
+        data = unescape_ruby_fit(data)
+    # The CRC isn't checked: a file that ends without it (a device that stopped mid-write) holds the whole ride all the same
+    ff = FitFile(io.BytesIO(data), check_crc=False)
     records = []
     session_msg = None
 
     lap_msgs, length_msgs = [], []
-    for msg in ff.get_messages():
-        if msg.name == 'record':
-            records.append({f.name: f.value for f in msg})
-        elif msg.name == 'session':
-            session_msg = {f.name: f.value for f in msg}
-        elif msg.name == 'lap':
-            lap_msgs.append({f.name: f.value for f in msg})
-        elif msg.name == 'length':
-            length_msgs.append({f.name: f.value for f in msg})
+    try:
+        for msg in ff.get_messages():
+            if msg.name == 'record':
+                records.append({f.name: f.value for f in msg})
+            elif msg.name == 'session':
+                session_msg = {f.name: f.value for f in msg}
+            elif msg.name == 'lap':
+                lap_msgs.append({f.name: f.value for f in msg})
+            elif msg.name == 'length':
+                length_msgs.append({f.name: f.value for f in msg})
+    except FitEOFError:
+        if not records:                                  # junk from the start: not a FIT file at all
+            raise
+        log.warning('parse_fit: the file ends early, after %d records; keeping what came before', len(records))
 
     start = None
     if session_msg:
@@ -358,8 +404,16 @@ def parse_fit(data: bytes):
             hr_s.append(p['heartrate'])
     streams, _ = aligned_streams(points, start)          # one value per point in every stream: a record with no fix used to shift `time`
     latlng = (streams.get('latlng') or {}).get('data') or []
-    device_moving = moving_time                          # the timer counts every stop when auto-pause is off: then the track's, as Strava does
-    moving_time = pick_moving_time(moving_time, track_moving_time(streams), s.get('total_elapsed_time'), sport_type)
+    elapsed = s.get('total_elapsed_time')
+    if not session_msg:                                  # a file that ended before its summary: what the track says
+        distance = float(((streams.get('distance') or {}).get('data') or [0])[-1] or 0)
+        elapsed = ((streams.get('time') or {}).get('data') or [0])[-1]
+        alts = (streams.get('altitude') or {}).get('data') or []
+        if alts:
+            from gpxpy.geo import calculate_uphill_downhill
+            elev_gain = calculate_uphill_downhill(alts)[0]
+    device_moving = moving_time                         # the timer counts every stop when auto-pause is off: then the track's, as Strava does
+    moving_time = pick_moving_time(moving_time, track_moving_time(streams), elapsed, sport_type)
     if moving_time != device_moving:
         avg_speed = None                                 # the device's was distance over its own (wrong) time
 
@@ -389,7 +443,7 @@ def parse_fit(data: bytes):
         'startDateLocal':     _utc_iso(start),
         'distance':           round(distance, 1),
         'movingTime':         moving_time,
-        'elapsedTime':        int(s.get('total_elapsed_time') or moving_time),
+        'elapsedTime':        int(elapsed or moving_time),
         'totalElevationGain': round(elev_gain, 1),
         'averageSpeed':       round(float(avg_speed), 4) if avg_speed else None,
         'averageHeartrate':   round(float(avg_hr), 1) if avg_hr else None,
@@ -471,18 +525,147 @@ def crop_laps(laps_json, off, seconds):
 ACTIVITY_EXTENSIONS = ('.gpx', '.fit', '.tcx', '.gpx.gz', '.fit.gz', '.tcx.gz')
 
 
-def parse_activity_file(name, data: bytes):
-    """Parse an activity file by its extension (data already gunzipped). None if the name isn't a .gpx / .fit / .tcx (optionally .gz)."""
+def sniff(data: bytes):
+    """'fit', 'gpx', 'tcx' or None, from what a file holds rather than its name: Strava's exports have FIT files named .bin."""
+    if len(data) >= 12 and data[8:12] == b'.FIT':
+        return 'fit'
+    head = data[:2048].lstrip().removeprefix(b'\xef\xbb\xbf').lstrip()
+    if head.startswith(b'<'):
+        if b'<gpx' in head:
+            return 'gpx'
+        if b'<TrainingCenterDatabase' in head:
+            return 'tcx'
+    return None
+
+
+def parse_activity_file(name, data: bytes, strava_export=False):
+    """Parse an activity file (data already gunzipped) by its extension: .gpx / .fit / .tcx, optionally .gz. strava_export: a file named in a
+    Strava export's activities.csv, which may also be a recording from Strava's own app (.json: parse_strava_app_json) or a FIT file under
+    another name (.bin), told by its contents (sniff). None when it's none of these."""
     n = name.lower()
     if n.endswith('.gz'):
         n = n[:-3]
-    if n.endswith('.gpx'):
+    if n.endswith('.json'):
+        return parse_strava_app_json(data) if strava_export else None
+    kind = next((k for k in ('gpx', 'fit', 'tcx') if n.endswith('.' + k)), None) or (sniff(data) if strava_export else None)
+    if kind == 'gpx':
         return parse_gpx(data)
-    if n.endswith('.fit'):
+    if kind == 'fit':
         return parse_fit(data)
-    if n.endswith('.tcx'):
+    if kind == 'tcx':
         return parse_tcx(data)
     return None
+
+
+_RUBY_ESCAPES = {ord('e'): 0x1b, ord('f'): 0x0c, ord('n'): 0x0a, ord('t'): 0x09, ord('r'): 0x0d, ord('v'): 0x0b, ord('b'): 0x08, ord('a'): 0x07,
+                 ord('s'): 0x20, ord('0'): 0x00, ord('"'): 0x22, ord('\\'): 0x5c, ord('#'): 0x23}
+
+
+def unescape_ruby_fit(data: bytes):
+    """A FIT file that Strava's export holds as a JSON array, ["<the file as a Ruby string literal>", true]: \\xNN for most bytes, Ruby's
+    one-letter escapes (\\e \\f \\n \\t \\r \\v \\b \\a \\s \\0), and \\" \\\\ \\#. Python's unicode_escape gets it wrong (it has no \\e or \\#).
+    Returns the file's bytes; ValueError when it isn't one."""
+    m = re.match(rb'\s*\[\s*"', data)
+    if not m:
+        raise ValueError('not an escaped FIT file')
+    out, i, n = bytearray(), m.end(), len(data)
+    while i < n:
+        c = data[i]
+        if c == 0x22:                                    # the closing quote
+            return bytes(out)
+        if c != 0x5c:
+            out.append(c)
+            i += 1
+            continue
+        e = data[i + 1] if i + 1 < n else None
+        if e == ord('x'):
+            out.append(int(data[i + 2:i + 4], 16))
+            i += 4
+        elif e in _RUBY_ESCAPES:
+            out.append(_RUBY_ESCAPES[e])
+            i += 2
+        else:
+            raise ValueError(f'unknown escape at byte {i}')
+    raise ValueError('escaped FIT file has no end')
+
+
+def parse_strava_app_json(data: bytes):
+    """A recording from Strava's own phone app, as a Strava export keeps it (activities/<n>.json, from about 2020): a JSON array whose first item
+    is a JSON string of {metadata, data}. metadata has the activity type, name, start, timer (moving) and elapsed time; data is a list of
+    series {fields, values}: the track (time in epoch seconds, latlng, elevation, speed, distance, ...) and the pauses (time, pause_type:
+    0 / 2 paused by hand / automatically, 1 / 3 going again). Returns the same act dict as parse_gpx, or None."""
+    from datetime import datetime, timezone
+    try:
+        outer = json.loads(data)
+        doc = outer[0] if isinstance(outer, list) and outer else outer
+        doc = json.loads(doc) if isinstance(doc, str) else doc
+        meta, series = doc.get('metadata') or {}, doc.get('data') or []
+    except (ValueError, TypeError, AttributeError, KeyError, IndexError):
+        return None
+    track = pauses = None
+    for s in series:
+        f = s.get('fields') or []
+        if 'time' in f and 'latlng' in f and track is None:
+            track = s
+        elif f == ['time', 'pause_type']:
+            pauses = s
+    if not track or not track.get('values'):
+        return None
+    idx = {k: i for i, k in enumerate(track['fields'])}
+    get = lambda row, k: row[idx[k]] if k in idx and idx[k] < len(row) else None
+    points, seen_alt = [], False
+    for row in track['values']:
+        t, ll, alt = get(row, 'time'), get(row, 'latlng'), get(row, 'elevation')
+        if t is None:
+            continue
+        seen_alt = seen_alt or bool(alt)
+        points.append({'time': datetime.fromtimestamp(float(t), timezone.utc),
+                       'latlng': [float(ll[0]), float(ll[1])] if isinstance(ll, list) and len(ll) == 2 else None,
+                       'altitude': float(alt) if alt is not None and seen_alt else None,     # 0 until the phone has a height
+                       'velocity_smooth': get(row, 'speed'), 'distance': get(row, 'distance')})
+    if len(points) < 2:
+        return None
+    try:
+        start = datetime.fromisoformat(str(meta.get('start_date')).replace('Z', '+00:00'))
+        start = start if start.tzinfo else start.replace(tzinfo=timezone.utc)
+    except ValueError:
+        start = points[0]['time']
+    start = min(start, points[0]['time'])
+    streams, _ = aligned_streams(points, start)
+    t_end = (streams.get('time') or {}).get('data', [0])[-1]
+    elapsed = int(meta.get('elapsed_time') or t_end)
+    moving = int(meta.get('timer_time') or 0)
+    if not moving and pauses:                            # the time between each pause and going again, left out
+        paused, since = 0.0, None
+        for t, kind in pauses.get('values') or []:
+            if kind in (0, 2) and since is None:
+                since = t
+            elif kind in (1, 3) and since is not None:
+                paused, since = paused + t - since, None
+        if since is not None:
+            paused += max(0.0, points[-1]['time'].timestamp() - since)
+        moving = max(0, int(round(t_end - paused)))
+    moving = moving or track_moving_time(streams)
+    distance = float(((streams.get('distance') or {}).get('data') or [0])[-1] or 0)
+    latlng = (streams.get('latlng') or {}).get('data') or []
+    sport = _map_sport(meta['activity_type']) if meta.get('activity_type') else 'Ride'
+    return {
+        'id':                 _stable_id(start, distance),
+        'name':               (meta.get('activity_name') or '').strip() or sport + ' Activity',
+        'sportType':          sport,
+        'startDateLocal':     _utc_iso(start),
+        'distance':           round(distance, 1),
+        'movingTime':         moving,
+        'elapsedTime':        elapsed,
+        # Unknown: a phone's GPS height wanders (1,354 m climbed on a ride Strava, which corrects it from the ground, makes 501 m), and the
+        # export these come in always has Strava's figure in activities.csv, which the import takes when the file has none
+        'totalElevationGain': None,
+        'averageSpeed':       round(distance / moving, 4) if distance and moving else None,
+        **extremes_from_streams(streams),
+        'startLat':           latlng[0][0] if latlng else None,
+        'startLng':           latlng[0][1] if latlng else None,
+        'streams':            json.dumps(streams),
+    }
 
 
 def _tag(el):
