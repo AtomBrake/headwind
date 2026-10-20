@@ -206,3 +206,34 @@ def test_other_riders_rides_are_never_merged(db):
     _add(db, 'imp_other', '2026-10-05T10:29:38+00:00')
     db.execute("UPDATE Activity SET riderId=2 WHERE id='imp_other'"); db.commit()
     assert dup.resolve(db, 'imp_other') is None and _live(db) == ['garmin_1', 'imp_other']
+
+
+# ---- a whole ride with no track, and manual entries from a Strava export ----
+def _timed_gps(n, start_s=0):
+    return json.dumps({'time': {'data': [start_s + i * 10 for i in range(n)]}, 'latlng': {'data': [[54.0 + i * 1e-4, -1.5] for i in range(n)]}})
+
+
+def test_a_whole_ride_with_no_track_keeps_the_totals_and_says_where_the_track_is():
+    """A 46 km day saved from activities.csv alone, and an 11.5 km morning piece with a track: the whole is kept for the totals, and the reason
+    says its map, profile and segment efforts are on the piece."""
+    whole = _row(id='7583442007', distance=46000.0, elapsedTime=21000, movingTime=10500)
+    piece = _row(id='7583231610', distance=11500.0, elapsedTime=9000, movingTime=2600, streams=_timed_gps(900))
+    winner, loser, reason = dup.pick_winner(piece, whole)
+    assert winner['id'] == '7583442007' and loser['id'] == '7583231610'
+    assert 'no GPS track and the piece has one' in reason and 'keep both' in reason
+    with_track = _row(id='w', distance=46000.0, elapsedTime=21000, movingTime=10500, streams=_timed_gps(2100))
+    assert 'no GPS track and the piece has one' not in dup.pick_winner(piece, with_track)[2]
+
+
+def test_a_manual_strava_row_is_typed_in_by_hand():
+    manual = _row(id='2241486599', source='manual')
+    assert dup.is_manual(manual) and dup.source_label(manual) == 'Manual entry' and 'typed in by hand' in dup.quality(manual)[1]
+    assert not dup.is_manual(_row(id='2241486599')) and dup.is_manual(_row(id='man_1'))
+
+
+def test_a_manual_entry_lasting_longer_than_a_ride_is_not_the_whole_of_it():
+    """Typed in on Strava: 2.5 km, 15 hours "elapsed" from 18:30. The 24 km recorded at 19:30 is inside it, but isn't a piece of it."""
+    manual = _row(id='2241486599', source='manual', startDateLocal='2019-03-25T18:30:00', elapsedTime=54000, movingTime=54000, distance=2478.0)
+    ride = _row(id='2241000000', startDateLocal='2019-03-25T19:30:00', elapsedTime=5000, movingTime=4500, distance=24000.0, streams=_timed_gps(500))
+    assert not dup.fragment_of(ride, manual) and not dup.same_ride(ride, manual) and not dup.same_ride(manual, ride)
+    assert dup.fragment_of(ride, dict(manual, source=None))              # what it used to be taken for
