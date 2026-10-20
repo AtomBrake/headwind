@@ -169,6 +169,32 @@ def _declare_missing_prefixes(text):
     return re.sub(r'<gpx(?=[\s>/])', lambda m: '<gpx' + decls, text, count=1)
 
 
+_RUNKEEPER_NAME = re.compile(r'(\d{1,2})/(\d{1,2})/(\d{2}|\d{4})\s+(\d{1,2}):(\d{2})\s*([ap]m)', re.I)
+
+
+def runkeeper_shift(creator, track_name, start, lat, lng):
+    """How far a RunKeeper GPX's clock is out, as a timedelta (None when it isn't, or can't be told). RunKeeper's files from 2011-2013 stamp
+    every <time> whole hours out (-1 to +10, a different amount per file) with the minutes and seconds right, and name the track after the real
+    start on the wall clock where it happened: "Running 7/26/11 6:20 pm" (M/D/YY h:mm am/pm). The shift is the whole-hour gap between that and
+    the file's start in the zone of its first point; only a gap within 90 s of 1 to 14 whole hours counts."""
+    from datetime import datetime, timedelta, timezone
+    m = _RUNKEEPER_NAME.search(track_name or '')
+    if 'runkeeper' not in (creator or '').lower() or not m or start is None:
+        return None
+    mo, d, y, h, mi, ampm = m.groups()
+    try:
+        wall = datetime(int(y) + (2000 if len(y) == 2 else 0), int(mo), int(d), int(h) % 12 + (12 if ampm.lower() == 'pm' else 0), int(mi))
+    except ValueError:
+        return None
+    from services import tz
+    file_wall = (start if start.tzinfo else start.replace(tzinfo=timezone.utc)).astimezone(tz.zone_at(lat, lng)).replace(tzinfo=None)
+    gap = (wall - file_wall.replace(second=0, microsecond=0)).total_seconds()
+    hours = round(gap / 3600)
+    if not 1 <= abs(hours) <= 14 or abs(gap - hours * 3600) > 90:
+        return None
+    return timedelta(hours=hours)
+
+
 def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
     import gpxpy
 
@@ -202,6 +228,10 @@ def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
         name = t.name or gpx.name or name
         if t.type:
             sport_type = _map_sport(t.type)
+    file_start = start
+    shift = runkeeper_shift(gpx.creator, gpx.tracks[0].name if gpx.tracks else None, start, points[0].latitude, points[0].longitude)
+    if shift:                                            # the streams count from the start, so only the start moves
+        start = start + shift
 
     # stopped_speed: below this many m/s counts as standing still. gpxpy's default (1 m/s, 2.2 mph) is right for a bike but drops a stroll or a hill walk from the moving time
     moving_data = (gpx.tracks[0].get_moving_data(stopped_speed_threshold=stopped_speed) if stopped_speed else gpx.tracks[0].get_moving_data()) if gpx.tracks else None
@@ -250,10 +280,11 @@ def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
     elapsed_s = (timed[-1] - timed[0]).total_seconds() if len(timed) > 1 else moving_time   # wall-clock, not moving time
 
     return {
-        'id':                 _stable_id(start, distance),
+        'id':                 _stable_id(file_start, distance),       # the file's own clock: the id it has always had
         'name':               name,
         'sportType':          sport_type,
         'startDateLocal':     _utc_iso(start),
+        **({'clockShiftedFrom': _utc_iso(file_start)} if shift else {}),
         'distance':           round(distance, 1),
         'movingTime':         int(moving_time),
         'elapsedTime':        int(elapsed_s),

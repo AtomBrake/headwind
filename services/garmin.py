@@ -662,6 +662,18 @@ def _save_workout(db, wid, rider_id, sport, name, start_utc, start_local, parsed
     gear.on_ride_added(db, (dup or {}).get('kept', wid))  # the rider's default shoes (or other kit) for the sport
 
 
+def _local_where(utc_iso, lat, lng, sport=None):
+    """Garmin's local time for an activity it had no time zone for (it then gives the UTC time as the local time too): the clock where it
+    started (services/tz.zone_at), the home zone without a position."""
+    from datetime import datetime, timezone
+    from services import tz
+    try:
+        utc = datetime.fromisoformat(utc_iso[:19]).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return utc_iso
+    return tz.local_at(utc, lat, lng, sport)
+
+
 def _from_summary(a):
     """An activity from what Garmin's activity list says about it, in parse_fit's shape: one typed into Garmin Connect has no file. No track."""
     dur = a.get('duration') or 0
@@ -735,6 +747,10 @@ def sync_garmin_activities(email, password, rider_id, api=None):
             type_key     = ((a.get('activityType') or {}).get('typeKey') or '').lower()
             start_local  = (a.get('startTimeLocal') or '')[:19].replace(' ', 'T')
             start_date   = start_local[:10]
+            start_gmt    = (a.get('startTimeGMT') or '')[:19].replace(' ', 'T')
+            zoneless     = bool(start_gmt) and start_gmt == start_local      # Garmin had no zone for it: its "local" time is UTC
+            if zoneless:
+                start_local = _local_where(start_gmt, a.get('startLatitude'), a.get('startLongitude'), type_key)
 
             # A watch with an unset clock stamps rides with bogus dates (one landed in 1999) — never import those
             if start_date and start_date < '2005-01-01':
@@ -766,10 +782,10 @@ def sync_garmin_activities(email, password, rider_id, api=None):
             # Same ride already here from another source? A phone/file copy is fine: we still fetch the Garmin one (it has the sensors) and
             # resolve() keeps the better recording afterwards. Only skip when Garmin itself already gave us this ride under another id.
             garmin_distance = a.get('distance') or 0
-            probe = {'id': db_id, 'startDateLocal': start_local, 'startDate': (a.get('startTimeGMT') or start_local or '').replace(' ', 'T'),     # the real instant: start_local is wherever the ride was
+            probe = {'id': db_id, 'startDateLocal': start_local, 'startDate': start_gmt or start_local,     # the real instant: start_local is wherever the ride was
                      'riderId': rider_id, 'distance': garmin_distance,
                      'elapsedTime': int(a.get('elapsedDuration') or a.get('duration') or 0), 'movingTime': int(a.get('movingDuration') or a.get('duration') or 0)}
-            if any(str(t['id']).startswith('garmin_') for t in duplicates.find_duplicates(db, probe)):
+            if any(str(t['id']).startswith('garmin_') for t in duplicates.find_duplicates(db, probe, fragments=False)):
                 skipped += 1
                 if start_date and (newest is None or start_date > newest):
                     newest = start_date
@@ -818,7 +834,19 @@ def sync_garmin_activities(email, password, rider_id, api=None):
             # Prefer API summary for name and sport; FIT has accurate streams
             sport_type  = garmin_sport(type_key) if type_key else _map_sport(parsed.get('sportType') or 'Ride')
             name        = a.get('activityName') or parsed.get('name') or 'Garmin Activity'
-            start_utc   = (a.get('startTimeGMT') or start_local or '').replace(' ', 'T')
+            start_utc   = start_gmt or start_local
+            if zoneless and a.get('startLatitude') is None and parsed.get('startLat') is not None:
+                start_local = _local_where(start_gmt, parsed.get('startLat'), parsed.get('startLng'), sport_type)     # where the file's track starts
+            if parsed.get('clockShiftedFrom'):          # a RunKeeper file whose clock was out (services/parser.runkeeper_shift): Garmin took its time
+                from services.duplicates import instant
+                from services.start_times import retime_copies
+                right, wrong = instant(parsed['startDateLocal']), instant(parsed['clockShiftedFrom'])
+                start_utc = right.strftime('%Y-%m-%dT%H:%M:%S')
+                start_local = _local_where(start_utc, parsed.get('startLat'), parsed.get('startLng'), sport_type)
+                try:
+                    retime_copies(db, rider_id, wrong, right, parsed.get('distance'))      # its Strava copy took the same wrong time
+                except Exception:
+                    log.warning('Re-timing the saved copies of Garmin activity %s failed', activity_id, exc_info=True)
 
             # Sanity check: Garmin FIT files from very old devices may give distance in mm
             dist = parsed.get('distance') or 0

@@ -41,10 +41,12 @@ def ensure_schema(db):
 
 
 # The code that decides what an import makes of a file: reading it (parser, with best_efforts' sensor check and sports' water test), the export's
-# own figures and crops (routes.import_rides), and the comparison with what's saved (reimport, with duplicates' time parsing).
+# own figures and crops (routes.import_rides), and the comparison with what's saved (reimport, with duplicates' time parsing), and the time
+# zone an activity's local time is taken in (tz).
 # tests/test_import_seen.py checks every module the parser imports is here.
-READER_MODULES = ('services.parser', 'services.best_efforts', 'services.sports', 'services.reimport', 'services.duplicates', 'routes.import_rides')
-READER_LIBRARIES = ('fitparse', 'gpxpy')        # a FIT library that replaces fitparse goes here too
+READER_MODULES = ('services.parser', 'services.best_efforts', 'services.sports', 'services.reimport', 'services.duplicates', 'services.tz',
+                  'routes.import_rides')
+READER_LIBRARIES = ('fitparse', 'gpxpy', 'tzfpy')        # a FIT library that replaces fitparse goes here too; tzfpy: the local time where it happened
 _reader_version = None
 
 
