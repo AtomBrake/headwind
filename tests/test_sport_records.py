@@ -206,6 +206,27 @@ def test_start_up_repairs_put_right_what_is_saved(app):
         assert best_efforts.rescan_clean(db) == {'ran': False} and moving_time.repair_paused(db) == {'ran': False}
 
 
+def test_best_times_rescan_with_a_friends_rider_reports_only_the_owners_records(app):
+    """A friend's rider who first reaches a distance in the rescan (no old time) beside the owner's record at the same distance: comparing
+    the two crashed start-up on an upgraded multi-rider database."""
+    from services import best_efforts
+    with app.app_context():
+        db = database.get_db()
+        db.execute("INSERT INTO Rider (id, name, isDefault) VALUES (2, 'Rachel', 0)")
+        db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime, streams) "
+                   "VALUES ('bad', 'Morning Paddle', 1, 'Ride', '2021-05-16T10:45:00', 26000, 2000, ?)", [json.dumps(_ride_with_a_faulty_sensor())])
+        db.execute("INSERT INTO BestEffort (activityId, activityDate, distanceMi, elapsedSecs, avgSpeedMps) VALUES ('bad', '2021-05-16', 5, 215, 37.4)")
+        db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime, streams) "
+                   "VALUES ('f1', 'Friend ride', 2, 'Ride', '2021-05-17T10:00:00', 28800, 3600, ?)", [track(3600, 8.0)])
+        db.execute('DELETE FROM BestEffort WHERE activityId=?', ['f1'])
+        db.execute('UPDATE Settings SET bestEffortsCleanDone=0')
+        db.commit()
+        res = best_efforts.rescan_clean(db)
+        assert res['ran'] and [c[0] for c in res['changed']] == sorted(c[0] for c in res['changed'])
+        assert next(c for c in res['changed'] if c[0] == 5)[1] == 215 and len([c for c in res['changed'] if c[0] == 5]) == 1
+        assert db.execute("SELECT COUNT(*) FROM BestEffort WHERE activityId='f1' AND distanceMi=5").fetchone()[0] == 1   # the friend's times are still worked out
+
+
 def test_a_faulty_speed_sensor_gives_no_top_speed_beyond_what_the_gps_shows(app):
     from services import max_stats
     from services.parser import extremes_from_streams, sensor_fault
