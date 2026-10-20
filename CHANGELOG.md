@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- **Python 3.14.** The Docker image and the Windows build are now built on Python 3.14. Running Headwind outside Docker still works on Python 3.12 or later.
+
 ## [0.7.14-beta] - 2026-10-20
 
 The release of 0.7.13-beta, which never got a Docker image: its build stopped installing `garminconnect` 0.3.19, which needs Python 3.12. Nothing else changed since 0.7.13-beta; read its notes below for the upgrade.
