@@ -12,12 +12,10 @@ log = logging.getLogger(__name__)
 @bp.route('/garmin/connect', methods=['POST'])
 def connect():
     """
-    Step 1 of first-time Garmin auth, used by both the Settings page and the setup
-    wizard. Attempts the login first and saves the email/password into Settings only once
-    Garmin accepts them (or asks for an MFA code), so a typo never replaces working credentials. On success, tokens
-    are cached in .garmin_tokens/ and every future sync just works with no further
-    prompting. When Garmin challenges with MFA, returns a token the caller must pass
-    to /garmin/connect/mfa along with the code within 5 minutes.
+    Step 1 of signing in to Garmin, used by both the Settings page and the setup wizard. The password is used for this sign-in only and never
+    saved: Garmin's tokens are kept in TOKEN_DIR, renew themselves, and every sync uses them. The email is saved once Garmin accepts the
+    sign-in, and a new sign-in's tokens replace the old ones only then, so a typo never breaks a working one. When Garmin challenges with MFA,
+    returns a token the caller must pass to /garmin/connect/mfa along with the code within 5 minutes.
     """
     d = request.get_json(silent=True) or {}
     email = (d.get('email') or '').strip()
@@ -25,29 +23,15 @@ def connect():
     if not email or not password:
         return jsonify({'error': 'Email and password are required'}), 400
 
-    db = get_db()
-    prev = db.execute('SELECT garminEmail FROM Settings WHERE id=1').fetchone()
     try:
-        from services.garmin import start_login, TOKEN_DIR
-        if prev and prev['garminEmail'] and prev['garminEmail'].lower() != email.lower():
-            # switching accounts: the cached tokens belong to the old one and would silently be reused
-            import shutil
-            shutil.rmtree(TOKEN_DIR, ignore_errors=True)
+        from services.garmin import start_login
         result = start_login(email, password)
     except Exception as e:
         log.warning('Garmin sign-in failed', exc_info=True)
-        return jsonify({'error': str(e)}), 400   # nothing saved: the previous working credentials stay in place
+        return jsonify({'error': str(e)}), 400   # nothing changed: the saved sign-in stays in place
 
-    # Reached only once Garmin accepted the password (or is waiting on an MFA code)
-    db.execute('''
-        INSERT INTO Settings (id, garminEmail, garminPassword) VALUES (1, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET garminEmail=excluded.garminEmail, garminPassword=excluded.garminPassword
-    ''', [email, password])
-    if prev and prev['garminEmail'] and prev['garminEmail'].lower() != email.lower():
-        # a different account has its own history: ask the first-run question again
-        db.execute('''UPDATE Settings SET garminHistoryFrom=NULL, garminHistoryCursor=NULL, garminHistoryDone=0, garminWeightsDone=0, garminWeightsStatus=NULL,
-                      garminHistoryStatus=NULL, garminHistoryRetryAt=NULL WHERE id=1''')
-    db.commit()
+    if result.get('ok'):
+        _signed_in_as(email)
     return jsonify(result)
 
 
@@ -63,10 +47,44 @@ def connect_mfa():
     try:
         from services.garmin import complete_mfa
         result = complete_mfa(token, code)
-        return jsonify(result)
     except Exception as e:
         log.warning('Garmin MFA failed', exc_info=True)
         return jsonify({'error': str(e)}), 400
+    _signed_in_as(result.pop('email'))
+    return jsonify(result)
+
+
+def _signed_in_as(email):
+    """After Garmin accepted a sign-in (its tokens are saved): remember the account, and drop an older install's saved password and any
+    "sign in again" flag."""
+    db = get_db()
+    prev = db.execute('SELECT garminEmail FROM Settings WHERE id=1').fetchone()
+    db.execute('''
+        INSERT INTO Settings (id, garminEmail) VALUES (1, ?)
+        ON CONFLICT(id) DO UPDATE SET garminEmail=excluded.garminEmail, garminPassword=NULL, garminSignInNeeded=NULL
+    ''', [email])
+    if prev and prev['garminEmail'] and prev['garminEmail'].lower() != email.lower():
+        # a different account has its own history: ask the first-run question again
+        db.execute('''UPDATE Settings SET garminHistoryFrom=NULL, garminHistoryCursor=NULL, garminHistoryDone=0, garminWeightsDone=0, garminWeightsStatus=NULL,
+                      garminHistoryStatus=NULL, garminHistoryRetryAt=NULL WHERE id=1''')
+    db.commit()
+
+
+@bp.route('/garmin/disconnect', methods=['POST'])
+def disconnect():
+    """Sign out of Garmin here: delete the saved tokens (and an older install's password). The email stays, to sign in again with. Syncs stop
+    until then; what was synced stays. It doesn't revoke the tokens at Garmin: deleting them is what stops Headwind using them."""
+    from services.garmin import forget_tokens
+    forget_tokens()
+    db = get_db()
+    db.execute('UPDATE Settings SET garminPassword=NULL, garminSignInNeeded=NULL WHERE id=1')
+    db.commit()
+    return jsonify({'ok': True})
+
+
+def _garmin_on():
+    from services.garmin import connected
+    return connected(query_db('SELECT garminEmail, garminPassword FROM Settings WHERE id=1', one=True))
 
 
 def _history_state():
@@ -102,14 +120,13 @@ def history():
 
 @bp.route('/garmin/sync', methods=['POST'])
 def sync():
-    s = query_db('SELECT garminEmail, garminPassword FROM Settings WHERE id=1', one=True)
-    if not s or not s['garminEmail'] or not s['garminPassword']:
-        return jsonify({'error': 'Garmin credentials not configured'}), 400
+    if not _garmin_on():
+        return jsonify({'error': 'Garmin is not connected'}), 400
 
     try:
         from services.garmin import sync_garmin
         from services.mqtt import push_update
-        days = sync_garmin(s['garminEmail'], s['garminPassword'], days=14)
+        days = sync_garmin(days=14)
         push_update()
         return jsonify({'synced': days})
     except Exception as e:
@@ -119,9 +136,9 @@ def sync():
 
 @bp.route('/garmin/sync-activities')
 def sync_activities():
-    s = query_db('SELECT garminEmail, garminPassword, garminSyncMode FROM Settings WHERE id=1', one=True)
-    if not s or not s['garminEmail'] or not s['garminPassword']:
-        return jsonify({'error': 'Garmin credentials not configured'}), 400
+    s = query_db('SELECT garminSyncMode FROM Settings WHERE id=1', one=True)
+    if not _garmin_on():
+        return jsonify({'error': 'Garmin is not connected'}), 400
     if s['garminSyncMode'] != 'full':
         return jsonify({'error': 'Garmin activity sync is not enabled'}), 403
 
@@ -132,7 +149,7 @@ def sync_activities():
     def generate():
         try:
             from services.garmin import sync_garmin_activities
-            for status in sync_garmin_activities(s['garminEmail'], s['garminPassword'], rider['id']):
+            for status in sync_garmin_activities(rider['id']):
                 yield f"data: {json.dumps(status)}\n\n"
         except Exception as e:
             log.exception('Garmin activity sync from the page failed')
@@ -163,9 +180,8 @@ def sports_check():
     """Start the check in the background: paging through Garmin can take minutes, and it must not stop when the browser leaves the page.
     Its progress and result are in TaskLog, shown here and on the Tasks page."""
     from flask import current_app, redirect, url_for
-    s = query_db('SELECT garminEmail, garminPassword FROM Settings WHERE id=1', one=True)
     rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
-    if not s or not s['garminEmail'] or not s['garminPassword'] or not rider:
+    if not _garmin_on() or not rider:
         return redirect(url_for('garmin.sports_page', msg='Connect Garmin in Settings first.'))
     if _sports_lock.acquire(blocking=False):            # already running: the page shows that one
         threading.Thread(target=_bg_sports_check, args=(current_app._get_current_object(), rider['id']), daemon=True).start()
@@ -179,9 +195,8 @@ def _bg_sports_check(app, rider_id):
         with app.app_context():
             db = get_db()
             with tasks.run(db, sport_fix.TASK, 'Activity type check') as t:
-                s = db.execute('SELECT garminEmail, garminPassword FROM Settings WHERE id=1').fetchone()
                 try:
-                    res = sport_fix.scan(db, _client(s['garminEmail'], s['garminPassword']), rider_id)
+                    res = sport_fix.scan(db, _client(), rider_id)
                 except Exception as e:
                     raise RuntimeError(f'Could not reach Garmin: {e}') from e
                 missing = res['checked'] - res['found']

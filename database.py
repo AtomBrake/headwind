@@ -395,8 +395,9 @@ def migrate_db():
         ('coachingGoals',    'TEXT'),
         ('coachPersonality', "TEXT DEFAULT 'default'"),
         ('garminEmail',      'TEXT'),
-        ('garminPassword',   'TEXT'),
+        ('garminPassword',   'TEXT'),      # no longer kept: only an older install's, until services/garmin._client swaps it for tokens
         ('garminSyncHours',  'REAL DEFAULT 0.5'),
+        ('garminSignInNeeded',   'TEXT'),      # when Garmin stopped accepting the saved sign-in (services/garmin._client); NULL = fine
         ('feedToken',                'TEXT'),
         ('friendSyncInterval',       'INTEGER DEFAULT 15'),
         ('garminActivitySyncDate',   'TEXT'),

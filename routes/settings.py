@@ -62,9 +62,6 @@ def index():
         mqtt_port     = (field('mqttPort', '1883') or '1883').strip()
         mqtt_user     = field('mqttUser').strip()
         mqtt_password = form.get('mqttPassword', '').strip()
-        garmin_email  = field('garminEmail').strip()
-        garmin_password = form.get('garminPassword', '').strip()
-        kept_garmin_pw = _kept('garminPassword')
         garmin_sync_hours_raw = (field('garminSyncHours', '0.5') or '0.5').strip()
         try:
             garmin_sync_hours = float(garmin_sync_hours_raw)
@@ -79,8 +76,8 @@ def index():
         db.execute('''
             INSERT INTO Settings (id, aiProvider, openaiKey, openaiModel, claudeKey, claudeModel, ollamaUrl, ollamaModel,
                                   mqttHost, mqttPort, mqttUser, mqttPassword,
-                                  garminEmail, garminPassword, garminSyncHours, garminSyncMode, units)
-            VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                  garminSyncHours, garminSyncMode, units)
+            VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 aiProvider=excluded.aiProvider,
                 openaiKey=excluded.openaiKey,
@@ -93,8 +90,6 @@ def index():
                 mqttPort=excluded.mqttPort,
                 mqttUser=excluded.mqttUser,
                 mqttPassword=excluded.mqttPassword,
-                garminEmail=excluded.garminEmail,
-                garminPassword=excluded.garminPassword,
                 garminSyncHours=excluded.garminSyncHours,
                 garminSyncMode=excluded.garminSyncMode,
                 units=excluded.units
@@ -110,8 +105,6 @@ def index():
             int(mqtt_port) if mqtt_port.isdigit() else 1883,
             mqtt_user,
             mqtt_password if mqtt_password else kept_mqtt_pw,
-            garmin_email,
-            garmin_password if garmin_password else kept_garmin_pw,
             garmin_sync_hours,
             garmin_sync_mode,
             units,
@@ -143,8 +136,9 @@ def index():
     except ImportError:
         __version__ = 'dev'
     from services import tz
+    from services import garmin
     return render_template('settings.html', s=s, openai_models=OPENAI_MODELS, zones=tz.names(), server_zone=tz.server_zone_name(),
-                           claude_models=CLAUDE_MODELS,
+                           claude_models=CLAUDE_MODELS, garmin_on=garmin.connected(s),
                            current_username=current_username, build_time=build_time,
                            app_version=__version__)
 
@@ -378,6 +372,8 @@ def backup_export():
         dst = sqlite3.connect(snap)
         src.backup(dst)
         src.close()
+        dst.execute('UPDATE Settings SET garminPassword=NULL')     # an older install's, not yet swapped for tokens (services/garmin._client)
+        dst.commit()
         dst.close()
 
         zip_path = os.path.join(tmp_dir, 'headwind-backup.zip')
