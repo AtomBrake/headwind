@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.7.12-beta] - 2026-10-20
+
+Migration, at the first start: `Settings` gains `mmDistancesDone` and `stravaManualDone`, and there's a new `ImportProblem` table. On a database with activities from older Strava imports, two one-off repairs run (below; seconds, listed on the Tasks page). A brand-new install now starts with every one-off repair already done. Importing an export or a zip again reads every file once more, because how files are read has changed. No Android or iOS change.
+
+**Upgrading from the original Headwind (lordmaa/headwind) works.** Found upgrading a friend's 0.5.3-beta database (three riders, 3,831 activities), and checked against a fresh import of the same athlete's Strava export.
+
+### Changed
+- **Duplicates come out the same however the activities arrived.** When two copies of a ride score the same, the longer one is kept, then the one with the more detailed track, then the one uploaded first. Before, it was whichever had been saved first, so an upgraded database and a fresh import could keep different copies.
+- **Taking an import's figures can bring back a ride set aside as a duplicate.** When you use an import's times or distance on the Import page, the copies set aside behind that activity are checked again, and any that is no longer the same ride comes back as its own activity. A ride whose device was left running (trimmed on Strava, but not in the file) had held the next ride inside it. Copies you set aside yourself stay set aside.
+- **A manual entry is never taken for a recording.** A Strava activity typed in by hand (no file in the export) is a top-up for distance the device missed, so it is never the "whole ride" a recording is a piece of: a 2.5 km entry "lasting" 15 hours had swallowed that evening's 24 km ride. Importing the export again brings back a manual entry set aside wrongly. A database from an older import is repaired at the first start (below).
+- **When a file's climb can't be real, a Strava export takes Strava's**, and drops the file's altitude so no profile or segment climb is read from it. Flagged rides from a Strava export offer "Use Strava's climb" on the dashboard.
+- **Strava's "Water Sport" is on the water**: no climb in totals or lists, and no stops cut from its moving time. The sport picker offers every sport.
+- **The import summary says what it couldn't do**: copies set aside as duplicates (with links), files it couldn't read (also kept on the Import page), and photos missing from Strava's zip.
+
+### Fixed
+- **Distances 1,000 times too long from Strava imports.** `activities.csv` has two "Distance" columns, km then metres, and older imports read the metres as km for activities with no track (a manual entry, or a file that couldn't be read): a 46 km ride saved as 45,970 km. The original Headwind's own repair only covered walks, runs and hikes over 500 km. A one-off repair divides every activity averaging over 144 km/h by 1,000, unless its own track agrees with the distance, and works out its average speed again.
+- **Manual entries from older Strava imports weren't marked.** A one-off repair marks a Strava activity with no track, a distance, one duration for moving and elapsed time, and not a virtual ride, as typed in, and brings back any set aside behind a ride it isn't a copy of. On two real exports it found every manual entry with a distance and nothing else. If it ever guesses wrong, importing the activity's file clears the mark.
+- **Start-up failed on a database with more than one rider**, once: working out best times again compared a time with "none" when two riders had a record at the same distance.
+- **Activity files the import gave up on are read**: a FIT named `.bin` that ends without its checksum, a FIT saved as an escaped string, a recording from Strava's own app (`.json`), and GPX files with an id in `<number>` and no track segment. These had come in from `activities.csv` alone, with no track.
+- **A new install ran every one-off repair at its second start**, against the first import, which needed none of them. Two of them replaced the moving times a Strava export had just given. Importing the export again offers Strava's back on the Import page.
+
 ## [0.7.11-beta] - 2026-10-20
 
 Migration, at the first start: `Settings` gains `localZoneFixDone`, and a one-off repair runs (below; a few seconds on a few thousand activities, listed on the Tasks page). New dependency: `tzfpy` (an offline time-zone lookup, about 3 MB). Importing an export or a zip again reads every file once more, because how files are read has changed. No Android or iOS change.
