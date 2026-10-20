@@ -37,11 +37,12 @@ def estimate_calories(sport, distance_m, moving_s, gain_m, kg):
     return round(vo2 * kg / 1000.0 * 5.0 * minutes)
 
 
-def _local(iso):
+def _local(iso, lat=None, lng=None, sport=None):
+    """(local, UTC) start strings: the local time where it started (services/tz.zone_at), the home zone without a position."""
     dt = datetime.fromisoformat(iso)
     if dt.tzinfo is None:
         return dt.strftime('%Y-%m-%dT%H:%M:%S'), iso
-    return dt.astimezone(tz.zone()).strftime('%Y-%m-%dT%H:%M:%S'), dt.astimezone(ZoneInfo('UTC')).strftime('%Y-%m-%dT%H:%M:%SZ')
+    return tz.local_at(dt, lat, lng, sport), dt.astimezone(ZoneInfo('UTC')).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
 def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=None, source='android'):
@@ -54,7 +55,7 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
     if not act or not act.get('startDateLocal'):
         raise ValueError('could not read a timed track from that GPX file')
     sport = sport if sport in SPORTS else (act.get('sportType') if act.get('sportType') in SPORTS else 'Walk')
-    local, utc = _local(act['startDateLocal'])
+    local, utc = _local(act['startDateLocal'], act.get('startLat'), act.get('startLng'), sport)
     key = client_id or f"{local}|{round(act.get('distance') or 0)}"
     wid = 'wk_' + hashlib.sha1(f'{rider_id}|{key}'.encode()).hexdigest()[:16]
     existing = _get(wid)

@@ -419,6 +419,7 @@ def migrate_db():
         ('garminHistoryRetryAt', 'TEXT'),      # after a rate limit or outage, don't try again before this (UTC ISO)
         ('utcStartFixDone',      'INTEGER DEFAULT 0'),
         ('awayStartRecheckDone', 'INTEGER DEFAULT 0'),
+        ('localZoneFixDone',     'INTEGER DEFAULT 0'),   # local times taken where each activity happened, Garmin's zoneless times read as UTC, pieces of rides matched (services/start_times.fix_local_zones)
         ('workoutDupCheckDone',  'INTEGER DEFAULT 0'),   # walks, runs, ... checked once for duplicates after the merge (services/duplicates.recheck_workouts)   # duplicates re-checked on the UTC instant for rides recorded abroad (services/start_times.py)
         ('dupNameFixDone',       'INTEGER DEFAULT 0'),   # merged activities given back the name chosen on the copy set aside (services/duplicates.recover_names)
         ('segmentFamiliesDone',  'INTEGER DEFAULT 0'),   # segments split into ride / on foot, efforts and PRs picked again (services/segments.regroup)
@@ -903,6 +904,20 @@ def migrate_db():
         _tasks.record(db, 'startup:away_starts', 'Duplicates of activities recorded in another time zone',
                       f"{res['checked']} checked again on their real start time; "
                       f"{res['duplicates']} turned out to be a ride already here (the weaker copy was set aside)")
+        db.commit()
+    from services.start_times import fix_local_zones
+    res = fix_local_zones(db)
+    if res.get('ran') and (res['moved'] or res['fragments'] or res['repointed']):
+        n = res['moved']
+        _tasks.record(db, 'startup:local_zones', 'Start times where each activity happened',
+                      f"{n:,} activit{'y' if n == 1 else 'ies'} moved to the local time where {'it' if n == 1 else 'they'} started (a Garmin activity with no "
+                      "time zone of its own had been read as home time, and every import used the home zone); their weather will be looked up again for "
+                      f"the right hour. Every activity was then checked for duplicates again: {res['duplicates']} turned out to be an activity already here, and {res['fragments']} "
+                      f"{'was a piece' if res['fragments'] == 1 else 'were pieces'} of a ride (a phone app with a speed sensor), so the weaker copy was "
+                      f"set aside. {res['bikes']} ride{'s' if res['bikes'] != 1 else ''} put on {'their' if res['bikes'] != 1 else 'its'} Strava bike and "
+                      f"{res['kit']} activit{'y' if res['kit'] == 1 else 'ies'} on {'their' if res['kit'] != 1 else 'its'} shoes"
+                      + (f"; {res['repointed']} cop{'y' if res['repointed'] == 1 else 'ies'} set aside moved to the activity kept in the end" if res['repointed'] else '')
+                      + '.')
         db.commit()
     from services.duplicates import recover_names
     res = recover_names(db)

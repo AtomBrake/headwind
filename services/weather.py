@@ -301,11 +301,11 @@ _FAILED = set()          # rides the weather service had nothing for this proces
 
 
 def backfill_missing(db, limit=None, since_days=None, pause=0.15, on_each=None):
-    """Fetch weather for rides that have none, using the start point or else the first GPS point of the track. Returns (done, failed).
-    A ride the service has no data for is skipped for this run (never retried in a loop). Commits per ride."""
+    """Fetch weather for activities of every sport that have none, using the start point or else the first GPS point of the track. Returns
+    (done, failed). One the service has no data for is skipped for this run (never retried in a loop). Commits per activity."""
     import time
-    q = """SELECT id, startLat, startLng, startDateLocal, streams FROM Ride
-           WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL"""
+    q = """SELECT id, startLat, startLng, startDateLocal, streams FROM Activity
+           WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL AND (startLat IS NOT NULL OR instr(streams, '"latlng"') > 0)"""
     if since_days:
         q += f" AND startDate >= datetime('now', '-{int(since_days)} days')"
     q += ' ORDER BY startDateLocal DESC'
