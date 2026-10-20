@@ -18,6 +18,7 @@ UTC = timezone.utc
 OVERLAP_MIN = 0.60          # the two recordings must overlap for at least this share of the shorter one
 DIST_TOL = 0.15             # ...and agree on distance within 15% (different devices measure a ride a little differently)
 SEARCH_DAYS = 1
+CHOSEN = 'You chose to use the other recording.'     # the reason on a copy the rider set aside (swap), which nothing puts back by itself
 
 
 def ensure_schema(db):
@@ -298,18 +299,35 @@ def _app_beats_watch(existing, new):
     return None
 
 
+def _tie_break(a, b):
+    """(winner, loser, why) for two recordings of equal quality, the same whichever was saved first, so an upgraded database and a fresh import
+    of the same activities keep the same one: the longer distance (what the totals count; the shorter one usually missed part of the ride, and
+    distance is the figure an upstream database and a Strava export agree on), then the more GPS points, then the earlier upload (the lower id:
+    the original, not a copy uploaded again)."""
+    da, db_ = round(float(a['distance'] or 0)), round(float(b['distance'] or 0))
+    if da != db_:
+        return (a, b, 'the longer of the two') if da > db_ else (b, a, 'the longer of the two')
+    pa, pb = _gps_points(a), _gps_points(b)
+    if pa != pb:
+        return (a, b, 'the more detailed track') if pa > pb else (b, a, 'the more detailed track')
+    ia, ib = str(a['id']), str(b['id'])
+    older = (len(ia), ia) < (len(ib), ib) if ia.isdigit() and ib.isdigit() else ia < ib
+    return (a, b, 'the first one uploaded') if older else (b, a, 'the first one uploaded')
+
+
 def pick_winner(existing, new):
-    """Returns (winner, loser, reason_text). `existing` wins ties."""
+    """Returns (winner, loser, reason_text). A tie in quality is broken by _tie_break, not by which came first."""
     piece = _app_beats_watch(existing, new) or _whole_beats_fragment(existing, new)
     if piece:
         return piece
     se, we = quality(existing)
     sn, wn = quality(new)
-    if sn > se:
-        winner, loser, why = new, existing, wn
+    if sn != se:
+        winner, loser, why = (new, existing, wn) if sn > se else (existing, new, we)
     else:
-        winner, loser, why = existing, new, we
-    reason = ('Kept the ' + source_label(winner) + ' recording (' + ', '.join(why) + ').') if why else ('Kept the ' + source_label(winner) + ' recording (the one already saved).')
+        winner, loser, tie = _tie_break(existing, new)
+        why = (we if winner is existing else wn) + [tie]
+    reason = 'Kept the ' + source_label(winner) + ' recording (' + ', '.join(why) + ').'
     return winner, loser, reason
 
 
@@ -495,7 +513,7 @@ def swap(db, dup_id):
         return None
     db.execute('DELETE FROM ActivityDuplicate WHERE id=?', [dup_id])
     if db.execute('SELECT 1 FROM Activity WHERE id=?', [old_primary]).fetchone():
-        park(db, old_primary, dup_id, 'You chose to use the other recording.')
+        park(db, old_primary, dup_id, CHOSEN)
     _insert_row(db, row)
     others = db.execute("SELECT id FROM ActivityDuplicate WHERE primaryId=? AND id<>?", [old_primary, old_primary]).fetchall()
     for o in others:                                    # anything else parked under the old main now hangs off the new one
@@ -512,6 +530,33 @@ def keep_both(db, dup_id):
     db.execute("UPDATE ActivityDuplicate SET status='kept_both' WHERE id=?", [dup_id])
     rebuild_derived(db, dup_id)
     return dup_id
+
+
+def recheck_parked(db, primary_id):
+    """After an activity's times or distance change (an import's figures taken on the Import page, reimport.resolve): every copy set aside
+    behind it is checked against it again, and one that is no longer the same ride comes back as its own activity, as an import of both would
+    have kept it. Strava's elapsed time for a ride trimmed on Strava, say, takes away the hour a device ran on that held the next ride. A copy
+    the rider set aside (CHOSEN) stays where it is. Returns [(id, name)] brought back. Does not commit."""
+    kept = db.execute('SELECT * FROM Activity WHERE id=?', [primary_id]).fetchone()
+    if not kept:
+        return []
+    back = []
+    for d in db.execute("SELECT id, reason, rowJson FROM ActivityDuplicate WHERE primaryId=? AND status='parked'", [primary_id]).fetchall():
+        if d['reason'] == CHOSEN:
+            continue
+        try:
+            row = json.loads(d['rowJson'])
+        except (TypeError, ValueError):
+            continue
+        if not row or same_ride(row, kept):
+            continue
+        _restore(db, d['id'])
+        db.execute('DELETE FROM ActivityDuplicate WHERE id=?', [d['id']])     # never a duplicate after all: as if both had been imported
+        rebuild_derived(db, d['id'])
+        back.append((d['id'], row.get('name')))
+    if back:
+        rebuild_derived(db, primary_id)                 # PRs are worked out across both again
+    return back
 
 
 def discard(db, dup_id):
