@@ -479,6 +479,8 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
             photos_missing += sum(1 for m in (row.get('Media') or '').split('|') if m.strip() and m.strip() not in names)
         if not filename:                                # typed in on Strava (no file was ever uploaded): a manual entry, which the duplicate
             _mark_manual(db, act_id)                    # check must not take for a recording (services/duplicates.is_manual)
+        else:                                           # it has a file: a recording, whatever an upgrade guessed (services/strava_manual)
+            db.execute("UPDATE Activity SET source=NULL WHERE id=? AND source='manual'", [act_id])
         seen_key = 'strava:' + act_id
         seen_fp = reimport.fingerprint(rider_id, row, reimport.zip_fingerprint(zf, filename) if filename in names else '')
         if reimport.unchanged(db, seen_key, seen_fp):                # the same file and row, read before by the same code: nothing new in it

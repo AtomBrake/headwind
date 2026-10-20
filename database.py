@@ -130,6 +130,13 @@ def heavy_last(db, table, heavy):
     return moved
 
 
+# Settings flags of the once-only start-up repairs in migrate_db, all set on a new database. Not garminHistoryDone or garminWeightsDone: those
+# are downloads still to do.
+_REPAIR_FLAGS = ('distanceBackfillDone', 'utcStartFixDone', 'awayStartRecheckDone', 'localZoneFixDone', 'workoutDupCheckDone', 'dupNameFixDone',
+                 'segmentFamiliesDone', 'segmentBikesMergedDone', 'movingTimeFixDone', 'segmentMatchFixDone', 'sportEffortsDone',
+                 'movingTimePausedDone', 'bestEffortsCleanDone', 'sensorTopSpeedDone', 'mmDistancesDone', 'stravaManualDone')
+
+
 def migrate_db():
     db = get_db()
 
@@ -431,6 +438,7 @@ def migrate_db():
         ('bestEffortsCleanDone',   'INTEGER DEFAULT 0'), # best times worked out again without GPS jumps and speed-sensor faults (services/best_efforts.rescan_clean)
         ('sensorTopSpeedDone',     'INTEGER DEFAULT 0'), # top speeds from the GPS where the speed sensor went wrong (services/max_stats.fix_sensor_top_speed)
         ('mmDistancesDone',        'INTEGER DEFAULT 0'), # distances an old Strava import stored in mm, of every sport (services/mm_distances.fix)
+        ('stravaManualDone',       'INTEGER DEFAULT 0'), # manual entries an old Strava import saved unmarked, marked and brought back (services/strava_manual.fix)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
         ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
@@ -846,6 +854,14 @@ def migrate_db():
             db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {defn}')
     db.commit()
 
+    # A new database (no Settings row, no activities) has nothing older to repair: its row starts with every once-only repair done. Otherwise
+    # each repair returns early for want of the row, and the second start runs them all against the first import, which needed none of them.
+    # The wizard's upsert copes with the row being there; a restored backup brings its own.
+    if not db.execute('SELECT 1 FROM Settings WHERE id=1').fetchone() and not db.execute('SELECT 1 FROM Activity LIMIT 1').fetchone():
+        db.execute('INSERT INTO Settings (id) VALUES (1)')
+        db.execute(f"UPDATE Settings SET {', '.join(f'{f}=1' for f in _REPAIR_FLAGS)} WHERE id=1")
+        db.commit()
+
     # Start-up repairs below record what they did for the Tasks page (services/tasks.py)
     from services import tasks as _tasks, garmin_failures as _garmin_failures
     _tasks.ensure_schema(db)
@@ -881,6 +897,16 @@ def migrate_db():
                       "distance stored 1,000 times too long, and now have the real one: "
                       + '; '.join(f"{f[1] or f[0]} ({_units.fmt_dist(f[2], places=0)} → {_units.fmt_dist(f[3])})" for f in res[:5])
                       + ('…' if len(res) > 5 else '') + '.')
+        db.commit()
+    from services import strava_manual as _strava_manual
+    res = _strava_manual.fix(db)                # also before the duplicate checks: a manual entry is never a recording, nor a whole with pieces
+    if res and (res['marked'] or res['restored']):
+        n, back = res['marked'], res['restored']
+        _tasks.record(db, 'startup:strava_manual', 'Manual entries from Strava',
+                      f"{n} activit{'y' if n == 1 else 'ies'} typed in on Strava (no track, and one duration for moving and elapsed time) "
+                      f"now count as manual entries, which the duplicate check never takes for a recording of a ride"
+                      + (f"; {len(back)} set aside as a copy of a ride {'is' if len(back) == 1 else 'are'} back as {'its' if len(back) == 1 else 'their'} own: "
+                         + '; '.join(b[1] or b[0] for b in back[:5]) + ('…' if len(back) > 5 else '') if back else '') + '.')
         db.commit()
 
     # ── Top speeds that are one GPS spike (old Garmin syncs): recomputed from the ride's streams, then re-checked ──

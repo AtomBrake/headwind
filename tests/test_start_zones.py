@@ -181,7 +181,8 @@ def test_fix_local_zones_on_the_real_cases(db):
     db.execute("INSERT INTO Rider (id, name) VALUES (2, 'Friend')")
     db.execute("INSERT INTO Friend (name, url, riderId) VALUES ('Friend', 'http://x', 2)")
     _add(db, 'garmin_99', '2011-07-07T19:06:43', '2011-07-07T19:06:43')
-    db.execute("UPDATE Activity SET riderId=2 WHERE id='garmin_99'"); db.commit()
+    db.execute("UPDATE Activity SET riderId=2 WHERE id='garmin_99'")
+    db.execute('UPDATE Settings SET localZoneFixDone=0'); db.commit()      # a new database starts with the repair done
 
     res = start_times.fix_local_zones(db)
     assert res['ran'] and res['duplicates'] == 1 and res['fragments'] == 1
