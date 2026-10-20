@@ -28,7 +28,18 @@ def index():
     from services import reimport, strava_gear
     from services.rider_mode import owner_rider_id
     riders = query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name ASC')
-    return render_template('import.html', riders=riders, changes=reimport.pending(get_db()), strava_pending=strava_gear.pending(get_db(), owner_rider_id()))
+    return render_template('import.html', riders=riders, changes=reimport.pending(get_db()), problems=reimport.problems(get_db()),
+                           strava_pending=strava_gear.pending(get_db(), owner_rider_id()))
+
+
+@bp.route('/import/problems/clear', methods=['POST'])
+def clear_problems():
+    """Take the list of files the imports couldn't read off the Import page (the activities stay as they are)."""
+    from flask import redirect, url_for
+    db = get_db()
+    db.execute('DELETE FROM ImportProblem')
+    db.commit()
+    return redirect(url_for('import_rides.index'))
 
 
 @bp.route('/import/changes/<path:ride_id>/<choice>', methods=['POST'])
@@ -422,7 +433,10 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
     db = get_db()
     imported = skipped = errors = changed = unchanged = 0
     n_photos = n_commutes = 0
+    parked, unread, photos_missing, kinds = [], [], 0, set()     # what the summary says besides the counts
+    new_ids = set()                                     # saved by this import and still here (_count_new)
     from services import reimport, duplicates as _dups
+    from services.sports import is_ride
     _dups.ensure_schema(db)
 
     def extras(ride_id, row):
@@ -460,6 +474,11 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
         already = bool(db.execute('SELECT id FROM Activity WHERE id = ?', [act_id]).fetchone())      # read it anyway: it may differ from what's saved
 
         filename = row.get('Filename', '').strip()
+        kinds.add('ride' if is_ride(row.get('Activity Type')) else 'other')
+        if photos:                                      # Strava leaves some out of the zip: say so, or it looks as if the import lost them
+            photos_missing += sum(1 for m in (row.get('Media') or '').split('|') if m.strip() and m.strip() not in names)
+        if not filename:                                # typed in on Strava (no file was ever uploaded): a manual entry, which the duplicate
+            _mark_manual(db, act_id)                    # check must not take for a recording (services/duplicates.is_manual)
         seen_key = 'strava:' + act_id
         seen_fp = reimport.fingerprint(rider_id, row, reimport.zip_fingerprint(zf, filename) if filename in names else '')
         if reimport.unchanged(db, seen_key, seen_fp):                # the same file and row, read before by the same code: nothing new in it
@@ -479,14 +498,23 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
                 data = safe_zip_read(zf, filename)
                 if filename.endswith('.gz'):
                     data = safe_gunzip(data)
-                act = parse_activity_file(filename, data) or {}
+                act = parse_activity_file(filename, data, strava_export=True) or {}
+                if not act:
+                    raise ValueError('not a file Headwind can read')
             except Exception as e:
-                read_ok = False                         # not remembered: the next import tries the file again
+                read_ok, act = False, {}                # not remembered: the next import tries the file again
                 log.warning('Strava import: could not read %s (%s); using activities.csv only', filename, e)
 
         act['id'] = act_id
         act['name'] = row.get('Activity Name', 'Imported Activity').strip() or 'Imported Activity'
         act['sportType'] = row.get('Activity Type', 'Ride').strip() or 'Ride'
+        if not filename:
+            act['source'] = 'manual'
+        if read_ok:
+            reimport.problem_solved(db, act_id)
+        else:
+            reimport.note_problem(db, act_id, rider_id, act['name'], filename, 'saved from activities.csv only: no track')
+            unread.append({'id': act_id, 'name': act['name'], 'file': filename})
 
         def csv_num(key):
             v = row.get(key, '').strip()
@@ -507,6 +535,8 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
                 act = crop(act, start_dt, csv_num('Elapsed Time (2)') or csv_num('Elapsed Time'), _strava_csv_distance_m(row))
             act['startDateLocal'] = start_dt.isoformat()
         cropped = act.get('cropped', False)              # kept on the act: accepting it on the Import page takes Strava's 0 m climb as a figure
+        if not already and not filename and _unpark_manual(db, act_id):
+            already = True                              # a manual entry set aside behind a ride it isn't a copy of: back as its own activity
         if not already and db.execute("SELECT 1 FROM ActivityDuplicate WHERE id=? AND status IN ('parked', 'discarded')", [act_id]).fetchone():
             # set aside as a copy of another activity (or thrown away): adding it again would undo that, and a "use the other recording"
             # choice with it. Its photos and commute go on the activity kept in its place. (Read all the same, for a clock that was out above.)
@@ -546,6 +576,7 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
             act['maxSpeed'] = csv_num('Max Speed')                          # m/s; the track's is read off a few points, Strava's off the original
         elif act.get('totalElevationGain') is None:
             act['totalElevationGain'] = csv_num('Elevation Gain') or 0
+        _strava_climb_if_impossible(act, csv_num('Elevation Gain'))
         if act.get('averageHeartrate') is None:
             act['averageHeartrate'] = csv_num('Average Heart Rate')
         if act.get('averageWatts') is None:
@@ -555,6 +586,8 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
 
         if already:
             try:
+                if act.get('rawData'):                  # Strava's climb, for "Use Strava's climb" on a ride saved before it was kept
+                    db.execute("UPDATE Activity SET rawData=? WHERE id=? AND COALESCE(rawData, '{}') = '{}'", [act['rawData'], act_id])
                 differs = _offer_change(db, act, 'Strava export')
                 if read_ok:
                     reimport.remember(db, seen_key, act_id, seen_fp)
@@ -588,7 +621,7 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
             if read_ok:
                 reimport.remember(db, seen_key, act_id, seen_fp)
             db.commit()
-            imported += 1
+            imported += _count_new(dup, act_id, kept, act['name'], new_ids, parked)
         except Exception as e:
             log.error('Insert failed for activity %s: %s', act.get('id'), e)
             errors += 1
@@ -620,10 +653,94 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
         except Exception as e:
             log.error('Strava import: could not put rides on their bikes (%s)', e)
             db.rollback()
-    log.info('Strava import done — imported=%d skipped=%d (unchanged since the last import, not read: %d) changed=%d errors=%d photos=%d commutes=%d bikes=%s',
-                imported, skipped, unchanged, changed, errors, n_photos, n_commutes, bikes)
+    log.info('Strava import done — imported=%d set aside as duplicates=%d skipped=%d (unchanged since the last import, not read: %d) changed=%d '
+             'errors=%d files not read=%d photos=%d (not in the zip: %d) commutes=%d bikes=%s',
+             imported, len(parked), skipped, unchanged, changed, errors, len(unread), n_photos, photos_missing, n_commutes, bikes)
     yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'unchanged': unchanged, 'changed': changed, 'errors': errors, **bikes,
-                  'photos': n_photos, 'commutes': n_commutes, **segs})
+                  'photos': n_photos, 'commutes': n_commutes, **segs, 'parked': parked, 'unread': unread, 'photos_missing': photos_missing,
+                  'noun': _noun(kinds)})
+
+
+def _count_new(dup, act_id, kept, name, new_ids, parked):
+    """How much an activity just saved adds to an import's count of new activities (1 or 0), noting in `parked` any activity the duplicate
+    check (dup: duplicates.resolve's result) set aside: the new one, behind one already here, adds nothing; nor does one that took the place
+    of an activity this same import saved earlier, which was counted then."""
+    gone = (dup or {}).get('parked')
+    if gone:
+        parked.append({'id': gone, 'kept': kept, 'name': name})
+    if gone == act_id:
+        return 0
+    new_ids.add(act_id)
+    if gone in new_ids:
+        new_ids.discard(gone)
+        return 0
+    return 1
+
+
+def _noun(kinds):
+    """'rides' when every activity in an import was a ride, else 'activities'."""
+    return 'rides' if kinds == {'ride'} else 'activities'
+
+
+def _mark_manual(db, act_id):
+    """A Strava export's row with no file was typed in on Strava: say so on the saved activity, or on its copy set aside as a duplicate."""
+    db.execute("UPDATE Activity SET source='manual' WHERE id=? AND source IS NULL", [act_id])
+    row = db.execute("SELECT rowJson FROM ActivityDuplicate WHERE id=? AND status='parked'", [act_id]).fetchone()
+    if row:
+        try:
+            data = json.loads(row['rowJson'])
+        except ValueError:
+            return
+        if data and data.get('source') is None:
+            data['source'] = 'manual'
+            db.execute('UPDATE ActivityDuplicate SET rowJson=? WHERE id=?', [json.dumps(data), act_id])
+
+
+def _unpark_manual(db, act_id):
+    """A manual entry set aside as a duplicate before manual entries were known by their missing file: if, seen as manual (_mark_manual has
+    run), it isn't the same ride as the one kept in its place, bring it back as its own activity. True if it did. Commits."""
+    from services import duplicates
+    d = db.execute("SELECT primaryId, rowJson FROM ActivityDuplicate WHERE id=? AND status='parked'", [act_id]).fetchone()
+    if not d:
+        return False
+    kept = db.execute('SELECT * FROM Activity WHERE id=?', [d['primaryId']]).fetchone()
+    try:
+        row = json.loads(d['rowJson'])
+    except ValueError:
+        return False
+    if not row or not kept or duplicates.same_ride(row, kept):
+        return False
+    duplicates.keep_both(db, act_id)
+    db.commit()
+    log.warning('Strava import: %s, typed in on Strava, was set aside behind %s, which it is not a copy of: kept as its own activity', act_id, d['primaryId'])
+    return True
+
+
+def _strava_climb_if_impossible(act, strava_climb):
+    """The file's climb when it can't be real (over services/sanity's MAX_ELEV_M or MAX_GRADE, or an altitude stream that can't be: parser.
+    altitude_broken) replaced by Strava's from activities.csv, which recalculated it. The altitude stream goes too: no elevation profile, and no
+    climb for segments and best climbs from it. Strava's figure is kept in rawData either way, for the dashboard's "Use Strava's climb"."""
+    from services import sanity
+    from services.parser import altitude_broken
+    if strava_climb is None:
+        return
+    raw = json.loads(act.get('rawData') or '{}')
+    raw['stravaClimb'] = strava_climb
+    try:
+        streams = json.loads(act.get('streams') or '{}')
+    except ValueError:
+        streams = {}
+    climb, dist = float(act.get('totalElevationGain') or 0), float(act.get('distance') or 0)
+    broken = altitude_broken(streams)
+    if broken or climb > sanity.MAX_ELEV_M or (dist >= 1000 and climb / dist > sanity.MAX_GRADE):
+        if climb != strava_climb:
+            raw['fileClimb'] = climb
+            act['totalElevationGain'] = strava_climb
+        if broken and 'altitude' in streams:
+            streams.pop('altitude')
+            act['streams'] = json.dumps(streams)
+            raw['altitudeDropped'] = True
+    act['rawData'] = json.dumps(raw)
 
 
 def _process_generic_zip(zf, names, rider_id=None):
@@ -636,7 +753,9 @@ def _process_generic_zip(zf, names, rider_id=None):
 
     db = get_db()
     imported = skipped = errors = changed = unchanged = 0
+    parked, unread, kinds, new_ids = [], [], set(), set()
     from services import reimport
+    from services.sports import is_ride
 
     for i, name in enumerate(activity_files):
         try:
@@ -672,22 +791,26 @@ def _process_generic_zip(zf, names, rider_id=None):
                     from services import gear
                     gear.on_ride_added(db, act.get('id'))
                     from services.ingest import after_ride_added
-                    after_ride_added(db, (dup or {}).get('kept', act.get('id')))
+                    kept = (dup or {}).get('kept', act.get('id'))
+                    after_ride_added(db, kept)
                     reimport.remember(db, seen_key, act['id'], seen_fp)
                     db.commit()
-                    imported += 1
+                    imported += _count_new(dup, act['id'], kept, act.get('name'), new_ids, parked)
+                    kinds.add('ride' if is_ride(act.get('sportType')) else 'other')
             else:
                 log.warning('Import skip (no parseable activity): %s', name)
                 skipped += 1
+                unread.append({'file': name})
         except Exception as e:
             log.error('Import error for %s: %s\n%s', name, e, traceback.format_exc())
             errors += 1
 
         yield _progress(i + 1, total, imported, skipped, errors)
 
-    log.info('Generic import done — imported=%d skipped=%d (unchanged since the last import, not read: %d) errors=%d',
-                imported, skipped, unchanged, errors)
-    yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'unchanged': unchanged, 'changed': changed, 'errors': errors})
+    log.info('Generic import done — imported=%d set aside as duplicates=%d skipped=%d (unchanged since the last import, not read: %d) '
+             'files not read=%d errors=%d', imported, len(parked), skipped, unchanged, len(unread), errors)
+    yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'unchanged': unchanged, 'changed': changed, 'errors': errors,
+                  'parked': parked, 'unread': unread, 'noun': _noun(kinds)})
 
 
 def _clock_shift(act):
@@ -774,8 +897,8 @@ def _insert(db, act, rider_id=None):
            totalElevationGain, averageSpeed, maxSpeed,
            averageHeartrate, averageWatts,
            averageCadence, calories, startLat, startLng, streams,
-           rawData, riderId, maxHeartrate, maxWatts, caloriesRaw, createdAt, updatedAt)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
+           rawData, riderId, maxHeartrate, maxWatts, caloriesRaw, source, createdAt, updatedAt)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
     ''', [
         act.get('id'),            act.get('name'),          sport,
         sport,                    start_utc, start_local,
@@ -784,8 +907,8 @@ def _insert(db, act, rider_id=None):
         act.get('averageHeartrate'), act.get('averageWatts'),
         act.get('averageCadence'), calories,
         act.get('startLat'),      act.get('startLng'),
-        act.get('streams'),       '{}',
-        rider_id, act.get('maxHeartrate'), act.get('maxWatts'), calories_raw,
+        act.get('streams'),       act.get('rawData') or '{}',
+        rider_id, act.get('maxHeartrate'), act.get('maxWatts'), calories_raw, act.get('source'),
     ])
     if result.rowcount:
         from services.garmin import save_laps

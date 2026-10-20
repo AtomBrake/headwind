@@ -72,7 +72,7 @@
           &nbsp;·&nbsp;<span style="color:var(--text);">{{ a.distance | fmt_dist }}</span>
           &nbsp;·&nbsp;{{ a.movingTime | fmt_duration }}
           &nbsp;·&nbsp;{{ a.averageSpeed | fmt_rate(a.sportType) }}
-          {% if a.totalElevationGain %}&nbsp;·&nbsp;{{ a.totalElevationGain | fmt_elev }}{% endif %}
+          {% if a.totalElevationGain and a.sportType | has_climbing %}&nbsp;·&nbsp;{{ a.totalElevationGain | fmt_elev }}{% endif %}
         </div>
       </div>
     </a>
