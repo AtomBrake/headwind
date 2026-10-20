@@ -577,7 +577,7 @@ A new install walks you through six short steps. Everything except step 1 is ski
 
 1. **Your name** — Headwind tracks one person. (Restoring from a backup is also offered here.)
 2. **Units** — imperial (mi, mph, ft, st/lb) or metric.
-3. **Garmin Connect** — optional. Enter your Garmin email and password; if Garmin asks for an MFA code you'll be prompted in the browser. Credentials are saved only after Garmin accepts them.
+3. **Garmin Connect** — optional. Enter your Garmin email and password; if Garmin asks for an MFA code you'll be prompted in the browser. The password is used only to sign in and isn't kept: Headwind keeps the sign-in tokens Garmin gives it, which renew themselves.
 4. **Home Assistant** — optional. Connect to HA with a long-lived token, map health entities and pick a weather entity.
 5. **Telemetry** — the exact text of the one-time anonymous ping is shown with a permanent opt-out.
 6. **Done** — you land on the dashboard.
@@ -640,7 +640,9 @@ Garmin credentials, the MQTT broker, Home Assistant URL/token and mappings, AI p
 - Connect in the wizard or **Settings → Garmin Connect**. MFA is handled in the browser.
 - Two things sync: **activities** (downloaded as FIT, deduplicated by Garmin activity id and start time) and **daily health** (resting HR, HRV, sleep, body battery, steps).
 - The activity cursor re-scans the most recent day and never advances past a failed download, so rides aren't silently skipped.
-- Switching to a different Garmin account clears the cached tokens of the old one.
+- Your Garmin password isn't stored. Headwind keeps Garmin's sign-in tokens in `garmin_tokens` (readable only by Headwind's user) and they renew themselves. If Garmin ever stops accepting them (you changed your Garmin password, or signed out of all devices), syncing stops and Settings and the Tasks page ask you to **Sign in again**. **Sign out** deletes the tokens.
+- Signing in to a different Garmin account replaces the tokens of the old one.
+- Upgrading from a version that stored the password: the next sync swaps it for tokens and deletes it from the database.
 
 ### Home Assistant / MQTT
 - Enter your broker in **Settings → Home Assistant — MQTT**. Headwind publishes retained **auto-discovery** config, so sensors appear in Home Assistant without YAML.
@@ -705,11 +707,11 @@ Behind a proxy Headwind trusts one `X-Forwarded-*` hop, but only from a loopback
 
 ## Backups, updates and your data
 
-- **Backup:** **Settings → Backup & Restore → Download** gives one zip: the database, rider avatars and food photos. It deliberately excludes the Garmin token files, your generated login/key files and `.env` — **but the database itself holds anything you configured in Settings (Garmin email/password, AI key, MQTT/HA credentials), so a backup is a secret.** Store it accordingly.
+- **Backup:** **Settings → Backup & Restore → Download** gives one zip: the database, rider avatars and food photos. It deliberately excludes the Garmin token files, your generated login/key files and `.env` — **but the database itself holds anything you configured in Settings (Garmin email, AI key, MQTT/HA credentials), so a backup is a secret.** Store it accordingly.
 - **Restore:** **Settings → Backup & Restore → Restore** (or from the setup wizard on a fresh install). The uploaded database is checked for integrity, migrated and smoke-tested **before** anything live is touched; your current database is kept as `bike.db.pre-restore`; the swap itself is atomic. A backup this version can't use is rejected with "Nothing was changed".
 - **Updating (Docker):** `docker compose pull && docker compose up -d`. Migrations run automatically at start-up. Take a backup first on a beta.
 - **Upgrading from an older compose file that used the placeholder `changeme` login:** the placeholder is no longer accepted — a random login is generated; read it from `docker logs`.
-- **Moving to a new host:** copy `./data` and `./garmin_tokens`, or restore a backup and re-enter your Garmin login.
+- **Moving to a new host:** copy `./data` and `./garmin_tokens`, or restore a backup and sign in to Garmin again.
 
 ---
 
@@ -759,7 +761,7 @@ A native Kotlin/Jetpack Compose companion — nutrition logging with barcode sca
 | **Can't sign in / forgot the generated password** | `docker logs headwind 2>&1 \| grep -A3 "generated one"`. The login is also stored in `./data/.admin_login`. To set your own, put `APP_PASSWORD` in `.env` and recreate the container. |
 | **"Too many attempts"** | The login locks for a few minutes after 8 failures. Wait, or restart the container. |
 | **Port 5001 is in use** | Change the left side of `ports` in `docker-compose.yml`, e.g. `"5002:5001"`. |
-| **Garmin asks for MFA every time** | The `garmin_tokens` folder must be a persistent volume; check it's mounted and writable. |
+| **Garmin asks you to sign in again after every restart** | The `garmin_tokens` folder must be a persistent volume; check it's mounted and writable. |
 | **Garmin sync finds nothing** | Make sure activity sync is enabled in Settings → Garmin and the account matches the one you connected. Failed rides are retried on the next sync. |
 | **Phone app can't pair** | It needs an **HTTPS** address. Put Headwind behind a TLS proxy/tunnel and set `APP_URL` to that address. |
 | **Home Assistant sensors missing** | Check the MQTT broker settings, that discovery is enabled in HA, and that no other Headwind uses the same `HEADWIND_MQTT_PREFIX`. |
