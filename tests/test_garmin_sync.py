@@ -34,8 +34,12 @@ class FakeAPI:
 
 
 def _act(aid, local, dist=10000):
+    """An activity as Garmin's list gives it: startTimeGMT is the UTC time of the UK local start (equal to it in winter only)."""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    gmt = datetime.fromisoformat(local).replace(tzinfo=ZoneInfo('Europe/London')).astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     return {'activityId': aid, 'activityType': {'typeKey': 'cycling'}, 'startTimeLocal': local,
-            'startTimeGMT': local, 'distance': dist, 'activityName': f'ride {aid}'}
+            'startTimeGMT': gmt, 'distance': dist, 'activityName': f'ride {aid}'}
 
 
 @pytest.fixture

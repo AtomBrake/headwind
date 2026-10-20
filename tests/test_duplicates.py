@@ -46,8 +46,12 @@ def test_different_distance_is_a_different_ride():
 
 
 def test_zero_distance_activity_does_not_swallow_a_real_ride():
-    real, empty = _row(), _row(distance=0, startDateLocal='2026-10-05T12:00:00', elapsedTime=300, movingTime=300)
-    assert not dup.same_ride(real, empty) and not dup.same_ride(empty, real)
+    """A 0 m piece inside a ride is a piece of it (fragment_of): they pair, and the real ride is the one kept, whichever arrived first."""
+    real, empty = _row(id='imp_1', streams=GPS), _row(id='garmin_2', distance=0, startDateLocal='2026-10-05T12:00:00', elapsedTime=300, movingTime=300)
+    assert dup.same_ride(real, empty) and dup.same_ride(empty, real)
+    assert dup.pick_winner(empty, real)[0] is real and dup.pick_winner(real, empty)[0] is real
+    late = _row(distance=0, startDateLocal='2026-10-05T14:00:00', elapsedTime=300, movingTime=300)       # after the ride: nothing to do with it
+    assert not dup.same_ride(real, late)
     assert dup.same_ride(_row(distance=0), _row(distance=0, startDateLocal='2026-10-05T11:31:30'))      # two identical indoor sessions are one
 
 
@@ -85,9 +89,11 @@ def db(tmp_path):
 
 
 def _add(db, rid, local, dist=33000, hr=None, notes=None, streams=None, name=None):
+    """A UK local start (or an aware one) saved as every import saves it: the UTC instant in startDate."""
+    utc = dup.instant(local).strftime('%Y-%m-%dT%H:%M:%S')
     db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,totalElevationGain,averageSpeed,maxSpeed,"
                "averageHeartrate,notes,streams,riderId,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,'n','n')",
-               [rid, name or rid, 'Ride', 'Ride', local, local, dist, 6500, 6600, 0, 5, 9, hr, notes, streams])
+               [rid, name or rid, 'Ride', 'Ride', utc, local, dist, 6500, 6600, 0, 5, 9, hr, notes, streams])
     db.commit()
 
 

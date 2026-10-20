@@ -21,7 +21,7 @@ args = [
     '--paths', str(root),
     '--add-data', f'{root / "templates"}{sep}templates', '--add-data', f'{root / "static"}{sep}static',
     '--add-data', f'{root / "version.py"}{sep}.',
-    '--collect-all', 'curl_cffi', '--collect-all', 'garminconnect', '--hidden-import', 'waitress',
+    '--collect-all', 'curl_cffi', '--collect-all', 'garminconnect', '--hidden-import', 'waitress', '--hidden-import', 'tzfpy',
     '--collect-data', 'tzdata', '--hidden-import', 'tzdata', '--hidden-import', 'pystray._win32',   # zoneinfo on Windows reads timezones from this package
 ]
 for pkg in ('routes', 'services'):
