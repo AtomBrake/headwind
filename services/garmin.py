@@ -47,23 +47,66 @@ _MFA_TTL_SECS = 300  # Garmin's own SMS/email codes expire on a similar timescal
 
 def _prune_pending():
     now = time.time()
-    for tok in [t for t, (_, exp) in _PENDING_MFA.items() if exp < now]:
+    for tok in [t for t, (_, exp, _e) in _PENDING_MFA.items() if exp < now]:
         _PENDING_MFA.pop(tok, None)
 
 
-def _client(email, password):
-    from garminconnect import Garmin
+TOKEN_FILE = 'garmin_tokens.json'     # what garminconnect writes in TOKEN_DIR (client/tokens.py token_file_path), 0600 in a 0700 folder
+SIGN_IN_AGAIN = 'Garmin sign-in has expired: sign in again in Settings → Garmin Connect.'
 
+
+class SignInNeeded(RuntimeError):
+    """Garmin no longer accepts the saved sign-in (or there isn't one). Only signing in again on the Settings page fixes it."""
+
+
+def signed_in():
+    return (TOKEN_DIR / TOKEN_FILE).is_file()
+
+
+def connected(s):
+    """Garmin is set up, given a Settings row with garminEmail and garminPassword: signed in (tokens saved), or an install from before the
+    password stopped being kept, which still has it until _client() swaps it for tokens on its first run."""
+    return bool(s and s['garminEmail'] and (signed_in() or s['garminPassword']))
+
+
+def forget_tokens():
+    """Sign out here: delete the token file (and garth's from before garminconnect 0.3), leaving TOKEN_DIR, which is a Docker volume."""
+    for name in (TOKEN_FILE, 'oauth1_token.json', 'oauth2_token.json'):
+        with contextlib.suppress(FileNotFoundError):
+            (TOKEN_DIR / name).unlink()
+
+
+def _client():
+    """Garmin, signed in with the saved tokens, which renew themselves (garminconnect refreshes them and writes them back). The password is never
+    kept: when Garmin stops accepting the tokens, raises SignInNeeded and sets Settings.garminSignInNeeded for the Settings and Tasks pages; the
+    next run that works clears it, so a passing fault at Garmin doesn't need a sign-in. An install from before this still has the password once:
+    it signs in with it if the tokens don't work, and it's deleted as soon as there are tokens, or when Garmin turns it down."""
+    from garminconnect import Garmin, GarminConnectAuthenticationError
+    from database import get_db
+
+    db = get_db()
+    s = db.execute('SELECT garminEmail, garminPassword, garminSignInNeeded FROM Settings WHERE id=1').fetchone()
+    old_pw = s['garminPassword'] if s else None
     TOKEN_DIR.mkdir(exist_ok=True)
-    # login() loads tokens from tokenstore if present; saves them after password login
-    api = Garmin(email=email, password=password)
-    api.login(tokenstore=str(TOKEN_DIR))
+    api = Garmin(email=s['garminEmail'] if old_pw else None, password=old_pw or None)
+    try:
+        api.login(tokenstore=str(TOKEN_DIR))
+    except GarminConnectAuthenticationError as e:
+        from datetime import datetime, timezone
+        log.warning('Garmin turned down the saved sign-in: %s', e)
+        db.execute('UPDATE Settings SET garminSignInNeeded=COALESCE(garminSignInNeeded, ?), garminPassword=NULL WHERE id=1',
+                   [datetime.now(timezone.utc).isoformat(timespec='seconds')])
+        db.commit()
+        raise SignInNeeded(SIGN_IN_AGAIN) from e
+    if s and (old_pw or s['garminSignInNeeded']):
+        db.execute('UPDATE Settings SET garminPassword=NULL, garminSignInNeeded=NULL WHERE id=1')
+        db.commit()
     return api
 
 
 def start_login(email, password):
     """
-    First step of interactive first-time Garmin auth (setup wizard / Settings).
+    First step of interactive first-time Garmin auth (setup wizard / Settings). The password is used for this sign-in and never saved.
     Returns {'ok': True} once tokens are cached and ready for _client() to use,
     or {'ok': False, 'needs_mfa': True, 'token': ...} when Garmin wants a code —
     pass that token + the code to complete_mfa() within 5 minutes.
@@ -85,20 +128,20 @@ def start_login(email, password):
     status, _ = api.login()
     if status == 'needs_mfa':
         token = secrets.token_urlsafe(16)
-        _PENDING_MFA[token] = (api, time.time() + _MFA_TTL_SECS)
+        _PENDING_MFA[token] = (api, time.time() + _MFA_TTL_SECS, email)
         return {'ok': False, 'needs_mfa': True, 'token': token}
 
     # return_on_mfa=True makes the library skip its own post-login token dump
     # even on a clean, no-MFA success — do it ourselves so _client() finds it next time.
-    with contextlib.suppress(Exception):
-        api.client.dump(str(TOKEN_DIR))
+    # Not suppressed: the tokens are all that's kept, so failing to save them is a failed sign-in.
+    api.client.dump(str(TOKEN_DIR))
     return {'ok': True}
 
 
 def complete_mfa(token, code):
     """
     Second step: finishes a login start_login() paused on 'needs_mfa'.
-    Returns {'ok': True} on success. Raises the same garminconnect exceptions
+    Returns {'ok': True, 'email': the account it signed in to} on success. Raises the same garminconnect exceptions
     as start_login() on a wrong/expired code (str(e) is safe to show the user) —
     a wrong code leaves the pending entry in place so the same live session can
     be retried with a corrected code, rather than forcing a whole new login attempt.
@@ -110,12 +153,11 @@ def complete_mfa(token, code):
         raise GarminConnectAuthenticationError(
             'That code has expired — please reconnect Garmin and try again.'
         )
-    api, _ = entry
+    api, _, email = entry
     api.resume_login(None, code)  # raises on a wrong code; entry stays pending for a retry
     _PENDING_MFA.pop(token, None)
-    with contextlib.suppress(Exception):
-        api.client.dump(str(TOKEN_DIR))
-    return {'ok': True}
+    api.client.dump(str(TOKEN_DIR))
+    return {'ok': True, 'email': email}
 
 
 def _parse_rhr(stats):
@@ -430,13 +472,13 @@ def device_upload(api):
         return None
 
 
-def sync_garmin(email, password, days=7, api=None, strict=False):
+def sync_garmin(days=7, api=None, strict=False):
     """Fetch the last `days` days of Garmin daily metrics and upsert into GarminDaily. Weigh-ins (a scale uploads by itself, not through the
     watch) are read for at least the last two days. `api`: a client already logged in. `strict`: raise when Garmin answered none of the
     daily-metric calls (an outage), instead of passing it off as days with no data."""
     from database import get_db
 
-    api = api or _client(email, password)
+    api = api or _client()
     db  = get_db()
     call = _Calls()
 
@@ -500,7 +542,7 @@ def _history_status(db, **cols):
     db.commit()
 
 
-def backfill_history(email, password, today=None, pause=0.5):
+def backfill_history(today=None, pause=0.5):
     """Pull older Garmin health history (daily metrics and weigh-ins) back to Settings.garminHistoryFrom, newest first.
     Days already stored are skipped, and only days get_daily_steps() shows activity on get the full set of calls.
     Returns the status line it saved, or None when there was nothing to do."""
@@ -533,7 +575,7 @@ def backfill_history(email, password, today=None, pause=0.5):
         return msg
 
     try:
-        api = _client(email, password)
+        api = _client()
         while cursor > floor:
             end = cursor - timedelta(days=1)
             start = max(end - timedelta(days=HISTORY_WINDOW - 1), floor)
@@ -591,7 +633,7 @@ WEIGHT_WINDOW = 365            # days of weigh-ins asked for in one request
 WEIGHT_EMPTY_STOP = 3          # 'all': stop after this many years in a row with no weigh-ins
 
 
-def backfill_weigh_ins(email, password, today=None):
+def backfill_weigh_ins(today=None):
     """Weigh-ins on their own, a year per request, back as far as the health-history choice (Settings.garminHistoryFrom) allows. The day-by-day history
     backfill also asks for them, but it used to move on past a stretch whose weigh-in request failed, so this pass (run once on every install,
     Settings.garminWeightsDone) fills in anything missed. Never overwrites a weight typed in Headwind or from Home Assistant. Stops and retries later
@@ -610,7 +652,7 @@ def backfill_weigh_ins(email, password, today=None):
              else HISTORY_FLOOR if target == 'all' else max(date.fromisoformat(target), HISTORY_FLOOR))
     end, empty, days, added = today, 0, 0, 0
     try:
-        api = _client(email, password)
+        api = _client()
         while end >= floor and not (target == 'all' and empty >= WEIGHT_EMPTY_STOP):
             start = max(end - timedelta(days=WEIGHT_WINDOW - 1), floor)
             n, changed = _sync_weigh_ins(api, db, rider['id'], start.isoformat(), end.isoformat())
@@ -685,7 +727,7 @@ def _from_summary(a):
     }
 
 
-def sync_garmin_activities(email, password, rider_id, api=None):
+def sync_garmin_activities(rider_id, api=None):
     """
     Generator: pull activities from Garmin Connect, download FIT files, parse and insert.
     Yields dicts: {'msg': str} | {'imported': int, 'skipped': int} | {'done': True, ...}
@@ -701,7 +743,7 @@ def sync_garmin_activities(email, password, rider_id, api=None):
 
     log = logging.getLogger(__name__)
 
-    api = api or _client(email, password)
+    api = api or _client()
     db  = get_db()
 
     s = db.execute('SELECT garminActivitySyncDate FROM Settings WHERE id=1').fetchone()

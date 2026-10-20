@@ -82,16 +82,12 @@
       <small style="color:var(--text-muted); display:block; margin-top:0.3rem;">What "today" means for the food diary, goals, water from Home Assistant and weekly stats, and the zone for times with no zone of their own (Garmin's).<span id="tzBrowser"></span></small>
     </div>
     <input type="hidden" name="aiProvider"        value="{{ s.aiProvider or 'openai' }}">
-    <input type="hidden" name="openaiKey"         value="{{ s.openaiKey         if s and s.openaiKey         else '' }}">
     <input type="hidden" name="openaiModel"       value="{{ s.openaiModel       if s and s.openaiModel       else 'gpt-4o' }}">
     <input type="hidden" name="ollamaUrl"         value="{{ s.ollamaUrl         if s and s.ollamaUrl         else 'http://localhost:11434' }}">
     <input type="hidden" name="ollamaModel"       value="{{ s.ollamaModel       if s and s.ollamaModel       else 'llama3.2' }}">
     <input type="hidden" name="mqttHost"          value="{{ s.mqttHost          if s and s.mqttHost          else '' }}">
     <input type="hidden" name="mqttPort"          value="{{ s.mqttPort          if s and s.mqttPort          else '1883' }}">
     <input type="hidden" name="mqttUser"          value="{{ s.mqttUser          if s and s.mqttUser          else '' }}">
-    <input type="hidden" name="mqttPassword"      value="{{ s.mqttPassword      if s and s.mqttPassword      else '' }}">
-    <input type="hidden" name="garminEmail"       value="{{ s.garminEmail       if s and s.garminEmail       else '' }}">
-    <input type="hidden" name="garminPassword"    value="{{ s.garminPassword    if s and s.garminPassword    else '' }}">
     <input type="hidden" name="garminSyncHours"   value="{{ s.garminSyncHours   if s and s.garminSyncHours   else 0.5 }}">
     <input type="hidden" name="garminSyncMode"    value="{{ s.garminSyncMode    if s and s.garminSyncMode    else 'health' }}">
     <button type="submit" class="btn btn-primary" style="margin-top:1.25rem;">Save Preferences</button>
@@ -136,9 +132,8 @@
       <div id="openaiFields" style="display:contents;">
         <div class="form-group" style="margin:0;">
           <label>API Key</label>
-          <input type="password" name="openaiKey"
-                 value="{{ s.openaiKey if s and s.openaiKey else '' }}"
-                 placeholder="sk-...">
+          <input type="password" name="openaiKey" value="" autocomplete="off"
+                 placeholder="{{ 'Saved: leave blank to keep it' if s and s.openaiKey else 'sk-...' }}">
         </div>
         <div class="form-group" style="margin:0;">
           <label>Model</label>
@@ -152,9 +147,8 @@
       <div id="claudeFields" style="display:none;">
         <div class="form-group" style="margin:0;">
           <label>API Key</label>
-          <input type="password" name="claudeKey"
-                 value="{{ s.claudeKey if s and s.claudeKey else '' }}"
-                 placeholder="sk-ant-...">
+          <input type="password" name="claudeKey" value="" autocomplete="off"
+                 placeholder="{{ 'Saved: leave blank to keep it' if s and s.claudeKey else 'sk-ant-...' }}">
         </div>
         <div class="form-group" style="margin:0;">
           <label>Model</label>
@@ -183,8 +177,6 @@
       </div>
     </div>
 
-    <input type="hidden" name="garminEmail"     value="{{ s.garminEmail or '' }}">
-    <input type="hidden" name="garminPassword"  value="{{ s.garminPassword or '' }}">
     <input type="hidden" name="garminSyncHours" value="{{ s.garminSyncHours if s and s.garminSyncHours else 0.5 }}">
     <input type="hidden" name="garminSyncMode"  value="{{ s.garminSyncMode  if s and s.garminSyncMode  else 'health' }}">
     <div style="display:flex; gap:0.75rem; margin-top:1.25rem; align-items:center; flex-wrap:wrap;">
@@ -231,19 +223,15 @@
       </div>
       <div class="form-group" style="margin:0;">
         <label>Password <span style="color:var(--text-muted);">(optional)</span></label>
-        <input type="password" name="mqttPassword"
-               value="{{ s.mqttPassword if s and s.mqttPassword else '' }}"
-               placeholder="••••••••">
+        <input type="password" name="mqttPassword" value="" autocomplete="off"
+               placeholder="{{ 'Saved: leave blank to keep it' if s and s.mqttPassword else '••••••••' }}">
       </div>
     </div>
 
     <input type="hidden" name="aiProvider"       value="{{ s.aiProvider or 'openai' }}">
-    <input type="hidden" name="openaiKey"        value="{{ s.openaiKey or '' }}">
     <input type="hidden" name="openaiModel"      value="{{ s.openaiModel or 'gpt-4o' }}">
     <input type="hidden" name="ollamaUrl"        value="{{ s.ollamaUrl or '' }}">
     <input type="hidden" name="ollamaModel"      value="{{ s.ollamaModel or '' }}">
-    <input type="hidden" name="garminEmail"      value="{{ s.garminEmail or '' }}">
-    <input type="hidden" name="garminPassword"   value="{{ s.garminPassword or '' }}">
     <input type="hidden" name="garminSyncHours"  value="{{ s.garminSyncHours  if s and s.garminSyncHours else 0.5 }}">
     <input type="hidden" name="garminSyncMode"   value="{{ s.garminSyncMode   if s and s.garminSyncMode   else 'health' }}">
 
@@ -259,11 +247,19 @@
   <div>
 
     <!-- Garmin Connect -->
-    <form method="POST" class="card">
+    <form method="POST" class="card" id="garmin" onsubmit="return garminSave(this)">
       <div class="card-title">Garmin Connect</div>
       <p style="color:var(--text-muted); font-size:0.875rem; margin-bottom:1rem; line-height:1.6;">
         Pulls resting HR, HRV, sleep score, and body battery from Garmin Connect for richer AI coaching context.
+        Your password is only used to sign in and isn't kept: Headwind keeps the sign-in Garmin gives it, which renews itself.
       </p>
+      {% if s and s.garminSignInNeeded %}
+      <div style="margin-bottom:1rem; font-size:0.8125rem; padding:0.5rem 0.75rem; border-radius:8px; color:var(--warning); border:1px solid var(--warning);">
+        Garmin stopped accepting Headwind's sign-in, so syncing has stopped. Enter your password below and press Sign in again.
+      </div>
+      {% elif garmin_on and not s.garminPassword %}
+      <div style="margin-bottom:1rem; font-size:0.8125rem; color:var(--text-muted);">Signed in as {{ s.garminEmail }}.</div>
+      {% endif %}
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
         <div class="form-group" style="margin:0;">
           <label>Garmin Email</label>
@@ -273,9 +269,8 @@
         </div>
         <div class="form-group" style="margin:0;">
           <label>Password</label>
-          <input type="password" name="garminPassword"
-                 value="{{ s.garminPassword if s and s.garminPassword else '' }}"
-                 placeholder="••••••••">
+          <input type="password" name="garminPassword" value="" autocomplete="off"
+                 placeholder="{{ 'Only to sign in again' if garmin_on else '••••••••' }}">
         </div>
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:1rem;">
@@ -295,25 +290,26 @@
       </div>
 
       <input type="hidden" name="aiProvider"       value="{{ s.aiProvider or 'openai' }}">
-      <input type="hidden" name="openaiKey"        value="{{ s.openaiKey or '' }}">
       <input type="hidden" name="openaiModel"      value="{{ s.openaiModel or 'gpt-4o' }}">
       <input type="hidden" name="ollamaUrl"        value="{{ s.ollamaUrl or '' }}">
       <input type="hidden" name="ollamaModel"      value="{{ s.ollamaModel or '' }}">
       <input type="hidden" name="mqttHost"         value="{{ s.mqttHost or '' }}">
       <input type="hidden" name="mqttPort"         value="{{ s.mqttPort         if s else 1883 }}">
       <input type="hidden" name="mqttUser"         value="{{ s.mqttUser or '' }}">
-      <input type="hidden" name="mqttPassword"     value="{{ s.mqttPassword or '' }}">
 
       <div style="display:flex; gap:0.75rem; margin-top:1.25rem; align-items:center; flex-wrap:wrap;">
         <button type="submit" class="btn btn-primary">Save</button>
         <button type="button" class="btn btn-secondary" onclick="garminConnect()" id="garminConnectBtn">
-          {{ 'Reconnect' if s and s.garminEmail else 'Connect' }}
+          {{ 'Sign in again' if garmin_on else 'Connect' }}
         </button>
         <button type="button" class="btn btn-secondary" onclick="garminSync()" id="garminBtn"
-                {% if not s or not s.garminEmail %}disabled{% endif %}>Sync Recovery</button>
+                {% if not garmin_on %}disabled{% endif %}>Sync Recovery</button>
         <button type="button" class="btn btn-secondary" onclick="garminActivitySync()" id="garminActivityBtn"
                 style="display:{% if s and s.garminSyncMode == 'full' %}inline-flex{% else %}none{% endif %};"
-                {% if not s or not s.garminEmail %}disabled{% endif %}>Sync Rides</button>
+                {% if not garmin_on %}disabled{% endif %}>Sync Rides</button>
+        {% if garmin_on %}
+        <button type="button" class="btn btn-secondary" onclick="garminSignOut(this)">Sign out</button>
+        {% endif %}
         <span id="garminStatus" style="font-size:0.8125rem; color:var(--text-muted);"></span>
       </div>
       <div id="garminConnectStatus" style="margin-top:0.6rem; font-size:0.8125rem; display:none; padding:0.5rem 0.75rem; border-radius:8px;"></div>
@@ -328,7 +324,7 @@
         <span style="color:var(--text-muted);">: finds runs, swims and other activities an older sync saved as rides.</span></div>
       {% endif %}
 
-      {% if s and s.garminEmail %}
+      {% if garmin_on %}
       <!-- First run: how much past health data to pull (asked once per Garmin account; default all of it) -->
       <div style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--border);">
         <div id="garminHistoryStatus" style="font-size:0.8125rem; color:var(--text-muted); {% if not s.garminHistoryFrom %}display:none;{% endif %}">
@@ -740,6 +736,24 @@ function garminConnect() {
     btn.disabled = false;
     showGarminConnectStatus('error', 'Could not reach the server — check your connection and try again.');
   });
+}
+
+function garminSave(form) {
+  // Save keeps the sync settings only; a password typed here is for Connect / Sign in again, and /settings never stores it
+  if (!form.querySelector('input[name="garminPassword"]').value) return true;
+  showGarminConnectStatus('error', 'To sign in with that password, press ' + document.getElementById('garminConnectBtn').textContent.trim() + '. Save keeps the sync settings only.');
+  return false;
+}
+
+function garminSignOut(btn) {
+  btn.disabled = true;
+  fetch('/garmin/disconnect', { method: 'POST' })
+    .then(r => r.json())
+    .then(() => location.reload())
+    .catch(() => {
+      btn.disabled = false;
+      showGarminConnectStatus('error', 'Could not reach the server — check your connection and try again.');
+    });
 }
 
 function garminVerifyMfa() {
