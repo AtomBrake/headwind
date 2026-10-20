@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+Migration, at the first start: `Settings` gains `localZoneFixDone`, and a one-off repair runs (below; a few seconds on a few thousand activities, listed on the Tasks page). New dependency: `tzfpy` (an offline time-zone lookup, about 3 MB). Importing an export or a zip again reads every file once more, because how files are read has changed. No Android or iOS change.
+
+### Changed
+- **An activity's local time is the time where it happened.** Every import used to give it the clock of the home time zone, so a run in Sydney or a ski day in the Alps showed UK time. Now the time zone comes from where the activity started: Strava exports, files, the phone app, and the Garmin sync. Zwift and other virtual rides stay on the home clock, and so does anything with no position or typed in by hand. The start-up repair moves the local time of the activities you already have. Their weather is looked up again for the right hour (a few at every sync, or all at once with Settings → Weather), unless you picked the weather yourself or a named storm claimed it.
+- **A piece of a ride is a duplicate of it.** A phone app paired with a speed sensor recorded bits of rides (no GPS, 0 m or only the wheel's distance). A ride that starts during another one, has at least half of itself inside it (the app often ran on for a few minutes after the ride's own device was stopped) and lasts at most half as long now pairs with it. When both have GPS tracks they must be in the same place at the same moments. The whole ride is kept if the piece has no GPS or is well short of its distance. Otherwise the better recording wins, as for any duplicate.
+- **A watch's indoor ride and its Zwift copy are one ride.** Each makes up its own distance (Zwift's was 15–25% more than the watch's), so two virtual rides now pair when they start within 10 minutes of each other and last within 20% as long, whatever distances they give. The Zwift (or other app) recording, the one with the route, is always kept over the watch's, unless it has no distance; the bike moves to it. A Zwift ride inside a longer watch session (a warm-up, then a race) is kept too, and the watch session is set aside.
+- **Setting a copy aside keeps its shoes too**, as it already kept the bike. Copies set aside under one that is itself set aside later now follow it to the activity kept, so their Strava bike or shoes still reach it.
+- **A copy with elevation ranks a little higher** when picking which of two copies to keep.
+
+### Fixed
+- **Garmin activities without a time zone were an hour early all summer, and kept twice.** For old uploads and phone-app activities, Garmin gives the UTC time as the local time too. Headwind read that as UK time, so in summer the Garmin copy sat an hour before its Strava copy, both were kept, and the Garmin one counted as a ride with no bike. Those times now count as UTC, in the sync and in the start-up repair. The repair then checks every activity for duplicates again (pairs that came in before the duplicate check, or by a path that missed it, were never compared), sets the weaker copy aside, and puts the Strava bikes and shoes on what has none.
+- **RunKeeper files from 2011–2013 had the wrong hour.** Their timestamps are whole hours out (a different amount per file). The real start is in the track's name ("Running 7/26/11 6:20 pm"), and the import now uses it. Copies already saved with the wrong time (Strava's, which came from the same file, or a Garmin re-upload of it) move to the right time when you import the export again, and then meet the copies that had it right.
+- **Importing an export again could bring back a copy set aside as a duplicate**, and with it undo a "use the other recording" choice. A copy set aside or thrown away now stays that way. Its photos and commute tick go on the activity kept in its place.
+
 ## [0.7.10-beta] - 2026-10-20
 
 Migration, at the first start: a new `ImportSeen` table. No Android or iOS change.

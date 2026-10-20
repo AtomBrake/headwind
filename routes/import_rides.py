@@ -276,6 +276,7 @@ def _process_single_file(path, original_name, rider_id=None, bike_id=None):
         act_summary = {'id': act.get('id'), 'name': act.get('name'), 'distance': act.get('distance')}
 
         from services import duplicates
+        _retime_file_copies(db, rider_id, act)
         if duplicates.exists_anywhere(db, act['id']):
             differs = _offer_change(db, act, original_name)
             db.commit()
@@ -421,7 +422,8 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
     db = get_db()
     imported = skipped = errors = changed = unchanged = 0
     n_photos = n_commutes = 0
-    from services import reimport
+    from services import reimport, duplicates as _dups
+    _dups.ensure_schema(db)
 
     def extras(ride_id, row):
         """Photos and the commute tick for a ride already saved (cheap: from the row, not the file). Returns (photos added, commutes ticked)."""
@@ -496,11 +498,29 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
         start_dt = _parse_strava_date(row.get('Activity Date', ''))
         if start_dt:                                    # activities.csv gives the start in UTC
             start_dt = start_dt.replace(tzinfo=timezone.utc)
+            shift = _clock_shift(act)
+            if shift:                                   # a RunKeeper file whose clock was out: Strava took the same wrong time from it
+                start_dt += shift
+                _retime_copies(db, rider_id, act, start_dt - shift, start_dt, _strava_csv_distance_m(row) or act.get('distance'))
             if act.get('streams'):                      # cropped on Strava: the file is the whole recording, activities.csv the window kept
                 from services.parser import crop
                 act = crop(act, start_dt, csv_num('Elapsed Time (2)') or csv_num('Elapsed Time'), _strava_csv_distance_m(row))
             act['startDateLocal'] = start_dt.isoformat()
         cropped = act.get('cropped', False)              # kept on the act: accepting it on the Import page takes Strava's 0 m climb as a figure
+        if not already and db.execute("SELECT 1 FROM ActivityDuplicate WHERE id=? AND status IN ('parked', 'discarded')", [act_id]).fetchone():
+            # set aside as a copy of another activity (or thrown away): adding it again would undo that, and a "use the other recording"
+            # choice with it. Its photos and commute go on the activity kept in its place. (Read all the same, for a clock that was out above.)
+            kept_for = db.execute("""SELECT a.id FROM ActivityDuplicate d JOIN Activity a ON a.id = d.primaryId
+                                     WHERE d.id=? AND d.status='parked'""", [act_id]).fetchone()
+            if kept_for:
+                p, c = extras(kept_for[0], row)
+                n_photos, n_commutes = n_photos + p, n_commutes + c
+            if read_ok:
+                reimport.remember(db, seen_key, act_id, seen_fp)
+            db.commit()
+            skipped += 1
+            yield _progress(i + 1, total, imported, skipped, errors)
+            continue
 
         # Strava's own distance and moving time win over the file's: they carry the rider's crops and "correct distance" on Strava, its moving
         # time from the track, and a ski day's distance without the lifts. The file's are what the device wrote (a speed sensor gone wrong,
@@ -633,6 +653,7 @@ def _process_generic_zip(zf, names, rider_id=None):
             act = parse_activity_file(name, data)
             if act and act.get('startDateLocal'):
                 from services import duplicates as _d
+                _retime_file_copies(db, rider_id, act)
                 if _d.exists_anywhere(db, act['id']):
                     differs = _offer_change(db, act, name)
                     reimport.remember(db, seen_key, act['id'], seen_fp)
@@ -669,9 +690,39 @@ def _process_generic_zip(zf, names, rider_id=None):
     yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'unchanged': unchanged, 'changed': changed, 'errors': errors})
 
 
+def _clock_shift(act):
+    """How far the file's clock was out (services/parser.runkeeper_shift), as a timedelta, or None."""
+    if not act.get('clockShiftedFrom'):
+        return None
+    from services.duplicates import instant
+    was, now = instant(act['clockShiftedFrom']), instant(act.get('startDateLocal'))
+    return (now - was) if was and now and now != was else None
+
+
+def _retime_copies(db, rider_id, act, wrong, right, distance_m):
+    """Copies saved with the wrong time move to the right one (services/start_times.retime_copies). Never breaks an import. Commits."""
+    try:
+        from services.start_times import retime_copies
+        retime_copies(db, rider_id, wrong, right, distance_m)
+        db.commit()
+    except Exception:
+        log.warning('Re-timing the saved copies of %s failed', act.get('id'), exc_info=True)
+        db.rollback()
+
+
+def _retime_file_copies(db, rider_id, act):
+    """A file read on its own (not from a Strava export) whose clock was out: its saved copies move too."""
+    shift = _clock_shift(act)
+    if shift:
+        from services.duplicates import instant
+        right = instant(act['startDateLocal'])
+        _retime_copies(db, rider_id, act, right - shift, right, act.get('distance'))
+
+
 def _split_start(act):
     """(startDate, startDateLocal) for the Activity row. A GPX/FIT time with a timezone (a phone recording is UTC 'Z') is stored as
-    the UTC instant plus the home-timezone local time, like Garmin rides; a naive time is local already and stays as is."""
+    the UTC instant plus the local time where it started (services/tz.zone_at; the home zone without a position), like Garmin rides; a naive
+    time is local already and stays as is."""
     from services import tz
     from services.duplicates import instant
     raw = act.get('startDateLocal')
@@ -682,7 +733,7 @@ def _split_start(act):
     if not aware:
         return raw, raw
     utc = instant(raw)
-    return utc.strftime('%Y-%m-%dT%H:%M:%S'), utc.astimezone(tz.zone()).strftime('%Y-%m-%dT%H:%M:%S')
+    return utc.strftime('%Y-%m-%dT%H:%M:%S'), tz.local_at(utc, act.get('startLat'), act.get('startLng'), act.get('sportType'))
 
 
 def _offer_change(db, act, source):
