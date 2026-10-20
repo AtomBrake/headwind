@@ -132,21 +132,21 @@ def test_sync_puts_a_swim_in_workouts_and_a_ride_in_rides_with_a_sane_top_speed(
 
     acts = [{'activityId': 11, 'activityName': 'Pool Swimming', 'activityType': {'typeKey': 'lap_swimming'}, 'startTimeLocal': '2026-10-02 08:00:00', 'distance': 1500},
             {'activityId': 12, 'activityName': 'Forest of Dean Mountain Biking', 'activityType': {'typeKey': 'mountain_biking'}, 'startTimeLocal': '2026-10-01 10:00:00', 'distance': 30000}]
-    monkeypatch.setattr(garmin, '_client', lambda e, p: Api(acts))
+    monkeypatch.setattr(garmin, '_client', lambda: Api(acts))
     parsed = {'distance': 30000.0, 'movingTime': 7200, 'elapsedTime': 7500, 'averageSpeed': 4.2, 'maxSpeed': 14.0, 'calories': 900,
               'streams': json.dumps({'velocity_smooth': {'data': [4.0, 61.0, 5.0]}})}         # the stream has a spike; the parser's max doesn't
     monkeypatch.setattr(parser, 'parse_fit', lambda b: dict(parsed))
     monkeypatch.setattr(weather, 'fetch_weather', lambda *a, **k: None)
     db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)'); db.commit()
 
-    events = list(garmin.sync_garmin_activities('e', 'p', 1))
+    events = list(garmin.sync_garmin_activities(1))
     assert events[-1]['imported'] == 2
     assert db.execute("SELECT sportType FROM Activity WHERE id='garmin_11'").fetchone()[0] == 'Swim'
     assert not db.execute("SELECT 1 FROM Ride WHERE id='garmin_11'").fetchone()
     assert db.execute("SELECT maxSpeed FROM Activity WHERE id='garmin_12'").fetchone()[0] == 14.0
 
     db.execute('UPDATE Settings SET garminActivitySyncDate=NULL WHERE id=1'); db.commit()
-    assert list(garmin.sync_garmin_activities('e', 'p', 1))[-1]['imported'] == 0          # a full re-sync adds neither again
+    assert list(garmin.sync_garmin_activities(1))[-1]['imported'] == 0          # a full re-sync adds neither again
 
 
 def _park_phone_copy(db, under, day='2024-05-30'):

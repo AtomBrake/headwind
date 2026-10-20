@@ -129,13 +129,17 @@ def overview(db):
     failed | off | idle), detail line, when, and the action it offers (None, or {'url', 'label'})."""
     s = db.execute('SELECT * FROM Settings WHERE id=1').fetchone()
     s = dict(s) if s else {}
-    garmin_on = bool(s.get('garminEmail') and s.get('garminPassword'))
+    from services import garmin
+    garmin_on = garmin.connected(s)
     jobs = []
 
     # Garmin sync (health data every interval; rides too in 'full' mode)
     g = last(db, 'garmin_sync')
     if not garmin_on:
         jobs.append(_card('Garmin sync', 'off', 'Garmin is not connected (Settings → Garmin Connect).'))
+    elif s.get('garminSignInNeeded'):
+        jobs.append(_card('Garmin sync', 'failed', garmin.SIGN_IN_AGAIN + ' Syncs carry on once you have.', s['garminSignInNeeded'],
+                          {'url': '/settings#garmin', 'label': 'Sign in again'}))
     else:
         state = 'running' if g and g['status'] == 'running' else ('failed' if s.get('garminLastError') else ('done' if s.get('garminLastOk') else 'idle'))
         detail = (f"Failing ({s.get('garminFailCount') or 1} in a row): {s['garminLastError']}. Retrying within half an hour." if state == 'failed'

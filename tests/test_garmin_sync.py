@@ -56,8 +56,8 @@ def env(tmp_path, monkeypatch):
         monkeypatch.setattr('services.weather.fetch_weather', lambda *a, **k: None)
 
         def run(acts, fail=()):
-            monkeypatch.setattr(garmin, '_client', lambda e, p: FakeAPI(acts, fail))
-            return list(garmin.sync_garmin_activities('e', 'p', 1))
+            monkeypatch.setattr(garmin, '_client', lambda: FakeAPI(acts, fail))
+            return list(garmin.sync_garmin_activities(1))
         yield db, run
 
 
@@ -144,8 +144,8 @@ def wenv(env, monkeypatch):
     db.commit()
 
     def run(summaries, fail=False):
-        monkeypatch.setattr(garmin, '_client', lambda e, p: FakeWeighAPI(summaries, fail))
-        garmin.sync_garmin('e', 'p', days=3)
+        monkeypatch.setattr(garmin, '_client', lambda: FakeWeighAPI(summaries, fail))
+        garmin.sync_garmin(days=3)
         return {r['logDate']: (r['weightKg'], r['source']) for r in db.execute('SELECT logDate, weightKg, source FROM WeightLog')}
     yield db, run
 
@@ -242,8 +242,8 @@ def henv(env, monkeypatch):
         if frm:
             db.execute('UPDATE Settings SET garminHistoryFrom=? WHERE id=1', [frm])
             db.commit()
-        monkeypatch.setattr(garmin, '_client', lambda e, p: api)
-        return garmin.backfill_history('e', 'p', today=TODAY, pause=0)
+        monkeypatch.setattr(garmin, '_client', lambda: api)
+        return garmin.backfill_history(today=TODAY, pause=0)
 
     def state():
         return dict(db.execute('SELECT garminHistoryFrom f, garminHistoryCursor c, garminHistoryDone done, garminHistoryRetryAt r FROM Settings').fetchone())
@@ -382,8 +382,8 @@ def wbenv(henv, monkeypatch):
 
     def run(api, frm):
         db.execute('UPDATE Settings SET garminHistoryFrom=?, garminWeightsDone=0, garminWeightsRetryAt=NULL WHERE id=1', [frm]); db.commit()
-        monkeypatch.setattr(garmin, '_client', lambda e, p: api)
-        return garmin.backfill_weigh_ins('e', 'p', today=TODAY)
+        monkeypatch.setattr(garmin, '_client', lambda: api)
+        return garmin.backfill_weigh_ins(today=TODAY)
 
     def weights():
         return dict(db.execute('SELECT logDate, weightKg FROM WeightLog ORDER BY logDate').fetchall())
@@ -399,7 +399,7 @@ def test_weight_history_comes_a_year_at_a_time_back_to_the_last_weigh_in(wbenv):
     assert len(api.calls) == 6 and all((date.fromisoformat(e) - date.fromisoformat(s)).days == 364 for s, e in api.calls)
     assert '2 days with a weigh-in' in msg
     assert db.execute('SELECT garminWeightsDone FROM Settings').fetchone()[0] == 1
-    assert run(api, 'all') is not None and garmin.backfill_weigh_ins('e', 'p', today=TODAY) is None   # done: nothing more to do
+    assert run(api, 'all') is not None and garmin.backfill_weigh_ins(today=TODAY) is None   # done: nothing more to do
 
 
 def test_weight_history_keeps_to_the_chosen_range_and_manual_entries(wbenv):
@@ -434,8 +434,8 @@ def test_a_first_page_that_reaches_past_the_cursor_is_the_last(env, monkeypatch)
     api = FakeAPI(acts)
     real = api.get_activities
     api.get_activities = lambda start=0, limit=100: pages.append(start) or real(start, limit)
-    monkeypatch.setattr(garmin, '_client', lambda e, p: api)
-    list(garmin.sync_garmin_activities('e', 'p', 1))
+    monkeypatch.setattr(garmin, '_client', lambda: api)
+    list(garmin.sync_garmin_activities(1))
     assert pages == [0]
 
 
@@ -471,8 +471,8 @@ def test_strict_sync_calls_an_outage_an_outage(wenv):
     """The regular sync records the watch's upload as read: a sync where no daily-metric call answered must fail, or those days are lost."""
     api = FakeWeighAPI({})                                  # every daily-metric call fails
     with pytest.raises(RuntimeError):
-        garmin.sync_garmin('e', 'p', days=2, api=api, strict=True)
-    assert garmin.sync_garmin('e', 'p', days=0, api=api, strict=True) == 0     # nothing to read is not an outage
+        garmin.sync_garmin(days=2, api=api, strict=True)
+    assert garmin.sync_garmin(days=0, api=api, strict=True) == 0     # nothing to read is not an outage
 
 
 # ── Activities that keep failing (services/garmin_failures) ─────
@@ -499,8 +499,8 @@ def fenv(env, monkeypatch):
     db, _ = env
 
     def run(api):
-        monkeypatch.setattr(garmin, '_client', lambda e, p: api)
-        return list(garmin.sync_garmin_activities('e', 'p', 1))
+        monkeypatch.setattr(garmin, '_client', lambda: api)
+        return list(garmin.sync_garmin_activities(1))
 
     def later():
         db.execute("UPDATE GarminFailure SET nextAt='2000-01-01T00:00:00+00:00' WHERE gaveUp=0")     # its next try is due
