@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.13-beta] - 2026-10-20
+
+Migration, at the first start: `Settings` gains `garminSignInNeeded`, and there's a new `StravaExport` table. Dependency: `garminconnect` must now be 0.3.19 or later (`pip install -r requirements.txt` outside Docker).
+
+**Your Garmin password is no longer kept.** Headwind signs in to Garmin once and keeps only the sign-in tokens Garmin gives it, which renew themselves. On an upgrade, the stored password is used once more if the tokens need it, then deleted from the database. If your Garmin account uses 2-step verification and the tokens had already stopped working, Settings and the Tasks page ask you to sign in again.
+
+### Changed
+- **Garmin sign-in without a stored password.** Connect (Settings → Garmin Connect, or the setup wizard) sends the password to Garmin for that sign-in only; the email is saved once Garmin accepts it. If Garmin stops accepting the tokens (you changed your Garmin password, or signed out everywhere), syncing stops and the Garmin card and the Tasks page say **Sign in again**; a later sync that works clears it. **Sign out** deletes the tokens. Signing in to another account replaces the old tokens only once the new sign-in works.
+- **The Strava export is kept, so it can be imported again without uploading it.** After an import, the export is kept beside the database (`strava_exports/`, the latest per rider, left out of backups). The Import page offers **Import again** and **Delete**, and says when this version reads exports differently from the one that last read it. A tick box on the upload skips keeping it.
+
+### Fixed
+- **Saved secrets were in the Settings page's source.** The page carried the Garmin password, the OpenAI key and the MQTT password in hidden fields, and filled the password and key boxes with the saved values. They're gone: the boxes are empty, and leaving one blank keeps what's saved. Saving Settings no longer changes the Garmin email or password.
+- **Start-up repairs replaced Strava's moving times.** The moving-time repairs now leave alone a moving time that is still the one a Strava export gave. On an install that was already hit, importing the export again offers Strava's figures back on the Import page.
+- **Backups could hold the Garmin password** (an install from before this version that hasn't synced since): the backup zip leaves it out.
+
 ## [0.7.12-beta] - 2026-10-20
 
 Migration, at the first start: `Settings` gains `mmDistancesDone` and `stravaManualDone`, and there's a new `ImportProblem` table. On a database with activities from older Strava imports, two one-off repairs run (below; seconds, listed on the Tasks page). A brand-new install now starts with every one-off repair already done. Importing an export or a zip again reads every file once more, because how files are read has changed. No Android or iOS change.
