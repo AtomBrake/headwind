@@ -8,7 +8,7 @@ from flask import Flask
 from routes import import_rides
 
 
-def _app(monkeypatch, n):
+def _app(monkeypatch, n, tmp_path):
     def fake(zf, names, rider_id=None):
         yield import_rides._event({'total': n, 'source': 'files'})
         for i in range(n):
@@ -17,6 +17,7 @@ def _app(monkeypatch, n):
     monkeypatch.setattr(import_rides, '_process_generic_zip', fake)
     monkeypatch.setattr(import_rides, '_current_job', None)
     app = Flask('t')
+    app.config['DATABASE'] = str(tmp_path / 't.db')         # a zip is saved beside it while it's imported (services/strava_export)
     app.register_blueprint(import_rides.bp)
     return app
 
@@ -29,8 +30,8 @@ def _zip():
     return buf
 
 
-def test_import_finishes_after_the_browser_disconnects_and_can_be_reattached(monkeypatch):
-    app = _app(monkeypatch, 300)                       # well past the 200 events that used to fill the queue and stall the worker
+def test_import_finishes_after_the_browser_disconnects_and_can_be_reattached(monkeypatch, tmp_path):
+    app = _app(monkeypatch, 300, tmp_path)             # well past the 200 events that used to fill the queue and stall the worker
     client = app.test_client()
     resp = client.post('/import/upload', data={'riderId': '1', 'zipfile': (_zip(), 'rides.zip')}, buffered=False)
     assert '"total": 300' in next(resp.response).decode()
@@ -50,12 +51,12 @@ def test_import_finishes_after_the_browser_disconnects_and_can_be_reattached(mon
     assert client.get('/import/status').get_data(as_text=True) == ''   # the result is shown once
 
 
-def test_status_is_empty_when_nothing_was_imported(monkeypatch):
-    assert _app(monkeypatch, 1).test_client().get('/import/status').get_data(as_text=True) == ''
+def test_status_is_empty_when_nothing_was_imported(monkeypatch, tmp_path):
+    assert _app(monkeypatch, 1, tmp_path).test_client().get('/import/status').get_data(as_text=True) == ''
 
 
-def test_progress_snapshot_for_the_indicator_until_dismissed(monkeypatch):
-    app = _app(monkeypatch, 5)
+def test_progress_snapshot_for_the_indicator_until_dismissed(monkeypatch, tmp_path):
+    app = _app(monkeypatch, 5, tmp_path)
     client = app.test_client()
     client.post('/import/upload', data={'riderId': '1', 'zipfile': (_zip(), 'rides.zip')}, buffered=False).close()
     job = import_rides._current_job
@@ -71,5 +72,5 @@ def test_progress_snapshot_for_the_indicator_until_dismissed(monkeypatch):
     assert client.get('/import/status').get_data(as_text=True) == ''  # the import page won't show it again either
 
 
-def test_progress_is_empty_when_nothing_was_imported(monkeypatch):
-    assert _app(monkeypatch, 1).test_client().get('/import/progress').get_json() == {}
+def test_progress_is_empty_when_nothing_was_imported(monkeypatch, tmp_path):
+    assert _app(monkeypatch, 1, tmp_path).test_client().get('/import/progress').get_json() == {}

@@ -1049,6 +1049,8 @@ def migrate_db():
     db.commit()
     from services.reimport import ensure_schema as _reimport_schema
     _reimport_schema(db)
+    from services.strava_export import ensure_schema as _strava_export_schema      # the Strava export kept for Import again
+    _strava_export_schema(db)
     from services.sport_fix import ensure_schema as _sport_fix_schema
     _sport_fix_schema(db)
     from services.origin import backfill as _origin_backfill
