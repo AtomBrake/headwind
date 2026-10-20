@@ -266,4 +266,6 @@ def resolve(db, ride_id, choice):
     from services import duplicates, sanity
     sanity.flag(db, ride_id)                                         # a dismissed flag stays dismissed
     duplicates.rebuild_derived(db, ride_id)                          # best efforts, segment efforts, PRs
+    if sets.keys() & {'distance', 'movingTime', 'elapsedTime', 'startDate', 'startDateLocal', 'streams'}:
+        duplicates.recheck_parked(db, ride_id)                       # a copy set aside behind it may not be the same ride any more
     return True
