@@ -430,6 +430,7 @@ def migrate_db():
         ('movingTimePausedDone',   'INTEGER DEFAULT 0'), # moving times that counted the stops (auto-pause off) taken from the track (services/moving_time.repair_paused)
         ('bestEffortsCleanDone',   'INTEGER DEFAULT 0'), # best times worked out again without GPS jumps and speed-sensor faults (services/best_efforts.rescan_clean)
         ('sensorTopSpeedDone',     'INTEGER DEFAULT 0'), # top speeds from the GPS where the speed sensor went wrong (services/max_stats.fix_sensor_top_speed)
+        ('mmDistancesDone',        'INTEGER DEFAULT 0'), # distances an old Strava import stored in mm, of every sport (services/mm_distances.fix)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
         ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
@@ -870,6 +871,16 @@ def migrate_db():
         db.execute("UPDATE Settings SET distanceBackfillDone=1 WHERE id=1")
         if settings and n_mm:
             _tasks.record(db, 'startup:mm_distances', 'Walk, run and hike distances stored in mm', f'{n_mm} divided by 1,000')
+        db.commit()
+    from services import mm_distances as _mm_distances
+    res = _mm_distances.fix(db)                 # before the duplicate checks below, which compare distances
+    if res:
+        from services import units as _units
+        _tasks.record(db, 'startup:mm_distances_all', 'Distances stored in millimetres',
+                      f"{len(res)} activit{'y' if len(res) == 1 else 'ies'} imported from a Strava export without a track had {'its' if len(res) == 1 else 'their'} "
+                      "distance stored 1,000 times too long, and now have the real one: "
+                      + '; '.join(f"{f[1] or f[0]} ({_units.fmt_dist(f[2], places=0)} → {_units.fmt_dist(f[3])})" for f in res[:5])
+                      + ('…' if len(res) > 5 else '') + '.')
         db.commit()
 
     # ── Top speeds that are one GPS spike (old Garmin syncs): recomputed from the ride's streams, then re-checked ──

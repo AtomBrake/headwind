@@ -170,5 +170,8 @@ def rescan_clean(db):
     db.execute('DELETE FROM SportEffort')
     db.execute('UPDATE Settings SET bestEffortsCleanDone=1 WHERE id=1')
     db.commit()
-    changed = sorted((k[1], before.get(k), after.get(k)) for k in set(before) | set(after) if before.get(k) != after.get(k))
+    owner = db.execute('SELECT id FROM Rider WHERE isDefault=1 ORDER BY id LIMIT 1').fetchone()   # friends' riders have their own records, not news here
+    changed = sorted(((k[1], before.get(k), after.get(k)) for k in set(before) | set(after)
+                      if before.get(k) != after.get(k) and (not owner or k[0] == owner[0])),
+                     key=lambda c: c[0])            # by distance alone: a bracket new to a rider has no old time, and None can't be compared
     return {'ran': True, 'scanned': len(ids), 'changed': changed}
