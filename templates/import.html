@@ -49,6 +49,10 @@
       <input type="checkbox" id="optSegments" style="margin-top:0.2rem;">
       <span>Segments you created on Strava <span style="color:var(--text-muted);">(<code>segments.csv</code>; each one's shape comes from a ride of yours that went along it)</span></span>
     </label>
+    <label style="display:flex;gap:0.5rem;align-items:flex-start;font-size:0.875rem;margin-top:0.35rem;cursor:pointer;">
+      <input type="checkbox" id="optKeep" checked style="margin-top:0.2rem;">
+      <span>Keep the export here, so it can be imported again without uploading it <span style="color:var(--text-muted);">(it takes as much disk space as the zip; only the latest is kept)</span></span>
+    </label>
     <div style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.4rem;line-height:1.5;">Already imported this export? Import it again: rides already here are skipped, and the photos, segments and commute ticks are added to them.</div>
   </fieldset>
 
@@ -73,6 +77,25 @@
   <div id="doneStats" style="font-size:0.9375rem;line-height:2;"></div>
   <a href="/dashboard" class="btn btn-primary" style="margin-top:1rem;display:inline-flex;">View Dashboard</a>
 </div>
+
+{% for k in kept %}
+<div class="card"{% if loop.first %} id="kept"{% endif %} style="max-width:600px;margin-top:1.25rem;">
+  <div class="card-title">Strava export kept{% if riders | length > 1 %} for {{ k.riderName }}{% endif %}</div>
+  <p style="font-size:0.875rem;color:var(--text-muted);line-height:1.6;margin:0 0 0.75rem;">
+    Uploaded {{ k.keptAt[:10] }}: {{ k.sizeBytes | filesizeformat }}, {{ k.activities or 'its' }} activities.
+    Last imported {{ k.readAt[:10] }}. Import it again to pick up what a newer version of Headwind reads from it, with the options ticked above.
+  </p>
+  {% if k.stale %}
+  <p style="font-size:0.875rem;line-height:1.6;margin:0 0 0.75rem;">This version of Headwind reads exports differently from the one that last imported it: importing it again may fix or add to activities already here. Anything that differs from what's saved waits below for you to decide.</p>
+  {% endif %}
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+    <button class="btn btn-primary" onclick="importAgain({{ k.riderId }}, this)">Import again</button>
+    <form method="POST" action="{{ url_for('import_rides.delete_kept', rider_id=k.riderId) }}" style="margin:0;"
+          onsubmit="return confirm('Delete the kept Strava export? Its activities stay; importing it again would mean uploading it.')">
+      <button class="btn btn-secondary">Delete</button></form>
+  </div>
+</div>
+{% endfor %}
 
 {% if strava_pending %}
 <div class="card" style="max-width:600px;margin-top:1.25rem;">
@@ -175,11 +198,25 @@ async function startUpload() {
   if (riderSel) fd.append('riderId', riderSel.value);
   fd.append('importPhotos', document.getElementById('optPhotos').checked ? '1' : '0');
   fd.append('importSegments', document.getElementById('optSegments').checked ? '1' : '0');
+  fd.append('keepExport', document.getElementById('optKeep').checked ? '1' : '0');
 
   document.getElementById('progressCard').style.display = 'block';
   document.getElementById('doneCard').style.display = 'none';
 
   await readStream(await fetch('/import/upload', { method: 'POST', body: fd }));
+}
+
+// Import again: the export kept on the server, read with the options ticked above. Nothing to upload.
+async function importAgain(riderId, btn) {
+  btn.disabled = true;
+  uploadBtn.disabled = true;
+  const fd = new FormData();
+  fd.append('importPhotos', document.getElementById('optPhotos').checked ? '1' : '0');
+  fd.append('importSegments', document.getElementById('optSegments').checked ? '1' : '0');
+  document.getElementById('progressCard').style.display = 'block';
+  document.getElementById('doneCard').style.display = 'none';
+  document.getElementById('progressCard').scrollIntoView({ behavior: 'smooth' });
+  await readStream(await fetch(`/import/strava-export/${riderId}/again`, { method: 'POST', body: fd }));
 }
 
 // The import keeps running on the server if this page is left; coming back re-attaches to it (or shows how it finished).
@@ -264,6 +301,7 @@ function handleEvent(d) {
                              : `<li style="color:var(--text-muted)">${esc(u.file)}</li>`).join('') +
         `</ul>` : '') +
       (d.errors ? `<br><span style="color:var(--danger)">${d.errors} could not be saved</span>` : '') +
+      (d.kept ? `<br><span style="color:var(--text-muted)">The export is kept here: <a href="/import#kept" onclick="location.reload()" style="color:var(--accent)">import it again</a> any time without uploading it</span>` : '') +
       (d.changed ? `<br><a href="/import#changes" onclick="location.reload()" style="color:var(--accent)">${d.changed} differ from what's saved: review them</a>` : '') +
       (d.bikes_filled ? `<br><span style="color:var(--text-muted)">${d.bikes_filled} rides put on their Strava bike</span>` : '') +
       (d.bikes_to_match ? `<br><a href="${d.bikes_url}" style="color:var(--accent)">${d.bikes_to_match} bike${d.bikes_to_match === 1 ? '' : 's'} from Strava to match to yours</a>` : '') +
