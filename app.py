@@ -300,6 +300,7 @@ def create_app():
     app.template_filter('fmt_swim_pace')(lambda mps: _units.fmt_swim_pace(mps))
     app.template_filter('pace_mi')(lambda mps: _units.fmt_pace(mps))       # old name, still used by a few templates
     from services import sports as _sports
+    app.template_filter('has_climbing')(lambda sport: _sports.has_climbing(sport))       # no climb on the water: it's GPS noise
     app.template_filter('fmt_rate')(lambda mps, sport: _units.fmt_rate(mps, _sports.rate_style(sport)))   # speed, pace or per 100 m, by sport
     app.template_filter('dist_val')(lambda m: _units.dist(m))
     app.template_filter('elev_val')(lambda m: _units.elev(m))

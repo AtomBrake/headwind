@@ -63,7 +63,7 @@ class _Msg:
 
 def _fit(monkeypatch, messages):
     import fitparse
-    monkeypatch.setattr(fitparse, 'FitFile', lambda f: SimpleNamespace(get_messages=lambda: iter(messages)))
+    monkeypatch.setattr(fitparse, 'FitFile', lambda f, **kw: SimpleNamespace(get_messages=lambda: iter(messages)))
 
 
 def _records(n, **extra):
