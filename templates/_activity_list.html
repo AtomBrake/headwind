@@ -28,9 +28,9 @@
     <input type="number" name="max_dist" value="{{ max_dist }}" placeholder="&infin;" min="0" step="1">
   </div>
   <div style="display:flex; gap:0.4rem;">
-    <button type="submit" class="btn btn-primary" style="padding:0.35rem 0.9rem; font-size:0.875rem;">Search</button>
+    <button type="submit" class="btn btn-primary btn-sm">Search</button>
     {% if is_filtered %}
-    <a href="{{ list_path }}{% if rq %}?{{ rq }}{% endif %}" class="btn btn-secondary" style="padding:0.35rem 0.75rem; font-size:0.875rem;">&times; Clear</a>
+    <a href="{{ list_path }}{% if rq %}?{{ rq }}{% endif %}" class="btn btn-secondary btn-sm">&times; Clear</a>
     {% endif %}
   </div>
 </form>
@@ -51,21 +51,21 @@
     <input type="hidden" name="back" value="{{ back_url }}">
     <span style="font-size:0.8125rem; color:var(--text-muted);">Change the type of all {{ search_results | length }} results to</span>
     <select name="sport" style="font-size:0.8125rem;">{% for v, l in sport_choices %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>
-    <button class="btn btn-secondary" type="submit" style="padding:0.25rem 0.8rem; font-size:0.8125rem;">Change type</button>
+    <button class="btn btn-secondary btn-sm" type="submit">Change type</button>
   </form>
   <div>
     {% for a in search_results %}
     <a href="/rides/{{ a.id }}" class="dash-link" data-pick="{{ a.id }}"
          style="display:flex; align-items:center; gap:0.75rem; padding:0.65rem 0;
-                border-bottom:1px solid rgba(22,51,82,0.5); cursor:pointer;
+                border-bottom:1px solid var(--divider); cursor:pointer;
                 transition:background 0.1s;"
-         onmouseover="this.style.background='rgba(255,255,255,0.025)'"
+         onmouseover="this.style.background='var(--hover-tint)'"
          onmouseout="this.style.background=''">
       <div style="flex:1; min-width:0;">
         <div style="font-size:0.9375rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
           {{ a.sportType | sport_icon }} {{ a.name }}
           {% if a.aiKudos %}<span style="font-size:0.7rem; color:var(--accent); margin-left:0.3rem; font-weight:400;">AI</span>{% endif %}
-          {% if a.sportType == 'Run' %}<span style="font-size:0.65rem; color:#a78bfa; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">RUN</span>{% endif %}{% if a.id.startswith('garmin_') %}<span style="font-size:0.65rem; color:#5bb8d4; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">GARMIN</span>{% elif a.id.startswith('imp_') %}<span style="font-size:0.65rem; color:#c9a84c; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">IMPORT</span>{% endif %}
+          {% if a.sportType == 'Run' %}<span style="font-size:0.65rem; color:var(--c-violet); margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">RUN</span>{% endif %}{% if a.id.startswith('garmin_') %}<span style="font-size:0.65rem; color:var(--c-sky); margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">GARMIN</span>{% elif a.id.startswith('imp_') %}<span style="font-size:0.65rem; color:var(--c-gold); margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">IMPORT</span>{% endif %}
         </div>
         <div style="font-size:0.775rem; color:var(--text-muted); margin-top:0.15rem;">
           {{ a.startDateLocal | fmt_date }}
@@ -79,7 +79,7 @@
     {% endfor %}
   </div>
   {% else %}
-  <p style="color:var(--text-muted); font-size:0.875rem; margin:0.5rem 0;">No activities match your filters.</p>
+  <p class="hint" style="margin:0.5rem 0;">No activities match your filters.</p>
   {% endif %}
 
   {% else %}
@@ -110,7 +110,9 @@
   {% else %}
   <div class="empty-state">
     <div class="empty-icon">🚴</div>
-    <p>No activities yet. Connect Garmin in Settings, record with the phone app, or <a href="/import" style="color:var(--accent);">import files</a>.</p>
+    <h3>No activities yet</h3>
+    <p>Connect Garmin in Settings, record with the phone app, or import files.</p>
+    <a class="btn btn-primary" href="/import">Import files</a>
   </div>
   {% endif %}
   {% endif %}{# end is_filtered #}

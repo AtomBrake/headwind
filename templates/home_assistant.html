@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Home Assistant{% endblock %}
 {% block page_title %}Home Assistant{% endblock %}
+{% block parent %}<a href="{{ url_for('settings.index') }}">Settings</a>{% endblock %}
 
 {% block head %}
 <style>
@@ -22,8 +23,6 @@
             padding:0.65rem 0.25rem; min-height:48px; cursor:pointer; font-size:0.95rem; }
   .ha-ent small { color:var(--text-muted); display:block; overflow-wrap:anywhere; }
   .ha-ents { margin-top:0.5rem; }
-  table.ha-tbl { width:100%; font-size:0.85rem; border-collapse:collapse; }
-  table.ha-tbl td { padding:0.35rem 0.25rem; border-bottom:1px solid var(--border); }
 
   /* The entity picker is a full-screen overlay while open, not a box nested inside the scrollable
      page — two attempts at bounding/scrolling a nested box (viewport-relative, then fixed-pixel)
@@ -54,7 +53,7 @@
 
   <div class="card">
     <div class="card-title">Connection</div>
-    <p style="color:var(--text-muted); font-size:0.85rem; margin-bottom:0.75rem; line-height:1.5;">
+    <p class="hint" style="margin-bottom:0.75rem;">
       Pulls readings (e.g. your Bluetooth scale) from Home Assistant. In HA: your profile &rarr; Security &rarr;
       <b>Long-lived access tokens</b> &rarr; Create token.
     </p>
@@ -129,7 +128,7 @@
       {% if last_result %}Last run: {{ last_result }}{% else %}Not run yet.{% endif %}
     </div>
     {% if weights or recent %}
-    <table class="ha-tbl" style="margin-top:0.75rem;">
+    <table class="table" style="margin-top:0.75rem;">
       {% for w in weights %}<tr><td>{{ w.logDate }}</td><td>Weight</td><td>{{ '%.1f'|format(w.weightKg) }} kg</td></tr>{% endfor %}
       {% for r in recent %}<tr><td>{{ r.logDate }}</td><td>{{ targets[r.metric][0] if r.metric in targets else r.metric }}</td><td>{{ r.value }} {{ r.unit or '' }}</td></tr>{% endfor %}
     </table>

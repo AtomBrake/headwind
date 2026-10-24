@@ -703,7 +703,7 @@ def view_duplicate(rid, dup_id=None):
     if compare:
         recs.insert(0, _recording(main, 'Kept', t0))
     return render_template('ride_duplicate.html', activity=main, dup=d, others=[p['id'] for p in parked], recs=recs, compare=compare,
-                           colours=['#fc4c02', '#3b82f6'][-len(recs):], series_meta=_DUP_SERIES)
+                           colours=['--accent', '--info'][-len(recs):], series_meta=_DUP_SERIES)
 
 
 @bp.route('/<rid>/duplicate/<dup_id>/<action>', methods=['POST'])

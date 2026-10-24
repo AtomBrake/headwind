@@ -1,19 +1,97 @@
+/* Every colour in the app comes from these variables: templates, inline styles and scripts too
+   (charts, maps and canvas read them through cssVar() in base.html). Don't write a colour anywhere else. */
 :root {
   --sidebar-w:     220px;
+
+  /* Surfaces, darkest first */
   --sidebar-bg:    #050d18;
-  --sidebar-text:  #5d8fa8;
-  --sidebar-active-bg: rgba(252,76,2,0.15);
-  --sidebar-active-border: #fc4c02;
   --main-bg:       #071525;
+  --field-bg:      #071525;   /* inside inputs, selects and textareas */
+  --inset-bg:      #08182a;   /* a well inside a card: group rows, calendar days, previews */
   --card-bg:       #0b1e30;
+  --raised-bg:     #0e2437;   /* secondary buttons, badges, row hover */
+  --raised-hover:  #122d45;
+  --hover-tint:    rgba(255,255,255,0.03);   /* a row or item under the pointer, on any surface */
+  --overlay:       rgba(0,0,0,0.6);          /* behind a dialog or over a photo */
+  --shadow:        rgba(0,0,0,0.45);
+
+  /* Lines */
   --border:        #163352;
+  --border-strong: #1e4060;   /* table heads, panels over a map, fields on a card */
+  --divider:       rgba(22,51,82,0.5);   /* between the rows of a list */
+
+  /* Text */
   --text:          #c8e0ed;
+  --text-strong:   #ffffff;   /* page greetings and headline numbers */
+  --text-soft:     #8ab4cc;   /* chart titles and legends: between text and muted */
   --text-muted:    #4d7d95;
+  --on-accent:     #ffffff;   /* text on a solid accent, danger or info fill */
+  --on-success:    #04180f;   /* text on a solid success fill (white is too faint on green) */
+  --white:         #ffffff;   /* stays white in every theme: QR codes, captions over photos */
+  --black:         #000000;   /* stays black in every theme: camera viewfinder */
+
+  /* Sidebar */
+  --sidebar-text:  #5d8fa8;
+  --sidebar-label: #2f597a;
+  --sidebar-text-active: #ffffff;
+  --sidebar-line:  rgba(255,255,255,0.08);
+  --sidebar-hover: rgba(255,255,255,0.04);
+  --sidebar-active-bg: rgba(252,76,2,0.07);
+  --sidebar-active-border: #fc4c02;
+
+  /* Status. -soft is a tinted background, -line its border, -text readable text on the tint. */
   --accent:        #fc4c02;
   --accent-hover:  #e04400;
   --success:       #10b981;
   --warning:       #f59e0b;
+  --due:           #fb923c;   /* between warning and danger: gear wear that is due */
   --danger:        #ef4444;
+  --danger-hover:  #dc2626;
+  --info:          #3b82f6;
+  --accent-soft:   color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-line:   color-mix(in srgb, var(--accent) 40%, transparent);
+  --success-soft:  color-mix(in srgb, var(--success) 12%, transparent);
+  --success-line:  color-mix(in srgb, var(--success) 45%, transparent);
+  --success-text:  #86efac;
+  --warning-soft:  color-mix(in srgb, var(--warning) 12%, transparent);
+  --warning-line:  color-mix(in srgb, var(--warning) 50%, transparent);
+  --warning-text:  #fcd34d;
+  --due-soft:      color-mix(in srgb, var(--due) 15%, transparent);
+  --due-line:      color-mix(in srgb, var(--due) 60%, transparent);
+  --danger-soft:   color-mix(in srgb, var(--danger) 12%, transparent);
+  --danger-line:   color-mix(in srgb, var(--danger) 40%, transparent);
+  --danger-text:   #fca5a5;
+  --info-soft:     color-mix(in srgb, var(--info) 12%, transparent);
+  --info-line:     color-mix(in srgb, var(--info) 40%, transparent);
+  --info-text:     #93c5fd;
+
+  /* Data: one hue per series, sport, nutrient or zone. Charts take them through cssVar(). */
+  --c-red:     #f87171;
+  --c-orange:  #fb923c;
+  --c-amber:   #fbbf24;
+  --c-yellow:  #facc15;
+  --c-lime:    #a3e635;
+  --c-green:   #22c55e;
+  --c-teal:    #14b8a6;
+  --c-cyan:    #06b6d4;
+  --c-sky:     #38bdf8;
+  --c-blue:    #60a5fa;
+  --c-indigo:  #6366f1;
+  --c-violet:  #a78bfa;
+  --c-purple:  #a855f7;
+  --c-pink:    #f472b6;
+  --c-gold:    #c9a84c;
+  --c-grey:    #94a3b8;
+  /* Calendar heatmap, none to most */
+  --heat-0:    #1a2d3d;
+  --heat-1:    #4a2c15;
+  --heat-2:    #8c4a1e;
+  --heat-3:    #c4621f;
+  --heat-4:    #fc4c02;
+  /* Brands */
+  --strava:    #fc4c02;
+  --coffee:    #ffdd00;
+
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
@@ -43,7 +121,7 @@ body {
 
 .sidebar-header {
   padding: 1.25rem 1rem 1rem;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid var(--sidebar-line);
 }
 
 .sidebar-header .app-name {
@@ -51,7 +129,7 @@ body {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #ffffff;
+  color: var(--sidebar-text-active);
 }
 
 .sidebar-header .person-name {
@@ -67,7 +145,7 @@ body {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #2f597a;
+  color: var(--sidebar-label);
   padding: 0.9rem 1rem 0.3rem;
 }
 .nav-section-label:first-child { padding-top: 0.4rem; }
@@ -86,20 +164,20 @@ body {
 
 .nav-item svg { flex-shrink: 0; opacity: 0.75; transition: opacity 0.12s; }
 
-.nav-item:hover { background: rgba(255,255,255,0.04); color: #fff; }
+.nav-item:hover { background: var(--sidebar-hover); color: var(--sidebar-text-active); }
 .nav-item:hover svg { opacity: 1; }
 
 .nav-item.active {
-  background: rgba(252,76,2,0.07);
+  background: var(--sidebar-active-bg);
   border-left-color: var(--sidebar-active-border);
-  color: #ffffff;
+  color: var(--sidebar-text-active);
   font-weight: 500;
 }
 .nav-item.active svg { opacity: 1; color: var(--accent); }
 
 .nav-divider {
   height: 1px;
-  background: rgba(255,255,255,0.07);
+  background: var(--sidebar-line);
   margin: 0.375rem 0;
 }
 
@@ -124,7 +202,10 @@ body {
   flex-shrink: 0;
 }
 
-.topbar h1 { font-size: 1.0625rem; font-weight: 600; }
+.topbar h1 { font-size: 1.0625rem; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar h1 .crumb a { color: var(--text-muted); font-weight: 500; text-decoration: none; }
+.topbar h1 .crumb a:hover { color: var(--accent); }
+.topbar h1 .crumb-sep { color: var(--text-muted); margin: 0 0.45rem; font-weight: 400; }
 
 .topbar-actions { display: flex; gap: 0.5rem; }
 .topbar-right { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
@@ -202,6 +283,19 @@ body {
   padding-bottom: 0.5rem;
 }
 .map-charts-grid.has-both .charts-col .card canvas { flex: 1; min-height: 0; }
+/* No map beside them (an indoor ride, a watch with no GPS): the charts sit side by side, each card a fixed height.
+   Chart.js (maintainAspectRatio: false) fills its box, so a card sized by its own canvas grew on every resize. */
+.map-charts-grid:not(.has-both) .charts-col {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+}
+.map-charts-grid:not(.has-both) .charts-col .card {
+  height: 260px;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0.5rem;
+}
+.map-charts-grid:not(.has-both) .charts-col .card canvas { flex: 1; min-height: 0; }
 
 /* ── Stats ───────────────────────────────────────────── */
 
@@ -257,14 +351,36 @@ body {
   line-height: 1.4;
 }
 
-.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary { background: var(--accent); color: var(--on-accent); }
 .btn-primary:hover { background: var(--accent-hover); }
 
-.btn-secondary { background: #0e2437; color: var(--text); border-color: var(--border); }
-.btn-secondary:hover { background: #122d45; }
+.btn-secondary { background: var(--raised-bg); color: var(--text); border-color: var(--border); }
+.btn-secondary:hover { background: var(--raised-hover); }
+/* The chosen one of a row of options (a sport, a period): picked, not an action, so not orange */
+.btn-secondary.active { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent); }
 
-.btn-strava { background: #fc4c02; color: #fff; font-weight: 600; }
-.btn-strava:hover { background: #e04400; }
+.btn-strava { background: var(--strava); color: var(--on-accent); font-weight: 600; }
+.btn-strava:hover { background: color-mix(in srgb, var(--strava) 88%, var(--black)); }
+
+/* Delete, Remove, Revoke: it asks first (confirm()) and says what goes and what stays.
+   .btn-danger is solid, for a page's own Delete; .btn-danger-quiet is for one in a row or beside a Save. */
+.btn-danger { background: var(--danger); color: var(--on-accent); }
+.btn-danger:hover { background: var(--danger-hover); }
+.btn-danger-quiet { background: transparent; color: var(--danger); border-color: var(--danger-line); }
+.btn-danger-quiet:hover { background: var(--danger-soft); }
+
+.btn-sm    { padding: 0.25rem 0.6rem; font-size: 0.8125rem; }       /* in a table row, a card header or a toolbar */
+.btn-block { width: 100%; justify-content: center; }               /* the one action of a narrow form or dialog */
+.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+
+/* A small label on a row or card: a status (ok / soon / due / overdue), a sport, "Default" */
+.chip { display: inline-block; line-height: 1.45; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+        padding: 0.12rem 0.55rem; border-radius: 99px; border: 1px solid var(--border); color: var(--text-muted); white-space: nowrap; }
+.chip.default, .chip.accent { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.chip.ok      { color: var(--success); border-color: var(--success-line); }
+.chip.soon    { color: var(--warning); border-color: var(--warning-line); }
+.chip.due     { color: var(--due); border-color: var(--due-line); }
+.chip.overdue { color: var(--danger); border-color: var(--danger-line); }
 
 /* ── Forms ───────────────────────────────────────────── */
 
@@ -292,7 +408,7 @@ textarea {
   font-size: 0.875rem;
   font-family: var(--font);
   color: var(--text);
-  background: #071525;
+  background: var(--field-bg);
   transition: border-color 0.12s, box-shadow 0.12s;
 }
 
@@ -324,7 +440,7 @@ select[multiple] { background-image: none; padding-right: 0.75rem !important; }
 input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(252,76,2,0.2);
+  box-shadow: 0 0 0 3px var(--accent-line);
 }
 
 /* ── Tables ──────────────────────────────────────────── */
@@ -349,10 +465,23 @@ td {
 }
 
 tr:last-child td { border-bottom: none; }
+
+/* Every table: <table class="table">, .table-compact for a dense one, .flush when it runs to the edges of a card with no padding.
+   Numbers (times, distances, counts, dates you compare) go in a .num cell: right-aligned, in figures of equal width.
+   A group heading inside the body is <tr class="grp"><td colspan="…">. Wide tables sit in a .table-wrap that scrolls sideways. */
+.table { width: 100%; border-collapse: collapse; }
+.table th { white-space: nowrap; vertical-align: bottom; }
+.table td { vertical-align: middle; }
+.table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.table tbody tr:hover > td { background: var(--hover-tint); }
+.table tr.grp > td { background: var(--inset-bg); color: var(--text-muted); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding-top: 0.4rem; padding-bottom: 0.4rem; }
+.table.flush :is(th, td):first-child { padding-left: 1.25rem; }
+.table.flush :is(th, td):last-child { padding-right: 1.25rem; }
+.table-wrap { overflow-x: auto; }
 .ride-row { cursor: pointer; }
-.ride-row:hover td { background: #0e2437; }
+.ride-row:hover td { background: var(--raised-bg); }
 .clickable-row { cursor: pointer; }
-.clickable-row:hover td { background: #0e2437; }
+.clickable-row:hover td { background: var(--raised-bg); }
 
 /* A link that looks like the card or row it wraps (dashboard tiles, activity rows) */
 /* Plain links in page text (no class of their own) use the accent, not the browser's blue/visited purple */
@@ -363,7 +492,9 @@ a.metric-tile, a.metric-tile-sub { transition: border-color 0.15s; }
 a.metric-tile:hover, a.metric-tile-sub:hover { border-color: var(--accent); }
 .tree-day-header a.dash-link:hover, .ride-row a.dash-link:hover { color: var(--accent); }
 
-.text-muted { color: var(--text-muted); font-size: 0.8125rem; }
+/* Helper text: what a field, card or list is for, or what happens next. The one class for it (.text-muted is the old name). */
+.hint, .text-muted { color: var(--text-muted); font-size: 0.8125rem; line-height: 1.5; }
+.hint a { color: var(--accent); }
 
 /* ── Flash messages ──────────────────────────────────── */
 
@@ -375,19 +506,21 @@ a.metric-tile:hover, a.metric-tile-sub:hover { border-color: var(--accent); }
   border: 1px solid;
 }
 
-.flash-success { background: #053321; color: #4ade80;  border-color: #059669; }
-.flash-error   { background: #2d0a0a; color: #f87171; border-color: #dc2626; }
-.flash-warning { background: #2d1600; color: #fcd34d; border-color: #d97706; }
+.flash-success { background: var(--success-soft); color: var(--success-text); border-color: var(--success-line); }
+.flash-error   { background: var(--danger-soft);  color: var(--danger-text);  border-color: var(--danger-line); }
+.flash-warning { background: var(--warning-soft); color: var(--warning-text); border-color: var(--warning-line); }
 
 /* ── Empty states ────────────────────────────────────── */
 
-.empty-state {
-  padding: 2.5rem 1.5rem;
-  text-align: center;
-  color: var(--text-muted);
-}
-
-.empty-icon { font-size: 2rem; margin-bottom: 0.75rem; opacity: 0.4; }
+/* A list or page with nothing in it yet: an icon, one line saying what goes here, a hint how to get some, and the action.
+   <div class="empty-state"><div class="empty-icon">…</div><h3>No segments yet</h3><p>How to make one…</p><a class="btn btn-primary">…</a></div>
+   On its own (not inside a card), add .card. */
+.empty-state { padding: 2.5rem 1.5rem; text-align: center; color: var(--text-muted); }
+.empty-state .empty-icon { font-size: 2rem; line-height: 1; margin-bottom: 0.75rem; color: var(--text-muted); }
+.empty-state h3 { font-size: 1rem; font-weight: 600; color: var(--text); margin: 0 0 0.35rem; }
+.empty-state p { max-width: 34rem; margin: 0 auto; font-size: 0.875rem; line-height: 1.6; }
+.empty-state p strong { color: var(--text); }
+.empty-state .btn { margin-top: 1rem; }
 
 /* ── Mobile hamburger ────────────────────────────────── */
 
@@ -413,7 +546,7 @@ a.metric-tile:hover, a.metric-tile-sub:hover { border-color: var(--accent); }
   display: block;
   width: 20px;
   height: 2px;
-  background: #fff;
+  background: var(--on-accent);
   border-radius: 2px;
   flex-shrink: 0;
 }
@@ -422,7 +555,7 @@ a.metric-tile:hover, a.metric-tile-sub:hover { border-color: var(--accent); }
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.55);
+  background: var(--overlay);
   z-index: 199;
 }
 
@@ -450,7 +583,7 @@ details[open] > .tree-year-summary::before,
 details[open] > .tree-month-summary::before { transform: rotate(90deg); }
 
 .tree-year-summary:hover,
-.tree-month-summary:hover { background: rgba(255,255,255,0.03); border-radius: 0.25rem; }
+.tree-month-summary:hover { background: var(--hover-tint); border-radius: 0.25rem; }
 
 .tree-year-label  { font-size: 1rem; font-weight: 700; color: var(--text); }
 .tree-month-label { font-size: 0.875rem; font-weight: 600; color: var(--text); padding-left: 1rem; }
@@ -486,7 +619,7 @@ details[open] > .tree-month-summary::before { transform: rotate(90deg); }
   transition: border-color 0.15s, background 0.15s;
 }
 .drop-zone:hover,
-.drop-zone.drag-over { border-color: var(--accent); background: rgba(252,76,2,0.05); }
+.drop-zone.drag-over { border-color: var(--accent); background: var(--accent-soft); }
 
 .drop-icon  { font-size: 2rem; margin-bottom: 0.5rem; }
 .drop-label { font-size: 0.9375rem; color: var(--text); margin-bottom: 0.25rem; }
@@ -525,7 +658,7 @@ details[open] > .tree-month-summary::before { transform: rotate(90deg); }
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: #163352;
+  background: var(--border);
   border: 1px solid var(--border);
   font-size: 0.875rem;
   font-weight: 700;
@@ -538,7 +671,7 @@ details[open] > .tree-month-summary::before { transform: rotate(90deg); }
   align-items: center;
   gap: 0.5rem;
   padding: 0.3rem 0.65rem 0.3rem 0.3rem;
-  background: #0e2437;
+  background: var(--raised-bg);
   border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 0.8125rem;
@@ -572,7 +705,7 @@ details[open] > .tree-month-summary::before { transform: rotate(90deg); }
 
 .rider-card:hover {
   border-color: var(--accent);
-  background: #0e2437;
+  background: var(--raised-bg);
 }
 
 .rider-card .rider-avatar,
@@ -592,7 +725,7 @@ details[open] > .tree-month-summary::before { transform: rotate(90deg); }
 /* Reusable component classes, currently used by dashboard.html only. */
 
 .page-greeting { margin-bottom: 1.25rem; }
-.page-greeting h2 { font-size: 1.375rem; font-weight: 700; color: #fff; }
+.page-greeting h2 { font-size: 1.375rem; font-weight: 700; color: var(--text-strong); }
 .page-greeting .sub { font-size: 0.8125rem; color: var(--text-muted); margin-top: 0.15rem; }
 
 .metric-row {
@@ -614,9 +747,9 @@ details[open] > .tree-month-summary::before { transform: rotate(90deg); }
 .metric-tile .m-icon {
   width: 34px; height: 34px; border-radius: 0.5rem; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(252,76,2,0.1); color: var(--accent);
+  background: var(--accent-soft); color: var(--accent);
 }
-.metric-tile .m-value { font-size: 1.375rem; font-weight: 700; line-height: 1.15; color: #fff; }
+.metric-tile .m-value { font-size: 1.375rem; font-weight: 700; line-height: 1.15; color: var(--text-strong); }
 .metric-tile .m-label { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.1rem; }
 
 .metric-row-sub {
@@ -644,14 +777,14 @@ details[open] > .tree-month-summary::before { transform: rotate(90deg); }
 .chart-card-head .card-title { margin-bottom: 0; }
 .chart-card-head .sub { font-size: 0.75rem; color: var(--text-muted); }
 
-.seg-tabs { display: flex; gap: 0.25rem; background: #071525; border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.2rem; }
+.seg-tabs { display: flex; gap: 0.25rem; background: var(--field-bg); border: 1px solid var(--border); border-radius: 0.375rem; padding: 0.2rem; }
 .seg-btn {
   border: none; background: transparent; color: var(--text-muted);
   font-size: 0.8125rem; font-weight: 500; padding: 0.3rem 0.7rem;
   border-radius: 0.25rem; cursor: pointer; transition: background 0.12s, color 0.12s;
 }
 .seg-btn:hover { color: var(--text); }
-.seg-btn.active { background: var(--accent); color: #fff; }
+.seg-btn.active { background: var(--accent); color: var(--on-accent); }
 
 .dash-split {
   display: grid;
@@ -662,7 +795,7 @@ details[open] > .tree-month-summary::before { transform: rotate(90deg); }
 }
 
 .table-compact th, .table-compact td { padding: 0.5rem 0.65rem; font-size: 0.8125rem; }
-.table-compact tr.ride-row:hover td { background: #0e2437; }
+.table-compact tr.ride-row:hover td { background: var(--raised-bg); }
 
 .recovery-panel-head {
   display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1rem;
@@ -684,7 +817,7 @@ details[open] > .tree-month-summary::before { transform: rotate(90deg); }
   background: var(--card-bg);
   position: absolute;
 }
-.gauge-ring .gauge-value { position: relative; font-size: 1.25rem; font-weight: 700; color: #fff; }
+.gauge-ring .gauge-value { position: relative; font-size: 1.25rem; font-weight: 700; color: var(--text-strong); }
 
 .recovery-stats-row {
   display: flex; justify-content: space-around; text-align: center;
@@ -701,7 +834,7 @@ details[open] > .tree-month-summary::before { transform: rotate(90deg); }
 .toolbar .form-group-sm { display: flex; flex-direction: column; gap: 0.25rem; }
 .toolbar label { font-size: 0.75rem; color: var(--text-muted); margin: 0; font-weight: 400; }
 .toolbar input, .toolbar select {
-  background-color: #0f2535; color: var(--text); border: 1px solid var(--border);
+  background-color: var(--field-bg); color: var(--text); border: 1px solid var(--border);
   border-radius: 5px; padding: 0.35rem 0.6rem; font-size: 0.875rem;
 }
 /* Dashboard sport chips: a wrapping row, every sport ticked to start with; an unticked one is dimmed */
@@ -718,8 +851,8 @@ details[open] > .tree-month-summary::before { transform: rotate(90deg); }
 .sport-include-all { background: none; border: 0; padding: 0.2rem 0.3rem; font-size: 0.8125rem; color: var(--accent); cursor: pointer; }
 .sport-only-sep { width: 1px; align-self: stretch; background: var(--border); margin: 0 0.25rem; }
 .sport-only { padding: 0.2rem 0.55rem; border-radius: 999px; font-size: 0.8125rem; color: var(--text-muted); text-decoration: none; white-space: nowrap; }
-.sport-only:hover { color: var(--text); background: rgba(255,255,255,0.04); }
-.sport-only.active { color: var(--accent); background: rgba(252,76,2,0.12); }
+.sport-only:hover { color: var(--text); background: var(--hover-tint); }
+.sport-only.active { color: var(--accent); background: var(--accent-soft); }
 .sport-include select { width: auto; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.8125rem; }
 
 @media (max-width: 1100px) {
@@ -751,28 +884,27 @@ details[open] > .tree-month-summary::before { transform: rotate(90deg); }
 }
 
 /* public demo banner */
-.demo-banner { background: linear-gradient(90deg,#fc4c02,#c13a00); color:#fff; font-size:.8rem; font-weight:600; letter-spacing:.02em; padding:.4rem 1rem; text-align:center; }
-.demo-banner a { color:#fff; text-decoration:underline; }
+.demo-banner { background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 75%, var(--black))); color:var(--on-accent); font-size:.8rem; font-weight:600; letter-spacing:.02em; padding:.4rem 1rem; text-align:center; }
+.demo-banner a { color:var(--on-accent); text-decoration:underline; }
 
 /* ── Select mode on activity lists (templates/_bulk_bar.html, static/js/bulk.js) ── */
 .bulk-bar {
   position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%); z-index: 900;
   display: flex; align-items: center; flex-wrap: wrap; gap: 0.45rem; max-width: calc(100vw - 2rem);
   padding: 0.6rem 0.8rem; background: var(--card-bg); border: 1px solid var(--accent); border-radius: 0.75rem;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.45); font-size: 0.8125rem;
+  box-shadow: 0 8px 24px var(--shadow); font-size: 0.8125rem;
 }
 .bulk-bar[hidden] { display: none; }
 .bulk-bar select, .bulk-bar .btn { font-size: 0.8125rem; padding: 0.25rem 0.6rem; width: auto; }
 .bulk-bar .bulk-count { font-weight: 600; min-width: 5.5rem; }
 .bulk-bar .bulk-link { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0.2rem 0.3rem; font-size: 0.8125rem; }
 .bulk-bar .bulk-sep { width: 1px; align-self: stretch; background: var(--border); }
-.bulk-bar .bulk-delete { border-color: #b91c1c; color: #fca5a5; }
 body.bulk-mode [data-pick-list] [data-pick] { cursor: pointer; position: relative; padding-left: 1.9rem !important; }
 body.bulk-mode [data-pick-list] [data-pick]::before {
   content: ''; position: absolute; left: 0.45rem; top: 50%; width: 1rem; height: 1rem; margin-top: -0.5rem;
   border: 2px solid var(--text-muted); border-radius: 0.25rem;
 }
-body.bulk-mode [data-pick-list] [data-pick].picked { background: rgba(252,76,2,0.10); }
+body.bulk-mode [data-pick-list] [data-pick].picked { background: var(--accent-soft); }
 body.bulk-mode [data-pick-list] [data-pick].picked::before { background: var(--accent); border-color: var(--accent); }
 body.bulk-mode [data-pick-list] tr[data-pick]::before { display: none; }
 body.bulk-mode [data-pick-list] tr[data-pick] td:first-child { box-shadow: inset 4px 0 0 transparent; }
@@ -781,5 +913,5 @@ body.bulk-mode [data-pick-list] tr[data-pick] { padding-left: 0 !important; }
 body.bulk-mode .wo-line form { display: none; }                 /* the per-row type picker and delete give way to the bar */
 body.bulk-mode { padding-bottom: 6rem; }
 .pick-toggle { font-size: 0.75rem; padding: 0.2rem 0.7rem; margin-left: auto; }
-.nav-badge { display: inline-block; min-width: 1.1rem; padding: 0 0.3rem; margin-left: 0.35rem; border-radius: 999px; background: var(--accent); color: #fff;
+.nav-badge { display: inline-block; min-width: 1.1rem; padding: 0 0.3rem; margin-left: 0.35rem; border-radius: 999px; background: var(--accent); color: var(--on-accent);
              font-size: 0.6875rem; font-weight: 700; line-height: 1.1rem; text-align: center; }

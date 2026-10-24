@@ -17,11 +17,11 @@ import math as _math
 
 _TIER_ORDER  = ['Easy', 'Moderate', 'Hard', 'Very Hard', 'Brutal']
 _TIER_COLOUR = {
-    'Easy':      '#10b981',
-    'Moderate':  '#3b82f6',
-    'Hard':      '#f59e0b',
-    'Very Hard': '#ef4444',
-    'Brutal':    '#8b5cf6',
+    'Easy':      'var(--success)',
+    'Moderate':  'var(--info)',
+    'Hard':      'var(--warning)',
+    'Very Hard': 'var(--danger)',
+    'Brutal':    'var(--c-violet)',
 }
 _TIER_BUMP = {'Brutal': 2.0, 'Very Hard': 1.0, 'Hard': 0.5, 'Moderate': 0.25}
 
