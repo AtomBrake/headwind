@@ -3,7 +3,10 @@
 Design rules:
 * Mileage is COMPUTED, never stored. A bike's odometer = its starting mileage + the distance of the rides assigned to it; a part's mileage = what it had when
   fitted + the rides on that bike since the day it was fitted. Re-assigning a ride (calendar, ride page) therefore corrects every figure automatically.
-* A new ride is stamped with the rider's default bike at that moment, so changing the default later never rewrites history.
+* A new ride is stamped with the rider's default bike at that moment, so changing the default later never rewrites history. A rider can have a
+  default per kind of ride and one for commutes (BikeDefault, chosen like kit's per-sport defaults), with Rider.defaultBikeId for every other
+  ride (pick_bike). A bike given that way is remembered (Activity.bikeAuto), so ticking Commute or changing the sport picks again (regear),
+  while a bike chosen by hand stays.
 * Alerts are remembered per part/level/cycle, so each one fires once and resets when the part is checked or replaced.
 * Everything is plain sqlite + Pillow (no new dependencies), and no strftime('%-d'): this module must run unchanged inside the Windows .exe.
 """
@@ -49,9 +52,16 @@ def ensure_schema(db):
     if 'bikeId' not in act:
         db.execute('ALTER TABLE Activity ADD COLUMN bikeId INTEGER')
     db.execute('CREATE INDEX IF NOT EXISTS idx_activity_bike ON Activity(bikeId)')
+    if 'bikeAuto' not in act:                   # the bike stamp_new_ride gave it (0: it looked and found none), so a change of sport or commute can pick again
+        db.execute('ALTER TABLE Activity ADD COLUMN bikeAuto INTEGER')
     rider = {r[1] for r in db.execute('PRAGMA table_info(Rider)').fetchall()}
     if 'defaultBikeId' not in rider:
         db.execute('ALTER TABLE Rider ADD COLUMN defaultBikeId INTEGER')
+    db.execute('''CREATE TABLE IF NOT EXISTS BikeDefault (
+        riderId INTEGER NOT NULL, sport TEXT NOT NULL, bikeId INTEGER NOT NULL, PRIMARY KEY (riderId, sport))''')
+    bike = {r[1] for r in db.execute('PRAGMA table_info(Bike)').fetchall()}
+    if 'retiredOn' not in bike:                 # when it was retired (Bike.archived says whether), as kit keeps it
+        db.execute('ALTER TABLE Bike ADD COLUMN retiredOn TEXT')
 
 
 # ---------- small helpers ----------
@@ -145,11 +155,107 @@ def set_default(db, rider_id, bike_id):
     db.execute('UPDATE Rider SET defaultBikeId=? WHERE id=?', [bike_id, rider_id])
 
 
-def archive_bike(db, bike_id, archived=True):
+# ---------- defaults: which bike a new ride gets ----------
+ANY = '*'                                          # in a bike's defaults: every other ride, i.e. it is the rider's default bike (Rider.defaultBikeId)
+RIDE_DEFAULT_SPORTS = ('MountainBikeRide', 'GravelRide', 'EBikeRide', 'VirtualRide')      # offered whether or not the rider has any yet
+
+
+def ride_sport_choices(db, rider_id, have=()):
+    """The kinds of ride a bike can be the default for, as [(key, sport)]: the rider's own, most ridden first, then the usual ones, then any
+    already set (have). A plain Ride isn't one: the rider's default bike covers every ride without a default of its own."""
+    from services.kit import sport_key
+    seen, out = {'', 'Ride'}, []
+    rows = db.execute('SELECT sportType, COUNT(*) n FROM Ride WHERE riderId=? GROUP BY sportType ORDER BY n DESC', [rider_id]).fetchall()
+    for s in [r[0] for r in rows] + list(RIDE_DEFAULT_SPORTS) + list(have):
+        key = sport_key(s)
+        if key not in seen:
+            seen.add(key)
+            out.append((key, s))
+    return out
+
+
+def bike_defaults(db, rider_id):
+    """{sport key or kit.COMMUTE: bike id} for this rider, retired bikes left out. Rider.defaultBikeId is every other ride's."""
+    return {r[0]: r[1] for r in db.execute('SELECT d.sport, d.bikeId FROM BikeDefault d JOIN Bike b ON b.id = d.bikeId WHERE d.riderId=? AND b.archived=0',
+                                           [rider_id]).fetchall()}
+
+
+def bike_defaults_of(db, bike_id):
+    """What this bike is the default for: commutes (kit.COMMUTE) first, then sport keys, then ANY when it is the rider's default bike."""
+    from services.kit import COMMUTE
+    keys = sorted((r[0] for r in db.execute('SELECT sport FROM BikeDefault WHERE bikeId=?', [bike_id]).fetchall()), key=lambda k: (k != COMMUTE, k))
+    if db.execute('SELECT 1 FROM Rider r JOIN Bike b ON b.riderId = r.id WHERE b.id=? AND r.defaultBikeId = b.id', [bike_id]).fetchone():
+        keys.append(ANY)
+    return keys
+
+
+def set_bike_defaults(db, bike_id, keys):
+    """Make this bike the default for exactly these (sport keys, kit.COMMUTE, ANY for every other ride), taking each from whichever bike had
+    it, and for nothing else. Does not commit."""
+    from services.kit import sport_key
     b = get_bike(db, bike_id)
-    db.execute('UPDATE Bike SET archived=? WHERE id=?', [1 if archived else 0, bike_id])
+    if not b:
+        raise ValueError('that bike is not available')
+    keys = {ANY if k == ANY else sport_key(k) for k in keys or []} - {''}
+    if keys and b['archived']:
+        raise ValueError('a retired bike cannot be a default')
+    db.execute('DELETE FROM BikeDefault WHERE bikeId=?', [bike_id])
+    for k in sorted(keys - {ANY}):
+        db.execute('INSERT OR REPLACE INTO BikeDefault (riderId, sport, bikeId) VALUES (?,?,?)', [b['riderId'], k, bike_id])
+    if ANY in keys:
+        db.execute('UPDATE Rider SET defaultBikeId=? WHERE id=?', [bike_id, b['riderId']])
+    else:
+        db.execute('UPDATE Rider SET defaultBikeId=NULL WHERE id=? AND defaultBikeId=?', [b['riderId'], bike_id])
+
+
+def set_default_for(db, rider_id, key, bike_id):
+    """One line of the Gear page's defaults: rides of this sport (or commutes, or ANY: every other ride) go on this bike, or on none.
+    Does not commit."""
+    from services.kit import sport_key
+    if key == ANY:
+        return set_default(db, rider_id, bike_id)
+    key = sport_key(key)
+    if not key:
+        raise ValueError('pick a kind of ride')
+    if bike_id is None:
+        db.execute('DELETE FROM BikeDefault WHERE riderId=? AND sport=?', [rider_id, key])
+        return
+    b = get_bike(db, bike_id)
+    if not b or b['riderId'] != rider_id or b['archived']:
+        raise ValueError('that bike is not available')
+    db.execute('INSERT OR REPLACE INTO BikeDefault (riderId, sport, bikeId) VALUES (?,?,?)', [rider_id, key, bike_id])
+
+
+def _picker(db, rider_id):
+    """pick_bike for one rider, reading their defaults once: a function (sport, commute) -> bike id or None."""
+    from services.kit import COMMUTE, sport_key
+    d = bike_defaults(db, rider_id)
+    r = db.execute('SELECT r.defaultBikeId FROM Rider r JOIN Bike b ON b.id = r.defaultBikeId WHERE r.id=? AND b.archived=0', [rider_id]).fetchone()
+    fallback = r[0] if r else None
+
+    def pick(sport, commute=False):
+        if commute and COMMUTE in d:
+            return d[COMMUTE]
+        return d.get(sport_key(sport), fallback)
+    return pick
+
+
+def pick_bike(db, rider_id, sport, commute=False):
+    """The bike a new ride gets: the rider's default for commutes when it is one (whatever its sport: it says what the ride was for), else the
+    one for its kind of ride (mountain, gravel, e-bike, indoor, ...), else their default bike. Retired bikes are never picked. None for none."""
+    return _picker(db, rider_id)(sport, commute)
+
+
+def archive_bike(db, bike_id, archived=True):
+    """Retire a bike (or bring it back). Retired, it keeps its rides and history, is nobody's default and raises no alerts."""
+    b = get_bike(db, bike_id)
+    if archived:
+        db.execute('UPDATE Bike SET archived=1, retiredOn=COALESCE(retiredOn, ?) WHERE id=?', [today().isoformat(), bike_id])
+    else:
+        db.execute('UPDATE Bike SET archived=0, retiredOn=NULL WHERE id=?', [bike_id])
     if b and archived:
         db.execute('UPDATE Rider SET defaultBikeId=NULL WHERE id=? AND defaultBikeId=?', [b['riderId'], bike_id])
+        db.execute('DELETE FROM BikeDefault WHERE bikeId=?', [bike_id])
 
 
 def delete_bike(db, bike_id):
@@ -164,6 +270,7 @@ def delete_bike(db, bike_id):
     db.execute('DELETE FROM Part WHERE bikeId=?', [bike_id])
     db.execute('DELETE FROM ServiceLog WHERE bikeId=?', [bike_id])
     db.execute('UPDATE Rider SET defaultBikeId=NULL WHERE defaultBikeId=?', [bike_id])
+    db.execute('DELETE FROM BikeDefault WHERE bikeId=?', [bike_id])
     try:                                                    # a Strava bike matched to it waits to be matched again (services/strava_gear.py)
         db.execute("UPDATE StravaBike SET bikeId=NULL, status='new' WHERE bikeId=?", [bike_id])
     except Exception:                                       # no StravaBike table (a bare test database)
@@ -191,8 +298,12 @@ def bike_stats(db, bike_id):
                       FROM Activity WHERE bikeId=?''', [bike_id]).fetchone()
     years = db.execute('''SELECT substr(startDateLocal,1,4) y, COUNT(*) n, SUM(distance) d, SUM(totalElevationGain) g
                           FROM Activity WHERE bikeId=? GROUP BY y ORDER BY y''', [bike_id]).fetchall()
-    return {'rides': r['n'], 'distance': r['dist'], 'moving': r['moving'], 'gain': r['gain'], 'longest': r['longest'], 'first': r['first'], 'last': r['last'],
-            'avg_speed': (r['dist'] / r['moving']) if r['moving'] else None, 'by_year': [{'year': y['y'], 'rides': y['n'], 'distance': y['d'] or 0, 'gain': y['g'] or 0} for y in years]}
+    by_sport = db.execute('SELECT sportType, COUNT(*) n, COALESCE(SUM(distance),0) d FROM Activity WHERE bikeId=? GROUP BY sportType ORDER BY n DESC',
+                          [bike_id]).fetchall()
+    return {'rides': r['n'], 'n': r['n'], 'distance': r['dist'], 'moving': r['moving'], 'gain': r['gain'], 'longest': r['longest'], 'first': r['first'], 'last': r['last'],
+            'avg_speed': (r['dist'] / r['moving']) if r['moving'] else None,
+            'by_sport': [{'sport': s['sportType'], 'n': s['n'], 'distance': s['d']} for s in by_sport],
+            'by_year': [{'year': y['y'], 'rides': y['n'], 'n': y['n'], 'distance': y['d'] or 0, 'gain': y['g'] or 0} for y in years]}
 
 
 # ---------- which bike rode which ride ----------
@@ -244,16 +355,77 @@ def set_rides_bike(db, act_ids, bike_id):
 
 
 def stamp_new_ride(db, act_id):
-    """Called when a ride is added by any route: give it the rider's default bike, if they have one and the ride has none."""
-    a = db.execute('SELECT id, riderId, sportType, bikeId FROM Activity WHERE id=?', [act_id]).fetchone()
+    """Called when a ride is added by any route: give it the bike pick_bike says, if the ride has none, and remember that it was given
+    automatically (Activity.bikeAuto, 0 when there was none to give) so regear can pick again. Returns the bike id, or None."""
+    a = db.execute('SELECT id, riderId, sportType, commute, bikeId FROM Activity WHERE id=?', [act_id]).fetchone()
     from services.sports import is_ride
     if not a or a['bikeId'] or not a['riderId'] or not is_ride(a['sportType']):
         return None
-    d = db.execute('SELECT defaultBikeId FROM Rider WHERE id=?', [a['riderId']]).fetchone()
-    if d and d[0] and not (get_bike(db, d[0]) or {'archived': 1})['archived']:
-        db.execute('UPDATE Activity SET bikeId=? WHERE id=?', [d[0], act_id])
-        return d[0]
-    return None
+    bid = pick_bike(db, a['riderId'], a['sportType'], a['commute'] == 1)
+    db.execute('UPDATE Activity SET bikeId=?, bikeAuto=? WHERE id=?', [bid, bid or 0, act_id])
+    return bid
+
+
+def _auto(gear_id, auto):
+    """Whether an activity's bike or kit is the one it was given automatically (0 in *Auto: it was given none), so the rules may change it."""
+    return auto is not None and (gear_id or 0) == auto
+
+
+def regear(db, act_id):
+    """After an activity's sport or commute tick changes: a bike (or shoes or other kit: kit.regear) it was given automatically is picked again
+    by the same rules, as if it had just arrived. One chosen since, by hand, by the phone or from a Strava export, is left alone. Returns True
+    when it changed. Never raises: gear must not break a change of sport. Does not commit."""
+    from services.sports import is_ride
+    try:
+        a = db.execute('SELECT riderId, sportType, commute, bikeId, bikeAuto FROM Activity WHERE id=?', [act_id]).fetchone()
+        if not a or not a['riderId']:
+            return False
+        if not is_ride(a['sportType']):
+            from services import kit
+            return kit.regear(db, act_id)
+        if not _auto(a['bikeId'], a['bikeAuto']):
+            return False
+        new = pick_bike(db, a['riderId'], a['sportType'], a['commute'] == 1)
+        if new == a['bikeId']:
+            return False
+        before = _classes(db, [act_id])
+        db.execute('UPDATE Activity SET bikeId=?, bikeAuto=? WHERE id=?', [new, new or 0, act_id])
+        _repick_moved(db, before)
+        if new:
+            evaluate_alerts(db, rider_id=a['riderId'])
+        return True
+    except Exception as e:
+        log.warning('picking the gear again for %s failed (non-fatal): %s', act_id, e)
+        return False
+
+
+def apply_defaults(db, rider_id, include_chosen=False, dry_run=True):
+    """Put the rider's past rides on the bike their defaults give now (pick_bike), as if each had just arrived. A ride with no bike, or still on
+    the one it was given automatically, moves. One on another bike moves only with include_chosen: it may have been picked by hand (rides
+    from before Headwind kept track look the same). A ride whose bike a Strava export named (services/strava_gear.py), or left out, is never
+    moved, and no ride loses its bike. Returns {bike id: {'none': n, 'auto': n, 'other': n}}: how many would move from no bike, from an
+    automatic one, from another. Does not commit."""
+    pick = _picker(db, rider_id)
+    try:
+        strava = {r[0] for r in db.execute('SELECT g.activityId FROM StravaGear g JOIN Activity a ON a.id = g.activityId WHERE a.riderId=?', [rider_id]).fetchall()}
+    except Exception:                                       # no StravaGear table (a bare test database)
+        strava = set()
+    plan, moves = {}, {}
+    for r in db.execute('SELECT a.id, a.sportType, a.commute, a.bikeId, a.bikeAuto FROM Ride a WHERE a.riderId=?', [rider_id]).fetchall():
+        new = pick(r['sportType'], r['commute'] == 1)
+        if not new or new == r['bikeId'] or r['id'] in strava:
+            continue
+        how = 'none' if r['bikeId'] is None else 'auto' if _auto(r['bikeId'], r['bikeAuto']) else 'other'
+        plan.setdefault(new, {'none': 0, 'auto': 0, 'other': 0})[how] += 1
+        if how != 'other' or include_chosen:
+            moves.setdefault(new, []).append(r['id'])
+    if not dry_run:
+        for bid, ids in moves.items():
+            set_rides_bike(db, ids, bid)
+            for i in range(0, len(ids), 500):
+                chunk = ids[i:i + 500]
+                db.execute(f"UPDATE Activity SET bikeAuto=? WHERE id IN ({','.join('?' * len(chunk))})", [bid] + chunk)
+    return plan
 
 
 def _selection_sql(dates, date_from, date_to):
@@ -611,7 +783,8 @@ def due_items(db, rider_id, include_soon=True):
 
 
 # ---------- photos ----------
-_PHOTO_RE = re.compile(r'^bike_\d+_[a-f0-9]{8}\.jpg$')
+_PHOTO_RE = re.compile(r'^(bike|kit)_\d+_[a-f0-9]{8}\.jpg$')
+_PHOTO_TABLES = {'bike': 'Bike', 'kit': 'Kit'}             # a bike's picture, or shoes' and other kit's (services/kit.py), in the same folder
 MAX_PHOTO_BYTES = 12 * 1024 * 1024
 
 
@@ -625,8 +798,9 @@ def valid_photo_name(name):
     return bool(_PHOTO_RE.match(name or ''))
 
 
-def save_photo(db, bike_id, data, db_path):
-    """Store an uploaded picture (any common format) as a resized JPEG; returns the new filename. The old picture is removed."""
+def save_photo(db, bike_id, data, db_path, what='bike'):
+    """Store an uploaded picture (any common format) as a resized JPEG; returns the new filename. The old picture is removed. what='kit' for
+    an item of kit (bike_id is then its id)."""
     from PIL import Image
     if len(data) > MAX_PHOTO_BYTES:
         raise ValueError('that picture is too large (limit 12 MB)')
@@ -637,11 +811,12 @@ def save_photo(db, bike_id, data, db_path):
         raise ValueError('that does not look like a picture')
     img = img.convert('RGB')                                     # also drops EXIF (location etc.)
     img.thumbnail((1400, 1400), Image.LANCZOS)
-    name = f'bike_{bike_id}_{secrets.token_hex(4)}.jpg'
+    table = _PHOTO_TABLES[what]
+    name = f'{what}_{bike_id}_{secrets.token_hex(4)}.jpg'
     d = photo_dir(db_path)
     img.save(os.path.join(d, name), 'JPEG', quality=85, optimize=True)
-    old = db.execute('SELECT photo FROM Bike WHERE id=?', [bike_id]).fetchone()
-    db.execute('UPDATE Bike SET photo=? WHERE id=?', [name, bike_id])
+    old = db.execute(f'SELECT photo FROM {table} WHERE id=?', [bike_id]).fetchone()
+    db.execute(f'UPDATE {table} SET photo=? WHERE id=?', [name, bike_id])
     if old and old[0] and valid_photo_name(old[0]):
         try:
             os.remove(os.path.join(d, old[0]))
@@ -650,9 +825,10 @@ def save_photo(db, bike_id, data, db_path):
     return name
 
 
-def remove_photo(db, bike_id, db_path):
-    old = db.execute('SELECT photo FROM Bike WHERE id=?', [bike_id]).fetchone()
-    db.execute('UPDATE Bike SET photo=NULL WHERE id=?', [bike_id])
+def remove_photo(db, bike_id, db_path, what='bike'):
+    table = _PHOTO_TABLES[what]
+    old = db.execute(f'SELECT photo FROM {table} WHERE id=?', [bike_id]).fetchone()
+    db.execute(f'UPDATE {table} SET photo=NULL WHERE id=?', [bike_id])
     if old and old[0] and valid_photo_name(old[0]):
         try:
             os.remove(os.path.join(photo_dir(db_path), old[0]))

@@ -65,7 +65,7 @@ def test_the_gear_note_counts_every_sport_and_links_to_each_type(client):
     assert n == '4', 'two rides and an old one with no bike, and a run with no shoes'
     assert 'href="/activities?gear=none&amp;rider=1"' in html
     types = re.findall(r'<a href="(/activities\?gear=none&amp;rider=1&amp;skip=[^"]+)">\S+ ([\d,]+) ([^<]+)</a>', html)
-    assert [(t[2], t[1]) for t in types] == [('Ride', '2'), ('MountainBikeRide', '1'), ('Run', '1')], 'each type, most first'
+    assert [(t[2], t[1]) for t in types] == [('Ride', '2'), ('Mountain bike ride', '1'), ('Run', '1')], 'each type, most first'
     run = next(t[0] for t in types if t[2] == 'Run').replace('&amp;', '&')
     assert _listed(client, run.split('?', 1)[1])[0] == {'run'}, "a type's link: that sport alone"
 

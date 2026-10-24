@@ -33,7 +33,7 @@ def add_ride(db, rid, sport='Ride', name='Activity', dist=20000.0, max_speed=8.0
 
 
 @pytest.mark.parametrize('key, sport', [
-    ('cycling', 'Ride'), ('road_biking', 'Ride'), ('mountain_biking', 'Ride'), ('gravel_cycling', 'Ride'), ('e_bike_mountain', 'EBikeRide'), ('e_bike_fitness', 'EBikeRide'),
+    ('cycling', 'Ride'), ('road_biking', 'Ride'), ('mountain_biking', 'MountainBikeRide'), ('gravel_cycling', 'GravelRide'), ('downhill_biking', 'MountainBikeRide'), ('e_bike_mountain', 'EBikeRide'), ('e_bike_fitness', 'EBikeRide'),
     ('indoor_cycling', 'VirtualRide'), ('virtual_ride', 'VirtualRide'),
     ('running', 'Run'), ('trail_running', 'Run'), ('treadmill_running', 'Run'), ('walking', 'Walk'), ('hiking', 'Hike'),
     ('lap_swimming', 'Swim'), ('open_water_swimming', 'Swim'), ('surfing', 'Surf'), ('kayaking', 'Paddle'), ('stand_up_paddleboarding', 'Paddle'),
@@ -66,11 +66,12 @@ def test_check_lists_the_wrong_sports_and_apply_moves_them(db):
     api = FakeGarmin([{'activityId': int(k), 'activityType': {'typeKey': v}, 'startTimeLocal': '2021-07-05 10:00:00'} for k, v in keys.items()])
 
     res = sport_fix.scan(db, api, 1)
-    assert res == {'checked': 5, 'found': 5, 'proposed': 4}
-    assert {p['rideId']: p['newSport'] for p in sport_fix.pending(db, 1)} == {'garmin_1': 'Swim', 'garmin_3': 'Run', 'garmin_4': 'VirtualRide', 'garmin_5': 'Surf'}
+    assert res == {'checked': 5, 'found': 5, 'proposed': 5}
+    assert {p['rideId']: p['newSport'] for p in sport_fix.pending(db, 1)} == {'garmin_1': 'Swim', 'garmin_2': 'MountainBikeRide', 'garmin_3': 'Run',
+                                                                            'garmin_4': 'VirtualRide', 'garmin_5': 'Surf'}   # a mountain bike ride gets its kind back
 
-    res = sport_fix.apply(db, 1, ['garmin_1', 'garmin_3', 'garmin_4'])               # garmin_5 left as it is
-    assert res == {'changed': 3, 'failed': 0, 'kept': 1}
+    res = sport_fix.apply(db, 1, ['garmin_1', 'garmin_3', 'garmin_4'])               # garmin_2 and garmin_5 left as they are
+    assert res == {'changed': 3, 'failed': 0, 'kept': 2}
     swim = db.execute("SELECT * FROM Activity WHERE sportType='Swim'").fetchone()
     assert swim and swim['calories'] == 210                                        # the watch's calories, not a walking estimate
     assert db.execute("SELECT COUNT(*) FROM Activity WHERE sportType='Run'").fetchone()[0] == 1

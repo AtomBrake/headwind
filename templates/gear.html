@@ -13,10 +13,19 @@
   <a href="{{ url_for('gear.bike_form', rider=rid) }}" class="btn btn-primary">+ Add bike</a>
 {% endblock %}
 
-{% macro bike_icon() %}<svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="16" r="3.5"/><circle cx="18.5" cy="16" r="3.5"/><path d="M5.5 16 9 8h5l4.5 8M9 8l3.5 8M14 8l-1-3h-2"/></svg>{% endmacro %}
+{% from '_gear.html' import bike_icon, gear_card %}
+{# A line of the defaults card: what it's for, and a picker of the rider's bikes or kit (none: what the line falls back to). #}
+{% macro picker(prefix, key, label, chosen, choices, empty) %}
+<label class="default-line"><span>{{ label }}</span>
+  <select name="{{ prefix }}_{{ key }}">
+    <option value="">{{ empty }}</option>
+    {% for g in choices %}<option value="{{ g.id }}" {{ 'selected' if g.id == chosen }}>{{ g.name }}</option>{% endfor %}
+  </select></label>
+{% endmacro %}
 
 {% block content %}
 {% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+{% if done %}<div class="flash flash-success">{{ done }}</div>{% endif %}
 
 {% if strava.pending %}
 <div class="gear-note">
@@ -75,28 +84,7 @@
 </div>
 {% else %}
 <div class="bike-grid">
-  {% for b in bikes %}
-  <div class="bike-card">
-    <a class="ph" href="{{ url_for('gear.bike', bike_id=b.bike.id) }}">{% if b.bike.photo %}<img src="{{ url_for('gear.photo', name=b.bike.photo) }}" alt="{{ b.bike.name }}">{% else %}{{ bike_icon() }}{% endif %}</a>
-    <div class="body">
-      <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;">
-        <h3><a href="{{ url_for('gear.bike', bike_id=b.bike.id) }}" style="color:inherit;text-decoration:none;">{{ b.bike.name }}</a></h3>
-        {% if b.bike.id == default_id %}<span class="chip default">Default</span>{% endif %}
-        {% if b.bike.archived %}<span class="chip">Retired</span>{% endif %}
-        {% if b.health.level != 'ok' %}<span class="chip {{ b.health.level }}">{{ b.health.attention or b.health.soon }} {{ 'to do' if b.health.attention else 'soon' }}</span>{% endif %}
-      </div>
-      <div class="sub">{{ [b.bike.brand, b.bike.model, b.bike.year] | select | join(' ') }}</div>
-      <div class="odo">{{ b.odometer | fmt_dist }}</div>
-      <div class="sub">{{ '{:,}'.format(b.stats.rides) }} ride{{ '' if b.stats.rides == 1 else 's' }}{% if b.stats.last %} · last {{ b.stats.last | fmt_date }}{% endif %}</div>
-      <div class="mini-actions" style="margin-top:.3rem;">
-        {% if b.bike.id != default_id and not b.bike.archived %}
-        <form method="POST" action="{{ url_for('gear.set_default') }}"><input type="hidden" name="rider" value="{{ rid }}"><input type="hidden" name="bike" value="{{ b.bike.id }}"><button class="btn btn-secondary btn-sm" type="submit">Make default</button></form>
-        {% endif %}
-        <a class="btn btn-secondary btn-sm" href="{{ url_for('gear.bike', bike_id=b.bike.id) }}">Open</a>
-      </div>
-    </div>
-  </div>
-  {% endfor %}
+  {% for b in bikes %}{{ gear_card(b) }}{% endfor %}
 </div>
 {% if has_archived %}<p class="hint" style="margin-top:1rem;"><a href="{{ url_for('gear.index', rider=rid, archived=(0 if show_archived else 1)) }}">{{ 'Hide' if show_archived else 'Show' }} retired bikes</a></p>{% endif %}
 {% endif %}
@@ -110,24 +98,49 @@
 </div>
 {% else %}
 <div class="bike-grid">
-  {% for k in kit_items %}
-  <div class="bike-card">
-    <a class="ph" href="{{ url_for('gear.kit_page', kit_id=k.kit.id) }}" style="font-size:2.6rem;text-decoration:none;">{{ k.icon }}</a>
-    <div class="body">
-      <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;">
-        <h3><a href="{{ url_for('gear.kit_page', kit_id=k.kit.id) }}" style="color:inherit;text-decoration:none;">{{ k.kit.name }}</a></h3>
-        {% for s in k.defaults[:3] %}<span class="chip default">{{ s | sport_label }}</span>{% endfor %}
-        {% if k.kit.retiredOn %}<span class="chip">Retired</span>{% endif %}
-        {% if k.status.level != 'ok' %}<span class="chip {{ k.status.level }}">{{ 'replace soon' if k.status.level == 'soon' else 'replace' }}</span>{% endif %}
-      </div>
-      <div class="sub">{{ [k.kit.brand, k.kit.model] | select | join(' ') }}</div>
-      <div class="odo">{{ k.status.meters | fmt_dist }}</div>
-      {% if k.kit.replaceAtM and not k.kit.retiredOn %}<div class="bar {{ k.status.level }}" style="margin:.2rem 0;"><i style="width:{{ [100, ((k.status.ratio or 0) * 100) | round | int] | min }}%"></i></div>{% endif %}
-      <div class="sub">{{ '{:,}'.format(k.stats.n or 0) }} activit{{ 'y' if k.stats.n == 1 else 'ies' }} · {{ (k.stats.moving or 0) | fmt_hours }}{% if k.stats.last %} · last {{ k.stats.last | fmt_date }}{% endif %}</div>
-    </div>
-  </div>
-  {% endfor %}
+  {% for k in kit_items %}{{ gear_card(k) }}{% endfor %}
 </div>
 {% endif %}
 {% if has_retired %}<p class="hint" style="margin-top:1rem;"><a href="{{ url_for('gear.index', rider=rid, retired=(0 if show_retired else 1)) }}">{{ 'Hide' if show_retired else 'Show' }} retired gear</a></p>{% endif %}
+
+{% if defaults.ride_lines or defaults.kit_lines %}
+<div class="card" id="defaults" style="margin-top:1.6rem;">
+  <div class="card-title">Defaults for new activities</div>
+  <p class="hint" style="margin:.1rem 0 .8rem;">Each new activity, from Garmin, a file, the phone or typed in, is put on the gear for its kind. A commute goes on the commute default whatever its sport. Ticking Commute or changing the sport later picks again, unless you chose the gear yourself.</p>
+  <form method="POST" action="{{ url_for('gear.defaults_save') }}">
+    <input type="hidden" name="rider" value="{{ rid }}">
+    <div class="defaults-grid">
+      {% if defaults.ride_lines %}
+      <div><h4>🚴 Rides</h4>
+        {% for key, label, chosen in defaults.ride_lines %}{{ picker('bike', key, label, chosen, defaults.bikes, 'No bike' if key == '*' else 'Every other ride\'s') }}{% endfor %}
+      </div>
+      {% endif %}
+      {% if defaults.kit_lines %}
+      <div><h4>👟 Everything else</h4>
+        {% for key, label, chosen in defaults.kit_lines %}{{ picker('kit', key, label | sport_icon ~ ' ' ~ label if key != 'Commute' else label, chosen, defaults.kits, 'No gear' if key != 'Commute' else 'The sport\'s') }}{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    <div class="form-actions" style="margin-top:.8rem;"><button class="btn btn-primary" type="submit">Save defaults</button></div>
+  </form>
+  {% if defaults.plan %}
+  <form method="POST" action="{{ url_for('gear.defaults_apply') }}" class="apply-defaults" onsubmit="return confirm('Put these past activities on their default gear?')">
+    <input type="hidden" name="rider" value="{{ rid }}">
+    <div class="card-title" style="margin-top:1rem;">Past activities</div>
+    <p class="hint" style="margin:.1rem 0 .4rem;">These defaults would give older activities different gear:</p>
+    <ul class="plan">
+      {% for p in defaults.plan %}<li><strong>{{ p.name }}</strong>:
+        {% set bits = [] %}
+        {% if p.none %}{% set _ = bits.append('{:,}'.format(p.none) ~ ' with none') %}{% endif %}
+        {% if p.auto %}{% set _ = bits.append('{:,}'.format(p.auto) ~ ' given other gear by an older default') %}{% endif %}
+        {% if p.other %}{% set _ = bits.append('{:,}'.format(p.other) ~ ' on other gear, maybe chosen by hand') %}{% endif %}
+        {{ bits | join(', ') }}</li>{% endfor %}
+    </ul>
+    {% if defaults.chosen %}<label class="check"><input type="checkbox" name="include_chosen" value="1"> Also move the {{ '{:,}'.format(defaults.chosen) }} on other gear (activities from before Headwind kept track of this look the same as ones you picked by hand)</label>{% endif %}
+    <div class="form-actions" style="margin-top:.6rem;"><button class="btn btn-secondary" type="submit">Apply to past activities</button>
+      {% if defaults.easy %}<span class="hint">{{ '{:,}'.format(defaults.easy) }} change{{ 's' if defaults.easy != 1 }}{% if defaults.chosen %}, or {{ '{:,}'.format(defaults.easy + defaults.chosen) }} with the box ticked{% endif %}</span>{% endif %}</div>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
 {% endblock %}

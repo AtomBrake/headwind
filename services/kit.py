@@ -4,8 +4,10 @@ their parts stay in services/gear.py; this is the same idea for every other spor
 Design rules, as for bikes:
 * Distance and time are COMPUTED, never stored: an item's distance is its starting distance plus the distance of the activities it's on, so
   moving an activity to other shoes corrects both pairs at once.
-* Each rider has a default item per sport (KitDefault: runs -> road shoes, hikes -> boots), given to a new activity of that sport when it
-  arrives (stamp_new_activity, from gear.on_ride_added, which every ingest path calls). Changing a default later never rewrites history.
+* Each rider has a default item per sport (KitDefault: runs -> road shoes, hikes -> boots), and can have one for commutes (COMMUTE), given to
+  a new activity when it arrives (stamp_new_activity, from gear.on_ride_added, which every ingest path calls): the commute one first, then the
+  sport's. Changing a default later never rewrites history. An item given that way is remembered (Activity.kitAuto), so ticking Commute or
+  changing the sport picks again (regear); one chosen by hand stays. Bikes follow the same rules (gear.pick_bike).
 * An item can have a "replace at" distance (running shoes: about 500-800 km). Passing 90% of it, then 100% and 125%, raises an alert once
   each (KitAlert), through the same notifications and Home Assistant push as bike parts (gear.evaluate_alerts).
 * Retiring an item keeps its history and its activities; it stops being a default and stops alerting, and the pickers list it last, marked retired, for old activities.
@@ -26,6 +28,7 @@ SOON, DUE, OVERDUE = 0.9, 1.0, 1.25
 LEVEL_ORDER = {'ok': 0, 'soon': 1, 'due': 2, 'overdue': 3}
 # The sports a default can be set for: what Headwind records, Strava's names for the same, then the rest
 DEFAULT_SPORTS = ['Run', 'TrailRun', 'Walk', 'Hike', 'Swim', 'Ski', 'AlpineSki', 'NordicSki', 'Snowboard', 'Surf', 'Paddle', 'Row', 'Skate', 'Other']
+COMMUTE = 'Commute'          # a default for commutes (Activity.commute), kept beside the sports' (KitDefault, gear's BikeDefault)
 
 
 def ensure_schema(db):
@@ -41,6 +44,11 @@ def ensure_schema(db):
     if 'kitId' not in act:
         db.execute('ALTER TABLE Activity ADD COLUMN kitId INTEGER')
     db.execute('CREATE INDEX IF NOT EXISTS idx_activity_kit ON Activity(kitId)')
+    if 'kitAuto' not in act:                    # the item stamp_new_activity gave it (0: it looked and found none), as gear's bikeAuto
+        db.execute('ALTER TABLE Activity ADD COLUMN kitAuto INTEGER')
+    kit = {r[1] for r in db.execute('PRAGMA table_info(Kit)').fetchall()}
+    if 'photo' not in kit:
+        db.execute('ALTER TABLE Kit ADD COLUMN photo TEXT')
 
 
 def _clean(s, n=80):
@@ -154,8 +162,8 @@ def defaults(db, rider_id):
 
 
 def defaults_of(db, kit_id):
-    """The sports this item is the default for."""
-    return [r[0] for r in db.execute('SELECT sport FROM KitDefault WHERE kitId=? ORDER BY sport', [kit_id]).fetchall()]
+    """The sports this item is the default for, commutes (COMMUTE) first."""
+    return sorted((r[0] for r in db.execute('SELECT sport FROM KitDefault WHERE kitId=?', [kit_id]).fetchall()), key=lambda k: (k != COMMUTE, k))
 
 
 def set_defaults(db, kit_id, sports_):
@@ -171,10 +179,30 @@ def set_defaults(db, kit_id, sports_):
         db.execute('INSERT OR REPLACE INTO KitDefault (riderId, sport, kitId) VALUES (?,?,?)', [k['riderId'], s, kit_id])
 
 
-def default_for(db, rider_id, sport):
-    r = db.execute('SELECT d.kitId FROM KitDefault d JOIN Kit k ON k.id = d.kitId WHERE d.riderId=? AND d.sport=? AND k.retiredOn IS NULL',
-                   [rider_id, sport_key(sport)]).fetchone()
-    return r[0] if r else None
+def default_for(db, rider_id, sport, commute=False):
+    """The item a new activity of this sport gets: the rider's one for commutes when it is one, else the sport's. Retired items are never
+    picked. None for none."""
+    keys = ([COMMUTE] if commute else []) + [sport_key(sport)]
+    for key in keys:
+        r = db.execute('SELECT d.kitId FROM KitDefault d JOIN Kit k ON k.id = d.kitId WHERE d.riderId=? AND d.sport=? AND k.retiredOn IS NULL',
+                       [rider_id, key]).fetchone()
+        if r:
+            return r[0]
+    return None
+
+
+def set_default_for(db, rider_id, sport, kit_id):
+    """One line of the Gear page's defaults: activities of this sport (or commutes) get this item, or none. Does not commit."""
+    key = sport_key(sport)
+    if not key:
+        raise ValueError('pick a sport')
+    if kit_id is None:
+        db.execute('DELETE FROM KitDefault WHERE riderId=? AND sport=?', [rider_id, key])
+        return
+    k = get(db, kit_id)
+    if not k or k['riderId'] != rider_id or k['retiredOn']:
+        raise ValueError('that kit is not available')
+    db.execute('INSERT OR REPLACE INTO KitDefault (riderId, sport, kitId) VALUES (?,?,?)', [rider_id, key, kit_id])
 
 
 # ---------- which kit did which activity ----------
@@ -217,14 +245,76 @@ def set_activities_kit(db, act_ids, kit_id):
 
 
 def stamp_new_activity(db, act_id):
-    """A new activity that isn't a ride and has no kit gets the rider's default for its sport. Returns the kit id given, or None."""
-    a = db.execute('SELECT riderId, sportType, kitId FROM Activity WHERE id=?', [act_id]).fetchone()
+    """A new activity that isn't a ride and has no kit gets the rider's default (default_for), remembered as given automatically
+    (Activity.kitAuto, 0 for none) so regear can pick again. Returns the kit id given, or None."""
+    a = db.execute('SELECT riderId, sportType, commute, kitId FROM Activity WHERE id=?', [act_id]).fetchone()
     if not a or a['kitId'] or not a['riderId'] or sports.is_ride(a['sportType']):
         return None
-    kid = default_for(db, a['riderId'], a['sportType'])
-    if kid:
-        db.execute('UPDATE Activity SET kitId=? WHERE id=?', [kid, act_id])
+    kid = default_for(db, a['riderId'], a['sportType'], a['commute'] == 1)
+    db.execute('UPDATE Activity SET kitId=?, kitAuto=? WHERE id=?', [kid, kid or 0, act_id])
     return kid
+
+
+def regear(db, act_id):
+    """gear.regear for an activity that isn't a ride: the item it was given automatically is picked again for its sport and commute tick; one
+    chosen since is left alone. Returns True when it changed. Does not commit."""
+    from services.gear import _auto
+    a = db.execute('SELECT riderId, sportType, commute, kitId, kitAuto FROM Activity WHERE id=?', [act_id]).fetchone()
+    if not a or not a['riderId'] or sports.is_ride(a['sportType']) or not _auto(a['kitId'], a['kitAuto']):
+        return False
+    new = default_for(db, a['riderId'], a['sportType'], a['commute'] == 1)
+    if new == a['kitId']:
+        return False
+    db.execute('UPDATE Activity SET kitId=?, kitAuto=? WHERE id=?', [new, new or 0, act_id])
+    evaluate_alerts_for(db, new)
+    return True
+
+
+def apply_defaults(db, rider_id, include_chosen=False, dry_run=True):
+    """gear.apply_defaults for everything that isn't a ride: put past activities on the item their sport and commute tick give now. One with
+    no kit, or still on the item it was given automatically, moves; one on another item only with include_chosen. Nothing loses its kit.
+    Returns {kit id: {'none': n, 'auto': n, 'other': n}}. Does not commit."""
+    from services.gear import _auto
+    d = {r[0]: r[1] for r in db.execute('SELECT d.sport, d.kitId FROM KitDefault d JOIN Kit k ON k.id = d.kitId WHERE d.riderId=? AND k.retiredOn IS NULL',
+                                         [rider_id]).fetchall()}
+    if not d:
+        return {}
+    plan, moves = {}, {}
+    for r in db.execute(f'SELECT id, sportType, commute, kitId, kitAuto FROM Activity WHERE riderId=? AND NOT {sports.RIDE_SQL}', [rider_id]).fetchall():
+        new = (r['commute'] == 1 and d.get(COMMUTE)) or d.get(sport_key(r['sportType']))
+        if not new or new == r['kitId']:
+            continue
+        how = 'none' if r['kitId'] is None else 'auto' if _auto(r['kitId'], r['kitAuto']) else 'other'
+        plan.setdefault(new, {'none': 0, 'auto': 0, 'other': 0})[how] += 1
+        if how != 'other' or include_chosen:
+            moves.setdefault(new, []).append(r['id'])
+    if not dry_run:
+        for kid, ids in moves.items():
+            set_activities_kit(db, ids, kid)
+            for i in range(0, len(ids), 500):
+                chunk = ids[i:i + 500]
+                db.execute(f"UPDATE Activity SET kitAuto=? WHERE id IN ({','.join('?' * len(chunk))})", [kid] + chunk)
+    return plan
+
+
+def assign(db, rider_id, kit_id, sports_, date_from=None, date_to=None, only_unassigned=True, dry_run=False):
+    """Put this item on every activity of these sports (keys or names) between two dates, as gear.assign_rides does for a bike. only_unassigned
+    leaves activities that have other kit alone; dry_run only counts. Returns {'matched', 'changed'}. Does not commit."""
+    from services.gear import _selection_sql
+    k = get(db, kit_id)
+    if not k or k['riderId'] != rider_id:
+        raise ValueError('that kit is not available')
+    keys = {sport_key(s) for s in sports_ or []} - {''}
+    if not keys:
+        raise ValueError('pick at least one sport')
+    sel, args = _selection_sql(None, date_from, date_to)
+    rows = db.execute(f'SELECT a.id, a.sportType, a.kitId FROM Activity a WHERE a.riderId=? AND {sel} AND NOT {sports.RIDE_SQL.replace("sportType", "a.sportType")}',
+                      [rider_id] + args).fetchall()
+    rows = [r for r in rows if sport_key(r['sportType']) in keys]
+    ids = [r['id'] for r in rows if r['kitId'] != kit_id and not (only_unassigned and r['kitId'] is not None)]
+    if ids and not dry_run:
+        set_activities_kit(db, ids, kit_id)
+    return {'matched': len(rows), 'changed': len(ids)}
 
 
 def choices_for(db, activity):
@@ -239,8 +329,11 @@ def stats(db, kit_id):
                       FROM Activity WHERE kitId=?''', [kit_id]).fetchone()
     by_sport = db.execute('SELECT sportType, COUNT(*) n, COALESCE(SUM(distance),0) d FROM Activity WHERE kitId=? GROUP BY sportType ORDER BY n DESC',
                           [kit_id]).fetchall()
+    years = db.execute('SELECT substr(startDateLocal,1,4) y, COUNT(*) n, SUM(distance) d FROM Activity WHERE kitId=? GROUP BY y ORDER BY y', [kit_id]).fetchall()
     return {'n': r['n'], 'distance': r['dist'], 'moving': r['moving'], 'gain': r['gain'], 'longest': r['longest'], 'first': r['first'], 'last': r['last'],
-            'by_sport': [{'sport': s['sportType'], 'n': s['n'], 'distance': s['d']} for s in by_sport]}
+            'avg_speed': (r['dist'] / r['moving']) if r['moving'] else None,
+            'by_sport': [{'sport': s['sportType'], 'n': s['n'], 'distance': s['d']} for s in by_sport],
+            'by_year': [{'year': y['y'], 'n': y['n'], 'distance': y['d'] or 0} for y in years]}
 
 
 def all_stats(db, rider_id):

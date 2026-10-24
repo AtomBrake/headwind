@@ -397,6 +397,8 @@ def park(db, loser_id, primary_id, reason):
                 db.execute(f'UPDATE Activity SET {col}=? WHERE id=?', [row[col], primary_id])
         if 'commute' in row.keys() and row['commute'] is not None and winner['commute'] is None:
             db.execute('UPDATE Activity SET commute=? WHERE id=?', [row['commute'], primary_id])
+            from services import gear
+            gear.regear(db, primary_id)
         _take_better_name(db, primary_id, winner['name'], row['name'])
         from services import photos
         photos.move(db, loser_id, primary_id)

@@ -85,6 +85,8 @@ def change_sport(db, kind, act_id, sport, discard_parked=False):
         before = class_of(db, act_id)
         db.execute('UPDATE Activity SET sportType=?, type=? WHERE id=?', [sport, sport, act_id])
         reclassed(db, act_id, before)
+        from services import gear
+        gear.regear(db, act_id)                         # a bike it was given automatically follows the new sport (a mountain bike ride: the MTB)
         return {'kind': 'ride', 'id': act_id, 'sport': sport, 'changed': True}
     if kind == 'ride':
         return dict(_ride_to_workout(db, row, sport, discard_parked), changed=True)
@@ -98,4 +100,6 @@ def change_sport(db, kind, act_id, sport, discard_parked=False):
     kcal_raw, kcal = _kcal_pair(estimate_calories(sport, row['distance'] or 0, int(row['movingTime'] or 0), row['totalElevationGain'] or 0, _kg(row['riderId'])))
     if kcal is not None and (row['source'] != 'manual' or not row['calories']):
         db.execute('UPDATE Activity SET calories=?, caloriesRaw=? WHERE id=?', [kcal, kcal_raw, act_id])
+    from services import gear
+    gear.regear(db, act_id)                              # shoes it was given automatically follow the new sport (a hike: the boots)
     return {'kind': 'workout', 'id': act_id, 'sport': sport, 'changed': True}

@@ -15,12 +15,12 @@ RIDE_SQL = "(sportType IS NULL OR sportType = '' OR lower(sportType) LIKE '%ride
 KIND_SQL = f"(CASE WHEN {RIDE_SQL} THEN 'ride' ELSE 'workout' END)"     # the phone API's and the bulk actions' 'ride' / 'workout'
 
 # The sports Headwind itself writes: typed in by hand, recorded by the phone, picked in "change the type", saved by the Garmin sync.
-RIDES = ('Ride', 'VirtualRide', 'EBikeRide')
+RIDES = ('Ride', 'VirtualRide', 'EBikeRide', 'MountainBikeRide', 'GravelRide')     # Strava's names for the last two, squashed: a default bike can follow them
 ON_FOOT = ('Walk', 'Run', 'Hike')                     # what the phone records, and what calories can be estimated for (workouts.estimate_calories)
 OTHER = ('Swim', 'Surf', 'Paddle', 'Row', 'Ski', 'Skate', 'Golf', 'Climb', 'Other')   # Garmin activities that are neither rides nor on foot
 WORKOUTS = ON_FOOT + OTHER
 SPORTS = RIDES + WORKOUTS
-LABELS = {'VirtualRide': 'Indoor ride', 'EBikeRide': 'E-bike ride'}
+LABELS = {'VirtualRide': 'Indoor ride', 'EBikeRide': 'E-bike ride', 'MountainBikeRide': 'Mountain bike ride', 'GravelRide': 'Gravel ride'}
 
 FAMILIES = ('ride', 'foot')
 FAMILY_LABELS = {'ride': 'Ride', 'foot': 'On foot'}
@@ -109,17 +109,22 @@ _INDOOR_SUBS = ('indoor_cycling', 'virtual_activity')
 def from_type(type_key, sub=None):
     """A device's or service's name for a sport -> one of SPORTS. Garmin Connect's activity type ('mountain_biking', 'lap_swimming'), a FIT
     file's sport with its sub-sport ('cycling' + 'e_bike_mountain', 'alpine_skiing'), a GPX <type> ('EMountainBikeRide', 'trail_running',
-    'StandUpPaddling') or a TCX Sport. Rides are Ride / VirtualRide / EBikeRide; anything not recognised is 'Other', never a ride: a ski day
-    saved as a ride breaks the ride totals, the segments and the bike's mileage."""
+    'StandUpPaddling') or a TCX Sport. Rides are Ride / VirtualRide / EBikeRide / MountainBikeRide / GravelRide; anything not recognised is
+    'Other', never a ride: a ski day saved as a ride breaks the ride totals, the segments and the bike's mileage. Mountain and gravel rides keep
+    their kind, so the rider's default bike for them can be picked (services/gear.pick_bike)."""
     k = str(type_key if type_key is not None else '').lower()
     s = str(sub if sub is not None else '').lower()
     if 'motor' in k or 'snowmobil' in k:                      # motorcycling, motocross: 'cycl' but not a bike ride
         return 'Other'
-    bike = 'cycl' in k or 'bik' in k or k in ('ride', 'bmx')
+    bike = 'cycl' in k or 'bik' in k or 'mtb' in k or k.endswith('ride') or k == 'bmx'      # Strava's GPX GravelRide too
     if k in ('indoor_cycling', 'virtual_ride') or ('virtual' in k and (bike or 'ride' in k)) or (bike and s in _INDOOR_SUBS):
         return 'VirtualRide'
     if is_ebike(k) or (k.startswith('e_') and ('bik' in k or 'mtb' in k)) or (bike and s.startswith('e_bike')):
         return 'EBikeRide'                                    # e_bike_fitness, e_enduro_mtb, Strava's EMountainBikeRide, FIT's cycling + e_bike_mountain
+    if bike and ('mountain' in k or 'mtb' in k or 'downhill' in k or s in ('mountain', 'downhill', 'cross_country', 'enduro')):
+        return 'MountainBikeRide'                             # Garmin's mountain_biking, FIT's cycling + mountain, a GPX's MountainBikeRide
+    if bike and ('gravel' in k or 'gravel' in s):
+        return 'GravelRide'
     if bike:
         return 'Ride'
     for needle, sport in _TYPE_NEEDLES:

@@ -192,7 +192,7 @@ def test_gear_pages_and_the_activity_picker(tmp_path, monkeypatch):
         assert k['replaceAtM'] == 600_000 and kit.defaults(database.get_db(), 1) == {'Run': kid}
     assert c.post('/gear/activity/run1/kit', data={'kit': str(kid)}).status_code == 302
     page = c.get(f'/gear/kit/{kid}').get_data(as_text=True)
-    assert 'Trail shoes' in page and '10.0 km' in page and 'Default for run' in page
+    assert 'Trail shoes' in page and '10.0 km' in page and 'Default for</span><span class="chip default">Run</span>' in page
     gear_page = c.get('/gear/').get_data(as_text=True)
     assert 'Shoes and other gear' in gear_page and 'Trail shoes' in gear_page
     assert 'selected>Trail shoes' in c.get('/rides/run1').get_data(as_text=True)

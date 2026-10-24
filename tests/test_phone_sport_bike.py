@@ -67,8 +67,8 @@ def test_ebike_gpx_types():
 
 def test_ping_lists_the_riders_bikes(phone):
     bikes = phone.get('/api/v1/ping', headers=phone.H).get_json()['bikes']
-    assert bikes == [{'id': 1, 'name': 'Roadie', 'kind': 'road', 'is_default': True},
-                     {'id': 2, 'name': 'Zappy', 'kind': 'ebike', 'is_default': False}]      # not the archived one, not Sam's
+    assert bikes == [{'id': 1, 'name': 'Roadie', 'kind': 'road', 'is_default': True, 'default_for': []},
+                     {'id': 2, 'name': 'Zappy', 'kind': 'ebike', 'is_default': False, 'default_for': []}]      # not the archived one, not Sam's
 
 
 def test_upload_without_a_bike_gets_the_default(phone):
