@@ -219,6 +219,8 @@ def set_ride_bike(db, act_id, bike_id):
     a = db.execute('SELECT id, riderId, sportType FROM Activity WHERE id=?', [act_id]).fetchone()
     if not a:
         raise ValueError('ride not found')
+    from services import friend_rides
+    friend_rides.refuse(db, act_id)
     if bike_id is not None:
         b = get_bike(db, bike_id)
         if not b or b['riderId'] != a['riderId']:

@@ -188,6 +188,9 @@ def create():
         abort(400)
     # The family is the activity's own (a segment made on a walk is a foot segment, on any outdoor ride a ride segment); the form's value is only
     # used when there is no activity to ask.
+    from services import friend_rides
+    if activity_id and friend_rides.friend_of(db, activity_id):
+        abort(403)                                      # made on their instance, and it comes here with their segments
     fam = family_of(db, activity_id) if activity_id else None
     if fam is None and activity_id and db.execute('SELECT 1 FROM Activity WHERE id=?', [activity_id]).fetchone():
         abort(400)                                      # an indoor ride, a swim, ...: no segments

@@ -35,9 +35,11 @@
   {% endif %}
   {% if not is_workout %}<a href="{{ url_for('rides.export_gpx', rid=activity.id) }}" class="btn btn-secondary" title="Download GPX">GPX</a>{% endif %}
   {% for l in source_links %}<a href="{{ l.url }}" class="btn btn-secondary" target="_blank" rel="noopener" title="Open this activity on {{ l.name }}">{{ l.name }} ↗</a>{% endfor %}
+  {% if not friend %}
   <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=activity.id) if is_workout else url_for('rides.delete', rid=activity.id) }}" style="display:inline;" onsubmit="return confirm('{{ 'Delete this activity? Its photos and notes go with it. This cannot be undone.' if is_workout else 'Delete this activity? Its photos, notes and segment times go with it, and a later sync or import will not bring it back. This cannot be undone.' }}')">
     <button type="submit" class="btn btn-danger">Delete</button>
   </form>
+  {% endif %}
 {% endblock %}
 
 {% block head %}
@@ -50,7 +52,7 @@
 
 {% block content %}
 
-{% if not is_workout and activity.flagReason and not activity.flagDismissed %}
+{% if not is_workout and not friend and activity.flagReason and not activity.flagDismissed %}
 <div class="card" id="flagBanner" style="margin-bottom:1rem; padding:0.8rem 1rem; border-color:var(--warning-line); background:var(--warning-soft);">
   <div style="font-weight:600; margin-bottom:0.25rem;">This ride looks wrong</div>
   <div class="hint">{{ activity.flagReason }}. It is left out of the speed and weather analytics until you decide.</div>
@@ -61,6 +63,13 @@
 </div>
 {% endif %}
 
+{% if friend %}
+<div class="card" style="margin-bottom:1rem;padding:.7rem 1rem;" id="friendCard">
+  <strong>{{ friend.name }}'s {{ 'ride' if is_ride else 'activity' }}</strong>, synced from <a href="{{ url_for('friends.index') }}">their instance</a> on
+  {{ (activity.updatedAt or activity.createdAt) | fmt_when }}.
+  <span class="hint">It's shown as they recorded it: changes are made there and arrive with the next sync.</span>
+</div>
+{% else %}
 <div class="card" style="margin-bottom:1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;padding:.7rem 1rem;" id="typeCard">
   <span style="color:var(--text-muted);font-size:.78rem;letter-spacing:.07em;text-transform:uppercase;font-weight:700;">Activity type</span>
   <form method="POST" action="{{ url_for('workouts_ui.workouts_sport', wid=activity.id) if is_workout else url_for('rides.change_sport', rid=activity.id) }}" style="margin:0;"
@@ -98,8 +107,9 @@ function typeChanged(sel) {
   else sel.value = cur;
 }
 </script>
+{% endif %}
 
-{% if is_ride and (gear_bikes or activity.riderId) %}
+{% if is_ride and not friend and (gear_bikes or activity.riderId) %}
 <div class="card" style="margin-bottom:1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;padding:.7rem 1rem;">
   <span style="color:var(--text-muted);font-size:.78rem;letter-spacing:.07em;text-transform:uppercase;font-weight:700;">Bike</span>
   {% if gear_bikes %}
@@ -117,7 +127,7 @@ function typeChanged(sel) {
 </div>
 {% endif %}
 
-{% if not is_ride and activity.riderId %}
+{% if not is_ride and not friend and activity.riderId %}
 <div class="card" style="margin-bottom:1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;padding:.7rem 1rem;" id="kitCard">
   <span style="color:var(--text-muted);font-size:.78rem;letter-spacing:.07em;text-transform:uppercase;font-weight:700;">Gear</span>
   {% if kit_items %}
@@ -354,7 +364,7 @@ function typeChanged(sel) {
 {% if activity.weatherSummary or not is_workout %}
 <div class="card" style="margin-bottom:1.5rem; padding:1rem 1.25rem;" id="weatherCard">
   <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); font-weight:600; margin-bottom:0.75rem;">Weather at the start</div>
-  {% if not activity.weatherSummary %}<div class="hint" style="margin-bottom:0.5rem;">No weather was recorded for this {{ 'ride' if is_ride else 'activity' }}{% if not is_workout %}; pick the conditions below and it will count in your analytics.{% endif %}</div>{% endif %}
+  {% if not activity.weatherSummary %}<div class="hint" style="margin-bottom:0.5rem;">No weather was recorded for this {{ 'ride' if is_ride else 'activity' }}{% if not is_workout and not friend %}; pick the conditions below and it will count in your analytics.{% endif %}</div>{% endif %}
   <div style="display:flex; flex-wrap:wrap; gap:2rem; align-items:flex-start;">
 
     {% if activity.weatherTempC is not none %}
@@ -407,7 +417,7 @@ function typeChanged(sel) {
     {% endif %}
 
   </div>
-  {% if not is_workout %}
+  {% if not is_workout and not friend %}
   <div class="form-group" style="margin:0.9rem 0 0;">
     <label for="wxSelect">Conditions</label>
     <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
@@ -602,11 +612,11 @@ function typeChanged(sel) {
 </div>
 {% endif %}
 
-{% if photos or not demo_mode %}
+{% if photos or not (demo_mode or friend) %}
 <div class="card" style="margin-top:1rem;" id="photosCard">
   <div class="card-title" style="display:flex; align-items:center; gap:0.5rem;">
     <span>Photos{% if photos %} <span style="font-size:0.75rem; color:var(--text-muted); font-weight:400;">· {{ photos | length }}</span>{% endif %}</span>
-    {% if not demo_mode %}
+    {% if not (demo_mode or friend) %}
     <form method="POST" action="{{ url_for('rides.add_photos', rid=activity.id) }}" enctype="multipart/form-data" style="margin:0 0 0 auto;">
       <label class="btn btn-secondary" style="font-size:0.8125rem; padding:0.3rem 0.75rem; cursor:pointer; font-weight:500;">
         Add photos
@@ -623,11 +633,13 @@ function typeChanged(sel) {
         <img src="{{ url_for('rides.photo', name=p.filename[:-4] ~ '_t.jpg') }}" alt="{{ p.caption or 'Photo from this activity' }}" loading="lazy"
              style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; display:block;">
       </a>
+      {% if not friend %}
       <form method="POST" action="{{ url_for('rides.delete_photo', rid=activity.id, pid=p.id) }}" onsubmit="return confirm('Delete this photo? The activity keeps its other photos. This cannot be undone.')"
             style="position:absolute; top:4px; right:4px; margin:0;">
         <button type="submit" aria-label="Remove this photo" title="Remove"
                 style="border:none; border-radius:50%; width:24px; height:24px; line-height:24px; padding:0; background:var(--overlay); color:var(--white); cursor:pointer;">×</button>
       </form>
+      {% endif %}
       {% if p.caption %}<figcaption style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem; line-height:1.3;">{{ p.caption }}</figcaption>{% endif %}
     </figure>
     {% endfor %}
@@ -788,7 +800,7 @@ function openPhoto(a) {
 <div class="card" style="margin-top:1rem;" id="segmentsCard">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
     <div class="card-title" style="margin:0;">Segments{% if seg_family_label %} <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">{{ seg_family_label }}</span>{% endif %}</div>
-    {% if seg_family %}
+    {% if seg_family and not friend %}
     <div style="display:flex;gap:0.5rem;align-items:center;">
       <button class="btn btn-secondary btn-sm" onclick="enterSegmentMode()">+ Create Segment</button>
       <button class="btn btn-secondary btn-sm" id="scanBtn" onclick="scanSegments('{{ activity.id }}')">Scan for segments</button>
@@ -901,6 +913,7 @@ function openPhoto(a) {
 {% endif %}
 
 <!-- Notes -->
+{% if not friend %}
 <div class="card" style="margin-top:1rem;">
   <div class="card-title">{{ 'Ride Notes' if is_ride else 'Notes' }}</div>
   <p class="hint" style="margin:0 0 0.75rem;">{% if is_ride %}Anything the AI should know — GPS dropout, mechanical, cut short, how you felt, etc.{% else %}Anything worth remembering: how it went, how you felt, what was different.{% endif %}</p>
@@ -910,10 +923,11 @@ function openPhoto(a) {
     <span id="notesSaved" style="font-size:0.8125rem; color:var(--text-muted); display:none;">Saved</span>
   </div>
 </div>
+{% endif %}
 
 
 <!-- AI Coaching Analysis -->
-{% if is_ride %}
+{% if is_ride and not friend %}
 <div class="card" style="margin-top:1rem;" id="kudosCard">
   <div class="card-title">AI Coaching Analysis</div>
 
