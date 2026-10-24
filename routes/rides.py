@@ -235,7 +235,7 @@ def detail(rid):
                         ride_badges.append(b)
 
     from services import duplicates, gear as gear_svc
-    gear_bikes = gear_svc.list_bikes(get_db(), activity['riderId']) if activity['riderId'] and is_ride else []
+    gear_bikes = gear_svc.list_bikes(get_db(), activity['riderId'], include_archived=True) if activity['riderId'] and is_ride else []   # retired last: an old ride may have been on one
     from services import kit as kit_svc
     kit_items = kit_svc.choices_for(get_db(), activity) if not is_ride else []      # a run's shoes, a swim's wetsuit, ...
     dups = []
@@ -548,14 +548,14 @@ def bulk():
 
 @bp.route('/bulk/options')
 def bulk_options():
-    """What the selection bar's pickers offer: this instance's riders, and each one's bikes and kit."""
+    """What the selection bar's pickers offer: this instance's riders, and each one's bikes and kit, the retired ones last (for old activities)."""
     from flask import jsonify
     from services import bulk as _bulk, convert, gear, kit
     db = get_db()
     riders = [dict(r) for r in _bulk.own_riders(db)]
     for r in riders:
-        r['bikes'] = [{'id': b['id'], 'name': b['name']} for b in gear.list_bikes(db, r['id'])]
-        r['kit'] = [{'id': k['id'], 'name': k['name']} for k in kit.list_kit(db, r['id'])]
+        r['bikes'] = [{'id': b['id'], 'name': b['name'] + (' (retired)' if b['archived'] else '')} for b in gear.list_bikes(db, r['id'], include_archived=True)]
+        r['kit'] = [{'id': k['id'], 'name': k['name'] + (' (retired)' if k['retiredOn'] else '')} for k in kit.list_kit(db, r['id'], include_retired=True)]
     return jsonify({'riders': riders, 'sports': [{'value': s, 'label': sports.label(s)} for s in convert.SPORTS]})
 
 

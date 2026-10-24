@@ -8,7 +8,7 @@ Design rules, as for bikes:
   arrives (stamp_new_activity, from gear.on_ride_added, which every ingest path calls). Changing a default later never rewrites history.
 * An item can have a "replace at" distance (running shoes: about 500-800 km). Passing 90% of it, then 100% and 125%, raises an alert once
   each (KitAlert), through the same notifications and Home Assistant push as bike parts (gear.evaluate_alerts).
-* Retiring an item keeps its history and its activities; it stops being a default, stops alerting and leaves the pickers.
+* Retiring an item keeps its history and its activities; it stops being a default and stops alerting, and the pickers list it last, marked retired, for old activities.
 * Rides never get kit: they have a bike (Activity.bikeId). Kit is for everything else (services/sports.is_ride says which is which).
 """
 import logging
@@ -224,13 +224,8 @@ def stamp_new_activity(db, act_id):
 
 
 def choices_for(db, activity):
-    """The items the activity page offers: the rider's kit that isn't retired, and whatever the activity is on now even if it is."""
-    items = list_kit(db, activity['riderId']) if activity['riderId'] else []
-    if activity['kitId'] and all(k['id'] != activity['kitId'] for k in items):
-        k = get(db, activity['kitId'])
-        if k:
-            items.append(k)
-    return items
+    """The items the activity page offers: all the rider's kit, the retired items last, since an old activity may have been in them."""
+    return list_kit(db, activity['riderId'], include_retired=True) if activity['riderId'] else []
 
 
 # ---------- distance, time, wear ----------

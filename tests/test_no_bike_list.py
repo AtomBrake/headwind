@@ -158,3 +158,23 @@ def test_only_sports_with_gear_count_as_having_none(client):
         kit.set_defaults(db, client.ids['shoes'], ['Run', 'Trail Run'])
         db.commit()
     assert _listed(client, 'gear=none')[0] == {'road_am', 'mtb_pm', 'run', 'hike', 'trail'}, 'a default for a sport counts it in'
+
+
+def test_retired_gear_can_still_be_picked_for_an_old_activity(client):
+    with client.application.app_context():
+        db = database.get_db()
+        gear.archive_bike(db, client.ids['road'])
+        old = kit.create(db, 1, 'Worn out')
+        kit.retire(db, old)
+        db.commit()
+    html = _listed(client, 'gear=none')[1]
+    assert 'Roadie (retired)</option>' in html and 'Worn out (retired)</option>' in html, 'the no-gear list offers it, marked retired'
+    assert 'Roadie (retired)</option>' in client.get('/rides/old_ride').get_data(as_text=True), 'so does the ride page'
+    assert 'Worn out (retired)</option>' in client.get('/rides/run').get_data(as_text=True)
+    page = client.get('/gear/assign').get_data(as_text=True)
+    assert 'Roadie (retired)</option>' in page and '"Roadie (retired)"' in page, 'and the calendar, for a day of old rides'
+    opts = client.get('/rides/bulk/options').get_json()['riders'][0]
+    assert {'id': client.ids['road'], 'name': 'Roadie (retired)'} in opts['bikes'] and opts['kit'][-1]['name'] == 'Worn out (retired)'
+
+    client.post('/gear/ride/old_ride/bike', data={'bike': client.ids['road']})
+    assert 'selected>Roadie (retired)</option>' in client.get('/rides/old_ride').get_data(as_text=True), 'the ride page shows it, not "No bike chosen"'

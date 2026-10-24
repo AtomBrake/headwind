@@ -106,7 +106,7 @@ function typeChanged(sel) {
   <form method="POST" action="{{ url_for('gear.ride_bike', rid=activity.id) }}" style="margin:0;">
     <select name="bike" onchange="this.form.submit()" aria-label="Which bike did you ride?">
       <option value="" {{ 'selected' if not activity.bikeId }}>No bike chosen</option>
-      {% for b in gear_bikes %}<option value="{{ b.id }}" {{ 'selected' if activity.bikeId == b.id }}>{{ b.name }}</option>{% endfor %}
+      {% for b in gear_bikes %}<option value="{{ b.id }}" {{ 'selected' if activity.bikeId == b.id }}>{{ b.name }}{{ ' (retired)' if b.archived }}</option>{% endfor %}
     </select>
   </form>
   {% if activity.bikeId %}<a class="btn btn-secondary btn-sm" href="{{ url_for('gear.bike', bike_id=activity.bikeId) }}">Open bike</a>{% endif %}

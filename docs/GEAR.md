@@ -54,7 +54,7 @@ name, type, brand, model, when you bought it, any distance it had before Headwin
 * Tick the sports it's the **default** for (runs, walks, hikes, ...): each new activity of those sports is put on it, as a new ride is put on the default bike. A sport has one default; ticking it on another item moves it there.
 * Its distance and time are added up from its activities, so moving an activity to other shoes corrects both pairs.
 * At 90%, 100% and 125% of its replace-at distance you get the same nudge as a bike part, once each, and it shows under "Needs attention" and on the dashboard.
-* **Retire** a pair when it's done: it keeps its history, stops being a default and stops nudging.
+* **Retire** a pair when it's done: it keeps its history, stops being a default and stops nudging. It can still be picked for an activity, listed last and marked retired, so an old run can be put in the shoes it was done in. Retired bikes are the same.
 * On an activity's page the **Gear** dropdown changes that activity; on the Activities page, **Select** then **Gear…** changes many. Rides keep their bike and never take kit.
 
 Importing a **Strava export** makes an item for each pair of shoes your walks, runs and hikes name in it, and puts those activities on it. Pairs last worn more than a year ago come in retired.
