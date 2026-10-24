@@ -158,6 +158,83 @@
   {% endfor %}
 </div>
 {% endif %}
+
+{% if garmin_full or garmin_changes %}
+<div class="card" id="garmin-changes" style="margin-top:1.25rem;">
+  {% set deleted = garmin_changes | selectattr('kind', 'equalto', 'deleted') | list %}
+  {% set edited = garmin_changes | selectattr('kind', 'equalto', 'edited') | list %}
+  {% set running = garmin_check and garmin_check.status == 'running' %}
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+    <div class="card-title" style="margin:0;">{% if garmin_changes %}{{ garmin_changes | length }} activit{{ 'ies' if garmin_changes | length != 1 else 'y' }} changed in Garmin Connect{% else %}Changes in Garmin Connect{% endif %}</div>
+    {% if garmin_full %}
+    <form method="POST" action="{{ url_for('garmin.changes_check') }}" style="margin:0;" onsubmit="this.querySelector('button').disabled = true;">
+      <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;"{% if running %} disabled{% endif %}>{{ 'Checking…' if running else 'Check now' }}</button></form>
+    {% endif %}
+  </div>
+  <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0.5rem 0 0;">
+    Once a day Headwind looks at your last 90 days in Garmin Connect, and a little further back each time, for activities deleted, renamed,
+    given another sport or cropped there since they came in. Nothing changes here until you choose. A cropped one is listed with the imports above.
+    {% if garmin_check and not running %}<br>Last check: {{ garmin_check.error or garmin_check.result }}
+      <span data-when="{{ garmin_check.finishedAt }}">{{ garmin_check.finishedAt }}</span>{% endif %}</p>
+
+  {% if deleted %}
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-top:1rem;">
+    <div style="font-weight:600; font-size:0.875rem;">Deleted in Garmin ({{ deleted | length }})</div>
+    {% if deleted | length > 1 %}
+    <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+      <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id='deleted', choice='delete') }}" style="margin:0;"
+            onsubmit="return confirm('Delete all {{ deleted | length }} here too? Their notes, photos and segment times go with them.')">
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Delete all here</button></form>
+      <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id='deleted', choice='keep') }}" style="margin:0;">
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Keep all here</button></form>
+    </div>
+    {% endif %}
+  </div>
+  {% for c in deleted %}
+  <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;">
+    <span style="flex:1; min-width:12rem;">
+      <a href="/rides/{{ c.rideId }}" style="color:var(--text);">{{ c.startDateLocal | fmt_date }} · {{ c.rideName or 'Activity' }}</a>
+      <span style="color:var(--text-muted);"> · {{ c.sportType | sport_label }}{% if c.distance %} · {{ c.distance | fmt_dist }}{% endif %}</span>
+      {% if c.parked %}<br><span style="color:var(--text-muted);">Another recording of it is set aside behind it: open it to use that one instead.</span>{% endif %}
+    </span>
+    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='delete') }}" style="margin:0;"
+          onsubmit="return confirm('Delete this activity here too? Its notes, photos and segment times go with it.')">
+      <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8125rem;">Delete here</button></form>
+    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='keep') }}" style="margin:0;">
+      <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8125rem;">Keep here</button></form>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if edited %}
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-top:1rem;">
+    <div style="font-weight:600; font-size:0.875rem;">Renamed or given another sport in Garmin ({{ edited | length }})</div>
+    {% if edited | length > 1 %}
+    <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+      <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id='edited', choice='garmin') }}" style="margin:0;">
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Use all Garmin's</button></form>
+      <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id='edited', choice='keep') }}" style="margin:0;">
+        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Keep all as here</button></form>
+    </div>
+    {% endif %}
+  </div>
+  {% for c in edited %}
+  <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;">
+    <span style="flex:1; min-width:12rem;">
+      <a href="/rides/{{ c.rideId }}" style="color:var(--text);">{{ c.startDateLocal | fmt_date }} · {{ c.rideName or 'Activity' }}</a>
+      {% for d in c.diffs %}<br><span style="color:var(--text-muted);">{{ 'Name' if d.field == 'name' else 'Sport' }}:</span>
+        {{ d.old if d.field == 'name' else d.old | sport_label }} → <span style="color:var(--accent);">{{ d.new if d.field == 'name' else d.new | sport_label }}</span>{% endfor %}
+      {% if c.parked and c.diffs | selectattr('field', 'equalto', 'sport') | list %}<br><span style="color:var(--text-muted);">Another recording of it is set aside behind it and is removed if its sport changes.</span>{% endif %}
+    </span>
+    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='garmin') }}" style="margin:0;">
+      <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8125rem;">Use Garmin's</button></form>
+    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='keep') }}" style="margin:0;">
+      <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8125rem;">Keep as here</button></form>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -313,5 +390,13 @@ function handleEvent(d) {
         (d.segments_unridden ? `<span style="color:var(--text-muted)">, ${d.segments_unridden} skipped (no ride here goes along them)</span>` : '') : '');
   }
 }
+
+// the last Garmin changes check, stored in UTC: shown in this browser's time, as on the Tasks page
+document.querySelectorAll('#garmin-changes [data-when]').forEach(function (el) {
+  var d = new Date(el.dataset.when);
+  if (isNaN(d)) return;
+  var t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  el.textContent = '(' + (d.toDateString() === new Date().toDateString() ? 'today ' : d.getDate() + ' ' + _MONTHS[d.getMonth()] + ' ') + t + ')';
+});
 </script>
 {% endblock %}

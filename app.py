@@ -171,6 +171,13 @@ def _garmin_heartbeat(app):
                             except Exception as e:
                                 log.warning('Garmin activity sync failed: %s', e)
                                 result.append(f'rides failed: {str(e)[:120]}')
+                            if sweep:                       # once a day: anything deleted or changed in Garmin since it was imported
+                                from services import garmin_changes
+                                try:
+                                    with tasks.run(get_db(), garmin_changes.TASK, 'Garmin changes check') as t:
+                                        t.result = garmin_changes.describe(garmin_changes.run(get_db(), api, rider['id']))
+                                except Exception:
+                                    pass                    # logged as failed by tasks.run; tomorrow's sweep tries again
                     tasks.finish(get_db(), task_id, '; '.join(result) + '.' if ok else None, None if ok else err)
 
                     # Backfill HR for owner's recent rides that landed without it (a plain GPX import has none). Only after a new upload
