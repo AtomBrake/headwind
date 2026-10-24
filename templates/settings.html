@@ -30,23 +30,23 @@
     <div class="card-title">Profile &amp; goals</div>
     <p class="hint" style="margin:0 0 0.8rem;">Your body stats and targets. Headwind uses them to work out your daily calorie, protein, carb and fat goals, and to project your road to goal weight. Everything here is saved to this Headwind only.</p>
     <div id="pfStatus" style="font-size:0.8125rem; margin-bottom:0.8rem;"></div>
-    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:0.8rem;">
-      <div class="form-group" style="margin:0;"><label>Sex</label><select id="pfSex"><option value="">—</option><option value="female">Female</option><option value="male">Male</option></select></div>
-      <div class="form-group" style="margin:0;"><label>Date of birth</label><input type="date" id="pfBorn" style="width:100%;"><small id="pfBornHint" style="color:var(--text-muted);"></small></div>
-      <div class="form-group" style="margin:0;"><label>Height</label>
+    <div class="form-grid">
+      <div class="form-group"><label>Sex</label><select id="pfSex"><option value="">—</option><option value="female">Female</option><option value="male">Male</option></select></div>
+      <div class="form-group"><label>Date of birth</label><input type="date" id="pfBorn" style="width:100%;"><small id="pfBornHint" class="hint"></small></div>
+      <div class="form-group"><label>Height</label>
         <div style="display:flex; gap:0.4rem;"><input type="number" id="pfFt" min="3" max="7" inputmode="numeric" placeholder="ft" style="flex:1; min-width:0; width:100%;"><input type="number" id="pfIn" min="0" max="11.9" step="0.5" inputmode="decimal" placeholder="in" style="flex:1; min-width:0; width:100%;"></div>
-        <small style="color:var(--text-muted);">or <input type="number" id="pfCm" min="100" max="250" inputmode="numeric" placeholder="cm" style="width:5rem; display:inline;"> cm</small></div>
-      <div class="form-group" style="margin:0;"><label>Weight now</label>
+        <small class="hint">or <input type="number" id="pfCm" min="100" max="250" inputmode="numeric" placeholder="cm" style="width:5rem; display:inline;"> cm</small></div>
+      <div class="form-group"><label>Weight now</label>
         <div id="pfWtStlb" style="display:flex; gap:0.4rem;"><input type="number" id="pfSt" min="0" inputmode="numeric" placeholder="st" style="flex:1; min-width:0; width:100%;"><input type="number" id="pfLb" min="0" max="13.9" step="0.1" inputmode="decimal" placeholder="lb" style="flex:1; min-width:0; width:100%;"></div>
         <input type="number" id="pfKg" min="0" step="0.1" inputmode="decimal" placeholder="kg" style="display:none;"></div>
-      <div class="form-group" style="margin:0;"><label>Goal weight</label>
+      <div class="form-group"><label>Goal weight</label>
         <div id="pfGoalStlb" style="display:flex; gap:0.4rem;"><input type="number" id="pfGSt" min="0" inputmode="numeric" placeholder="st" style="flex:1; min-width:0; width:100%;"><input type="number" id="pfGLb" min="0" max="13.9" step="0.1" inputmode="decimal" placeholder="lb" style="flex:1; min-width:0; width:100%;"></div>
         <input type="number" id="pfGKg" min="0" step="0.1" inputmode="decimal" placeholder="kg" style="display:none;"></div>
-      <div class="form-group" style="margin:0;"><label>Show weights as</label><select id="pfUnit"><option value="stlb">Stone &amp; lb</option><option value="kg">kg</option></select></div>
-      <div class="form-group" style="margin:0;"><label>Loss target (lb / week)</label><input type="number" id="pfLoss" min="0" max="2.5" step="0.25" inputmode="decimal" style="flex:1; min-width:0; width:100%;"></div>
-      <div class="form-group" style="margin:0;"><label>Daily steps goal</label><input type="number" id="pfSteps" min="1000" step="500" inputmode="numeric" style="flex:1; min-width:0; width:100%;"></div>
+      <div class="form-group"><label>Show weights as</label><select id="pfUnit"><option value="stlb">Stone &amp; lb</option><option value="kg">kg</option></select></div>
+      <div class="form-group"><label>Loss target (lb / week)</label><input type="number" id="pfLoss" min="0" max="2.5" step="0.25" inputmode="decimal" style="flex:1; min-width:0; width:100%;"></div>
+      <div class="form-group"><label>Daily steps goal</label><input type="number" id="pfSteps" min="1000" step="500" inputmode="numeric" style="flex:1; min-width:0; width:100%;"></div>
     </div>
-    <div style="display:flex; gap:0.6rem; flex-wrap:wrap; margin-top:1rem; align-items:center;">
+    <div class="form-actions">
       <button class="btn btn-primary" type="button" onclick="pfSave()">Save profile</button>
       <button class="btn btn-secondary" type="button" id="pfApply" onclick="pfApply()" disabled>Use the calculated goals</button>
       <span id="pfMsg" style="font-size:0.8125rem; color:var(--text-muted);"></span>
@@ -58,41 +58,39 @@
   <!-- Measurement Units -->
   <form method="POST" class="card">
     <div class="card-title">Display Preferences</div>
-    <div style="display:flex; align-items:center; gap:1.5rem;">
-      <div class="form-group" style="margin:0; flex:1;">
-        <label>Units</label>
-        <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
-          <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-weight:400;">
-            <input type="radio" name="units" value="imperial" {% if not s or s.units == 'imperial' %}checked{% endif %} style="cursor:pointer;">
-            Imperial (mi, mph, ft)
-          </label>
-          <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-weight:400;">
-            <input type="radio" name="units" value="metric" {% if s and s.units == 'metric' %}checked{% endif %} style="cursor:pointer;">
-            Metric (km, km/h, m)
-          </label>
-        </div>
+    <fieldset>
+      <legend>Units</legend>
+      <div class="checks">
+        <label class="check">
+          <input type="radio" name="units" value="imperial" {% if not s or s.units == 'imperial' %}checked{% endif %}>
+          Imperial (mi, mph, ft)
+        </label>
+        <label class="check">
+          <input type="radio" name="units" value="metric" {% if s and s.units == 'metric' %}checked{% endif %}>
+          Metric (km, km/h, m)
+        </label>
       </div>
-    </div>
-    <div class="form-group" style="margin:1rem 0 0;">
-      <label>Appearance</label>
-      <div style="display:flex; gap:0.5rem 1rem; margin-top:0.5rem; flex-wrap:wrap;">
+    </fieldset>
+    <fieldset>
+      <legend>Appearance</legend>
+      <div class="checks">
         {% for value, label in [('auto', 'Auto'), ('light', 'Light'), ('dark', 'Dark')] %}
-        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-weight:400;">
+        <label class="check">
           <input type="radio" name="appearance" value="{{ value }}" {% if appearance == value %}checked{% endif %}
-                 onchange="document.documentElement.dataset.theme = this.value; applyScheme();" style="cursor:pointer;">
+                 onchange="document.documentElement.dataset.theme = this.value; applyScheme();">
           {{ label }}
         </label>
         {% endfor %}
       </div>
-      <small style="color:var(--text-muted); display:block; margin-top:0.3rem;">Auto follows each device's light or dark setting, and switches with it (at sunset, say). Light and Dark apply on every device.</small>
-    </div>
-    <div class="form-group" style="margin:1rem 0 0;">
+      <p class="hint" style="margin:0.3rem 0 0;">Auto follows each device's light or dark setting, and switches with it (at sunset, say). Light and Dark apply on every device.</p>
+    </fieldset>
+    <div class="form-group">
       <label for="timeZone">Time zone</label>
       <select name="timeZone" id="timeZone" style="max-width:22rem;">
         <option value="">The server's ({{ server_zone }})</option>
         {% for z in zones %}<option value="{{ z }}" {% if s and s.timeZone == z %}selected{% endif %}>{{ z.replace('_', ' ') }}</option>{% endfor %}
       </select>
-      <small style="color:var(--text-muted); display:block; margin-top:0.3rem;">What "today" means for the food diary, goals, water from Home Assistant and weekly stats, and the zone for times with no zone of their own (Garmin's).<span id="tzBrowser"></span></small>
+      <p class="hint">What "today" means for the food diary, goals, water from Home Assistant and weekly stats, and the zone for times with no zone of their own (Garmin's).<span id="tzBrowser"></span></p>
     </div>
     <input type="hidden" name="aiProvider"        value="{{ s.aiProvider or 'openai' }}">
     <input type="hidden" name="openaiModel"       value="{{ s.openaiModel       if s and s.openaiModel       else 'gpt-4o' }}">
@@ -109,32 +107,32 @@
   <!-- Login Details -->
   <form method="POST" action="/settings/password" class="card">
     <div class="card-title">Login Details</div>
-    <div style="display:grid; grid-template-columns:1fr 2fr 1fr 1fr; gap:1rem; align-items:end;">
-      <div class="form-group" style="margin:0;">
+    <div class="form-grid">
+      <div class="form-group">
         <label>Current Password</label>
         <input type="password" name="currentPassword" required placeholder="••••••••">
       </div>
-      <div class="form-group" style="margin:0;">
-        <label>New Username <span style="color:var(--text-muted); font-weight:400; text-transform:none; letter-spacing:0;">(blank = keep <strong style="color:var(--text);">{{ current_username }}</strong>)</span></label>
+      <div class="form-group">
+        <label>New Username <span class="hint">(blank = keep <strong style="color:var(--text);">{{ current_username }}</strong>)</span></label>
         <input type="text" name="newUsername" autocomplete="off" placeholder="{{ current_username }}">
       </div>
-      <div class="form-group" style="margin:0;">
+      <div class="form-group">
         <label>New Password</label>
         <input type="password" name="newPassword" placeholder="••••••••">
       </div>
-      <div class="form-group" style="margin:0;">
+      <div class="form-group">
         <label>Confirm Password</label>
         <input type="password" name="confirmPassword" placeholder="••••••••">
       </div>
     </div>
-    <button type="submit" class="btn btn-primary" style="margin-top:1.25rem;">Update Login</button>
+    <button type="submit" class="btn btn-primary">Update Login</button>
   </form>
 
   <!-- AI Provider -->
   <form method="POST" class="card">
     <div class="card-title">AI Provider</div>
     <div class="ai-grid">
-      <div class="form-group" style="margin:0;">
+      <div class="form-group">
         <label>Provider</label>
         <select name="aiProvider" id="providerSelect" onchange="updateProvider()">
           <option value="openai" {% if not s or s.aiProvider == 'openai' %}selected{% endif %}>OpenAI</option>
@@ -143,12 +141,12 @@
         </select>
       </div>
       <div id="openaiFields" style="display:contents;">
-        <div class="form-group" style="margin:0;">
+        <div class="form-group">
           <label>API Key</label>
           <input type="password" name="openaiKey" value="" autocomplete="off"
                  placeholder="{{ 'Saved: leave blank to keep it' if s and s.openaiKey else 'sk-...' }}">
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group">
           <label>Model</label>
           <select name="openaiModel">
             {% for m in openai_models %}
@@ -158,12 +156,12 @@
         </div>
       </div>
       <div id="claudeFields" style="display:none;">
-        <div class="form-group" style="margin:0;">
+        <div class="form-group">
           <label>API Key</label>
           <input type="password" name="claudeKey" value="" autocomplete="off"
                  placeholder="{{ 'Saved: leave blank to keep it' if s and s.claudeKey else 'sk-ant-...' }}">
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group">
           <label>Model</label>
           <select name="claudeModel">
             {% for m in claude_models %}
@@ -173,14 +171,14 @@
         </div>
       </div>
       <div id="ollamaFields" style="display:none; grid-column:2/-1; display:none;">
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
-          <div class="form-group" style="margin:0;">
+        <div class="form-grid">
+          <div class="form-group">
             <label>Ollama URL</label>
             <input type="text" name="ollamaUrl"
                    value="{{ s.ollamaUrl if s and s.ollamaUrl else 'http://localhost:11434' }}"
                    placeholder="http://localhost:11434">
           </div>
-          <div class="form-group" style="margin:0;">
+          <div class="form-group">
             <label>Model</label>
             <input type="text" name="ollamaModel"
                    value="{{ s.ollamaModel if s and s.ollamaModel else 'llama3.2' }}"
@@ -215,27 +213,27 @@
       Publishes sensors to Home Assistant via MQTT Discovery — total rides, distance,
       elevation, calories, time, Everests, laps of Earth, and last ride details.
     </p>
-    <div style="display:grid; grid-template-columns:3fr 1fr 2fr 2fr; gap:1rem;">
-      <div class="form-group" style="margin:0;">
+    <div class="form-grid">
+      <div class="form-group">
         <label>Broker Host</label>
         <input type="text" name="mqttHost"
                value="{{ s.mqttHost if s and s.mqttHost else '' }}"
                placeholder="192.168.1.x or homeassistant.local">
       </div>
-      <div class="form-group" style="margin:0;">
+      <div class="form-group">
         <label>Port</label>
         <input type="number" name="mqttPort"
                value="{{ s.mqttPort if s and s.mqttPort else 1883 }}"
                placeholder="1883">
       </div>
-      <div class="form-group" style="margin:0;">
-        <label>Username <span style="color:var(--text-muted);">(optional)</span></label>
+      <div class="form-group">
+        <label>Username <span class="hint">(optional)</span></label>
         <input type="text" name="mqttUser"
                value="{{ s.mqttUser if s and s.mqttUser else '' }}"
                placeholder="mqtt user">
       </div>
-      <div class="form-group" style="margin:0;">
-        <label>Password <span style="color:var(--text-muted);">(optional)</span></label>
+      <div class="form-group">
+        <label>Password <span class="hint">(optional)</span></label>
         <input type="password" name="mqttPassword" value="" autocomplete="off"
                placeholder="{{ 'Saved: leave blank to keep it' if s and s.mqttPassword else '••••••••' }}">
       </div>
@@ -273,28 +271,28 @@
       {% elif garmin_on and not s.garminPassword %}
       <div class="hint" style="margin-bottom:1rem;">Signed in as {{ s.garminEmail }}.</div>
       {% endif %}
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
-        <div class="form-group" style="margin:0;">
+      <div class="form-grid">
+        <div class="form-group">
           <label>Garmin Email</label>
           <input type="email" name="garminEmail"
                  value="{{ s.garminEmail if s and s.garminEmail else '' }}"
                  placeholder="you@example.com">
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group">
           <label>Password</label>
           <input type="password" name="garminPassword" value="" autocomplete="off"
                  placeholder="{{ 'Only to sign in again' if garmin_on else '••••••••' }}">
         </div>
       </div>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-top:1rem;">
-        <div class="form-group" style="margin:0;">
+      <div class="form-grid">
+        <div class="form-group">
           <label>Garmin use</label>
           <select name="garminSyncMode" id="garminSyncMode" onchange="updateGarminMode(this.value)">
             <option value="health" {% if not s or not s.garminSyncMode or s.garminSyncMode == 'health' %}selected{% endif %}>Health stats only (HRV, sleep, HR)</option>
             <option value="full"   {% if s and s.garminSyncMode == 'full' %}selected{% endif %}>Rides + health stats</option>
           </select>
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group">
           <label>Sync every (hours)</label>
           <input type="number" name="garminSyncHours" min="0.25" max="24" step="0.25"
                  value="{{ s.garminSyncHours if s and s.garminSyncHours else 0.5 }}"
@@ -352,7 +350,7 @@
           <a href="#" onclick="document.getElementById('garminHistoryAsk').style.display='block'; return false;" style="margin-left:0.35rem;">Fetch more history</a>
         </div>
         <div id="garminHistoryAsk" style="{% if s.garminHistoryFrom %}display:none;{% endif %}">
-          <label style="display:block; font-size:0.875rem; margin:0.5rem 0;">How much of your past health data should Headwind fetch from Garmin?</label>
+          <label for="garminHistoryRange" style="margin-top:0.5rem;">How much of your past health data should Headwind fetch from Garmin?</label>
           <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
             <select id="garminHistoryRange" style="width:auto;">
               <option value="all" selected>All of it</option>
@@ -385,7 +383,7 @@
       are never changed, and the original number is always kept so this can be undone.
     </p>
     <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
-      <label for="calAdjPct" style="font-size:0.875rem;">Shave off</label>
+      <label for="calAdjPct" style="margin:0;">Shave off</label>
       <input type="number" id="calAdjPct" min="0" max="50" step="1" value="{{ (s.calorieAdjustPct if s and s.calorieAdjustPct else 0)|round|int }}" style="width:5.5rem;">
       <span style="font-size:0.875rem;">%</span>
       <button class="btn btn-secondary" type="button" onclick="calAdjSave(false)">Save (new data)</button>

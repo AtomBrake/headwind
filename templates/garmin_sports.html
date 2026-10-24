@@ -31,14 +31,14 @@
       onsubmit="var n = this.querySelectorAll('input[name=ride]:checked').length; return confirm('Change ' + n + ' activit' + (n == 1 ? 'y' : 'ies') + ' to the sport Garmin recorded? Rides that become runs, swims and so on move to Workouts. The ones you untick are left as they are and not suggested again.' + (this.querySelectorAll('input[name=ride][data-parked]:checked').length ? ' Other recordings set aside under the ticked ones are removed with them.' : ''));">
   <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.5rem;">
     <div class="card-title" style="margin:0;">{{ fixes | length }} with the wrong sport</div>
-    <label style="font-size:0.8125rem; display:flex; align-items:center; gap:0.4rem;">
+    <label class="check" style="margin:0;">
       <input type="checkbox" checked onchange="document.querySelectorAll('input[name=ride]').forEach(c => c.checked = this.checked)"> All
     </label>
   </div>
   {% for sport, group in fixes | groupby('newSport') %}
   <div style="margin-top:0.75rem; font-size:0.8125rem; font-weight:600; color:var(--text-muted);">{{ sport | sport_icon }} {{ sport | sport_label }} ({{ group | length }})</div>
   {% for f in group %}
-  <label style="display:flex; align-items:center; gap:0.6rem; padding:0.4rem 0; border-top:1px solid var(--border); font-size:0.875rem; cursor:pointer;">
+  <label class="check" style="margin:0; padding:0.4rem 0; border-top:1px solid var(--divider);">
     <input type="checkbox" name="ride" value="{{ f.rideId }}"{% if f.parked %} data-parked{% endif %} checked>
     <span style="flex:1; min-width:0;">
       <a href="/rides/{{ f.rideId }}" style="color:var(--text);">{{ f.startDateLocal | fmt_date }} · {{ f.name or 'Activity' }}</a>

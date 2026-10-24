@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_activity_row.html' import activity_row %}
 
 {% block title %}{{ rider.name }}{% endblock %}
 {% block page_title %}{{ rider.name }}{% endblock %}
@@ -32,14 +33,16 @@
       {% if rider.isDefault %}
       <span style="font-size:0.75rem; background:var(--accent); color:var(--on-accent); padding:0.15rem 0.5rem; border-radius:999px;">Owner</span>
       {% endif %}
-      <form method="POST" action="{{ url_for('gear.set_default') }}" style="margin-top:.8rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
+      <form method="POST" action="{{ url_for('gear.set_default') }}" class="form-group" style="margin:.8rem 0 0;">
         <input type="hidden" name="rider" value="{{ rider.id }}">
-        <label style="font-size:.78rem;color:var(--text-muted);">Default bike for new rides</label>
-        <select name="bike" onchange="this.form.submit()">
+        <label for="defaultBike">Default bike for new rides</label>
+        <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
+        <select name="bike" id="defaultBike" onchange="this.form.submit()" style="width:auto;">
           <option value="" {{ 'selected' if not rider.defaultBikeId }}>None</option>
           {% for b in rider_bikes %}<option value="{{ b.id }}" {{ 'selected' if rider.defaultBikeId == b.id }}>{{ b.name }}</option>{% endfor %}
         </select>
         <a href="{{ url_for('gear.index', rider=rider.id) }}" style="font-size:.8rem;">Manage gear</a>
+        </div>
       </form>
     </div>
     <div style="display:flex; flex-direction:column; gap:0.75rem; align-items:flex-start;">
@@ -238,22 +241,7 @@
 <div class="card" data-pick-list>
   <div class="card-title" style="display:flex; align-items:center; gap:0.5rem;">Recent Rides
     <button type="button" class="btn btn-secondary pick-toggle" data-pick-toggle>Select</button></div>
-  <table class="table">
-    <tbody>
-      {% for a in recent %}
-      <tr class="ride-row" data-pick="{{ a.id }}" onclick="if (!event.target.closest('a')) location.href='/rides/{{ a.id }}'">
-        <td>
-          <a href="/rides/{{ a.id }}" class="dash-link"><span style="margin-right:0.4rem;">{{ a.sportType | sport_icon }}</span>{{ a.name }}</a>
-        </td>
-        <td>{{ a.startDateLocal | fmt_date }}</td>
-        <td>{{ a.distance | fmt_dist }}</td>
-        <td class="text-muted">{{ a.movingTime | fmt_duration }}</td>
-        <td class="text-muted">{{ a.averageSpeed | fmt_speed }}</td>
-        <td class="text-muted">{{ a.totalElevationGain | fmt_elev }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div>{% for a in recent %}{{ activity_row(a) }}{% endfor %}</div>
 </div>
 {% include '_bulk_bar.html' %}
 {% endif %}

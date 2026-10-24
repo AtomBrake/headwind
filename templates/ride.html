@@ -71,7 +71,7 @@
     </select>
   </form>
   <span style="color:var(--text-muted);font-size:.8rem;">Recorded as the wrong thing? Pick the right type. A walk, run or hike moves to Workouts; a ride moves back to your rides.</span>
-  <label style="display:flex;gap:.4rem;align-items:center;margin-left:auto;font-size:.875rem;cursor:pointer;">
+  <label class="check" style="margin:0 0 0 auto;">
     <input type="checkbox" id="commuteBox" {{ 'checked' if activity.commute == 1 }} onchange="saveCommute(this)"> Commute
     <span id="commuteSaved" style="font-size:.78rem;color:var(--text-muted);display:none;">Saved</span>
   </label>
@@ -408,13 +408,15 @@ function typeChanged(sel) {
 
   </div>
   {% if not is_workout %}
-  <div style="margin-top:0.9rem; display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
-    <label for="wxSelect" style="font-size:0.8125rem; color:var(--text-muted);">Conditions</label>
+  <div class="form-group" style="margin:0.9rem 0 0;">
+    <label for="wxSelect">Conditions</label>
+    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
     <select id="wxSelect" style="width:auto; min-width:9rem;" onchange="setWeather(this.value)">
       <option value="auto" {% if not wx_manual and not wx_storm %}selected{% endif %}>{% if not wx_manual and not wx_storm %}{{ wx_condition or 'Automatic' }}{% if wx_condition %} (automatic){% endif %}{% else %}Automatic{% endif %}</option>
       {% for c in wx_categories %}<option value="{{ c }}" {% if (wx_manual or wx_storm) and wx_condition == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
     </select>
-    <span id="wxMsg" style="font-size:0.75rem; color:var(--text-muted);">{% if wx_storm %}Counted as a named storm ({{ activity.weatherSummary.split(',')[0] }}) because it was gusty. Not a storm ride? Pick another condition.{% elif wx_manual %}Set by you; a backfill will not change it.{% else %}Pick one to override the automatic lookup, which can miss or get it wrong.{% endif %}</span>
+    <span id="wxMsg" class="hint">{% if wx_storm %}Counted as a named storm ({{ activity.weatherSummary.split(',')[0] }}) because it was gusty. Not a storm ride? Pick another condition.{% elif wx_manual %}Set by you; a backfill will not change it.{% else %}Pick one to override the automatic lookup, which can miss or get it wrong.{% endif %}</span>
+    </div>
   </div>
   {% endif %}
 </div>
@@ -588,8 +590,8 @@ function typeChanged(sel) {
       <input type="hidden" name="polyline"    id="segPolyline">
       <input type="hidden" name="elevGainM"  id="segElevGainM">
       <div class="form-group" style="margin:0 0 0.75rem;">
-        <label style="font-size:0.8125rem;">Segment name</label>
-        <input type="text" name="name" placeholder="e.g. Lumley Lane Climb" required autofocus style="font-size:0.875rem;">
+        <label for="segName">Segment name</label>
+        <input type="text" name="name" id="segName" placeholder="e.g. Lumley Lane Climb" required autofocus>
       </div>
       <div style="display:flex; gap:0.5rem;">
         <button type="submit" class="btn btn-primary btn-sm" style="flex:1;">Save Segment</button>

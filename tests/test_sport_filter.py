@@ -76,7 +76,7 @@ def test_leaving_out_rides_and_swims_gives_distance_and_pace_on_foot(client):
     assert '/rides/run1' in html and '/rides/r1' not in html and '/rides/swim1' not in html
     assert _json(html, 'rateStyle') == 'pace' and '>Pace</button>' in html
     assert {r['id'] for r in _json(html, 'yearSpeedData')} == {'run1', 'walk1'}   # a workout without a stored speed gets distance over time
-    assert '8:03 /mi' in html and 'Avg Pace' in html                              # 5:00 /km is 8:03 /mi
+    assert '· 8:03 /mi ·' in html                                                  # 5:00 /km is 8:03 /mi, as a pace in the run's row
     assert 'skip=Ride&amp;skip=Swim' in html                                      # the list, week and Data links keep the filter
     assert re.search(r'data-sport value="Ride"\s+onchange', html)                 # the left-out sports are unticked
 
@@ -86,7 +86,7 @@ def test_only_shortcuts_and_old_one_sport_links(client):
     hrefs = re.findall(r'<a class="sport-only[^"]*" href="([^"]+)"', html)
     assert len(hrefs) == 3 and any('skip=Run' in h and 'skip=Walk' in h and 'skip=Ride' not in h for h in hrefs)    # "only rides"
     html = client.get('/dashboard?sport=swim').get_data(as_text=True)              # an old link: one sport, by part of its name
-    assert '/rides/swim1' in html and '/rides/r1' not in html and '2:00 /100 m' in html and 'Pace /100 m' in html
+    assert '/rides/swim1' in html and '/rides/r1' not in html and '· 2:00 /100 m</div>' in html
 
 
 def test_data_page_follows_the_filter(client):

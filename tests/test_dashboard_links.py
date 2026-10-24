@@ -69,11 +69,16 @@ def test_bars_link_to_their_week_and_speed_points_to_their_ride(client):
     assert {r['id'] for r in speed} >= {'good', 'huge'}
 
 
+def _listed(html):
+    """The activities in the activity list (templates/_activity_list.html), not the dashboard's Recent Activities above it."""
+    return set(re.findall(r'<div class="act-row" data-pick="([^"]+)"', html[html.index('id="ride-history"'):]))
+
+
 def test_week_link_lists_exactly_that_week(client):
     _, weekly, _ = _page(client)
     w = weekly[-1]                                      # this week
     html = client.get(f"/dashboard?from={w['from']}&to={w['to']}").get_data(as_text=True)
-    listed = set(re.findall(r'<a href="/rides/([^"]+)" class="dash-link"\s', html))
+    listed = _listed(html)
     monday = date.fromisoformat(w['from'])
     assert listed == {aid for aid, days_ago in (('good', 1), ('huge', 2)) if date.today() - timedelta(days=days_ago) >= monday}
 
@@ -140,12 +145,12 @@ def test_activities_page_lists_every_sport_and_keeps_its_links(client):
 
     html = client.get('/activities').get_data(as_text=True)
     assert 'class="nav-item active"' in html and '4 activities' in html
-    listed = set(re.findall(r'<a href="/rides/([^"]+)" class="dash-link"', html))
+    listed = _listed(html)
     assert {'walk', 'good'} <= listed                       # this month's rides and walk together, newest first
     assert 'action="/activities"' in html and 'tree-list-link" href="/activities?' in html
 
     html = client.get('/activities?skip=Walk&q=go').get_data(as_text=True)
-    assert set(re.findall(r'<a href="/rides/([^"]+)" class="dash-link"', html)) == {'good'}
+    assert _listed(html) == {'good'}
 
     days = client.get(f"/dashboard/history?from={date.today().replace(day=1)}&to={date.today()}&list=/activities").get_data(as_text=True)
     assert 'href="/activities?from=' in days

@@ -132,7 +132,7 @@ def bike(bike_id):
     parts = sorted(({'part': p, 'status': gear.part_status(db, p), 'group': _group(p), 'label': (BY_KIND.get(p['kind']) or BY_KIND['custom'])['label']} for p in gear.part_rows(db, bike_id)),
                    key=lambda x: (GROUPS.index(x['group']) if x['group'] in GROUPS else 99, x['part']['kind'], x['part']['installedOn']))
     retired = [{'part': p, 'status': gear.part_status(db, p)} for p in gear.part_rows(db, bike_id, include_retired=True) if p['retiredOn']]
-    recent = db.execute('SELECT id, name, startDateLocal, distance, movingTime, totalElevationGain FROM Activity WHERE bikeId=? ORDER BY startDateLocal DESC LIMIT 8', [bike_id]).fetchall()
+    recent = db.execute('SELECT id, name, sportType, startDateLocal, distance, movingTime, averageSpeed, totalElevationGain FROM Activity WHERE bikeId=? ORDER BY startDateLocal DESC LIMIT 8', [bike_id]).fetchall()
     default = query_db('SELECT defaultBikeId FROM Rider WHERE id=?', [b['riderId']], one=True)
     from services.strava_gear import strava_name
     return render_template('gear_bike.html', bike=b, strava_name=strava_name(db, bike_id), stats=st, odometer=gear.odometer(db, b), parts=parts, retired=retired, log=gear.service_log(db, bike_id), recent=recent, units=units,
@@ -380,7 +380,7 @@ def kit_save():
 def kit_page(kit_id):
     db = get_db()
     k = _kit_or_404(kit_id)
-    recent = db.execute('SELECT id, name, sportType, startDateLocal, distance, movingTime FROM Activity WHERE kitId=? ORDER BY startDateLocal DESC LIMIT 12',
+    recent = db.execute('SELECT id, name, sportType, startDateLocal, distance, movingTime, averageSpeed, totalElevationGain FROM Activity WHERE kitId=? ORDER BY startDateLocal DESC LIMIT 12',
                         [kit_id]).fetchall()
     from services.strava_gear import strava_kit_name
     return render_template('gear_kit.html', kit=k, stats=kit.stats(db, kit_id), status=kit.status(db, k), recent=recent, defaults=kit.defaults_of(db, kit_id),
