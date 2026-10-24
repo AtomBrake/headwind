@@ -28,8 +28,11 @@ def index():
     from services import reimport, strava_gear
     from services import strava_export
     from services.rider_mode import owner_rider_id
+    from services import garmin_changes, tasks
     riders = query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name ASC')
     return render_template('import.html', riders=riders, changes=reimport.pending(get_db()), problems=reimport.problems(get_db()),
+                           garmin_changes=garmin_changes.pending(get_db()), garmin_check=tasks.last(get_db(), garmin_changes.TASK),
+                           garmin_full=bool(query_db("SELECT 1 FROM Settings WHERE id=1 AND garminSyncMode='full'", one=True)),
                            strava_pending=strava_gear.pending(get_db(), owner_rider_id()),
                            kept=strava_export.kept(get_db(), current_app.config['DATABASE']))
 

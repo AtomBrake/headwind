@@ -227,3 +227,60 @@ def sports_apply():
     msg = f"Changed {res['changed']}." + (f" {res['failed']} could not be changed (see below)." if res['failed'] else '') + \
           (f" Left {res['kept']} as {'it is' if res['kept'] == 1 else 'they are'}." if res['kept'] else '')
     return redirect(url_for('garmin.sports_page', msg=msg))
+
+
+_changes_lock = threading.Lock()
+
+
+@bp.route('/garmin/changes/check', methods=['POST'])
+def changes_check():
+    """Look for activities deleted or changed in Garmin now, rather than at the daily sweep (services/garmin_changes.run), in the background.
+    Its progress and result are in TaskLog, shown on the Import page and the Tasks page."""
+    from flask import current_app, redirect, url_for
+    rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
+    if _garmin_on() and rider and _changes_lock.acquire(blocking=False):     # already running: the page shows that one
+        threading.Thread(target=_bg_changes_check, args=(current_app._get_current_object(), rider['id']), daemon=True).start()
+    return redirect(url_for('import_rides.index') + '#garmin-changes')
+
+
+def _bg_changes_check(app, rider_id):
+    from services import garmin_changes, tasks
+    from services.garmin import _client
+    try:
+        with app.app_context():
+            db = get_db()
+            with tasks.run(db, garmin_changes.TASK, 'Garmin changes check') as t:
+                t.result = garmin_changes.describe(garmin_changes.run(db, _client(), rider_id))
+    except Exception as e:                              # already logged as failed by tasks.run
+        log.warning('Garmin changes check failed: %s', e)
+    finally:
+        _changes_lock.release()
+
+
+@bp.route('/garmin/changes/<path:ride_id>/<choice>', methods=['POST'])
+def changes_resolve(ride_id, choice):
+    """Settle activities changed in Garmin (services/garmin_changes.resolve). ride_id 'deleted' or 'edited' settles every one of that kind.
+    Back to the activity's page when it came from there (and still exists), else the Import page."""
+    from flask import flash, redirect, url_for
+    from services import garmin_changes
+    from services.ingest import after_ride_removed
+    db = get_db()
+    pending = garmin_changes.pending(db)
+    ids = [c['rideId'] for c in pending if c['kind'] == ride_id] if ride_id in ('deleted', 'edited') else [ride_id]
+    try:
+        done = [garmin_changes.resolve(db, i, choice) for i in ids]
+    except ValueError as e:
+        db.rollback()
+        flash(str(e), 'error')
+        return redirect(url_for('import_rides.index') + '#garmin-changes')
+    db.commit()
+    deleted, changed = done.count('deleted'), done.count('changed')
+    if deleted or changed:
+        after_ride_removed()                            # the Home Assistant totals drop what was deleted or became another sport
+    n = len(ids)
+    flash(f"Deleted {deleted} activit{'ies' if deleted != 1 else 'y'}." if choice == 'delete' else
+          f"Took Garmin's name or sport for {changed} activit{'ies' if changed != 1 else 'y'}." if choice == 'garmin' else
+          f"Kept {n} activit{'ies' if n != 1 else 'y'} as {'they are' if n != 1 else 'it is'} here.", 'success')
+    if request.form.get('back') == 'ride' and not deleted:
+        return redirect(url_for('rides.detail', rid=ride_id))
+    return redirect(url_for('import_rides.index') + '#garmin-changes')

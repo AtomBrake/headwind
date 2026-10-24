@@ -642,6 +642,7 @@ Garmin credentials, the MQTT broker, Home Assistant URL/token and mappings, AI p
 - The activity cursor re-scans the most recent day and never advances past a failed download, so rides aren't silently skipped.
 - Your Garmin password isn't stored. Headwind keeps Garmin's sign-in tokens in `garmin_tokens` (readable only by Headwind's user) and they renew themselves. If Garmin ever stops accepting them (you changed your Garmin password, or signed out of all devices), syncing stops and Settings and the Tasks page ask you to **Sign in again**. **Sign out** deletes the tokens.
 - Signing in to a different Garmin account replaces the tokens of the old one.
+- An activity deleted, renamed, given another sport or cropped in Garmin Connect after it came in isn't changed here on its own. Once a day, with activity sync on, Headwind compares the last 90 days in Garmin (and a little further back each day) with what it imported, and lists what changed on the **Import** page and the activity's own page: keep it as it is here, or take Garmin's (delete it here too, use Garmin's name or sport). A cropped one is offered with the other re-imports. **Check now** on the Import page runs it straight away.
 - Upgrading from a version that stored the password: the next sync swaps it for tokens and deletes it from the database.
 
 ### Home Assistant / MQTT

@@ -252,6 +252,7 @@ def detail(rid):
     from services import origin
     source_links = origin.links(get_db(), activity['id'], activity['originId'])
     from services import photos as _photos
+    from services import garmin_changes
     avg_mps = activity['averageSpeed'] or ((activity['distance'] or 0) / activity['movingTime'] if activity['movingTime'] else None)   # a phone walk stores none
     try:                                                # a Strava export's climb taken in place of the file's impossible one (import_rides._strava_climb_if_impossible)
         raw = json.loads(activity['rawData'] or '{}')
@@ -259,7 +260,7 @@ def detail(rid):
     except (ValueError, TypeError, AttributeError):
         file_climb = None
     return render_template('ride.html', kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
-                           file_climb=file_climb,
+                           file_climb=file_climb, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
                            charts=charts, has_memory=memory_count > 0,
                            seg_efforts=seg_efforts, alt_raw=alt_raw,
                            co_riders=co_riders, seg_rivals=seg_rivals,

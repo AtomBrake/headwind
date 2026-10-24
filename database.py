@@ -419,6 +419,7 @@ def migrate_db():
         ('garminLastError',      'TEXT'),
         ('garminDeviceSync',     'TEXT'),
         ('garminSweepAt',        'TEXT'),      # when the Garmin sync last read all its recent days (services/garmin.health_days)
+        ('garminChangesBefore',  'TEXT'),      # the older block the daily check for changes in Garmin reads next ends here (services/garmin_changes.run)
         ('garminFailCount',      'INTEGER DEFAULT 0'),
         ('garminHistoryFrom',    'TEXT'),      # how far back to pull health history: NULL = not asked yet, 'all', 'none' or a YYYY-MM-DD
         ('garminHistoryCursor',  'TEXT'),      # oldest day the history backfill has covered so far
@@ -1058,6 +1059,8 @@ def migrate_db():
     _strava_export_schema(db)
     from services.sport_fix import ensure_schema as _sport_fix_schema
     _sport_fix_schema(db)
+    from services.garmin_changes import ensure_schema as _garmin_changes_schema
+    _garmin_changes_schema(db)
     from services.origin import backfill as _origin_backfill
     _origin_backfill(db)
     db.commit()

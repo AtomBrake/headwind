@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+Migration, at the first start: `Settings` gains `garminChangesBefore`, and there are new `GarminSeen` and `GarminChange` tables.
+
+### Added
+- **Activities deleted or changed in Garmin Connect are flagged for review.** A deletion, rename, change of sport or crop in Garmin used to never reach Headwind, because the sync only reads new activities. Once a day (with activity sync on) Headwind compares the last 90 days in Garmin, and a little further back each day, with what it imported. Each change is listed on the Import page and the activity's page, and nothing changes until you choose: delete it here too or keep it; use Garmin's name or sport or keep yours; a cropped recording is offered like a re-import (keep, replace or fill in). A name or sport you changed in Headwind is never overwritten or flagged. A listing that fails, or one missing most activities at once (another account, say), flags nothing. Activities imported before this version are compared from their first check on.
+
 ### Changed
 - **Python 3.14.** The Docker image and the Windows build are now built on Python 3.14. Running Headwind outside Docker still works on Python 3.12 or later.
 
