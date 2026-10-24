@@ -343,6 +343,8 @@ class _Pull:
         self.name = friend['name']
         self.rider_id = friend['riderId']
         self.rides = {}          # local id -> the friend's updatedAt for it (None from a version before 0.7.6): stored, not matched yet
+        self.new = 0             # of those, missing here before
+        self.changed = 0         # and different from what was here: the rest came again unchanged (an old feed's ?since=, a stopped sync)
         self.segments = 0
         self.manifest = None     # remote id -> updatedAt, every ride the friend shares (0.7.6 on)
         self.complete = False    # the feed said 'end'
@@ -394,7 +396,11 @@ def _read_feed(db, pull, resp):
                     pull.segments += 1
 
             elif t == 'ride' and pull.rider_id:
-                pull.rides[_store_ride(db, friend_id, pull.rider_id, obj)] = obj.get('updatedAt')
+                aid, kind = _store_ride(db, friend_id, pull.rider_id, obj)
+                if aid not in pull.rides:
+                    pull.new += kind == 'new'
+                    pull.changed += kind == 'changed'
+                pull.rides[aid] = obj.get('updatedAt')
                 if len(pull.rides) % BATCH == 0:
                     log.info('Friends sync: streamed %d rides for "%s"…', len(pull.rides), pull.name)
 
@@ -451,17 +457,19 @@ def _store_segment(db, friend_id, obj):
 
 def _store_ride(db, friend_id, rider_id, obj):
     """One of the friend's activities (any sport), new or changed: every field is taken again. srcUpdatedAt '' until it has been matched against the segments,
-    so one stored by a sync that never got that far is asked for again. Returns its local id."""
+    so one stored by a sync that never got that far is asked for again. Returns its local id, and 'new', 'changed' or None (the same as here)."""
     remote_id = f"f{friend_id}_{obj['id']}"
     vals = [obj.get(c) or 0 if c in _ZERO_IF_MISSING else obj.get(c) for c in _SHARED_COLS]
     vals[_SHARED_COLS.index('type')] = obj.get('sportType')       # the NDJSON routing key took 'type'
+    was = db.execute(f"SELECT {', '.join(_SHARED_COLS)} FROM Activity WHERE id=?", [remote_id]).fetchone()
+    kind = 'new' if was is None else 'changed' if list(was) != vals else None
     db.execute(f'''
         INSERT INTO Activity (id, {', '.join(_SHARED_COLS)}, rawData, riderId, srcUpdatedAt, createdAt, updatedAt)
         VALUES (?, {', '.join('?' * len(_SHARED_COLS))}, '{{}}', ?, '', datetime('now'), datetime('now'))
         ON CONFLICT(id) DO UPDATE SET {', '.join(f'{c}=excluded.{c}' for c in _SHARED_COLS)},
             riderId=excluded.riderId, srcUpdatedAt='', updatedAt=datetime('now')
     ''', [remote_id, *vals, rider_id])
-    return remote_id
+    return remote_id, kind
 
 
 def _forget_ride(db, act_id):
@@ -481,7 +489,8 @@ def _chunks(items, n):
 def _do_ride_sync(friend_id):
     """Segments and rides from one friend. From a friend on 0.7.6 or later: the segments and a manifest of every ride they share, then just the
     rides missing here or changed there, MAX_IDS at a time; a ride they no longer share goes. A friend on an older version gets the old request
-    and sends the rides that started since the day of the last sync. The sync only counts as done (lastSynced) when everything arrived."""
+    and sends the rides that started since the day of the last sync. The sync only counts as done (lastSynced) when everything arrived.
+    Returns how many rides are new or changed here (not the ones that came again as they were), and an error text or None."""
     friend = query_db('SELECT * FROM Friend WHERE id=?', [friend_id], one=True)
     if not friend:
         return 0, 'Friend not found'
@@ -535,7 +544,8 @@ def _do_ride_sync(friend_id):
             if err:
                 break
 
-    log.info('Friends sync: received %d rides, %d segments from "%s"', len(pull.rides), pull.segments, pull.name)
+    log.info('Friends sync: received %d rides (%d new, %d changed), %d segments from "%s"',
+             len(pull.rides), pull.new, pull.changed, pull.segments, pull.name)
 
     # ── New and changed segments: matched from scratch against every activity near them ──
     # matchPending survives a sync that stopped before this, so the next one still matches them
@@ -584,5 +594,6 @@ def _do_ride_sync(friend_id):
     else:
         db.execute('UPDATE Friend SET name=? WHERE id=?', [pull.name, friend_id])
     db.commit()
-    log.info('Friends sync: %s — %d rides, %d segments for "%s"', 'done' if not err else 'stopped early', len(pull.rides), pull.segments, pull.name)
-    return len(pull.rides), err
+    log.info('Friends sync: %s — received %d rides (%d new, %d changed), %d segments for "%s"',
+             'done' if not err else 'stopped early', len(pull.rides), pull.new, pull.changed, pull.segments, pull.name)
+    return pull.new + pull.changed, err

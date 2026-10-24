@@ -256,7 +256,8 @@ def test_a_ride_stored_but_never_matched_is_fetched_again(db, tom):
     sync(db)
     db.execute("UPDATE Activity SET srcUpdatedAt='' WHERE id='f1_r1'")     # what a sync that stopped before matching leaves
     db.commit()
-    assert sync(db) == (1, None)
+    assert sync(db) == (0, None)                    # fetched and matched, but nothing in it is new
+    assert fetched(db) == ['/api/feed?ids=r1']
 
 
 def test_rides_from_before_the_manifest_are_not_all_fetched_again(db, tom):
@@ -296,6 +297,17 @@ def test_an_old_friends_feed_still_syncs(db, monkeypatch):
     assert sync(db) == (1, None)
     assert friend_rides(db) == {'f1_r1': 'Old feed ride'}
     assert db.execute('SELECT lastSynced FROM Friend').fetchone()[0]
+
+
+def test_an_old_friends_feed_sending_the_same_rides_again_counts_none(db, monkeypatch):
+    """A friend before 0.7.6 sends every ride since the day of the last sync, each time: only one that is new or changed counts."""
+    old_feed(monkeypatch, old_ride('r1'), old_ride('r2'))
+    assert sync(db) == (2, None)
+    assert sync(db) == (0, None)
+    edited = {**old_ride('r2'), 'name': 'Renamed there'}
+    old_feed(monkeypatch, old_ride('r1'), edited, old_ride('r3'))
+    assert sync(db) == (2, None)                    # r2 changed, r3 new
+    assert friend_rides(db) == {'f1_r1': 'Old feed ride', 'f1_r2': 'Renamed there', 'f1_r3': 'Old feed ride'}
 
 
 def test_an_old_friends_feed_that_breaks_is_not_done(db, monkeypatch):
