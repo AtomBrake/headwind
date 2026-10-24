@@ -4,7 +4,7 @@ import logging
 from flask import Blueprint, jsonify, render_template, request
 
 from database import get_db, query_db
-from services import homeassistant as ha
+from services import homeassistant as ha, vault
 
 log = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ def save():
     db.execute('UPDATE Settings SET haUrl=?, haEntityMap=?, haSyncMinutes=?, haWeatherEntity=? WHERE id=1',
                [url, json.dumps(mappings), minutes, weather_entity])
     if token:
-        db.execute('UPDATE Settings SET haToken=? WHERE id=1', [token])
+        db.execute('UPDATE Settings SET haToken=? WHERE id=1', [vault.seal(token)])
     db.commit()
     if weather_entity:
         try:

@@ -293,6 +293,8 @@ def create_app():
 
     with app.app_context():
         migrate_db()
+        from services import vault
+        vault.seal_plain(get_db())                    # keys and passwords saved before they were encrypted
     _ensure_default_avatar(app)
 
     # ── Template filters ─────────────────────────────────────────

@@ -4,6 +4,7 @@ import threading
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 from database import get_db, query_db
+from services import vault
 
 bp = Blueprint('garmin', __name__)
 log = logging.getLogger(__name__)
@@ -62,7 +63,7 @@ def _signed_in_as(email):
     db.execute('''
         INSERT INTO Settings (id, garminEmail) VALUES (1, ?)
         ON CONFLICT(id) DO UPDATE SET garminEmail=excluded.garminEmail, garminPassword=NULL, garminSignInNeeded=NULL
-    ''', [email])
+    ''', [vault.seal(email)])
     if prev and prev['garminEmail'] and prev['garminEmail'].lower() != email.lower():
         # a different account has its own history: ask the first-run question again
         db.execute('''UPDATE Settings SET garminHistoryFrom=NULL, garminHistoryCursor=NULL, garminHistoryDone=0, garminWeightsDone=0, garminWeightsStatus=NULL,

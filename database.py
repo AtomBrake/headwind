@@ -1082,7 +1082,8 @@ def get_db():
             detect_types=sqlite3.PARSE_DECLTYPES,
             timeout=60,
         )
-        g.db.row_factory = sqlite3.Row
+        from services import vault
+        g.db.row_factory = vault.row_factory(current_app.config['DATABASE'])   # sqlite3.Row, with the saved keys and passwords decrypted
         g.db.execute('PRAGMA journal_mode = WAL')
         # With WAL, NORMAL can't corrupt the database: a power cut can only lose the last commits, and it saves an fsync per commit (slow on
         # an SD card). The sorts behind the badges and leaderboards use temporary tables, kept in memory; 8 MB of page cache per connection.
