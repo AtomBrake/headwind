@@ -11,8 +11,9 @@ def own_riders(db):
 
 
 def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None, commute=None, kit_id=None):
-    """Returns {'done': n, 'skipped': n, 'kinds': {'ride', 'workout'} touched}. Raises ValueError for a bad action or missing parameter."""
-    from services import convert, duplicates, gear, kit, sanity, workouts
+    """Returns {'done': n, 'skipped': n, 'friends': n of those skipped as a friend's, 'kinds': {'ride', 'workout'} touched}. Raises ValueError
+    for a bad action or missing parameter."""
+    from services import convert, duplicates, friend_rides, gear, kit, sanity, workouts
     from services.sports import kind_of
     if action not in ACTIONS:
         raise ValueError('unknown action')
@@ -24,12 +25,16 @@ def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None, c
         raise ValueError('type a name')
     if action == 'commute' and commute not in ('0', '1'):
         raise ValueError('pick commute or not a commute')
-    done = skipped = 0
+    done = skipped = friends = 0
     kinds = set()
     for act_id in list(dict.fromkeys(ids))[:MAX_IDS]:
         kind = kind_of(db, act_id)
         if not kind:
             skipped += 1
+            continue
+        if friend_rides.friend_of(db, act_id):            # shown here, changed only on their instance
+            skipped += 1
+            friends += 1
             continue
         try:
             if action == 'delete':
@@ -71,7 +76,7 @@ def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None, c
             continue
         kinds.add(kind)
         done += 1
-    return {'done': done, 'skipped': skipped, 'kinds': kinds}
+    return {'done': done, 'skipped': skipped, 'friends': friends, 'kinds': kinds}
 
 
 def _move_to_rider(db, kind, act_id, rider_id):

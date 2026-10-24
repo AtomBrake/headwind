@@ -179,11 +179,15 @@ def default_for(db, rider_id, sport):
 
 # ---------- which kit did which activity ----------
 def _check(db, act_ids, kit_id):
-    """The activities, if the kit belongs to their rider and none of them is a ride. Raises ValueError otherwise."""
+    """The activities, if the kit belongs to their rider and none of them is a ride or a friend's. Raises ValueError otherwise."""
     rows = []
     for i in range(0, len(act_ids), 500):
         chunk = act_ids[i:i + 500]
         rows += db.execute(f"SELECT id, riderId, sportType FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall()
+    from services import friend_rides
+    friends = {r[0] for r in db.execute(friend_rides.FRIEND_RIDERS_SQL)}
+    if any(r['riderId'] in friends for r in rows):
+        raise ValueError(friend_rides.REFUSED)
     if kit_id is not None:
         k = get(db, kit_id)
         if not k or any(r['riderId'] != k['riderId'] for r in rows):

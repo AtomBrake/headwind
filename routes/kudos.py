@@ -13,6 +13,9 @@ def kudos(rid):
     activity = query_db('SELECT * FROM Activity WHERE id=?', [rid], one=True)
     if not activity:
         return jsonify({'error': 'Not found'}), 404
+    from services import friend_rides
+    if friend_rides.friend_of(get_db(), rid):
+        return jsonify({'error': friend_rides.REFUSED}), 403
     from services.sports import is_ride
     if not is_ride(activity['sportType']):
         return jsonify({'error': 'AI coaching is only available for ride activities'}), 400

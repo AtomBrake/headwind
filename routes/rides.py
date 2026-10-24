@@ -11,6 +11,15 @@ log = logging.getLogger(__name__)
 
 bp = Blueprint('rides', __name__)
 
+
+@bp.before_request
+def _not_a_friends():
+    """A friend's activity is only shown here: every change to one (delete, type, commute, notes, weather, photos, scan, ...) is refused."""
+    from services import friend_rides
+    rid = (request.view_args or {}).get('rid')
+    if request.method == 'POST' and rid and friend_rides.friend_of(get_db(), rid):
+        abort(403, friend_rides.REFUSED)
+
 _MW_KEYS = {
     'Weather Impact™': 'impact',
     'Headwind':         'headwind',
@@ -234,10 +243,11 @@ def detail(rid):
                     if b.get('ride_id') and str(b['ride_id']) == str(rid):
                         ride_badges.append(b)
 
-    from services import duplicates, gear as gear_svc
-    gear_bikes = gear_svc.list_bikes(get_db(), activity['riderId'], include_archived=True) if activity['riderId'] and is_ride else []   # retired last: an old ride may have been on one
+    from services import duplicates, friend_rides, gear as gear_svc
+    friend = friend_rides.friend_of(get_db(), rid)              # a friend's activity: shown, with nothing to change
+    gear_bikes = gear_svc.list_bikes(get_db(), activity['riderId'], include_archived=True) if activity['riderId'] and is_ride and not friend else []   # retired last: an old ride may have been on one
     from services import kit as kit_svc
-    kit_items = kit_svc.choices_for(get_db(), activity) if not is_ride else []      # a run's shoes, a swim's wetsuit, ...
+    kit_items = kit_svc.choices_for(get_db(), activity) if not is_ride and not friend else []      # a run's shoes, a swim's wetsuit, ...
     dups = []
     for d in duplicates.parked_for(get_db(), rid):
         try:
@@ -260,7 +270,7 @@ def detail(rid):
         file_climb = raw.get('fileClimb') if raw.get('fileClimb') is not None and activity['totalElevationGain'] == raw.get('stravaClimb') else None
     except (ValueError, TypeError, AttributeError):
         file_climb = None
-    return render_template('ride.html', kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
+    return render_template('ride.html', friend=friend, kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
                            file_climb=file_climb, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
                            charts=charts, has_memory=memory_count > 0, ai_pending=_auto_analyse.is_pending(activity['id']),
                            seg_efforts=seg_efforts, alt_raw=alt_raw,
@@ -539,9 +549,13 @@ def bulk():
     if action == 'commute':
         msg += ' as a commute' if request.form.get('commute') == '1' else ' as not a commute'
     msg += '.'
-    if res['skipped']:
-        msg += f" {res['skipped']} could not be changed" + {'bike': ' (only rides have a bike)', 'dismiss': ' (only rides have a flag)',
-                                                          'kit': ' (rides have a bike, not shoes)'}.get(action, '') + '.'
+    others, friends = res['skipped'] - res['friends'], res['friends']
+    if others:
+        msg += f" {others} could not be changed" + {'bike': ' (only rides have a bike)', 'dismiss': ' (only rides have a flag)',
+                                                  'kit': ' (rides have a bike, not shoes)'}.get(action, '') + '.'
+    if friends:
+        whose = "is a friend's activity" if friends == 1 else "are friends' activities"
+        msg += f' {friends} {whose}, changed only on their instance.'
     flash(msg, 'success')
     return redirect(back)
 

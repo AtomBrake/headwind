@@ -75,6 +75,8 @@ def change_sport(db, kind, act_id, sport, discard_parked=False):
         kind = 'ride' if is_ride(row['sportType']) else 'workout'
     if not row or is_ride(row['sportType']) != (kind == 'ride'):
         raise ValueError('that ride was not found' if kind == 'ride' else 'that activity was not found')
+    from services import friend_rides
+    friend_rides.refuse(db, act_id)
     if (row['sportType'] or '') == sport:
         return {'kind': kind, 'id': act_id, 'sport': sport, 'changed': False}
     if kind == 'ride' and sport in RIDES:                # Ride <-> VirtualRide <-> EBikeRide (or an MTB ride becoming a plain Ride): the label,
