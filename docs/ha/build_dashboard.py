@@ -734,8 +734,9 @@ return panel('Road to ' + st(A.goal_lb), pct + '%', null, `
 
     g_w = chart_card(W_, """
 const LB = 2.20462, L = 90;
-const d = tail(A.d, L), w = tail(A.w, L).map(v => v * LB), src = tail(A.src, L);
-const dots = src.map(x => x === 'homeassistant' ? '#7dd3fc' : '#ffffff');
+const d = tail(A.d, L), w = tail(A.w, L).map(v => v * LB);
+const scale = tail(A.scale || (A.src || []).map(x => x === 'homeassistant'), L);   // A.scale also counts Garmin scale weigh-ins; older servers send only A.src
+const dots = scale.map(x => x ? '#7dd3fc' : '#ffffff');
 const change = w.length > 1 ? (w[w.length - 1] - w[0]) : null;
 const right = w.length ? fmt(w[w.length - 1], 1) + ' lb' : '';
 return panel('Weight · ' + (d.length > 1 ? 'since ' + shortDate(d[0]) : 'latest') + (change != null ? ' (' + (change > 0 ? '+' : '') + change.toFixed(1) + ' lb)' : ''), right,

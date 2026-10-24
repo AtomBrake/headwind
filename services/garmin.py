@@ -234,7 +234,8 @@ def _parse_calories(stats):
 
 
 def _parse_weigh_ins(data):
-    """{'YYYY-MM-DD': kg} from get_weigh_ins(): each day's last weigh-in (Garmin stores grams)."""
+    """{'YYYY-MM-DD': (kg, sourceType)} from get_weigh_ins(): each day's last weigh-in (Garmin stores grams).
+    sourceType is Garmin's word for where it came from (MANUAL when typed into Connect), or None if absent."""
     from services.weight_trend import MIN_SANE_KG, MAX_SANE_KG
     days = {}
     for s in (data or {}).get('dailyWeightSummaries') or []:
@@ -246,7 +247,7 @@ def _parse_weigh_ins(data):
                 continue
             kg = round(float(last['weight']) / 1000, 2)
             if MIN_SANE_KG <= kg <= MAX_SANE_KG:
-                days[day[:10]] = kg
+                days[day[:10]] = (kg, last.get('sourceType') or None)
         except Exception:
             continue
     return days
@@ -258,14 +259,15 @@ def _sync_weigh_ins(api, db, rider_id, start, end):
     Returns (days Garmin had a weigh-in, rows changed)."""
     found = _parse_weigh_ins(api.get_weigh_ins(start, end))
     changed = 0
-    for day, kg in found.items():
-        existing = db.execute('SELECT id, weightKg, source FROM WeightLog WHERE riderId=? AND logDate=?',
+    for day, (kg, kind) in found.items():
+        existing = db.execute('SELECT id, weightKg, source, sourceDetail FROM WeightLog WHERE riderId=? AND logDate=?',
                               [rider_id, day]).fetchone()
         if not existing:
-            db.execute("INSERT INTO WeightLog (riderId, logDate, weightKg, source) VALUES (?,?,?,'garmin')", [rider_id, day, kg])
+            db.execute("INSERT INTO WeightLog (riderId, logDate, weightKg, source, sourceDetail) VALUES (?,?,?,'garmin',?)",
+                       [rider_id, day, kg, kind])
             changed += 1
-        elif existing['source'] == 'garmin' and abs(existing['weightKg'] - kg) > 0.001:
-            db.execute('UPDATE WeightLog SET weightKg=? WHERE id=?', [kg, existing['id']])
+        elif existing['source'] == 'garmin' and (abs(existing['weightKg'] - kg) > 0.001 or existing['sourceDetail'] != kind):
+            db.execute('UPDATE WeightLog SET weightKg=?, sourceDetail=? WHERE id=?', [kg, kind, existing['id']])
             changed += 1
     return len(found), changed
 
