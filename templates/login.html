@@ -10,8 +10,8 @@
     .login-card { width:100%; max-width:380px; padding:2rem; }
     .login-logo { font-size:1.5rem; font-weight:700; color:var(--accent); margin-bottom:0.25rem; }
     .login-sub  { font-size:0.875rem; color:var(--text-muted); margin-bottom:2rem; }
-    .login-error { background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.3);
-                   color:#ef4444; padding:0.625rem 0.875rem; border-radius:8px;
+    .login-error { background:var(--danger-soft); border:1px solid var(--danger-line);
+                   color:var(--danger); padding:0.625rem 0.875rem; border-radius:8px;
                    font-size:0.875rem; margin-bottom:1rem; }
   </style>
 </head>
@@ -23,7 +23,7 @@
     </div>
     <div class="login-sub">{% if demo_mode %}Live demo: just press Sign in{% else %}Sign in to continue{% endif %}</div>
     {% if demo_mode %}
-    <div style="background:rgba(252,76,2,.10);border:1px solid rgba(252,76,2,.35);border-radius:10px;padding:.6rem .8rem;font-size:.82rem;margin-bottom:1rem;color:var(--text-muted);">
+    <div style="background:var(--accent-soft);border:1px solid var(--accent-line);border-radius:10px;padding:.6rem .8rem;font-size:.82rem;margin-bottom:1rem;color:var(--text-muted);">
       A fictional rider, thousands of rides and a made-up food diary. The login (<b style="color:var(--text)">test</b> / <b style="color:var(--text)">test</b>) is filled in for you. Look around, log a meal, assign a bike: it all resets every night.
     </div>
     {% endif %}

@@ -7,10 +7,10 @@
 <div style="display:flex; flex-direction:column; gap:1.5rem;">
 
   <!-- Support -->
-  <div class="card" style="border-left:3px solid #FFDD00;display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;">
+  <div class="card" style="border-left:3px solid var(--coffee);display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;">
     <div style="flex:1;min-width:200px;">
       <div style="font-weight:600;font-size:0.9375rem;margin-bottom:0.25rem;">Headwind is free and open source</div>
-      <div style="font-size:0.8125rem;color:var(--text-muted);">
+      <div class="hint">
         If it's saving you cash on Strava/Wahoo subscriptions, a coffee is appreciated.
         <a href="https://github.com/lordmaa/headwind" target="_blank"
            style="color:var(--accent);">GitHub →</a>
@@ -18,7 +18,7 @@
     </div>
     <a href="https://buymeacoffee.com/lordmerchant" target="_blank"
        style="display:inline-flex;align-items:center;gap:0.5rem;
-              background:#FFDD00;color:#000000;font-weight:700;font-size:0.875rem;
+              background:var(--coffee);color:var(--black);font-weight:700;font-size:0.875rem;
               padding:0.5rem 1.1rem;border-radius:8px;text-decoration:none;
               white-space:nowrap;flex-shrink:0;">
       ☕ Buy me a coffee
@@ -28,7 +28,7 @@
   <!-- Profile & goals: the stats the smart goals work from -->
   <div class="card" id="profileCard">
     <div class="card-title">Profile &amp; goals</div>
-    <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0 0 0.8rem;">Your body stats and targets. Headwind uses them to work out your daily calorie, protein, carb and fat goals, and to project your road to goal weight. Everything here is saved to this Headwind only.</p>
+    <p class="hint" style="margin:0 0 0.8rem;">Your body stats and targets. Headwind uses them to work out your daily calorie, protein, carb and fat goals, and to project your road to goal weight. Everything here is saved to this Headwind only.</p>
     <div id="pfStatus" style="font-size:0.8125rem; margin-bottom:0.8rem;"></div>
     <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:0.8rem;">
       <div class="form-group" style="margin:0;"><label>Sex</label><select id="pfSex"><option value="">—</option><option value="female">Female</option><option value="male">Male</option></select></div>
@@ -190,7 +190,7 @@
   <div class="card" style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
     <div style="flex:1; min-width:200px;">
       <div class="card-title" style="margin-bottom:0.25rem;">Home Assistant — import health data</div>
-      <div style="font-size:0.8125rem; color:var(--text-muted);">Pull your Bluetooth scale's weight and body readings into Headwind.</div>
+      <div class="hint">Pull your Bluetooth scale's weight and body readings into Headwind.</div>
     </div>
     <a href="{{ url_for('homeassistant.index') }}" class="btn btn-secondary" style="min-height:44px;">Set up &rarr;</a>
   </div>
@@ -198,7 +198,7 @@
   <!-- MQTT / Home Assistant -->
   <form method="POST" class="card">
     <div class="card-title">Home Assistant — MQTT</div>
-    <p style="color:var(--text-muted); font-size:0.875rem; margin-bottom:1rem; line-height:1.6;">
+    <p class="hint" style="margin-bottom:1rem;">
       Publishes sensors to Home Assistant via MQTT Discovery — total rides, distance,
       elevation, calories, time, Everests, laps of Earth, and last ride details.
     </p>
@@ -249,7 +249,7 @@
     <!-- Garmin Connect -->
     <form method="POST" class="card" id="garmin" onsubmit="return garminSave(this)">
       <div class="card-title">Garmin Connect</div>
-      <p style="color:var(--text-muted); font-size:0.875rem; margin-bottom:1rem; line-height:1.6;">
+      <p class="hint" style="margin-bottom:1rem;">
         Pulls resting HR, HRV, sleep score, and body battery from Garmin Connect for richer AI coaching context.
         Your password is only used to sign in and isn't kept: Headwind keeps the sign-in Garmin gives it, which renews itself.
       </p>
@@ -258,7 +258,7 @@
         Garmin stopped accepting Headwind's sign-in, so syncing has stopped. Enter your password below and press Sign in again.
       </div>
       {% elif garmin_on and not s.garminPassword %}
-      <div style="margin-bottom:1rem; font-size:0.8125rem; color:var(--text-muted);">Signed in as {{ s.garminEmail }}.</div>
+      <div class="hint" style="margin-bottom:1rem;">Signed in as {{ s.garminEmail }}.</div>
       {% endif %}
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
         <div class="form-group" style="margin:0;">
@@ -315,7 +315,7 @@
       <div id="garminConnectStatus" style="margin-top:0.6rem; font-size:0.8125rem; display:none; padding:0.5rem 0.75rem; border-radius:8px;"></div>
       <div id="garminMfaBox" style="display:none; margin-top:0.6rem; gap:0.5rem;">
         <input type="text" id="garminMfaCode" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code"
-               style="background:#0f2535; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:0.45rem 0.7rem; width:140px;">
+               style="background:var(--field-bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:0.45rem 0.7rem; width:140px;">
         <button type="button" class="btn btn-secondary" onclick="garminVerifyMfa()">Verify code</button>
       </div>
       <div id="garminActivityStatus" style="margin-top:0.5rem; font-size:0.8125rem; color:var(--text-muted); display:none;"></div>
@@ -358,7 +358,7 @@
   <!-- Calorie burn adjustment -->
   <div class="card" style="margin-bottom:1.5rem;">
     <div class="card-title">Calorie burn adjustment</div>
-    <p style="color:var(--text-muted); font-size:0.875rem; margin-bottom:1rem; line-height:1.6;">
+    <p class="hint" style="margin-bottom:1rem;">
       Burn figures are estimates and tend to read high. This takes a percentage off every burn estimate as it is pulled in
       (Garmin and FIT rides, phone recordings, walks and runs, Garmin daily totals). Everything downstream — dashboards, Home
       Assistant, the API and the Android app — then carries the corrected number. Food calories and figures you type in yourself
@@ -384,7 +384,7 @@
     <!-- Weather Backfill -->
     <div class="card">
       <div class="card-title">Weather Backfill</div>
-      <p style="color:var(--text-muted); font-size:0.875rem; margin-bottom:1rem; line-height:1.6;">
+      <p class="hint" style="margin-bottom:1rem;">
         Fetch weather data for all historical rides that are missing it.
         Runs in batches automatically — click once and let it finish.
       </p>
@@ -397,7 +397,7 @@
     <!-- Backup & Restore -->
     <div class="card">
       <div class="card-title">Backup &amp; Restore</div>
-      <p style="color:var(--text-muted); font-size:0.875rem; margin-bottom:1rem; line-height:1.6;">
+      <p class="hint" style="margin-bottom:1rem;">
         Export a full backup — all rides, segments, settings, avatars, and rider data.
         Use to migrate to a new machine or restore after a problem.
       </p>
@@ -426,13 +426,13 @@
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:2rem;">
       <div>
         <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); font-weight:600; margin-bottom:0.5rem;">Home Assistant / MQTT</div>
-        <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.6; margin:0 0 1.25rem;">
+        <p class="hint" style="margin:0 0 1.25rem;">
           Enter broker details above. Sensors publish every 20 seconds and after every sync.
           Set the <strong style="color:var(--text);">HA Device</strong> on each rider's profile for per-rider push notifications.
         </p>
 
         <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); font-weight:600; margin-bottom:0.5rem;">Garmin Connect</div>
-        <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.6; margin:0;">
+        <p class="hint" style="margin:0;">
           Enter credentials above and click <strong style="color:var(--text);">Connect</strong> — if your account uses 2-step
           verification you'll be asked for the code right there, no command line needed. Recovery data syncs automatically
           every few hours after that.
@@ -440,7 +440,7 @@
       </div>
       <div>
         <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); font-weight:600; margin-bottom:0.5rem;">Environment Variables</div>
-        <div style="background:#0a1e2e; border:1px solid var(--border); border-radius:8px; padding:0.9rem 1rem; font-size:0.8125rem; font-family:monospace; line-height:2;">
+        <div style="background:var(--inset-bg); border:1px solid var(--border); border-radius:8px; padding:0.9rem 1rem; font-size:0.8125rem; font-family:monospace; line-height:2;">
           <div><span style="color:var(--accent);">DATABASE_URL</span>=<span style="color:var(--text-muted);">/data/bike.db</span></div>
           <div><span style="color:var(--accent);">SECRET_KEY</span>=<span style="color:var(--text-muted);">your-random-secret</span></div>
           <div><span style="color:var(--accent);">APP_USERNAME</span>=<span style="color:var(--text-muted);">admin</span></div>
@@ -461,14 +461,14 @@
         <div style="font-size:0.75rem; color:var(--text-muted);">Self-hosted, private cycling analytics</div>
       </div>
     </div>
-    <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.6; margin:0 0 0.75rem;">
+    <p class="hint" style="margin:0 0 0.75rem;">
       Your rides, your data — stored locally on your own hardware.
       Syncs from Garmin Connect and the Headwind phone app, supports FIT/GPX/Strava-export imports,
       and runs entirely on your network.
     </p>
 
     <!-- Version / update check -->
-    <div style="background:var(--surface2,#0d2135); border:1px solid #1e4060; border-radius:8px;
+    <div style="background:var(--inset-bg); border:1px solid var(--border-strong); border-radius:8px;
                 padding:0.65rem 0.9rem; margin-bottom:0.75rem; display:flex; align-items:center;
                 gap:0.75rem; flex-wrap:wrap;">
       <div style="flex:1; min-width:0;">
@@ -484,11 +484,11 @@
         <span id="update-badge" style="display:none; font-size:0.75rem; font-weight:600;
               border-radius:999px; padding:0.2rem 0.6rem; white-space:nowrap;"></span>
         <button onclick="checkForUpdate()" id="update-btn"
-                style="font-size:0.8rem; padding:0.3rem 0.65rem;" class="btn btn-secondary">Check for update</button>
+                class="btn btn-secondary btn-sm">Check for update</button>
       </div>
     </div>
 
-    <a href="{{ url_for('about.index') }}" class="btn btn-secondary" style="font-size:0.8125rem;">View full feature list</a>
+    <a href="{{ url_for('about.index') }}" class="btn btn-secondary btn-sm">View full feature list</a>
   </div>
 
 </div>
@@ -514,25 +514,25 @@ function checkForUpdate() {
       var hubDate = new Date(data.last_updated);
       if (isNaN(hubDate)) {
         badge.textContent = 'Could not read Hub';
-        badge.style.background = 'rgba(100,100,100,0.15)';
+        badge.style.background = 'var(--raised-bg)';
         badge.style.color = 'var(--text-muted)';
       } else if (!hasLocal) {
         // Dev instance — just show when Hub was last updated
         var d = hubDate;
         var label = d.toISOString().slice(0,16).replace('T',' ') + ' UTC';
         badge.textContent = 'Latest Docker: ' + label;
-        badge.style.background = 'rgba(100,100,100,0.15)';
+        badge.style.background = 'var(--raised-bg)';
         badge.style.color = 'var(--text-muted)';
       } else {
         var diffMins = (hubDate - localDate) / 60000;
         if (diffMins > 60) {
           badge.textContent = 'Update available';
-          badge.style.background = 'rgba(251,146,60,0.15)';
-          badge.style.color = '#fb923c';
+          badge.style.background = 'var(--due-soft)';
+          badge.style.color = 'var(--due)';
         } else {
           badge.textContent = 'Up to date';
-          badge.style.background = 'rgba(34,197,94,0.12)';
-          badge.style.color = '#4ade80';
+          badge.style.background = 'var(--success-soft)';
+          badge.style.color = 'var(--success-text)';
         }
       }
       badge.style.display = 'inline-block';
@@ -541,7 +541,7 @@ function checkForUpdate() {
       btn.textContent = 'Check for update';
       btn.disabled = false;
       badge.textContent = 'Check failed';
-      badge.style.background = 'rgba(100,100,100,0.15)';
+      badge.style.background = 'var(--raised-bg)';
       badge.style.color = 'var(--text-muted)';
       badge.style.display = 'inline-block';
     });
@@ -687,7 +687,7 @@ function garminConnectStatusEl() { return document.getElementById('garminConnect
 function showGarminConnectStatus(kind, text) {
   var el = garminConnectStatusEl();
   var colors = {ok: 'var(--success)', error: 'var(--danger)', pending: 'var(--warning)'};
-  var bg = {ok: '#0a1e14', error: '#1a0a0a', pending: '#1a1508'};
+  var bg = {ok: 'var(--success-soft)', error: 'var(--danger-soft)', pending: 'var(--warning-soft)'};
   el.style.display = 'block';
   el.style.color = colors[kind];
   el.style.background = bg[kind];
@@ -905,7 +905,7 @@ function pfRender(d) {
   var miss = [];
   var p = d.profile || {};
   if (!p.sex) miss.push('sex'); if (!p.age) miss.push('date of birth'); if (!p.height_cm) miss.push('height'); if (!d.weight_kg) miss.push('your weight'); if (!d.goal_weight_kg) miss.push('a goal weight');
-  st.innerHTML = miss.length ? '<span style="color:#fbbf24;">Still to fill in: ' + miss.join(', ') + '.</span>' : '<span style="color:#34d399;">Profile complete.</span>';
+  st.innerHTML = miss.length ? '<span style="color:var(--warning-text);">Still to fill in: ' + miss.join(', ') + '.</span>' : '<span style="color:var(--success-text);">Profile complete.</span>';
   apply.disabled = !!d.plan_error;
   if (d.plan_error) { box.textContent = d.plan_error + ' — fill those in above and save.'; return; }
   var pl = d.plan, f = function(n) { return Number(n).toLocaleString('en-GB'); };

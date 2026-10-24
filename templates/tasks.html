@@ -4,9 +4,9 @@
 {% block page_title %}Tasks{% endblock %}
 
 {% block content %}
-{% set badge = {'running': ('Running', '#3b82f6'), 'waiting': ('Waiting', '#f59e0b'), 'done': ('OK', 'var(--success)'), 'failed': ('Failed', '#ef4444'),
+{% set badge = {'running': ('Running', 'var(--info)'), 'waiting': ('Waiting', 'var(--warning)'), 'done': ('OK', 'var(--success)'), 'failed': ('Failed', 'var(--danger)'),
                 'off': ('Off', 'var(--text-muted)'), 'idle': ('Not yet', 'var(--text-muted)')} %}
-<p style="color:var(--text-muted); font-size:0.875rem; margin:0 0 1rem;">What Headwind is doing in the background, and what changed when it last started up.
+<p class="hint" style="margin:0 0 1rem;">What Headwind is doing in the background, and what changed when it last started up.
   {% if jobs | selectattr('state', 'in', ['running', 'waiting']) | list %}This page refreshes itself while something is running.{% endif %}</p>
 
 <div class="card" style="margin-bottom:1.25rem;">
@@ -16,37 +16,37 @@
     <span style="min-width:4.8rem; font-size:0.75rem; font-weight:600; color:{{ badge[j.state][1] }};">● {{ badge[j.state][0] }}</span>
     <div style="flex:1 1 16rem; min-width:0;">
       <div style="font-weight:600;">{{ j.name }}</div>
-      <div style="font-size:0.8125rem; color:var(--text-muted); line-height:1.45;">{{ j.detail }}{% if j.when %} · <span data-when="{{ j.when }}">{{ j.when }}</span>{% endif %}</div>
+      <div class="hint">{{ j.detail }}{% if j.when %} · <span data-when="{{ j.when }}">{{ j.when }}</span>{% endif %}</div>
     </div>
     {% if j.action %}
       {% if j.action.url.startswith('/tasks/run/') %}
-      <form method="POST" action="{{ j.action.url }}" style="margin:0;"><button class="btn btn-secondary" style="padding:0.25rem 0.8rem; font-size:0.8125rem;">{{ j.action.label }}</button></form>
+      <form method="POST" action="{{ j.action.url }}" style="margin:0;"><button class="btn btn-secondary btn-sm">{{ j.action.label }}</button></form>
       {% else %}
-      <a class="btn btn-secondary" style="padding:0.25rem 0.8rem; font-size:0.8125rem;" href="{{ j.action.url }}">{{ j.action.label }}</a>
+      <a class="btn btn-secondary btn-sm" href="{{ j.action.url }}">{{ j.action.label }}</a>
       {% endif %}
     {% endif %}
   </div>
   {% else %}
-  <p style="color:var(--text-muted); font-size:0.875rem;">Nothing runs in the background yet: connect Garmin, Home Assistant or a friend in Settings.</p>
+  <p class="hint">Nothing runs in the background yet: connect Garmin, Home Assistant or a friend in Settings.</p>
   {% endfor %}
 </div>
 
 <div class="card" style="margin-bottom:1.25rem;">
   <div class="card-title">Start-up repairs</div>
-  <p style="color:var(--text-muted); font-size:0.8125rem; margin:0 0 0.5rem;">One-off fixes to stored data that an update runs when Headwind starts. They finish before any page opens.</p>
+  <p class="hint" style="margin:0 0 0.5rem;">One-off fixes to stored data that an update runs when Headwind starts. They finish before any page opens.</p>
   {% for r in startup %}
   <div style="padding:0.5rem 0; border-top:1px solid var(--border); font-size:0.875rem;">
     <span style="color:{{ badge[r.status][1] }};">●</span> <strong>{{ r.label }}</strong> · <span data-when="{{ r.finishedAt }}">{{ r.finishedAt }}</span>
-    <div style="color:var(--text-muted); font-size:0.8125rem;">{{ r.error or r.result }}</div>
+    <div class="hint">{{ r.error or r.result }}</div>
   </div>
   {% else %}
-  <p style="color:var(--text-muted); font-size:0.875rem;">None have needed to run.</p>
+  <p class="hint">None have needed to run.</p>
   {% endfor %}
 </div>
 
 <div class="card" style="margin-bottom:1.25rem;">
   <div class="card-title">Reporting a problem</div>
-  <p style="color:var(--text-muted); font-size:0.875rem; margin:0 0 0.75rem;">Download one file to attach to a bug report: the recent log files, Headwind's version, your settings
+  <p class="hint" style="margin:0 0 0.75rem;">Download one file to attach to a bug report: the recent log files, Headwind's version, your settings
     with passwords, keys, addresses and body measurements left out, how many rows each table holds, and the recent runs below. The logs do include
     activity names and dates, so look through it before posting it anywhere public.
     {% if log_file %}Headwind writes its log to <code style="overflow-wrap:anywhere;">{{ log_file }}</code>.{% endif %}</p>
@@ -56,7 +56,7 @@
 <div class="card" id="logs" style="margin-bottom:1.25rem;">
   <div class="card-title">Logs</div>
   {% if log_file %}
-  <p style="color:var(--text-muted); font-size:0.8125rem; margin:0 0 0.75rem;">The newest lines first. Every line carries the id of the page request or background run
+  <p class="hint" style="margin:0 0 0.75rem;">The newest lines first. Every line carries the id of the page request or background run
     that wrote it: click one to see only that request's lines, or paste the reference from an error page.</p>
   <form id="logForm" style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem;" onsubmit="loadLogs(); return false;">
     <input type="text" id="logQ" placeholder="Search, or a reference like 3f9c2a1b" autocomplete="off" style="flex:3 1 14rem; min-width:0;">
@@ -71,7 +71,7 @@
   <div id="logList" style="font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:0.75rem; line-height:1.45;"></div>
   <p id="logFoot" style="color:var(--text-muted); font-size:0.75rem; margin:0.5rem 0 0;"></p>
   {% else %}
-  <p style="color:var(--text-muted); font-size:0.875rem; margin:0;">Headwind isn't writing a log file (<code>LOG_DIR=off</code>, or its folder couldn't be created), so
+  <p class="hint" style="margin:0;">Headwind isn't writing a log file (<code>LOG_DIR=off</code>, or its folder couldn't be created), so
     there's nothing to show here. The log still goes to the console (<code>docker logs headwind</code>).</p>
   {% endif %}
 </div>
@@ -86,7 +86,7 @@
     <span style="color:var(--text-muted); flex:1 1 14rem;">{{ r.error or r.result or '' }}{% if r.status == 'failed' and r.logId %} · <a href="?log={{ r.logId }}#logs" onclick="return showLogId('{{ r.logId }}')">log lines marked <code>[{{ r.logId }}]</code></a>{% endif %}</span>
   </div>
   {% else %}
-  <p style="color:var(--text-muted); font-size:0.875rem;">No runs recorded yet.</p>
+  <p class="hint">No runs recorded yet.</p>
   {% endfor %}
 </div>
 {% endblock %}
@@ -102,7 +102,7 @@ document.querySelectorAll('[data-when]').forEach(function (el) {
 });
 
 // The Logs card: filters live in the address (?log=…&level=…), so the page's own refresh and a link from the error page keep them.
-var LOG_COLOURS = { ERROR: '#ef4444', CRITICAL: '#ef4444', WARNING: '#f59e0b', DEBUG: 'var(--text-muted)' };
+var LOG_COLOURS = { ERROR: 'var(--danger)', CRITICAL: 'var(--danger)', WARNING: 'var(--warning)', DEBUG: 'var(--text-muted)' };
 function loadLogs() {
   var list = document.getElementById('logList');
   if (!list) return;

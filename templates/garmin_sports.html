@@ -2,11 +2,12 @@
 
 {% block title %}Activity types{% endblock %}
 {% block page_title %}Activity types{% endblock %}
+{% block parent %}<a href="{{ url_for('settings.index') }}">Settings</a>{% endblock %}
 
 {% block content %}
 <div class="card" style="margin-bottom:1.25rem;">
   <div class="card-title">Check activity types with Garmin</div>
-  <p style="color:var(--text-muted); font-size:0.875rem; line-height:1.55; margin:0 0 0.75rem;">
+  <p class="hint" style="margin:0 0 0.75rem;">
     An older Garmin sync saved every activity type it didn't know as a ride, so swims, surf sessions and some runs ended up in your rides,
     counted in your ride totals and flagged as rides that look wrong. Runs, walks and hikes were also kept with the rides instead of in Workouts.
     This asks Garmin for the real type of each Garmin ride and lists the ones that are wrong. Nothing changes until you apply it.
@@ -16,7 +17,7 @@
     <button class="btn btn-primary" type="submit"{% if running %} disabled{% endif %}>{{ 'Asking Garmin… this can take a minute' if running else 'Check with Garmin' }}</button>
   </form>
   {% if running %}
-  <p style="color:var(--text-muted); font-size:0.8125rem; margin:0.6rem 0 0;">It carries on if you leave this page; the Tasks page shows how it's going. This page updates itself when it's done.</p>
+  <p class="hint" style="margin:0.6rem 0 0;">It carries on if you leave this page; the Tasks page shows how it's going. This page updates itself when it's done.</p>
   {% elif check and not msg %}
   <div style="margin-top:0.75rem; padding:0.5rem 0.8rem; border:1px solid var(--border); border-radius:8px; font-size:0.875rem;">
     {{ check.error or check.result }} <span style="color:var(--text-muted);">· last checked <span data-when="{{ check.finishedAt }}">{{ check.finishedAt }}</span></span>
@@ -45,7 +46,7 @@
       {% if f.parked %}<br><span style="color:var(--text-muted);">Another recording of this session is set aside under it and will be removed too ·
         <a href="{{ url_for('rides.view_duplicate', rid=f.rideId) }}">view</a> ·
         <a href="{{ url_for('rides.view_duplicate', rid=f.rideId, compare=1) }}">compare</a></span>
-      {% elif f.error %}<br><span style="color:#f59e0b;">{{ f.error }}</span>{% endif %}
+      {% elif f.error %}<br><span style="color:var(--warning);">{{ f.error }}</span>{% endif %}
     </span>
   </label>
   {% endfor %}

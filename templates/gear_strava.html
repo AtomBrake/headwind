@@ -2,9 +2,9 @@
 {% block title %}Bikes from Strava{% endblock %}
 {% block page_title %}Bikes from Strava{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">{% endblock %}
+{% block parent %}<a href="{{ url_for('gear.index', rider=rid) }}">Gear</a>{% endblock %}
 {% block topbar_actions %}
   {% if riders %}<form method="GET" style="display:inline;"><select name="rider" onchange="this.form.submit()">{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>{% endif %}
-  <a class="btn btn-secondary" href="{{ url_for('gear.index', rider=rid) }}">&larr; Gear</a>
 {% endblock %}
 {% block content %}
 {% if error %}<div class="gear-err">{{ error }}</div>{% endif %}
@@ -22,7 +22,7 @@
 <form method="POST" action="{{ url_for('gear.strava_save') }}">
   <input type="hidden" name="rider" value="{{ rid }}">
   <div class="card" style="overflow-x:auto;">
-    <table class="gtable">
+    <table class="table">
       <thead><tr><th>Strava bike</th><th>Rides</th><th>Match to</th><th>Kind</th><th>Retired</th></tr></thead>
       <tbody>
       {% for r in rows %}

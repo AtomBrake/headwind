@@ -2,7 +2,7 @@
 {% block title %}{{ kit.name }}{% endblock %}
 {% block page_title %}{{ kit.name }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">{% endblock %}
-{% block topbar_actions %}<a class="btn btn-secondary" href="{{ url_for('gear.index', rider=kit.riderId) }}">&larr; Gear</a>{% endblock %}
+{% block parent %}<a href="{{ url_for('gear.index', rider=kit.riderId) }}">Gear</a>{% endblock %}
 {% block content %}
 {% if error %}<div class="gear-err">{{ error }}</div>{% endif %}
 
@@ -41,7 +41,7 @@
 {% if stats.by_sport | length > 1 %}
 <div class="card" style="margin-bottom:1rem;">
   <div class="card-title">By sport</div>
-  {% for s in stats.by_sport %}<div style="display:flex;gap:.6rem;padding:.3rem 0;border-bottom:1px solid rgba(22,51,82,.5);"><span style="flex:1;">{{ s.sport | sport_icon }} {{ s.sport | sport_label }}</span><span class="hint">{{ s.n }} · {{ s.distance | fmt_dist }}</span></div>{% endfor %}
+  {% for s in stats.by_sport %}<div style="display:flex;gap:.6rem;padding:.3rem 0;border-bottom:1px solid var(--divider);"><span style="flex:1;">{{ s.sport | sport_icon }} {{ s.sport | sport_label }}</span><span class="hint">{{ s.n }} · {{ s.distance | fmt_dist }}</span></div>{% endfor %}
 </div>
 {% endif %}
 
@@ -49,7 +49,7 @@
   <div class="card-title">Recent activities</div>
   {% if recent %}
   {% for a in recent %}
-  <a href="{{ url_for('rides.detail', rid=a.id) }}" class="dash-link" style="display:flex;gap:.6rem;padding:.45rem 0;border-bottom:1px solid rgba(22,51,82,.5);">
+  <a href="{{ url_for('rides.detail', rid=a.id) }}" class="dash-link" style="display:flex;gap:.6rem;padding:.45rem 0;border-bottom:1px solid var(--divider);">
     <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ a.sportType | sport_icon }} {{ a.name or a.sportType }}</span>
     <span class="hint" style="white-space:nowrap;">{{ a.startDateLocal | fmt_date }} · {{ a.distance | fmt_dist }} · {{ a.movingTime | fmt_duration }}</span>
   </a>

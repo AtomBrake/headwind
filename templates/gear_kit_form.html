@@ -2,6 +2,7 @@
 {% block title %}{{ 'Edit ' ~ kit.name if kit else 'Add gear' }}{% endblock %}
 {% block page_title %}{{ 'Edit ' ~ kit.name if kit else 'Add shoes or other gear' }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">{% endblock %}
+{% block parent %}{% if kit %}<a href="{{ url_for('gear.kit_page', kit_id=kit.id) }}">{{ kit.name }}</a>{% else %}<a href="{{ url_for('gear.index', rider=rid) }}">Gear</a>{% endif %}{% endblock %}
 {% block topbar_actions %}<a class="btn btn-secondary" href="{{ url_for('gear.kit_page', kit_id=kit.id) if kit else url_for('gear.index', rider=rid) }}">Cancel</a>{% endblock %}
 {% block content %}
 {% if error %}<div class="gear-err">{{ error }}</div>{% endif %}
@@ -31,7 +32,7 @@
     </fieldset>
     {% endif %}
     <label class="wide">Notes<textarea name="notes" rows="3" maxlength="1000">{{ kit.notes or '' if kit else '' }}</textarea></label>
-    <div class="wide"><button class="btn btn-primary" type="submit">{{ 'Save changes' if kit else 'Add' }}</button>
+    <div class="wide"><button class="btn btn-primary" type="submit">{{ 'Save' if kit else 'Add' }}</button>
       <span class="hint" style="margin-left:.6rem;">Distance and time add up from the activities it's on, so moving an activity to other shoes corrects both pairs.</span></div>
   </form>
 </div>

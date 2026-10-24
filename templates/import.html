@@ -7,7 +7,7 @@
 <div class="card" style="max-width:600px;">
   <div class="card-title">Import Rides</div>
 
-  <p style="font-size:0.875rem;color:var(--text-muted);margin-bottom:1.25rem;line-height:1.6;">
+  <p class="hint" style="margin-bottom:1.25rem;">
     Upload a single <strong style="color:var(--text);">.gpx</strong>,
     <strong style="color:var(--text);">.fit</strong> or
     <strong style="color:var(--text);">.tcx</strong> file, a
@@ -53,7 +53,7 @@
       <input type="checkbox" id="optKeep" checked style="margin-top:0.2rem;">
       <span>Keep the export here, so it can be imported again without uploading it <span style="color:var(--text-muted);">(it takes as much disk space as the zip; only the latest is kept)</span></span>
     </label>
-    <div style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.4rem;line-height:1.5;">Already imported this export? Import it again: rides already here are skipped, and the photos, segments and commute ticks are added to them.</div>
+    <div class="hint" style="margin-top:0.4rem;">Already imported this export? Import it again: rides already here are skipped, and the photos, segments and commute ticks are added to them.</div>
   </fieldset>
 
   <button id="uploadBtn" class="btn btn-primary" style="margin-top:1rem;display:none;" onclick="startUpload()">
@@ -66,7 +66,7 @@
   <div class="progress-bar-wrap">
     <div class="progress-bar-fill" id="progressFill" style="width:0%"></div>
   </div>
-  <div id="progressLabel" style="font-size:0.8125rem;color:var(--text-muted);margin-top:0.5rem;">
+  <div id="progressLabel" class="hint" style="margin-top:0.5rem;">
     Starting…
   </div>
   <div id="progressStats" style="display:flex;gap:1.5rem;margin-top:1rem;font-size:0.875rem;"></div>
@@ -75,15 +75,15 @@
 <div id="doneCard" class="card" style="max-width:600px;margin-top:1.25rem;display:none;">
   <div class="card-title">Done</div>
   <div id="doneStats" style="font-size:0.9375rem;line-height:2;"></div>
-  <a href="/dashboard" class="btn btn-primary" style="margin-top:1rem;display:inline-flex;">View Dashboard</a>
+  <a href="/dashboard" class="btn btn-primary" style="margin-top:1rem;">View Dashboard</a>
 </div>
 
 {% for k in kept %}
 <div class="card"{% if loop.first %} id="kept"{% endif %} style="max-width:600px;margin-top:1.25rem;">
   <div class="card-title">Strava export kept{% if riders | length > 1 %} for {{ k.riderName }}{% endif %}</div>
-  <p style="font-size:0.875rem;color:var(--text-muted);line-height:1.6;margin:0 0 0.75rem;">
-    Uploaded {{ k.keptAt[:10] }}: {{ k.sizeBytes | filesizeformat }}, {{ k.activities or 'its' }} activities.
-    Last imported {{ k.readAt[:10] }}. Import it again to pick up what a newer version of Headwind reads from it, with the options ticked above.
+  <p class="hint" style="margin:0 0 0.75rem;">
+    Uploaded {{ k.keptAt | fmt_date }}: {{ k.sizeBytes | filesizeformat }}, {{ k.activities or 'its' }} activities.
+    Last imported {{ k.readAt | fmt_date }}. Import it again to pick up what a newer version of Headwind reads from it, with the options ticked above.
   </p>
   {% if k.stale %}
   <p style="font-size:0.875rem;line-height:1.6;margin:0 0 0.75rem;">This version of Headwind reads exports differently from the one that last imported it: importing it again may fix or add to activities already here. Anything that differs from what's saved waits below for you to decide.</p>
@@ -92,7 +92,7 @@
     <button class="btn btn-primary" onclick="importAgain({{ k.riderId }}, this)">Import again</button>
     <form method="POST" action="{{ url_for('import_rides.delete_kept', rider_id=k.riderId) }}" style="margin:0;"
           onsubmit="return confirm('Delete the kept Strava export? Its activities stay; importing it again would mean uploading it.')">
-      <button class="btn btn-secondary">Delete</button></form>
+      <button class="btn btn-danger-quiet">Delete</button></form>
   </div>
 </div>
 {% endfor %}
@@ -100,8 +100,8 @@
 {% if strava_pending %}
 <div class="card" style="max-width:600px;margin-top:1.25rem;">
   <div class="card-title">{{ strava_pending }} bike{{ 's' if strava_pending != 1 }} from Strava to match</div>
-  <p style="font-size:0.875rem;color:var(--text-muted);line-height:1.6;margin:0 0 0.75rem;">Your Strava export says which bike rode each ride. Say which of your bikes each one is, or add it as a new one, and its rides go on it.</p>
-  <a class="btn btn-primary" href="{{ url_for('gear.strava_page') }}">Match Strava bikes</a>
+  <p class="hint" style="margin:0 0 0.75rem;">Your Strava export says which bike rode each ride. Say which of your bikes each one is, or add it as a new one, and its rides go on it.</p>
+  <a class="btn btn-secondary" href="{{ url_for('gear.strava_page') }}">Match Strava bikes</a>
 </div>
 {% endif %}
 
@@ -110,9 +110,9 @@
   <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
     <div class="card-title" style="margin:0;">{{ problems | length }} file{{ 's' if problems | length != 1 }} couldn't be read</div>
     <form method="POST" action="{{ url_for('import_rides.clear_problems') }}" style="margin:0;">
-      <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Clear this list</button></form>
+      <button class="btn btn-secondary btn-sm">Clear this list</button></form>
   </div>
-  <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0.5rem 0 0;">Each activity was saved from what the export's
+  <p class="hint" style="margin:0.5rem 0 0;">Each activity was saved from what the export's
     activities.csv says about it, with no track. Importing the export again tries the file again; one read then comes off this list.</p>
   <ul style="margin:0.5rem 0 0 1.25rem; padding:0; font-size:0.875rem; line-height:1.7;">
     {% for p in problems %}<li><a href="/rides/{{ p.rideId }}" style="color:var(--accent);">{{ p.rideName or p.rideId }}</a>
@@ -128,14 +128,14 @@
     <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
       <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id='all', choice='replace') }}" style="margin:0;"
             onsubmit="return confirm('Use the imported version of all {{ changes | length }}? Names, bikes, notes and types you set are kept.')">
-        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Use all imports</button></form>
+        <button class="btn btn-secondary btn-sm">Use all imports</button></form>
       <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id='all', choice='fill') }}" style="margin:0;">
-        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Fill in all gaps</button></form>
+        <button class="btn btn-secondary btn-sm">Fill in all gaps</button></form>
       <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id='all', choice='keep') }}" style="margin:0;">
-        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Keep all saved</button></form>
+        <button class="btn btn-secondary btn-sm">Keep all saved</button></form>
     </div>
   </div>
-  <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0.5rem 0 0;">
+  <p class="hint" style="margin:0.5rem 0 0;">
     These were imported before, and the file now reads differently, e.g. a ride that came in broken. <strong>Use import</strong> takes the file's
     values wherever it has one; <strong>Fill in gaps</strong> only adds what the saved ride is missing (a GPS track, heart rate); <strong>Keep saved</strong>
     leaves it as it is. Names, bikes, notes, the activity type and a ride you marked as right are never changed.</p>
@@ -147,10 +147,10 @@
       <span style="flex:1;"></span>
       {% for choice, label in (('replace', 'Use import'), ('fill', 'Fill in gaps'), ('keep', 'Keep saved')) %}
       <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id=c.rideId, choice=choice) }}" style="margin:0;">
-        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8125rem;">{{ label }}</button></form>
+        <button class="btn btn-secondary btn-sm">{{ label }}</button></form>
       {% endfor %}
     </div>
-    <table class="table-compact" style="font-size:0.8125rem;">
+    <table class="table table-compact" style="font-size:0.8125rem;">
       <thead><tr><th></th><th>Saved</th><th>In the file</th></tr></thead>
       <tbody>{% for d in c.diffs %}<tr><td class="text-muted">{{ d.label }}</td><td>{{ d.old }}</td><td style="color:var(--accent);">{{ d.new }}</td></tr>{% endfor %}</tbody>
     </table>
@@ -168,10 +168,10 @@
     <div class="card-title" style="margin:0;">{% if garmin_changes %}{{ garmin_changes | length }} activit{{ 'ies' if garmin_changes | length != 1 else 'y' }} changed in Garmin Connect{% else %}Changes in Garmin Connect{% endif %}</div>
     {% if garmin_full %}
     <form method="POST" action="{{ url_for('garmin.changes_check') }}" style="margin:0;" onsubmit="this.querySelector('button').disabled = true;">
-      <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;"{% if running %} disabled{% endif %}>{{ 'Checking…' if running else 'Check now' }}</button></form>
+      <button class="btn btn-secondary btn-sm"{% if running %} disabled{% endif %}>{{ 'Checking…' if running else 'Check now' }}</button></form>
     {% endif %}
   </div>
-  <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0.5rem 0 0;">
+  <p class="hint" style="margin:0.5rem 0 0;">
     Once a day Headwind looks at your last 90 days in Garmin Connect, and a little further back each time, for activities deleted, renamed,
     given another sport or cropped there since they came in. Nothing changes here until you choose. A cropped one is listed with the imports above.
     {% if garmin_check and not running %}<br>Last check: {{ garmin_check.error or garmin_check.result }}
@@ -184,9 +184,9 @@
     <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
       <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id='deleted', choice='delete') }}" style="margin:0;"
             onsubmit="return confirm('Delete all {{ deleted | length }} here too? Their notes, photos and segment times go with them.')">
-        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Delete all here</button></form>
+        <button class="btn btn-danger-quiet btn-sm">Delete all here</button></form>
       <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id='deleted', choice='keep') }}" style="margin:0;">
-        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Keep all here</button></form>
+        <button class="btn btn-secondary btn-sm">Keep all here</button></form>
     </div>
     {% endif %}
   </div>
@@ -199,9 +199,9 @@
     </span>
     <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='delete') }}" style="margin:0;"
           onsubmit="return confirm('Delete this activity here too? Its notes, photos and segment times go with it.')">
-      <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8125rem;">Delete here</button></form>
+      <button class="btn btn-danger-quiet btn-sm">Delete here</button></form>
     <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='keep') }}" style="margin:0;">
-      <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8125rem;">Keep here</button></form>
+      <button class="btn btn-secondary btn-sm">Keep here</button></form>
   </div>
   {% endfor %}
   {% endif %}
@@ -212,9 +212,9 @@
     {% if edited | length > 1 %}
     <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
       <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id='edited', choice='garmin') }}" style="margin:0;">
-        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Use all Garmin's</button></form>
+        <button class="btn btn-secondary btn-sm">Use all Garmin's</button></form>
       <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id='edited', choice='keep') }}" style="margin:0;">
-        <button class="btn btn-secondary" style="padding:0.25rem 0.7rem; font-size:0.8125rem;">Keep all as here</button></form>
+        <button class="btn btn-secondary btn-sm">Keep all as here</button></form>
     </div>
     {% endif %}
   </div>
@@ -227,9 +227,9 @@
       {% if c.parked and c.diffs | selectattr('field', 'equalto', 'sport') | list %}<br><span style="color:var(--text-muted);">Another recording of it is set aside behind it and is removed if its sport changes.</span>{% endif %}
     </span>
     <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='garmin') }}" style="margin:0;">
-      <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8125rem;">Use Garmin's</button></form>
+      <button class="btn btn-secondary btn-sm">Use Garmin's</button></form>
     <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='keep') }}" style="margin:0;">
-      <button class="btn btn-secondary" style="padding:0.2rem 0.6rem; font-size:0.8125rem;">Keep as here</button></form>
+      <button class="btn btn-secondary btn-sm">Keep as here</button></form>
   </div>
   {% endfor %}
   {% endif %}

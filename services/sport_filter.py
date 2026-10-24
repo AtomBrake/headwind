@@ -14,8 +14,9 @@ from services import sports
 
 NO_SPORT = 'Ride'          # a row with no sport counts as a ride (services/sports.is_ride), and is listed and left out as one
 COL_SQL = "COALESCE(NULLIF({col}, ''), '" + NO_SPORT + "')"
-GROUP_COLOURS = {'ride': '252,76,2', 'foot': '167,139,250', 'swim': '91,184,212'}
-OTHER_COLOURS = ('16,185,129', '245,158,11', '236,72,153', '6,182,212', '148,163,184')
+# Colour variables from static/css/style.css; the page reads them with cssVar()
+GROUP_COLOURS = {'ride': '--accent', 'foot': '--c-violet', 'swim': '--c-sky'}
+OTHER_COLOURS = ('--success', '--warning', '--c-pink', '--c-cyan', '--c-grey')
 COMMUTE_SQL = {'only': '{p}commute = 1', 'no': 'COALESCE({p}commute, 0) != 1'}
 COMMUTE_LABELS = (('', 'Every activity'), ('only', 'Commutes'), ('no', 'Not commutes'))
 
@@ -27,7 +28,7 @@ def speed_sql(p=''):
 
 
 def chart_groups(groups):
-    """[{key, label, color}] for the stacked charts, one per stat group, in stack order."""
+    """[{key, label, color}] for the stacked charts, one per stat group, in stack order; color is a CSS variable name."""
     others = cycle(OTHER_COLOURS)
     return [{'key': g, 'label': sports.stat_label(g), 'color': GROUP_COLOURS.get(g) or next(others)} for g in groups]
 

@@ -32,7 +32,7 @@
       margin-right: 4px; padding-top: 20px;
     }
     .heatmap-day-label {
-      height: 12px; font-size: 9px; color: #4d7d95;
+      height: 12px; font-size: 9px; color: var(--text-muted);
       line-height: 12px; white-space: nowrap; width: 20px;
     }
     .heatmap-month-row {
@@ -40,11 +40,11 @@
       height: 16px; position: relative;
     }
     .heatmap-month-label {
-      font-size: 10px; color: #4d7d95; position: absolute;
+      font-size: 10px; color: var(--text-muted); position: absolute;
     }
     .legend-row {
       display: flex; align-items: center; gap: 6px;
-      margin-top: 0.75rem; font-size: 0.75rem; color: #4d7d95;
+      margin-top: 0.75rem; font-size: 0.75rem; color: var(--text-muted);
     }
     .legend-cell {
       width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0;
@@ -60,7 +60,7 @@
   <a href="{{ url_for('data.index', rider=r.id) }}"
      style="display:inline-flex; align-items:center; gap:0.5rem; padding:0.4rem 0.75rem 0.4rem 0.4rem;
             border-radius:999px; border:1px solid {% if r.id == active_rider.id %}var(--accent){% else %}var(--border){% endif %};
-            background:{% if r.id == active_rider.id %}rgba(252,76,2,0.12){% else %}var(--card-bg){% endif %};
+            background:{% if r.id == active_rider.id %}var(--accent-soft){% else %}var(--card-bg){% endif %};
             text-decoration:none; color:var(--text); font-size:0.875rem; font-weight:{% if r.id == active_rider.id %}600{% else %}400{% endif %};">
     {% if r.avatarPath %}
       <img src="{{ url_for('static', filename='avatars/' + r.avatarPath) }}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
@@ -81,42 +81,42 @@
 <!-- Best times: rides (services/best_efforts), runs and swims (services/sport_records); one table each -->
 {% for ach in achievements %}
 <div class="card" id="records-{{ ach.key }}" data-records="{{ ach.key }}" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">
-  <div style="padding:1rem 1.25rem; border-bottom:1px solid #1e4060; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
+  <div style="padding:1rem 1.25rem; border-bottom:1px solid var(--border-strong); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
     <div class="card-title" style="margin:0;">{{ ach.title }}{% if ach.key == 'ride' %}{{ rides_tag }}{% endif %}</div>
     <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-      <select class="rec-year" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
+      <select class="rec-year" style="background-color:var(--field-bg);color:var(--text);border:1px solid var(--border-strong);border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
         {% for yr in ach.by_year | sort(reverse=true) %}
         <option value="{{ yr }}">{{ yr }}</option>
         {% endfor %}
       </select>
-      <select class="rec-month" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
+      <select class="rec-month" style="background-color:var(--field-bg);color:var(--text);border:1px solid var(--border-strong);border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
         <option value="all">All months</option>
       </select>
       {% if ach.scan and not ach.rows %}
-      <button class="btn btn-secondary" style="font-size:0.8125rem;" id="effortsBtn" onclick="computeEfforts()">Compute Achievements</button>
+      <button class="btn btn-secondary btn-sm" id="effortsBtn" onclick="computeEfforts()">Compute Achievements</button>
       {% endif %}
     </div>
   </div>
   {% if ach.rows %}
   <div style="overflow-x:auto;">
-  <table class="rec-table" style="width:100%; border-collapse:collapse;">
+  <table class="table rec-table flush">
     <thead>
-      <tr style="border-bottom:1px solid #1e4060;">
-        <th style="padding:0.75rem 1.25rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Distance</th>
-        <th style="padding:0.75rem 1rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Best Time</th>
-        <th style="padding:0.75rem 1rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">{{ ach.rate_label }}</th>
-        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">{{ ach.noun }}</th>
-        <th style="padding:0.75rem 1.25rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Date</th>
+      <tr>
+        <th>Distance</th>
+        <th class="num">Best Time</th>
+        <th class="num">{{ ach.rate_label }}</th>
+        <th>{{ ach.noun }}</th>
+        <th class="num">Date</th>
       </tr>
     </thead>
     <tbody>
       {% for dkey, dlabel in ach.distances %}
-      <tr data-dist="{{ dkey }}" style="border-bottom:1px solid #163352;">
-        <td style="padding:0.875rem 1.25rem; font-weight:600; color:var(--text); white-space:nowrap;">{{ dlabel }}</td>
-        <td class="rec-time"  style="padding:0.875rem 1rem; text-align:right; font-variant-numeric:tabular-nums; color:var(--accent); font-weight:600;">—</td>
-        <td class="rec-speed" style="padding:0.875rem 1rem; text-align:right; color:var(--text-muted); font-size:0.875rem; white-space:nowrap;">—</td>
-        <td class="rec-ride"  style="padding:0.875rem 1rem; font-size:0.875rem;">—</td>
-        <td class="rec-date"  style="padding:0.875rem 1.25rem; text-align:right; color:var(--text-muted); font-size:0.875rem; white-space:nowrap;">—</td>
+      <tr data-dist="{{ dkey }}">
+        <td style="font-weight:600; color:var(--text); white-space:nowrap;">{{ dlabel }}</td>
+        <td class="rec-time num"  style="color:var(--accent); font-weight:600;">—</td>
+        <td class="rec-speed num" style="color:var(--text-muted); white-space:nowrap;">—</td>
+        <td class="rec-ride" >—</td>
+        <td class="rec-date num"  style="color:var(--text-muted); white-space:nowrap;">—</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -135,9 +135,9 @@
 <!-- Records: each sport's biggest single activities (routes/data._sport_records) -->
 {% if sport_records %}
 <div class="card" id="sportRecords" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">
-  <div style="padding:1rem 1.25rem; border-bottom:1px solid #1e4060; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
+  <div style="padding:1rem 1.25rem; border-bottom:1px solid var(--border-strong); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
     <div class="card-title" style="margin:0;">Records by sport</div>
-    <select id="srPeriod" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
+    <select id="srPeriod" style="background-color:var(--field-bg);color:var(--text);border:1px solid var(--border-strong);border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
       <option value="all">All time</option>
       {% for yr in sport_records | reject('equalto', 'all') | sort(reverse=true) %}
       <option value="{{ yr }}">{{ yr }}</option>
@@ -145,14 +145,14 @@
     </select>
   </div>
   <div style="overflow-x:auto;">
-  <table style="width:100%; border-collapse:collapse; min-width:640px;">
+  <table class="table flush" style="min-width:640px;">
     <thead>
-      <tr style="border-bottom:1px solid #1e4060;">
-        <th style="padding:0.75rem 1.25rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Sport</th>
-        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Longest</th>
-        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Longest time</th>
-        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Most climbing</th>
-        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Fastest</th>
+      <tr>
+        <th>Sport</th>
+        <th>Longest</th>
+        <th>Longest time</th>
+        <th>Most climbing</th>
+        <th>Fastest</th>
       </tr>
     </thead>
     <tbody id="srBody"></tbody>
@@ -164,35 +164,35 @@
 <!-- Climbing Records -->
 {% if climbing_by_year %}
 <div class="card" id="climbing" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">
-  <div style="padding:1rem 1.25rem; border-bottom:1px solid #1e4060; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
+  <div style="padding:1rem 1.25rem; border-bottom:1px solid var(--border-strong); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
     <div class="card-title" style="margin:0;">Climbing Records{{ rides_tag }}</div>
     <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-      <select id="climbYear" onchange="renderClimbing()" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
+      <select id="climbYear" onchange="renderClimbing()" style="background-color:var(--field-bg);color:var(--text);border:1px solid var(--border-strong);border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
         {% for yr in climbing_by_year | sort(reverse=true) %}
         <option value="{{ yr }}">{{ yr }}</option>
         {% endfor %}
       </select>
-      <select id="climbMonth" onchange="renderClimbing()" style="background-color:var(--surface2,#0d2135);color:var(--text);border:1px solid #1e4060;border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
+      <select id="climbMonth" onchange="renderClimbing()" style="background-color:var(--field-bg);color:var(--text);border:1px solid var(--border-strong);border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
         <option value="all">All months</option>
       </select>
     </div>
   </div>
-  <table style="width:100%; border-collapse:collapse;" id="climbTable">
+  <table class="table flush" id="climbTable">
     <thead>
-      <tr style="border-bottom:1px solid #1e4060;">
-        <th style="padding:0.75rem 1.25rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Threshold</th>
-        <th style="padding:0.75rem 1rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Best Elevation</th>
-        <th style="padding:0.75rem 1rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Ride</th>
-        <th style="padding:0.75rem 1.25rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Date</th>
+      <tr>
+        <th>Threshold</th>
+        <th class="num">Best Elevation</th>
+        <th>Ride</th>
+        <th class="num">Date</th>
       </tr>
     </thead>
     <tbody id="climbBody">
       {% for b in climbing_brackets %}
-      <tr data-bracket="{{ b }}" style="border-bottom:1px solid #163352;">
-        <td style="padding:0.875rem 1.25rem; font-weight:600; color:var(--text);">{{ '{:,}'.format(b) }} {{ U.elev }}</td>
-        <td class="climb-ft"   style="padding:0.875rem 1rem; text-align:right; color:var(--accent); font-weight:600;">—</td>
-        <td class="climb-ride" style="padding:0.875rem 1rem; font-size:0.875rem;">—</td>
-        <td class="climb-date" style="padding:0.875rem 1.25rem; text-align:right; color:var(--text-muted); font-size:0.875rem;">—</td>
+      <tr data-bracket="{{ b }}">
+        <td style="font-weight:600; color:var(--text);">{{ '{:,}'.format(b) }} {{ U.elev }}</td>
+        <td class="climb-ft num"   style="color:var(--accent); font-weight:600;">—</td>
+        <td class="climb-ride">—</td>
+        <td class="climb-date num" style="color:var(--text-muted);">—</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -214,19 +214,19 @@
   <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem; margin-bottom:1rem;">
     <div class="card-title" style="margin:0;">Activity Heatmap</div>
     <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.875rem; color:var(--text-muted);">
-      <select id="heatFrom" onchange="renderHeatmap()" style="background-color:var(--surface);color:var(--text);border:1px solid var(--border,#1e4060);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.8125rem;"></select>
+      <select id="heatFrom" onchange="renderHeatmap()" style="background-color:var(--field-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.8125rem;"></select>
       <span>→</span>
-      <select id="heatTo" onchange="renderHeatmap()" style="background-color:var(--surface);color:var(--text);border:1px solid var(--border,#1e4060);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.8125rem;"></select>
+      <select id="heatTo" onchange="renderHeatmap()" style="background-color:var(--field-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:0.25rem 0.5rem;font-size:0.8125rem;"></select>
     </div>
   </div>
   <div id="heatmapContainer"></div>
   <div class="legend-row">
     Less
-    <div class="legend-cell" style="background:#1a2d3d;"></div>
-    <div class="legend-cell" style="background:#4a2c15;"></div>
-    <div class="legend-cell" style="background:#8c4a1e;"></div>
-    <div class="legend-cell" style="background:#c4621f;"></div>
-    <div class="legend-cell" style="background:#fc4c02;"></div>
+    <div class="legend-cell" style="background:var(--heat-0);"></div>
+    <div class="legend-cell" style="background:var(--heat-1);"></div>
+    <div class="legend-cell" style="background:var(--heat-2);"></div>
+    <div class="legend-cell" style="background:var(--heat-3);"></div>
+    <div class="legend-cell" style="background:var(--accent);"></div>
     More
     <span id="heatLegendNote" style="margin-left:0.75rem; font-size:0.75rem;"></span>
   </div>
@@ -281,20 +281,20 @@
 <div class="card" style="margin-bottom:1.5rem;">
   <div class="card-title">Alcohol and recovery</div>
   {% if alcohol_recovery.enough %}
-  <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0 0 0.6rem;">The morning after a day with 2 or more units ({{ alcohol_recovery.drink_days }} days) against the morning after a dry day with food logged ({{ alcohol_recovery.dry_days }} days), from your Garmin data.</p>
-  <table class="table-compact" style="width:100%;">
+  <p class="hint" style="margin:0 0 0.6rem;">The morning after a day with 2 or more units ({{ alcohol_recovery.drink_days }} days) against the morning after a dry day with food logged ({{ alcohol_recovery.dry_days }} days), from your Garmin data.</p>
+  <table class="table table-compact">
     <thead><tr><th></th><th>After drinking</th><th>After a dry day</th><th>Difference</th></tr></thead>
     <tbody>
     {% for r in alcohol_recovery.rows %}
       {% set worse = (r.diff < 0) if r.better_when_higher else (r.diff > 0) %}
       <tr><td>{{ r.label }}</td><td>{{ r.drink }} {{ r.unit }}</td><td>{{ r.dry }} {{ r.unit }}</td>
-          <td style="font-weight:700; color:{{ '#f87171' if worse and r.diff != 0 else '#34d399' if r.diff != 0 else 'var(--text-muted)' }};">{{ '+' if r.diff > 0 }}{{ r.diff }} {{ r.unit }}</td></tr>
+          <td style="font-weight:700; color:{{ 'var(--danger-text)' if worse and r.diff != 0 else 'var(--success-text)' if r.diff != 0 else 'var(--text-muted)' }};">{{ '+' if r.diff > 0 }}{{ r.diff }} {{ r.unit }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
   <p style="color:var(--text-muted); font-size:0.75rem; margin:0.6rem 0 0; line-height:1.5;">This shows what happens, not why: a late night out is also a short night. The more days you log, the steadier the comparison.</p>
   {% else %}
-  <p style="color:var(--text-muted); font-size:0.875rem; margin:0;">Needs a few more logged drinks to compare ({{ alcohol_recovery.drink_days }} drinking day{{ '' if alcohol_recovery.drink_days == 1 else 's' }} with recovery data so far; it starts at 5).</p>
+  <p class="hint" style="margin:0;">Needs a few more logged drinks to compare ({{ alcohol_recovery.drink_days }} drinking day{{ '' if alcohol_recovery.drink_days == 1 else 's' }} with recovery data so far; it starts at 5).</p>
   {% endif %}
 </div>
 {% endif %}
@@ -308,15 +308,15 @@
   {% set other = wx_storm | rejectattr('condition', 'equalto', 'Storm') | list %}
   <details style="margin-top:0.9rem;">
     <summary style="cursor:pointer; color:var(--accent); font-size:0.875rem;">Storm rides — {{ claimed | length }} counted as Storm{% if other %}, {{ other | length }} to review{% endif %}</summary>
-    <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0.5rem 0;">A storm is only a storm where you rode it, so a name alone is not enough. A ride on a day the Met Office named a storm counts as <strong>Storm</strong> when the weather at its own place and hour had gusts of 50 km/h or more; that outranks the lookup's own condition (Rain, Snow, Cloudy). Rides to review: a named-storm day with gusts of 40–49 km/h, a named day that stayed calm where you rode, and violent wind (75 km/h+) on a day with no named storm. Tap <strong>Storm</strong> to count one, or <strong>Not a storm</strong> to take one back.</p>
+    <p class="hint" style="margin:0.5rem 0;">A storm is only a storm where you rode it, so a name alone is not enough. A ride on a day the Met Office named a storm counts as <strong>Storm</strong> when the weather at its own place and hour had gusts of 50 km/h or more; that outranks the lookup's own condition (Rain, Snow, Cloudy). Rides to review: a named-storm day with gusts of 40–49 km/h, a named day that stayed calm where you rode, and violent wind (75 km/h+) on a day with no named storm. Tap <strong>Storm</strong> to count one, or <strong>Not a storm</strong> to take one back.</p>
     <div style="max-height:24rem; overflow:auto; font-size:0.8125rem;">
       {% for r in claimed + other %}
-      <div id="storm_{{ r.id }}" style="display:flex; align-items:center; gap:0.6rem; padding:0.35rem 0; border-top:1px solid #163352; flex-wrap:wrap;">
+      <div id="storm_{{ r.id }}" style="display:flex; align-items:center; gap:0.6rem; padding:0.35rem 0; border-top:1px solid var(--border); flex-wrap:wrap;">
         <a href="/rides/{{ r.id }}" style="flex:1 1 13rem;">{{ r.date_txt }} · {{ r.name or 'Ride' }}<br><span style="color:var(--text-muted);">Storm {{ r.storm }} · {{ r.distance | fmt_dist }} · {% if r.gust_kph is not none %}gusts {{ r.gust_kph | round | int }} kph{% else %}no wind data{% endif %}{% if r.condition and r.condition != 'Storm' %} · {{ r.condition }}{% endif %}</span></a>
         {% if r.condition == 'Storm' %}
-        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;" onclick="stormPick('{{ r.id }}','notstorm')">Not a storm</button>
+        <button class="btn btn-secondary btn-sm" onclick="stormPick('{{ r.id }}','notstorm')">Not a storm</button>
         {% else %}
-        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;" onclick="stormPick('{{ r.id }}','Storm')">Storm</button>
+        <button class="btn btn-secondary btn-sm" onclick="stormPick('{{ r.id }}','Storm')">Storm</button>
         {% endif %}
       </div>
       {% endfor %}
@@ -327,14 +327,14 @@
   {% if wx_fog %}
   <details style="margin-top:0.9rem;">
     <summary style="cursor:pointer; color:var(--accent); font-size:0.875rem;">Possible fog rides ({{ wx_fog|length }}) — confirm the ones that were</summary>
-    <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0.5rem 0;">Weather models almost never report fog because it is so local. These rides started damp and still (humidity 97%+, light wind, no rain), so some were probably fog. Only you know: tap <strong>Fog</strong> to count it, or <strong>Not fog</strong> to stop it being suggested.</p>
+    <p class="hint" style="margin:0.5rem 0;">Weather models almost never report fog because it is so local. These rides started damp and still (humidity 97%+, light wind, no rain), so some were probably fog. Only you know: tap <strong>Fog</strong> to count it, or <strong>Not fog</strong> to stop it being suggested.</p>
     <div id="fogList" style="max-height:22rem; overflow:auto; font-size:0.8125rem;">
       {% for f in wx_fog %}
-      <div class="fogRow" id="fog_{{ f.id }}" style="display:flex; align-items:center; gap:0.6rem; padding:0.35rem 0; border-top:1px solid #163352; flex-wrap:wrap;">
+      <div class="fogRow" id="fog_{{ f.id }}" style="display:flex; align-items:center; gap:0.6rem; padding:0.35rem 0; border-top:1px solid var(--border); flex-wrap:wrap;">
         <a href="/rides/{{ f.id }}" style="flex:1 1 11rem;">{{ f.date }} · {{ f.name or 'Ride' }}</a>
         <span style="color:var(--text-muted);">{{ f.weatherHumidity }}% humidity · {{ f.weatherWindKph|round|int }} kph{% if f.weatherTempC is not none %} · {{ f.weatherTempC|round|int }}°C{% endif %}</span>
-        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;" onclick="fogPick('{{ f.id }}','Fog')">Fog</button>
-        <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;" onclick="fogPick('{{ f.id }}','keep')">Not fog</button>
+        <button class="btn btn-secondary btn-sm" onclick="fogPick('{{ f.id }}','Fog')">Fog</button>
+        <button class="btn btn-secondary btn-sm" onclick="fogPick('{{ f.id }}','keep')">Not fog</button>
       </div>
       {% endfor %}
     </div>
@@ -393,7 +393,7 @@
   if (!sel || !body) return;
   function cell(rec) {
     const td = document.createElement('td');
-    td.style.cssText = 'padding:0.75rem 1rem; font-size:0.875rem; vertical-align:top;';
+    td.style.verticalAlign = 'top';
     if (!rec) { td.textContent = '—'; td.style.color = 'var(--text-muted)'; return td; }
     const v = document.createElement('div');
     v.style.cssText = 'font-weight:600; color:var(--accent); font-variant-numeric:tabular-nums; white-space:nowrap;';
@@ -408,9 +408,8 @@
   function render() {
     body.replaceChildren(...(byPeriod[sel.value] || []).map(r => {
       const tr = document.createElement('tr');
-      tr.style.borderBottom = '1px solid #163352';
       const name = document.createElement('td');
-      name.style.cssText = 'padding:0.75rem 1.25rem; font-weight:600; color:var(--text); white-space:nowrap; vertical-align:top;';
+      name.style.cssText = 'font-weight:600; white-space:nowrap; vertical-align:top;';
       name.textContent = r.icon + ' ' + r.sport;
       tr.append(name, cell(r.dist), cell(r.time), cell(r.climb), cell(r.fast));
       return tr;
@@ -483,20 +482,20 @@ function computeEfforts() {
 }
 
 // ── Global defaults ──────────────────────────────────────────────
-Chart.defaults.color          = '#4d7d95';
-Chart.defaults.borderColor    = '#163352';
+Chart.defaults.color          = cssVar('--text-muted');
+Chart.defaults.borderColor    = cssVar('--border');
 Chart.defaults.font.family    = 'inherit';
 Chart.defaults.maintainAspectRatio = false;      // each chart fills a fixed-height box (.cbox) instead of growing taller as the screen gets wider
 
-const GRID_COLOR  = '#163352';
-const TICK_COLOR  = '#4d7d95';
-const ORANGE      = '#fc4c02';
-const BLUE        = '#0ea5e9';
-const GREEN       = '#10b981';
-const PURPLE      = '#a855f7';
-const YELLOW      = '#f59e0b';
-const RED         = '#ef4444';
-const TEAL        = '#06b6d4';
+const GRID_COLOR  = cssVar('--border');
+const TICK_COLOR  = cssVar('--text-muted');
+const ORANGE      = cssVar('--accent');
+const BLUE        = cssVar('--c-sky');
+const GREEN       = cssVar('--success');
+const PURPLE      = cssVar('--c-purple');
+const YELLOW      = cssVar('--warning');
+const RED         = cssVar('--danger');
+const TEAL        = cssVar('--c-cyan');
 
 function scalesXY(yLabel) {
   return {
@@ -525,7 +524,7 @@ if (document.getElementById('speedChart')) new Chart(document.getElementById('sp
         label: PACE ? 'Pace' : 'Speed',
         data:  {{ speed_values | tojson }},
         borderColor: 'transparent',
-        pointBackgroundColor: 'rgba(14,165,233,0.45)',
+        pointBackgroundColor: cssVar('--c-sky', 0.45),
         pointBorderColor: 'transparent',
         pointRadius: 3,
         pointHoverRadius: 5,
@@ -564,7 +563,7 @@ new Chart(document.getElementById('monthlyChart'), {
     labels: {{ monthly_labels | tojson }}.map(fmtMonth),
     datasets: [{
       data: {{ monthly_values | tojson }},
-      backgroundColor: 'rgba(252,76,2,0.7)',
+      backgroundColor: cssVar('--accent', 0.7),
       borderColor: ORANGE,
       borderWidth: 1,
       borderRadius: 3,
@@ -583,7 +582,7 @@ new Chart(document.getElementById('monthlyChart'), {
   const months    = {{ month_labels | tojson }};
   const years     = Object.keys(yoyData).sort();
   const palette   = [ORANGE, BLUE, GREEN, PURPLE, YELLOW, RED, TEAL,
-                     '#f97316','#3b82f6','#14b8a6','#8b5cf6','#ec4899','#22c55e','#eab308','#6366f1'];
+                     cssVar('--c-orange'),cssVar('--info'),cssVar('--c-teal'),cssVar('--c-violet'),cssVar('--c-pink'),cssVar('--c-green'),cssVar('--c-yellow'),cssVar('--c-indigo')];
 
   function hexToRgba(hex, a) {
     const n = parseInt(hex.replace('#',''), 16);
@@ -629,7 +628,7 @@ new Chart(document.getElementById('calChart'), {
         label: 'Calories',
         data: {{ cal_values | tojson }},
         borderColor: 'transparent',
-        pointBackgroundColor: 'rgba(239,68,68,0.4)',
+        pointBackgroundColor: cssVar('--danger', 0.4),
         pointBorderColor: 'transparent',
         pointRadius: 3,
         fill: false,
@@ -663,7 +662,7 @@ new Chart(document.getElementById('histChart'), {
     labels: {{ hist_labels | tojson }},
     datasets: [{
       data: {{ hist_values | tojson }},
-      backgroundColor: 'rgba(14,165,233,0.7)',
+      backgroundColor: cssVar('--c-sky', 0.7),
       borderColor: BLUE,
       borderWidth: 1,
       borderRadius: 3,
@@ -683,7 +682,7 @@ new Chart(document.getElementById('dowChart'), {
     labels: {{ dow_labels | tojson }},
     datasets: [{
       data: {{ dow_values | tojson }},
-      backgroundColor: 'rgba(168,85,247,0.7)',
+      backgroundColor: cssVar('--c-purple', 0.7),
       borderColor: PURPLE,
       borderWidth: 1,
       borderRadius: 3,
@@ -705,12 +704,13 @@ new Chart(document.getElementById('dowChart'), {
   today.setHours(0, 0, 0, 0);
 
   const STEPS = {{ heat_steps | tojson }}, HEAT_UNIT = {{ heat_unit | tojson }};      // in the unit shown: distance for one group of sports, else minutes
+  const HEAT = ['--heat-0', '--heat-1', '--heat-2', '--heat-3', '--heat-4'].map(v => cssVar(v));
   function heatColor(v) {
-    if (v <= 0)        return '#1a2d3d';
-    if (v < STEPS[0])  return '#4a2c15';
-    if (v < STEPS[1])  return '#8c4a1e';
-    if (v < STEPS[2])  return '#c4621f';
-    return '#fc4c02';
+    if (v <= 0)        return HEAT[0];
+    if (v < STEPS[0])  return HEAT[1];
+    if (v < STEPS[1])  return HEAT[2];
+    if (v < STEPS[2])  return HEAT[3];
+    return HEAT[4];
   }
 
   // Derive year range from actual data
@@ -762,7 +762,7 @@ new Chart(document.getElementById('dowChart'), {
       const mo = d.getMonth();
       if (mo !== lastMonth && d <= rangeEnd) {
         const lbl = document.createElement('div');
-        lbl.style.cssText = 'position:absolute; top:0; font-size:10px; color:#4d7d95; white-space:nowrap; left:' + (w * STEP) + 'px;';
+        lbl.style.cssText = 'position:absolute; top:0; font-size:10px; color:var(--text-muted); white-space:nowrap; left:' + (w * STEP) + 'px;';
         lbl.textContent = mo === 0 ? `${MONTHS[mo]} ${d.getFullYear()}` : MONTHS[mo];
         monthRow.appendChild(lbl);
         lastMonth = mo;
@@ -772,10 +772,10 @@ new Chart(document.getElementById('dowChart'), {
     const row = document.createElement('div');
     row.style.display = 'flex';
     const dayCol = document.createElement('div');
-    dayCol.style.cssText = 'width:28px; flex-shrink:0; display:flex; flex-direction:column; gap:' + GAP + 'px; position:sticky; left:0; z-index:1; background:var(--card-bg, #0b1f33);';
+    dayCol.style.cssText = 'width:28px; flex-shrink:0; display:flex; flex-direction:column; gap:' + GAP + 'px; position:sticky; left:0; z-index:1; background:var(--card-bg);';
     DAY_NAMES.forEach(name => {
       const lbl = document.createElement('div');
-      lbl.style.cssText = 'height:' + CELL + 'px; font-size:9px; color:#4d7d95; line-height:' + CELL + 'px;';
+      lbl.style.cssText = 'height:' + CELL + 'px; font-size:9px; color:var(--text-muted); line-height:' + CELL + 'px;';
       lbl.textContent = name;
       dayCol.appendChild(lbl);
     });
@@ -823,10 +823,10 @@ new Chart(document.getElementById('dowChart'), {
   const tempIds  = {{ wx_temp_ids | tojson }};
 
   const palette = {
-    Winter: 'rgba(100,181,246,0.55)',
-    Spring: 'rgba(129,199,132,0.55)',
-    Summer: 'rgba(255,183,77,0.55)',
-    Autumn: 'rgba(229,115,115,0.55)',
+    Winter: cssVar('--c-blue', 0.55),
+    Spring: cssVar('--c-green', 0.55),
+    Summer: cssVar('--c-amber', 0.55),
+    Autumn: cssVar('--c-red', 0.55),
   };
   const datasets = {};
   for (let i = 0; i < tempX.length; i++) {
@@ -847,12 +847,12 @@ new Chart(document.getElementById('dowChart'), {
           if (pt.id) window.location = '/rides/' + pt.id;
         }
       },
-      plugins: { legend: { labels: { color: '#8ab4cc', boxWidth: 10, font: { size: 11 } } } },
+      plugins: { legend: { labels: { color: cssVar('--text-soft'), boxWidth: 10, font: { size: 11 } } } },
       scales: {
-        x: { title: { display: true, text: 'Temperature (°C)', color: '#4d7d95' },
-             ticks: { color: '#4d7d95' }, grid: { color: '#1a3a52' } },
-        y: { title: { display: true, text: 'Avg Speed (' + UNITS.speed + ')', color: '#4d7d95' },
-             ticks: { color: '#4d7d95' }, grid: { color: '#1a3a52' } },
+        x: { title: { display: true, text: 'Temperature (°C)', color: cssVar('--text-muted') },
+             ticks: { color: cssVar('--text-muted') }, grid: { color: cssVar('--border') } },
+        y: { title: { display: true, text: 'Avg Speed (' + UNITS.speed + ')', color: cssVar('--text-muted') },
+             ticks: { color: cssVar('--text-muted') }, grid: { color: cssVar('--border') } },
       }
     }
   });
@@ -867,17 +867,17 @@ new Chart(document.getElementById('dowChart'), {
   const windIds = {{ wx_wind_ids | tojson }};
 
   const palette = {
-    headwind:   'rgba(239,83,80,0.6)',
-    tailwind:   'rgba(102,187,106,0.6)',
-    crosswind:  'rgba(255,183,77,0.6)',
-    calm:       'rgba(100,181,246,0.6)',
-    mixed:      'rgba(170,170,180,0.6)',
+    headwind:   cssVar('--danger', 0.6),
+    tailwind:   cssVar('--c-green', 0.6),
+    crosswind:  cssVar('--c-amber', 0.6),
+    calm:       cssVar('--c-blue', 0.6),
+    mixed:      cssVar('--c-grey', 0.6),
   };
   const labels = { headwind: 'Headwind', tailwind: 'Tailwind', crosswind: 'Crosswind', calm: 'Calm', mixed: 'Mixed (loop)' };
   const datasets = {};
   for (let i = 0; i < windX.length; i++) {
     const r = rels[i] || 'calm';
-    if (!datasets[r]) datasets[r] = { label: labels[r] || r, data: [], backgroundColor: palette[r] || 'rgba(150,150,150,0.5)', pointRadius: 3, pointHoverRadius: 5 };
+    if (!datasets[r]) datasets[r] = { label: labels[r] || r, data: [], backgroundColor: palette[r] || cssVar('--c-grey', 0.5), pointRadius: 3, pointHoverRadius: 5 };
     datasets[r].data.push({ x: windX[i], y: windY[i], id: windIds[i] });
   }
 
@@ -893,12 +893,12 @@ new Chart(document.getElementById('dowChart'), {
           if (pt.id) window.location = '/rides/' + pt.id;
         }
       },
-      plugins: { legend: { labels: { color: '#8ab4cc', boxWidth: 10, font: { size: 11 } } } },
+      plugins: { legend: { labels: { color: cssVar('--text-soft'), boxWidth: 10, font: { size: 11 } } } },
       scales: {
-        x: { title: { display: true, text: 'Wind Speed (' + UNITS.speed + ')', color: '#4d7d95' },
-             ticks: { color: '#4d7d95' }, grid: { color: '#1a3a52' } },
-        y: { title: { display: true, text: 'Avg Speed (' + UNITS.speed + ')', color: '#4d7d95' },
-             ticks: { color: '#4d7d95' }, grid: { color: '#1a3a52' } },
+        x: { title: { display: true, text: 'Wind Speed (' + UNITS.speed + ')', color: cssVar('--text-muted') },
+             ticks: { color: cssVar('--text-muted') }, grid: { color: cssVar('--border') } },
+        y: { title: { display: true, text: 'Avg Speed (' + UNITS.speed + ')', color: cssVar('--text-muted') },
+             ticks: { color: cssVar('--text-muted') }, grid: { color: cssVar('--border') } },
       }
     }
   });
@@ -912,12 +912,12 @@ new Chart(document.getElementById('dowChart'), {
   const counts = {{ wx_cond_counts | tojson }};
 
   const condColors = {
-    Clear:  'rgba(255,183,77,0.8)',
-    Cloudy: 'rgba(100,181,246,0.8)',
-    Fog:    'rgba(144,164,174,0.8)',
-    Rain:   'rgba(100,181,246,0.55)',
-    Snow:   'rgba(224,247,250,0.8)',
-    Storm:  'rgba(239,83,80,0.8)',
+    Clear:  cssVar('--c-amber', 0.8),
+    Cloudy: cssVar('--c-blue', 0.8),
+    Fog:    cssVar('--c-grey', 0.8),
+    Rain:   cssVar('--c-blue', 0.55),
+    Snow:   cssVar('--text-soft', 0.8),
+    Storm:  cssVar('--danger', 0.8),
   };
 
   new Chart(document.getElementById('wxCondChart'), {
@@ -927,7 +927,7 @@ new Chart(document.getElementById('dowChart'), {
       datasets: [{
         label: 'Avg Speed (' + UNITS.speed + ')',
         data: avgs,
-        backgroundColor: labels.map(l => condColors[l] || 'rgba(100,181,246,0.7)'),
+        backgroundColor: labels.map(l => condColors[l] || cssVar('--c-blue', 0.7)),
         borderRadius: 4,
         yAxisID: 'y',
       }, {
@@ -938,22 +938,22 @@ new Chart(document.getElementById('dowChart'), {
         showLine: false,
         pointStyle: 'rectRot',
         pointRadius: 7,
-        pointBackgroundColor: '#fc4c02',
-        pointBorderColor: '#fff',
+        pointBackgroundColor: cssVar('--accent'),
+        pointBorderColor: cssVar('--text-strong'),
       }]
     },
     options: {
       animation: false,
       plugins: {
-        legend: { display: true, labels: { color: '#8ab4cc' } },
+        legend: { display: true, labels: { color: cssVar('--text-soft') } },
         tooltip: { callbacks: { afterLabel: (ctx) => ctx.datasetIndex === 0 ? `${counts[ctx.dataIndex]} rides` : '' } }
       },
       scales: {
-        x: { ticks: { color: '#8ab4cc' }, grid: { color: '#1a3a52' } },
-        y: { beginAtZero: true, title: { display: true, text: 'Avg Speed (' + UNITS.speed + ')', color: '#4d7d95' },
-             ticks: { color: '#4d7d95' }, grid: { color: '#1a3a52' } },
-        y2: { beginAtZero: true, position: 'right', title: { display: true, text: 'Rides', color: '#fc4c02' },
-              ticks: { color: '#fc4c02' }, grid: { drawOnChartArea: false } },
+        x: { ticks: { color: cssVar('--text-soft') }, grid: { color: cssVar('--border') } },
+        y: { beginAtZero: true, title: { display: true, text: 'Avg Speed (' + UNITS.speed + ')', color: cssVar('--text-muted') },
+             ticks: { color: cssVar('--text-muted') }, grid: { color: cssVar('--border') } },
+        y2: { beginAtZero: true, position: 'right', title: { display: true, text: 'Rides', color: cssVar('--accent') },
+              ticks: { color: cssVar('--accent') }, grid: { drawOnChartArea: false } },
       }
     }
   });

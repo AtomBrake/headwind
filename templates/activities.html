@@ -10,7 +10,7 @@
   <a href="{{ url_for('dashboard.activities_page', rider=r.id) }}"
      style="display:inline-flex; align-items:center; gap:0.5rem; padding:0.4rem 0.75rem 0.4rem 0.4rem;
             border-radius:999px; border:1px solid {% if r.id == active_rider.id %}var(--accent){% else %}var(--border){% endif %};
-            background:{% if r.id == active_rider.id %}rgba(252,76,2,0.12){% else %}var(--card-bg){% endif %};
+            background:{% if r.id == active_rider.id %}var(--accent-soft){% else %}var(--card-bg){% endif %};
             text-decoration:none; color:var(--text); font-size:0.875rem; font-weight:{% if r.id == active_rider.id %}600{% else %}400{% endif %};">
     {% if r.avatarPath %}
       <img src="{{ url_for('static', filename='avatars/' + r.avatarPath) }}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">

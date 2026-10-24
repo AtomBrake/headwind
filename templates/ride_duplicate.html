@@ -2,6 +2,7 @@
 
 {% block title %}{{ 'Compare recordings' if compare else 'Other recording' }}{% endblock %}
 {% block page_title %}{{ 'Compare recordings' if compare else 'Other recording' }}{% endblock %}
+{% block parent %}<a href="{{ url_for('rides.detail', rid=activity.id) }}">{{ activity.name }}</a>{% endblock %}
 
 {% block head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -12,7 +13,7 @@
     .dup-table th, .dup-table td { text-align:left; padding:.45rem .6rem; border-top:1px solid var(--border); vertical-align:top; }
     .dup-table th { color:var(--text-muted); font-weight:500; width:11rem; }
     .dup-table thead td { border-top:0; font-weight:600; }
-    .dup-table tr.dup-differs td { color:var(--warning, #f59e0b); }
+    .dup-table tr.dup-differs td { color:var(--warning); }
     .dup-swatch { display:inline-block; width:.7rem; height:.7rem; border-radius:2px; margin-right:.4rem; vertical-align:middle; }
     .dup-charts { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:1rem; }
     .dup-chart { position:relative; height:200px; }
@@ -24,7 +25,7 @@
   <div style="display:flex; justify-content:space-between; align-items:center; gap:.75rem; flex-wrap:wrap;">
     <div>
       <div style="font-weight:600;">{{ activity.startDateLocal | fmt_date }} · {{ activity.name or 'Activity' }}</div>
-      <div style="color:var(--text-muted); font-size:.875rem; margin-top:.2rem;">{{ dup.reason }} The other recording is saved, not deleted.</div>
+      <div class="hint" style="margin-top:.2rem;">{{ dup.reason }} The other recording is saved, not deleted.</div>
     </div>
     <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
       <a class="btn btn-secondary" href="{{ url_for('rides.detail', rid=activity.id) }}">Back to the ride</a>
@@ -36,7 +37,7 @@
     </div>
   </div>
   {% if others | length > 1 %}
-  <div style="margin-top:.6rem; font-size:.8125rem; color:var(--text-muted);">
+  <div class="hint" style="margin-top:.6rem;">
     {{ others | length }} recordings are set aside under this ride:
     {% for o in others %}<a href="{{ url_for('rides.view_duplicate', rid=activity.id, dup_id=o, compare=1 if compare else None) }}"{% if o == dup.id %} style="font-weight:600;"{% endif %}>#{{ loop.index }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
   </div>
@@ -44,9 +45,9 @@
 </div>
 
 <div class="card" style="margin-bottom:1.25rem; overflow-x:auto;">
-  <table class="dup-table">
+  <table class="table dup-table">
     {% if compare %}
-    <thead><tr><th></th>{% for r in recs %}<td><span class="dup-swatch" style="background:{{ colours[loop.index0] }}"></span>{{ r.label }}</td>{% endfor %}</tr></thead>
+    <thead><tr><th></th>{% for r in recs %}<td><span class="dup-swatch" style="background:var({{ colours[loop.index0] }})"></span>{{ r.label }}</td>{% endfor %}</tr></thead>
     {% endif %}
     {% macro row(label, values) %}
       <tr{% if compare and values[0] != values[1] %} class="dup-differs"{% endif %}><th>{{ label }}</th>{% for v in values %}<td>{{ v }}</td>{% endfor %}</tr>
@@ -101,7 +102,7 @@
   <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
     <form method="POST" action="{{ url_for('rides.resolve_duplicate', rid=activity.id, dup_id=dup.id, action='swap') }}"><button class="btn btn-secondary" type="submit">Use the set-aside recording instead</button></form>
     <form method="POST" action="{{ url_for('rides.resolve_duplicate', rid=activity.id, dup_id=dup.id, action='keep') }}"><button class="btn btn-secondary" type="submit">They are different rides - keep both</button></form>
-    <form method="POST" action="{{ url_for('rides.resolve_duplicate', rid=activity.id, dup_id=dup.id, action='discard') }}" onsubmit="return confirm('Delete the set-aside recording for good?')"><button class="btn btn-secondary" type="submit">Delete the set-aside recording</button></form>
+    <form method="POST" action="{{ url_for('rides.resolve_duplicate', rid=activity.id, dup_id=dup.id, action='discard') }}" onsubmit="return confirm('Delete the set-aside recording for good? The activity you kept stays as it is. This cannot be undone.')"><button class="btn btn-danger-quiet" type="submit">Delete the set-aside recording</button></form>
   </div>
 </div>
 {% endblock %}
@@ -112,7 +113,7 @@
   var recs = {{ recs | map(attribute='label') | list | tojson }}.map(function(label, i) { return { label: label }; });
   var coords = {{ recs | map(attribute='coords') | list | tojson }};
   var series = {{ recs | map(attribute='series') | list | tojson }};
-  var colours = {{ colours | tojson }};
+  var colours = {{ colours | tojson }}.map(function (c) { return cssVar(c); });
   var U = window.UNITS || {};
   var meta = {{ series_meta | tojson }};
   var units = { velocity_smooth: U.speed, altitude: U.elev };
@@ -144,11 +145,11 @@
     var unit = m[2] || units[key] || '';
     new Chart(canvas, { type: 'line', data: { datasets: datasets },
       options: { animation: false, maintainAspectRatio: false, spanGaps: true, parsing: true,
-        plugins: { legend: { display: datasets.length > 1, labels: { color: '#8fb1c4', boxWidth: 10 } },
-                   title: { display: true, text: m[1] + (unit ? ' (' + unit + ')' : ''), color: '#8fb1c4', font: { size: 11 } },
+        plugins: { legend: { display: datasets.length > 1, labels: { color: cssVar('--text-soft'), boxWidth: 10 } },
+                   title: { display: true, text: m[1] + (unit ? ' (' + unit + ')' : ''), color: cssVar('--text-soft'), font: { size: 11 } },
                    tooltip: { mode: 'nearest', intersect: false, callbacks: { title: function(c) { return c[0].parsed.x.toFixed(1) + ' min'; } } } },
-        scales: { x: { type: 'linear', ticks: { color: '#4d7d95', font: { size: 10 }, maxTicksLimit: 8, callback: function(v) { return Math.round(v) + 'm'; } }, grid: { display: false } },
-                  y: { ticks: { color: '#4d7d95', font: { size: 10 } }, grid: { color: '#163352' } } } } });
+        scales: { x: { type: 'linear', ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: 8, callback: function(v) { return Math.round(v) + 'm'; } }, grid: { display: false } },
+                  y: { ticks: { color: cssVar('--text-muted'), font: { size: 10 } }, grid: { color: cssVar('--border') } } } } });
   });
   if (!any) document.getElementById('dupNoCharts').style.display = '';
 })();

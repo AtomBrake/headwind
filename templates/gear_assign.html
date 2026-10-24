@@ -2,9 +2,9 @@
 {% block title %}Assign rides to bikes{% endblock %}
 {% block page_title %}Assign rides to bikes{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">{% endblock %}
+{% block parent %}<a href="{{ url_for('gear.index', rider=rid) }}">Gear</a>{% endblock %}
 {% block topbar_actions %}
   {% if riders %}<form method="GET" style="display:inline;"><select name="rider" onchange="this.form.submit()">{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>{% endif %}
-  <a class="btn btn-secondary" href="{{ url_for('gear.index', rider=rid) }}">&larr; Gear</a>
 {% endblock %}
 {% block content %}
 {% if not bikes %}

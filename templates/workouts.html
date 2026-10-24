@@ -10,16 +10,14 @@
   .wo-main small { color:var(--text-muted); }
   .wo-num { text-align:right; font-variant-numeric:tabular-nums; font-weight:700; }
   .wo-num small { display:block; font-weight:400; color:var(--text-muted); }
-  .wo-del { background:none; border:1px solid var(--border); color:var(--text-muted); border-radius:8px; padding:.3rem .6rem; cursor:pointer; font-size:.8rem; }
-  .wo-del:hover { color:#ef4444; border-color:#ef4444; }
   .wo-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:.6rem; margin:.8rem 0 1rem; }
   .wo-form label { display:flex; flex-direction:column; gap:.2rem; font-size:.78rem; color:var(--text-muted); }
-  .wo-form input, .wo-form select { background:var(--bg,#071525); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:.5rem; font:inherit; }
+  .wo-form input, .wo-form select { background:var(--field-bg); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:.5rem; font:inherit; }
   .wo-form .wide { grid-column:1/-1; }
 </style>
 {% endblock %}
 {% block content %}
-{% if error %}<div style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);color:#fecaca;border-radius:10px;padding:.6rem .9rem;margin-bottom:.8rem;">Could not add that: {{ error }}</div>{% endif %}
+{% if error %}<div style="background:var(--danger-soft);border:1px solid var(--danger-line);color:var(--danger-text);border-radius:10px;padding:.6rem .9rem;margin-bottom:.8rem;">Could not add that: {{ error }}</div>{% endif %}
 <details style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:.8rem 1rem;margin-bottom:1rem;" {% if error %}open{% endif %}>
   <summary style="cursor:pointer;font-weight:600;">+ Add an activity by hand</summary>
   <form method="POST" action="{{ url_for('workouts_ui.workouts_new') }}" class="wo-form">
@@ -43,13 +41,13 @@
 {% macro wo_row(w) %}
   {% set secs = w.movingTime or 0 %}
   <div class="wo-line" data-pick="{{ w.id }}" onclick="location.href='{{ url_for('rides.detail', rid=w.id) }}'"
-       style="display:flex; align-items:center; gap:0.75rem; padding:0.55rem 0.25rem; border-bottom:1px solid rgba(22,51,82,0.4); cursor:pointer; transition:background 0.1s;"
-       onmouseover="this.style.background='rgba(255,255,255,0.025)'" onmouseout="this.style.background=''">
+       style="display:flex; align-items:center; gap:0.75rem; padding:0.55rem 0.25rem; border-bottom:1px solid var(--divider); cursor:pointer; transition:background 0.1s;"
+       onmouseover="this.style.background='var(--hover-tint)'" onmouseout="this.style.background=''">
     <div style="flex:1; min-width:0;">
       <div style="font-size:0.9375rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
         {{ w.sport | sport_icon }} {{ w.name or w.sport }}
-        {% if w.source == 'sensor-recovery' %}<span style="font-size:0.65rem; color:#c9a84c; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">RECOVERED</span>{% endif %}
-        {% if w.sport == 'Run' %}<span style="font-size:0.65rem; color:#a78bfa; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">RUN</span>{% endif %}
+        {% if w.source == 'sensor-recovery' %}<span style="font-size:0.65rem; color:var(--c-gold); margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">RECOVERED</span>{% endif %}
+        {% if w.sport == 'Run' %}<span style="font-size:0.65rem; color:var(--c-violet); margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">RUN</span>{% endif %}
       </div>
       <div style="font-size:0.775rem; color:var(--text-muted); margin-top:0.15rem; font-variant-numeric:tabular-nums;">
         {% if is_filtered %}{{ w.startDateLocal | fmt_date }} &nbsp;·&nbsp; {% endif %}{{ w.startDateLocal[11:16] }} &nbsp;·&nbsp;<span style="color:var(--text);">{{ w.distance | fmt_dist }}</span>
@@ -67,7 +65,7 @@
           {% for sp in (['Walk','Run','Hike','Ride','VirtualRide'] if w.sport in ['Walk','Run','Hike'] else [w.sport,'Walk','Run','Hike','Ride','VirtualRide']) %}<option value="{{ sp }}" {{ 'selected' if w.sport == sp }}>{{ 'Indoor ride' if sp == 'VirtualRide' else sp }}</option>{% endfor %}
         </select>
       </form>
-      <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=w.id) }}" onsubmit="return confirm('Delete this activity? This cannot be undone.')" style="margin:0;"><button class="wo-del" type="submit" title="Delete">Delete</button></form>
+      <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=w.id) }}" onsubmit="return confirm('Delete this activity? Its photos and notes go with it. This cannot be undone.')" style="margin:0;"><button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button></form>
     </div>
   </div>
 {% endmacro %}
@@ -92,15 +90,15 @@
   <div class="form-group-sm" style="flex:1; min-width:110px;"><label>Type</label>
     <select name="sport"><option value="">All</option>{% for sp in sports %}<option value="{{ sp }}" {{ 'selected' if f.sport == sp }}>{{ sp }}</option>{% endfor %}</select></div>
   <div style="display:flex; gap:0.4rem;">
-    <button type="submit" class="btn btn-primary" style="padding:0.35rem 0.9rem; font-size:0.875rem;">Search</button>
-    {% if is_filtered %}<a href="{{ url_for('workouts_ui.workouts_page') }}" class="btn btn-secondary" style="padding:0.35rem 0.75rem; font-size:0.875rem;">&times; Clear</a>{% endif %}
+    <button type="submit" class="btn btn-primary btn-sm">Search</button>
+    {% if is_filtered %}<a href="{{ url_for('workouts_ui.workouts_page') }}" class="btn btn-secondary btn-sm">&times; Clear</a>{% endif %}
   </div>
 </form>
 
 <div class="card" id="workout-history" data-pick-list>
   <div class="card-title" style="display:flex; align-items:center; gap:0.5rem;">Workouts{% if is_filtered %}<span style="font-size:0.8125rem; font-weight:400; color:var(--text-muted); margin-left:0.5rem;">{{ workouts | length }} result{{ 's' if workouts | length != 1 }}</span>{% endif %}
     {% if workouts %}<button type="button" class="btn btn-secondary pick-toggle" data-pick-toggle>Select</button>{% endif %}</div>
-  <p style="color:var(--text-muted);font-size:0.8125rem;margin:0 0 0.6rem;">Your complete history of walks, runs and hikes, from the Headwind phone app or added by hand. Runs also appear in the dashboard's activity list. Workouts are kept apart from rides so they never change your ride stats; their calories count toward the day's burn.</p>
+  <p class="hint" style="margin:0 0 0.6rem;">Your complete history of walks, runs and hikes, from the Headwind phone app or added by hand. Runs also appear in the dashboard's activity list. Workouts are kept apart from rides so they never change your ride stats; their calories count toward the day's burn.</p>
   {% if not workouts %}
     <p style="color:var(--text-muted)">{{ 'No workouts match your filters.' if is_filtered else 'Nothing yet. Pair a phone under Phones and record a walk, or add one above.' }}</p>
   {% elif is_filtered %}

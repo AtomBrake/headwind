@@ -21,14 +21,14 @@
 {% if strava.pending %}
 <div class="gear-note">
   <div><strong>{{ strava.pending }}</strong> bike{{ 's' if strava.pending != 1 }} from your Strava export {{ 'are' if strava.pending != 1 else 'is' }} waiting to be matched. Their rides get a bike once you say which of yours (or a new one) each is.</div>
-  <a class="btn btn-primary btn-sm" href="{{ url_for('gear.strava_page', rider=rid) }}">Match Strava bikes</a>
+  <a class="btn btn-secondary btn-sm" href="{{ url_for('gear.strava_page', rider=rid) }}">Match Strava bikes</a>
 </div>
 {% endif %}
 
 {% if span.unassigned and bikes %}
 <div class="gear-note">
   <div><strong>{{ '{:,}'.format(span.unassigned) }}</strong> of {{ '{:,}'.format(span.total) }} rides have no bike yet. New rides get your default bike automatically; use the calendar to say which bike rode the older ones.</div>
-  <a class="btn btn-primary btn-sm" href="{{ url_for('gear.assign_page', rider=rid) }}">Assign rides by calendar</a>
+  <a class="btn btn-secondary btn-sm" href="{{ url_for('gear.assign_page', rider=rid) }}">Assign rides by calendar</a>
 </div>
 {% endif %}
 
@@ -64,10 +64,10 @@
 {% endif %}
 
 {% if not bikes %}
-<div class="card" style="text-align:center;padding:2.2rem 1rem;">
-  <div style="color:var(--text-muted);margin-bottom:.6rem;">{{ bike_icon() }}</div>
-  <h3 style="margin:.2rem 0;">Add your first bike</h3>
-  <p class="hint" style="max-width:520px;margin:.4rem auto 1rem;">Track what is on each bike, how far every chain, tyre and cassette has gone, and get a nudge when something is due. Pick a default bike and every new ride lands on it.</p>
+<div class="card empty-state">
+  <div class="empty-icon">{{ bike_icon() }}</div>
+  <h3>Add your first bike</h3>
+  <p>Track what is on each bike, how far every chain, tyre and cassette has gone, and get a nudge when something is due. Pick a default bike and every new ride lands on it.</p>
   <a class="btn btn-primary" href="{{ url_for('gear.bike_form', rider=rid) }}">+ Add a bike</a>
 </div>
 {% else %}
@@ -79,7 +79,7 @@
       <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;">
         <h3><a href="{{ url_for('gear.bike', bike_id=b.bike.id) }}" style="color:inherit;text-decoration:none;">{{ b.bike.name }}</a></h3>
         {% if b.bike.id == default_id %}<span class="chip default">Default</span>{% endif %}
-        {% if b.bike.archived %}<span class="chip">Archived</span>{% endif %}
+        {% if b.bike.archived %}<span class="chip">Retired</span>{% endif %}
         {% if b.health.level != 'ok' %}<span class="chip {{ b.health.level }}">{{ b.health.attention or b.health.soon }} {{ 'to do' if b.health.attention else 'soon' }}</span>{% endif %}
       </div>
       <div class="sub">{{ [b.bike.brand, b.bike.model, b.bike.year] | select | join(' ') }}</div>
@@ -95,7 +95,7 @@
   </div>
   {% endfor %}
 </div>
-{% if has_archived %}<p class="hint" style="margin-top:1rem;"><a href="{{ url_for('gear.index', rider=rid, archived=(0 if show_archived else 1)) }}">{{ 'Hide' if show_archived else 'Show' }} archived bikes</a></p>{% endif %}
+{% if has_archived %}<p class="hint" style="margin-top:1rem;"><a href="{{ url_for('gear.index', rider=rid, archived=(0 if show_archived else 1)) }}">{{ 'Hide' if show_archived else 'Show' }} retired bikes</a></p>{% endif %}
 {% endif %}
 
 <h3 style="margin:1.6rem 0 .7rem;">Shoes and other gear</h3>

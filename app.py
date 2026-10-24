@@ -339,6 +339,18 @@ def create_app():
         except Exception:
             return str(val or '')
 
+    @app.template_filter('fmt_when')
+    def fmt_when(val):
+        """A moment Headwind recorded itself (SQLite datetime('now'), UTC) at home time: '24 Oct 2026, 14:05'."""
+        try:
+            from datetime import timezone
+            from services import tz
+            from services.dates import day_month_year
+            local = datetime.fromisoformat(str(val)[:19]).replace(tzinfo=timezone.utc).astimezone(tz.zone())
+            return f'{day_month_year(local)}, {local:%H:%M}'
+        except Exception:
+            return str(val or '')
+
     @app.template_filter('weather_icon')
     def weather_icon(condition):
         from services.homeassistant import weather_icon as _wi
