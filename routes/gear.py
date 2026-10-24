@@ -87,7 +87,8 @@ def index():
 
 def _no_gear(db, rid):
     """The Gear page's note on activities with no gear: {'href': the Activities page filtered to them, 'n', 'types': [(sport, n, href)]},
-    each type linking to that sport alone. Rides count once there's a bike, the rest once there's kit (gear.no_gear_kind); None for nothing."""
+    each type linking to that sport alone. Rides count once there's a bike, the rest once there's kit for their sport (gear.no_gear_kind,
+    gear.kit_sports); None for nothing."""
     from urllib.parse import urlencode
     from werkzeug.datastructures import MultiDict
     from services.sport_filter import SportFilter

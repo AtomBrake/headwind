@@ -138,3 +138,23 @@ def test_the_calendar_lists_a_picked_days_rides_so_each_can_get_its_own_bike(cli
 
     assert client.post('/gear/api/ride-bike', json={'ride': 'run', 'bike': mtb}).status_code == 404, 'a run never gets a bike'
     assert client.get('/gear/api/day-rides?dates=nope').status_code == 400
+
+
+def test_only_sports_with_gear_count_as_having_none(client):
+    with client.application.app_context():
+        db = database.get_db()
+        boots = kit.create(db, 1, 'Boots')                       # no default: hikes have gear because one has been in them
+        skis = kit.create(db, 1, 'Old skis', kind='skis')
+        kit.retire(db, skis)                                     # retired: nothing to put a ski day on any more
+        for aid, sport, kit_id in (('hike', 'Hike', None), ('hike_booted', 'Hike', boots), ('swim', 'Swim', None), ('yoga', 'Yoga', None),
+                                   ('trail', 'Trail Run', None), ('ski', 'AlpineSki', None), ('ski_old', 'AlpineSki', skis)):
+            db.execute("INSERT INTO Activity (id, name, riderId, sportType, type, startDateLocal, distance, movingTime, kitId) "
+                       "VALUES (?, ?, 1, ?, ?, '2026-05-06T10:00:00', 5000, 3600, ?)", [aid, aid, sport, sport, kit_id])
+        db.commit()
+    assert _listed(client, 'gear=kit-none')[0] == {'run', 'hike'}, 'not a swim or yoga with no gear for them, a trail run (shoes are for Run) or a ski day on retired skis'
+    assert _gear_note(client)[0] == '5'
+    with client.application.app_context():
+        db = database.get_db()
+        kit.set_defaults(db, client.ids['shoes'], ['Run', 'Trail Run'])
+        db.commit()
+    assert _listed(client, 'gear=none')[0] == {'road_am', 'mtb_pm', 'run', 'hike', 'trail'}, 'a default for a sport counts it in'
