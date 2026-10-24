@@ -221,8 +221,8 @@ LIST_PATHS = ('/dashboard', '/activities')     # the pages that show the activit
 
 
 def _gear_filter(db, rid, value):
-    """The list's gear filter, from ?gear=: none (no gear: a ride with no bike, anything else with no shoes or other kit), bike-none, kit-none
-    (services/gear.NO_GEAR_SQL), bike-<id> or kit-<id>. Returns {value, sql (None for no filter), params, args (to keep it on links), choices
+    """The list's gear filter, from ?gear=: none (no gear: a ride with no bike, or anything else with no shoes or other kit in a sport that has
+    some), bike-none, kit-none (services/gear.no_gear_sql), bike-<id> or kit-<id>. Returns {value, sql (None for no filter), params, args (to keep it on links), choices
     for the form as [(group, [(value, label)])], row_picker (a bike or kit picker on each row, to deal with them one by one), pickers (the
     rider's bikes and kit for it)}."""
     from services import gear, kit
@@ -236,8 +236,9 @@ def _gear_filter(db, rid, value):
     out = dict(value='', sql=None, params=[], args=[], choices=choices, row_picker=False,
                pickers={'bike': [b for b in bikes if not b['archived']], 'kit': [k for k in items if not k['retiredOn']]})
     kind, _, which = (value or '').partition('-')
-    if value in gear.NO_GEAR_SQL:
-        out.update(value=value, sql=gear.NO_GEAR_SQL[value], row_picker=True)
+    if value in gear.NO_GEAR:
+        sql, params = gear.no_gear_sql(db, rid, value)
+        out.update(value=value, sql=sql, params=params, row_picker=True)
     elif kind in ('bike', 'kit') and which.isdigit():
         out.update(value=value, sql=f'a.{kind}Id = ?', params=[int(which)])
     if out['value']:

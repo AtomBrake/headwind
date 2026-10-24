@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.18-beta] - 2026-10-24
+
+### Changed
+- **Only sports you have gear for count as having none.** The Gear page's note and the "No gear" list on the Activities page used to count every activity with no shoes or kit, so swims, yoga or weight training showed up even with no gear to put them on. Now a sport counts only once a pair of shoes or other gear (not retired) is its default or has been on one of its activities. Rides still count once you have a bike.
+
 ## [0.7.17-beta] - 2026-10-24
 
 Dependency: `cryptography` 42.0 or later (`pip install -r requirements.txt` outside Docker). At the first start, a key file, `.secrets_key`, is made beside the database, and the keys and passwords saved in the database are encrypted with it.

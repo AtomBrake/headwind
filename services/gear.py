@@ -308,14 +308,33 @@ def calendar_month(db, rider_id, year, month):
     return out
 
 
-# Activities with no gear, on Activity a: a ride with no bike, anything else with no shoes or other kit (services/kit.py). The keys are the
-# activity lists' ?gear= values (routes/dashboard._gear_filter).
+# Activities with no gear: a ride with no bike, or anything else with no shoes or other kit (services/kit.py) in a sport the rider has some for
+# (kit_sports). These are the activity lists' ?gear= values for them (routes/dashboard._gear_filter): every sport, rides, the rest.
+NO_GEAR = ('none', 'bike-none', 'kit-none')
 _A_RIDE = RIDE_SQL.replace('sportType', 'a.sportType')
-NO_GEAR_SQL = {
-    'none':      f'((a.bikeId IS NULL AND {_A_RIDE}) OR (a.kitId IS NULL AND NOT {_A_RIDE}))',
-    'bike-none': f'(a.bikeId IS NULL AND {_A_RIDE})',
-    'kit-none':  f'(a.kitId IS NULL AND NOT {_A_RIDE})',
-}
+
+
+def kit_sports(db, rider_id):
+    """The rider's sports, spelt as their activities have them, that they have shoes or other kit for: an item that isn't retired is the
+    default for the sport or is on one of its activities. Only these sports' activities can be missing kit; a yoga session needn't have any."""
+    from services.kit import sport_key
+    keys = {r[0] for r in db.execute('SELECT d.sport FROM KitDefault d JOIN Kit k ON k.id = d.kitId WHERE d.riderId=? AND k.retiredOn IS NULL',
+                                     [rider_id]).fetchall()}
+    keys |= {sport_key(r[0]) for r in db.execute('SELECT DISTINCT a.sportType FROM Activity a JOIN Kit k ON k.id = a.kitId '
+                                                 'WHERE a.riderId=? AND k.retiredOn IS NULL', [rider_id]).fetchall()}
+    return [r[0] for r in db.execute(f'SELECT DISTINCT a.sportType FROM Activity a WHERE a.riderId=? AND NOT {_A_RIDE}', [rider_id]).fetchall()
+            if sport_key(r[0]) in keys]
+
+
+def no_gear_sql(db, rider_id, which):
+    """(SQL on Activity a, params) for one of NO_GEAR: the rider's rides with no bike ('bike-none'), the activities of their kit_sports with no
+    kit ('kit-none'), or both ('none'). (None, []) for anything else."""
+    if which not in NO_GEAR:
+        return None, []
+    sports_ = kit_sports(db, rider_id) if which != 'bike-none' else []
+    bike = f'(a.bikeId IS NULL AND {_A_RIDE})'
+    kit_ = f"(a.kitId IS NULL AND a.sportType IN ({','.join('?' * len(sports_))}))" if sports_ else '0'
+    return {'none': f'({bike} OR {kit_})', 'bike-none': bike, 'kit-none': kit_}[which], sports_
 
 
 def no_gear_kind(db, rider_id):
@@ -327,14 +346,15 @@ def no_gear_kind(db, rider_id):
 
 
 def no_gear_counts(db, rider_id, which):
-    """[(sport, n)] of the rider's activities with no gear (NO_GEAR_SQL[which]), most first. A row with no sport counts as a Ride, as the sport
+    """[(sport, n)] of the rider's activities with no gear (no_gear_sql), most first. A row with no sport counts as a Ride, as the sport
     filter has it (services/sport_filter.COL_SQL)."""
     from services.sport_filter import COL_SQL
-    if which not in NO_GEAR_SQL:
+    sql, params = no_gear_sql(db, rider_id, which)
+    if not sql:
         return []
     col = COL_SQL.format(col='a.sportType')
-    return [(r[0], r[1]) for r in db.execute(f'SELECT {col} AS s, COUNT(*) AS n FROM Activity a WHERE a.riderId=? AND {NO_GEAR_SQL[which]} '
-                                             f'GROUP BY s ORDER BY n DESC, s', [rider_id]).fetchall()]
+    return [(r[0], r[1]) for r in db.execute(f'SELECT {col} AS s, COUNT(*) AS n FROM Activity a WHERE a.riderId=? AND {sql} '
+                                             f'GROUP BY s ORDER BY n DESC, s', [rider_id] + params).fetchall()]
 
 
 DAY_RIDES_MAX = 40       # the calendar lists this many of the picked days' rides; more days than that are better done by range
