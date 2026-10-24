@@ -27,10 +27,10 @@
   <div class="panel">
     <h3>1. Pick the rides</h3>
     <div class="hint" id="selInfo">Nothing picked yet.</div>
-    <div class="gform" style="grid-template-columns:1fr 1fr;margin-bottom:.2rem;">
+    <div class="form-grid" style="grid-template-columns:1fr 1fr;margin-bottom:.2rem;">
       <label>From<input type="date" id="from" max="{{ today }}"></label>
       <label>To<input type="date" id="to" max="{{ today }}"></label>
-      <label class="wide" style="flex-direction:row;align-items:center;gap:.5rem;"><input type="checkbox" id="toPresent"> ...all the way to today</label>
+      <label class="wide check"><input type="checkbox" id="toPresent"> ...all the way to today</label>
     </div>
     <div class="quick">
       <button class="btn btn-secondary btn-sm" id="qFromDay" type="button" title="Uses the first day you clicked">From picked day to today</button>
@@ -40,9 +40,9 @@
       <button class="btn btn-secondary btn-sm" id="qClear" type="button">Clear</button>
     </div>
     <h3>2. Choose the bike</h3>
-    <div class="gform" style="grid-template-columns:1fr;">
+    <div class="form-grid" style="grid-template-columns:1fr;">
       <label><select id="bikeSel">{% for b in bikes %}<option value="{{ b.id }}" {{ 'selected' if preselect == b.id }}>{{ b.name }}</option>{% endfor %}<option value="">No bike (clear)</option></select></label>
-      <label style="flex-direction:row;align-items:center;gap:.5rem;"><input type="checkbox" id="onlyUn" checked> Leave rides that already have a bike alone</label>
+      <label class="check"><input type="checkbox" id="onlyUn" checked> Leave rides that already have a bike alone</label>
     </div>
     <div class="preview" id="preview">Pick some days or a range to see what will change.</div>
     <button class="btn btn-primary" id="apply" type="button" disabled style="width:100%;">Apply</button>

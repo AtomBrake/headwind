@@ -1,10 +1,11 @@
 {% extends 'base.html' %}
+{% from '_activity_row.html' import activity_row %}
 {% block title %}{{ kit.name }}{% endblock %}
 {% block page_title %}{{ kit.name }}{% endblock %}
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">{% endblock %}
 {% block parent %}<a href="{{ url_for('gear.index', rider=kit.riderId) }}">Gear</a>{% endblock %}
 {% block content %}
-{% if error %}<div class="gear-err">{{ error }}</div>{% endif %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
 
 <div class="gear-head">
   <div class="big-ph" style="font-size:3.5rem;">{{ icon }}</div>
@@ -48,12 +49,7 @@
 <div class="card">
   <div class="card-title">Recent activities</div>
   {% if recent %}
-  {% for a in recent %}
-  <a href="{{ url_for('rides.detail', rid=a.id) }}" class="dash-link" style="display:flex;gap:.6rem;padding:.45rem 0;border-bottom:1px solid var(--divider);">
-    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ a.sportType | sport_icon }} {{ a.name or a.sportType }}</span>
-    <span class="hint" style="white-space:nowrap;">{{ a.startDateLocal | fmt_date }} · {{ a.distance | fmt_dist }} · {{ a.movingTime | fmt_duration }}</span>
-  </a>
-  {% endfor %}
+  {% for a in recent %}{{ activity_row(a) }}{% endfor %}
   {% else %}
   <p class="hint">Nothing on {{ kit.name }} yet. Pick it on an activity's page, use "Gear…" in the Select bar on the Activities page, or make it the default for a sport.</p>
   {% endif %}

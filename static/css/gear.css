@@ -1,6 +1,5 @@
 /* Gear module. Uses the app's theme variables only (static/css/style.css); no colour is written here. */
 .gear-note { background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 12px; padding: .7rem 1rem; margin-bottom: 1rem; display:flex; gap:.8rem; align-items:center; flex-wrap:wrap; }
-.gear-err { background: var(--danger-soft); border: 1px solid var(--danger-line); color:var(--danger-text); border-radius:10px; padding:.6rem .9rem; margin-bottom:1rem; }
 .bike-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(290px,1fr)); gap:1rem; }
 .bike-card { background:var(--card-bg); border:1px solid var(--border); border-radius:16px; overflow:hidden; display:flex; flex-direction:column; text-decoration:none; color:inherit; }
 .bike-card:hover { border-color:var(--text-muted); }
@@ -23,12 +22,6 @@
 .gear-head .meta { flex:1; min-width:240px; }
 .gear-head h2 { margin:.1rem 0 .3rem; }
 .gear-actions { display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.7rem; }
-.gform { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.6rem; margin:.6rem 0; }
-.gform label { display:flex; flex-direction:column; gap:.2rem; font-size:.78rem; color:var(--text-muted); }
-.gform .wide { grid-column:1/-1; }
-.gform input, .gform select, .gform textarea { background:var(--field-bg); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:.5rem; font:inherit; }
-details.gcard { background:var(--card-bg); border:1px solid var(--border); border-radius:14px; padding:.7rem 1rem; margin-bottom:1rem; }
-details.gcard > summary { cursor:pointer; font-weight:600; }
 .mini-actions { display:flex; gap:.35rem; flex-wrap:wrap; }
 
 /* assignment calendar */

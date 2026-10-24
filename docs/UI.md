@@ -82,6 +82,39 @@ Inside a card that already exists, drop `card`.
 - `<tr class="grp">` is a group heading inside the body.
 - Don't put padding, borders or font sizes on cells.
 
+## Lists of activities
+
+Every list of activities (dashboard, Activities, Workouts, a bike's, kit's or rider's page) draws its rows with the one macro in `templates/_activity_row.html`: sport icon, name, then date, distance, time, speed or pace by sport, and the climb where the sport has one.
+
+```jinja
+{% from '_activity_row.html' import activity_row %}
+<div data-pick-list>{% for a in rows %}{{ activity_row(a) }}{% endfor %}</div>
+```
+
+- The query needs `id`, `name`, `sportType` (or `sport`), `startDateLocal`, `distance`, `movingTime`, `averageSpeed` and `totalElevationGain`; `riderName` / `riderAvatar` add the rider at the end.
+- `date=false` where a day heading already gives the date; `more=[…]` adds figures to the second line (kcal, steps).
+- `{% call activity_row(a) %}…{% endcall %}` puts controls at the end of the row, above the link. They hide while the Select bar is on.
+- Don't put activities in a table.
+
+## Forms
+
+One layout: the label above the field, a `.hint` below it, and an error in a `.flash.flash-error` at the top of the page or form (the route passes `error`).
+
+```html
+<div class="form-group">
+  <label for="bikeName">Name</label>
+  <input id="bikeName" name="name">
+  <p class="hint">Shown on the Gear page and on each ride.</p>
+</div>
+```
+
+- `.form-grid` lays several fields side by side, as many as fit, and one to a row on a phone. Its fields are `.form-group`s, or a `<label>` wrapping its field (`<label>Brand<input name="brand"></label>`); `.wide` takes a whole row.
+- `.check` is a checkbox or radio with its words beside it: `<label class="check"><input type="checkbox"> Commute</label>`. Several in a row go in `.checks`; a group with a heading is a `<fieldset>` with a `<legend>`.
+- `.form-actions` is the row of buttons at the end: the one primary action first, then Cancel and a hint.
+- `details.gcard` is a card that opens, for a form that's needed now and then ("+ Add a part").
+- The toolbar above a list (`.toolbar`, `.form-group-sm`) is the one smaller layout, for search and filter fields.
+- Don't set font sizes, colours or margins on labels and fields.
+
 ## Chips
 
 `.chip` is a small label on a row or card: `.chip.ok`, `.soon`, `.due`, `.overdue` for wear and status, `.chip.default` for the default bike.

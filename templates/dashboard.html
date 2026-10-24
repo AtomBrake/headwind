@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_activity_row.html' import activity_row %}
 
 {% block title %}Dashboard{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
@@ -190,31 +191,16 @@
 
 <!-- Recent rides + Recovery -->
 <div class="dash-split">
-  <div class="card" style="padding:0;">
-    <div style="display:flex; align-items:center; justify-content:space-between; padding:1.25rem 1.25rem 0.75rem;">
-      <div class="card-title" style="margin:0;">Recent Activities</div>
-      {% if activities %}<a href="/activities{% if rq %}?{{ rq }}{% endif %}" style="font-size:0.75rem; color:var(--accent); text-decoration:none;">View all &rarr;</a>{% endif %}
+  <div class="card">
+    <div class="recovery-panel-head">
+      <div class="card-title">Recent Activities</div>
+      {% if activities %}<a href="/activities{% if rq %}?{{ rq }}{% endif %}">View all &rarr;</a>{% endif %}
     </div>
     {% if activities %}
-    <table class="table table-compact">
-      <thead>
-        <tr><th>Date</th><th>Name</th><th>Distance</th><th>Time</th><th>{{ {'speed': 'Avg Speed', 'pace': 'Avg Pace', 'swim': 'Pace /100 m'}.get(sf.style, 'Speed / Pace') }}</th><th>Elevation</th></tr>
-      </thead>
-      <tbody>
-        {% for a in activities[:6] %}
-        <tr class="ride-row" onclick="if (!event.target.closest('a')) location.href='/rides/{{ a.id }}'">
-          <td class="text-muted">{{ a.startDateLocal | fmt_date }}</td>
-          <td style="max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><a href="/rides/{{ a.id }}" class="dash-link">{{ a.sportType | sport_icon }} {{ a.name }}</a></td>
-          <td>{{ a.distance | fmt_dist }}</td>
-          <td>{{ a.movingTime | fmt_duration }}</td>
-          <td>{{ a.averageSpeed | fmt_rate(a.sportType) }}</td>
-          <td>{{ a.totalElevationGain | fmt_elev if a.totalElevationGain and a.sportType | has_climbing else '—' }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div>{% for a in activities[:6] %}{{ activity_row(a) }}{% endfor %}</div>
     {% else %}
     <div class="empty-state">
+      <div class="empty-icon">🚴</div>
       <h3>No activities yet</h3>
       <p>Connect Garmin in Settings, record with the phone app, or import files.</p>
       <a class="btn btn-primary" href="/import">Import files</a>

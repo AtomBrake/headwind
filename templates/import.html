@@ -39,19 +39,19 @@
   </div>
   {% endif %}
 
-  <fieldset style="border:none;padding:0;margin:1rem 0 0;">
-    <legend style="font-size:0.8125rem;color:var(--text-muted);margin-bottom:0.4rem;">From a Strava export, also bring in</legend>
-    <label style="display:flex;gap:0.5rem;align-items:flex-start;font-size:0.875rem;margin-bottom:0.35rem;cursor:pointer;">
-      <input type="checkbox" id="optPhotos" checked style="margin-top:0.2rem;">
-      <span>Photos on each activity <span style="color:var(--text-muted);">(location data is stripped; videos are left out)</span></span>
+  <fieldset style="margin:1rem 0 0;">
+    <legend>From a Strava export, also bring in</legend>
+    <label class="check">
+      <input type="checkbox" id="optPhotos" checked>
+      <span>Photos on each activity <span class="hint">(location data is stripped; videos are left out)</span></span>
     </label>
-    <label style="display:flex;gap:0.5rem;align-items:flex-start;font-size:0.875rem;cursor:pointer;">
-      <input type="checkbox" id="optSegments" style="margin-top:0.2rem;">
-      <span>Segments you created on Strava <span style="color:var(--text-muted);">(<code>segments.csv</code>; each one's shape comes from a ride of yours that went along it)</span></span>
+    <label class="check">
+      <input type="checkbox" id="optSegments">
+      <span>Segments you created on Strava <span class="hint">(<code>segments.csv</code>; each one's shape comes from a ride of yours that went along it)</span></span>
     </label>
-    <label style="display:flex;gap:0.5rem;align-items:flex-start;font-size:0.875rem;margin-top:0.35rem;cursor:pointer;">
-      <input type="checkbox" id="optKeep" checked style="margin-top:0.2rem;">
-      <span>Keep the export here, so it can be imported again without uploading it <span style="color:var(--text-muted);">(it takes as much disk space as the zip; only the latest is kept)</span></span>
+    <label class="check">
+      <input type="checkbox" id="optKeep" checked>
+      <span>Keep the export here, so it can be imported again without uploading it <span class="hint">(it takes as much disk space as the zip; only the latest is kept)</span></span>
     </label>
     <div class="hint" style="margin-top:0.4rem;">Already imported this export? Import it again: rides already here are skipped, and the photos, segments and commute ticks are added to them.</div>
   </fieldset>

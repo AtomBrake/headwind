@@ -7,7 +7,7 @@
   {% if riders %}<form method="GET" style="display:inline;"><select name="rider" onchange="this.form.submit()">{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>{% endif %}
 {% endblock %}
 {% block content %}
-{% if error %}<div class="gear-err">{{ error }}</div>{% endif %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
 {% if done %}<div class="gear-note"><div>{{ done }}</div><a class="btn btn-secondary btn-sm" href="{{ url_for('gear.index', rider=rid) }}">See your bikes</a></div>{% endif %}
 
 {% if not rows %}
@@ -47,8 +47,8 @@
     </table>
   </div>
   {% if elsewhere %}
-  <label style="display:flex;gap:.5rem;align-items:flex-start;margin:.2rem 0 1rem;max-width:760px;">
-    <input type="checkbox" name="replace" value="1" style="margin-top:.2rem;">
+  <label class="check" style="margin:.2rem 0 1rem;max-width:760px;">
+    <input type="checkbox" name="replace" value="1">
     <span>Also change the bike on the {{ '{:,}'.format(elsewhere) }} ride{{ 's' if elsewhere != 1 }} that are on a different bike here than in Strava.
       <span class="hint">Leave this off to keep bikes you set yourself. Turn it on if those rides only have your default bike because they were imported before their Strava bike was known.</span></span>
   </label>

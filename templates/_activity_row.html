@@ -1,0 +1,33 @@
+{# One activity in a list: sport icon, name, then date, distance, time, speed or pace by sport, and the climb where the sport has one.
+   The one row for every list of activities (dashboard, Activities, Workouts, a bike's or kit's page, a rider's page): docs/UI.md.
+   {% from '_activity_row.html' import activity_row %}, then {{ activity_row(a) }}; date=false where a day heading already gives the date,
+   more=[…] for extra figures on the second line, and {% call activity_row(a) %}…{% endcall %} for controls at the end of the row.
+   The whole row opens the activity; it is a [data-pick] row for the Select bar (static/js/bulk.js) inside a [data-pick-list]. #}
+{% macro activity_row(a, date=true, more=[]) %}
+{%- set sport = a.sportType or a.sport %}
+<div class="act-row" data-pick="{{ a.id }}">
+  <span class="act-icon" title="{{ sport | sport_label }}">{{ sport | sport_icon }}</span>
+  <div class="act-main">
+    <div class="act-name"><a href="/rides/{{ a.id }}">{{ a.name or sport | sport_label }}</a>
+      {%- if a.aiKudos %}<span class="act-tag ai" title="The AI coach has looked at this one">AI</span>{% endif %}
+      {%- if a.source == 'sensor-recovery' %}<span class="act-tag recovered">RECOVERED</span>
+      {%- elif a.id.startswith('garmin_') %}<span class="act-tag garmin">GARMIN</span>
+      {%- elif a.id.startswith('imp_') %}<span class="act-tag import">IMPORT</span>{% endif %}</div>
+    <div class="act-meta">
+      {%- if date %}{{ a.startDateLocal | fmt_date }} · {% endif -%}
+      <span class="act-dist">{{ a.distance | fmt_dist }}</span> · {{ a.movingTime | fmt_duration }}
+      {%- if a.averageSpeed %} · {{ a.averageSpeed | fmt_rate(sport) }}{% endif %}
+      {%- if a.totalElevationGain and sport | has_climbing %} · {{ a.totalElevationGain | fmt_elev }}{% endif %}
+      {%- for m in more if m %} · {{ m }}{% endfor %}</div>
+  </div>
+  {%- if a.riderName or caller %}
+  <div class="act-end">
+    {%- if caller %}{{ caller() }}{% endif %}
+    {%- if a.riderName %}
+    {%- if a.riderAvatar %}<img src="{{ url_for('static', filename='avatars/' + a.riderAvatar) }}" class="rider-avatar" alt="{{ a.riderName }}" title="{{ a.riderName }}" data-rider-id="{{ a.riderId }}">
+    {%- else %}<span class="rider-initial" title="{{ a.riderName }}">{{ a.riderName[0] | upper }}</span>{% endif %}
+    {%- endif %}
+  </div>
+  {%- endif %}
+</div>
+{% endmacro %}

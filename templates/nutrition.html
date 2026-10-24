@@ -261,8 +261,6 @@
     .serving-row label { font-size:0.82rem; color:var(--text-muted); flex:0 0 4.5rem; margin:0; }
     .serving-row input, .serving-row select { flex:1; }
     .serving-unit  { font-size:0.82rem; color:var(--text-muted); }
-    .form-row { display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; }
-    @media (max-width:420px) { .form-row { grid-template-columns:1fr; } }
 
     /* ── Find-a-Food sheet ─────────────────────── */
     #findFoodModal .modal-panel { padding:1.25rem 0 0; max-height:92vh; display:flex; flex-direction:column; }
@@ -595,7 +593,7 @@
       <label>Food name *</label>
       <input type="text" id="mName" placeholder="e.g. Banana, Chicken breast">
     </div>
-    <div class="form-row">
+    <div class="form-grid">
       <div class="form-group">
         <label>Calories (kcal) *</label>
         <input type="number" id="mKcal" min="0" placeholder="e.g. 90">
@@ -605,7 +603,7 @@
         <input type="number" id="mServingG" min="0" placeholder="optional">
       </div>
     </div>
-    <div class="form-row">
+    <div class="form-grid">
       <div class="form-group">
         <label>Protein (g)</label>
         <input type="number" id="mProtein" min="0" step="0.1">
@@ -615,7 +613,7 @@
         <input type="number" id="mCarbs" min="0" step="0.1">
       </div>
     </div>
-    <div class="form-row">
+    <div class="form-grid">
       <div class="form-group">
         <label>Fat (g)</label>
         <input type="number" id="mFat" min="0" step="0.1">
@@ -643,7 +641,7 @@
       <label>Date</label>
       <input type="date" id="wiDate">
     </div>
-    <div id="wiStlbRow" class="form-row">
+    <div id="wiStlbRow" class="form-grid">
       <div class="form-group"><label>Stone</label><input type="number" id="wiStone" min="0" max="60" inputmode="numeric" pattern="[0-9]*"></div>
       <div class="form-group"><label>Pounds</label><input type="number" id="wiLb" min="0" max="13.9" step="0.1" inputmode="decimal"></div>
     </div>
@@ -667,15 +665,15 @@
       <button class="btn-close" id="closeDrink">&times;</button>
     </div>
     <div class="dr-presets" id="drPresets"></div>
-    <div class="form-row">
+    <div class="form-grid">
       <div class="form-group"><label>Drink</label><input type="text" id="drName" placeholder="e.g. Pint of lager"></div>
       <div class="form-group"><label>How many</label><input type="number" id="drQty" min="1" step="1" value="1" inputmode="numeric"></div>
     </div>
-    <div class="form-row">
+    <div class="form-grid">
       <div class="form-group"><label>Each (ml)</label><input type="number" id="drMl" min="0" step="1" inputmode="numeric"></div>
       <div class="form-group"><label>Strength (% ABV)</label><input type="number" id="drAbv" min="0" max="100" step="0.1" inputmode="decimal"></div>
     </div>
-    <div class="form-group"><label>Calories (kcal, each)</label><input type="number" id="drKcal" min="0" step="1" inputmode="numeric"><small style="color:var(--text-muted);">Filled in from the alcohol alone (about 55 kcal a unit). Beer, cider and mixers add sugars on top, so type the label figure if you know it.</small></div>
+    <div class="form-group"><label>Calories (kcal, each)</label><input type="number" id="drKcal" min="0" step="1" inputmode="numeric"><small class="hint">Filled in from the alcohol alone (about 55 kcal a unit). Beer, cider and mixers add sugars on top, so type the label figure if you know it.</small></div>
     <div id="drSummary" style="font-size:0.9rem; margin:0.4rem 0 0.8rem; font-weight:600;"></div>
     <div class="form-group"><label>Meal</label><select id="drMeal"></select></div>
     <button class="btn btn-primary btn-block" id="drLog" style="min-height:46px;">Log drink</button>
@@ -694,50 +692,50 @@
       <label>Calories (kcal)</label>
       <input type="number" id="gCal" min="0" placeholder="e.g. 2000">
     </div>
-    <div class="form-row">
+    <div class="form-grid">
       <div class="form-group"><label>Protein (g)</label><input type="number" id="gProtein" min="0"></div>
       <div class="form-group"><label>Carbs (g)</label><input type="number" id="gCarbs" min="0"></div>
     </div>
-    <div class="form-row">
+    <div class="form-grid">
       <div class="form-group"><label>Fat (g)</label><input type="number" id="gFat" min="0"></div>
       <div class="form-group"><label>Water (ml)</label><input type="number" id="gWater" min="0"></div>
     </div>
-    <div class="form-row">
-      <div class="form-group"><label title="Total sugars: everything on the label's 'of which sugars' line, including the natural sugars in fruit and milk. UK guidance (about 30 g a day) is for free sugars, which Headwind cannot separate yet, so this is a reference to keep an eye on, not a limit.">Total sugar reference (g)</label><input type="number" id="gSugar" min="0" placeholder="e.g. 50"><small style="color:var(--text-muted);">Total sugars include fruit and milk. UK guidance (about 30 g) is for free sugars only, so treat this as a reference, not a limit.</small></div>
+    <div class="form-grid">
+      <div class="form-group"><label title="Total sugars: everything on the label's 'of which sugars' line, including the natural sugars in fruit and milk. UK guidance (about 30 g a day) is for free sugars, which Headwind cannot separate yet, so this is a reference to keep an eye on, not a limit.">Total sugar reference (g)</label><input type="number" id="gSugar" min="0" placeholder="e.g. 50"><small class="hint">Total sugars include fruit and milk. UK guidance (about 30 g) is for free sugars only, so treat this as a reference, not a limit.</small></div>
       <div class="form-group"><label>Alcohol limit (units / week)</label><input type="number" id="gAlcohol" min="0" step="1" placeholder="14"></div>
     </div>
     <div class="form-group" style="display:none;">
       <label>Resting BMR (kcal/day)</label>
       <input type="number" id="gBmr" min="0" placeholder="e.g. 1800 — used for deficit calculation">
-      <small style="color:var(--text-muted);">Burned = BMR + today's ride calories. Avoids Garmin sync lag.</small>
+      <small class="hint">Burned = BMR + today's ride calories. Avoids Garmin sync lag.</small>
     </div>
     <details id="smartGoals" style="margin:0.75rem 0; border:1px solid var(--border); border-radius:10px; padding:0.7rem 0.8rem;">
       <summary style="cursor:pointer; font-weight:700; min-height:32px; display:flex; align-items:center;">Smart goals — let my goal float with my weight</summary>
       <p style="font-size:0.78rem; color:var(--text-muted); margin:0.5rem 0;">Everyday burn (BMR × activity from your step goal) plus a fixed allowance for a typical week of riding, minus the deficit for your loss rate. Only your weight moves it — a big or missed ride never changes the goal — and it never goes below 1.1 × BMR.</p>
-      <div class="form-row">
+      <div class="form-grid">
         <div class="form-group"><label>Sex</label><select id="sgSex"><option value="">—</option><option value="male">Male</option><option value="female">Female</option></select></div>
         <div class="form-group"><label>Date of birth</label><input type="date" id="sgBorn"><small id="sgBornHint" style="color:var(--text-muted);"></small></div>
       </div>
-      <div class="form-row">
+      <div class="form-grid">
         <div class="form-group"><label>Height (cm)</label><input type="number" id="sgHeight" min="120" max="230" step="1" inputmode="numeric"></div>
         <div class="form-group"><label>Daily steps goal</label><input type="number" id="sgSteps" min="1000" step="500" inputmode="numeric"></div>
       </div>
-      <div class="form-row">
+      <div class="form-grid">
         <div class="form-group"><label>Loss rate (lb/week)</label><input type="number" id="sgLoss" min="0" max="2.5" step="0.25" inputmode="decimal"></div>
       </div>
-      <div class="form-row">
+      <div class="form-grid">
         <div class="form-group"><label>Typical rides (kcal / week)</label><input type="number" id="sgRides" min="0" step="100" inputmode="numeric"></div>
         <div class="form-group"><label>Ride goal (rides / week)</label><input type="number" id="sgRideGoal" min="1" max="14" step="1" inputmode="numeric"></div>
       </div>
-      <div class="form-row">
-        <div class="form-group" style="display:flex; align-items:end;"><label style="display:flex; gap:0.5rem; align-items:center; min-height:46px;"><input type="checkbox" id="sgAuto" style="width:22px;height:22px;"> Update my goals automatically</label></div>
+      <div class="form-grid">
+        <div class="form-group" style="display:flex; align-items:end;"><label class="check" style="align-items:center; min-height:46px; margin:0;"><input type="checkbox" id="sgAuto" style="width:22px; height:22px; margin:0;"> Update my goals automatically</label></div>
       </div>
       <div id="sgPlan" style="font-size:0.85rem; line-height:1.55; background:var(--main-bg); border:1px solid var(--border); border-radius:8px; padding:0.6rem 0.7rem; margin:0.4rem 0;"></div>
       <button class="btn btn-secondary btn-block" id="sgApply" style="min-height:46px;">Use these goals now</button>
     </details>
     <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.5rem;">Leave blank to hide progress bars.</p>
     <hr style="border-color:var(--border); margin:1rem 0;">
-    <div class="form-row">
+    <div class="form-grid">
       <div class="form-group">
         <label>Weight unit</label>
         <select id="gWeightUnit">
@@ -752,12 +750,12 @@
     </div>
     <div class="form-group">
       <label>Goal weight</label>
-      <div id="gGoalStlbRow" class="form-row">
+      <div id="gGoalStlbRow" class="form-grid">
         <div class="form-group"><input type="number" id="gGoalSt" min="0" inputmode="numeric" placeholder="stone"></div>
         <div class="form-group"><input type="number" id="gGoalLb" min="0" max="13.9" step="0.1" inputmode="decimal" placeholder="lb"></div>
       </div>
       <input type="number" id="gGoalKg" min="0" step="0.1" inputmode="decimal" placeholder="kg" style="display:none;">
-      <small style="color:var(--text-muted);">Drives the "road to goal" date projection in Home Assistant. Leave blank to switch it off.</small>
+      <small class="hint">Drives the "road to goal" date projection in Home Assistant. Leave blank to switch it off.</small>
     </div>
     <div class="modal-btns">
       <button class="btn btn-secondary" id="cancelGoals">Cancel</button>
@@ -774,7 +772,7 @@
       <button class="btn-close" id="closeSavedMeals">&times;</button>
     </div>
     <div id="smSaveNameWrap">
-      <label style="font-size:0.82rem; color:var(--text-muted);">Meal name</label>
+      <label for="smNameInput">Meal name</label>
       <div style="display:flex; gap:0.4rem; margin-top:0.35rem;">
         <input type="text" id="smNameInput" placeholder="Meal name…" style="flex:1;">
         <button class="btn btn-primary" id="smSaveConfirm">Save</button>
@@ -1064,11 +1062,11 @@
       <input type="text" id="mfBrand" placeholder="optional">
     </div>
     <p style="font-size:0.72rem; color:var(--text-muted); margin-bottom:0.5rem;">Values per 100g</p>
-    <div class="form-row">
+    <div class="form-grid">
       <div class="form-group"><label>Calories (kcal) *</label><input type="number" id="mfKcal" min="0"></div>
       <div class="form-group"><label>Default serving (g)</label><input type="number" id="mfServingG" min="0"></div>
     </div>
-    <div class="form-row">
+    <div class="form-grid">
       <div class="form-group"><label>Protein (g)</label><input type="number" id="mfProtein" min="0" step="0.1"></div>
       <div class="form-group"><label>Carbs (g)</label><input type="number" id="mfCarbs" min="0" step="0.1"></div>
     </div>
@@ -1234,7 +1232,7 @@ function renderAll(data) {
   renderRing('fibre',   fibreTot, goals.fibre || 30, 'var(--c-orange)');
   renderRing('sugar',   sugarTot, goals.sugar,  'var(--c-pink)', false);         // total sugar: a reference, never a red limit
   const sugEl = document.getElementById('ringVal_sugar');
-  if (sugEl && goals.sugar && sugarTot > goals.sugar) sugEl.innerHTML += '<small style="color:var(--text-muted);">above reference</small>';
+  if (sugEl && goals.sugar && sugarTot > goals.sugar) sugEl.innerHTML += '<small class="hint">above reference</small>';
   const al = data.alcohol || {today: 0, week: 0, goal: goals.alcohol_week || 14};
   renderRing('alcohol', al.week, al.goal, 'var(--c-violet)', true, ' u');
   const alEl = document.getElementById('ringVal_alcohol');

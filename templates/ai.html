@@ -108,8 +108,8 @@
     <p style="font-size:0.875rem; margin-bottom:1rem; color:var(--warning);">{{ missing_key }}{% if auto_on %} Until then new rides aren't analysed.{% endif %}</p>
     {% endif %}
     <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
-      <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-size:0.875rem; color:var(--text);">
-        <input type="checkbox" name="auto" value="1" {% if auto_on %}checked{% endif %} {% if not ai_ready and not auto_on %}disabled{% endif %} style="accent-color:var(--accent);">
+      <label class="check" style="margin:0;">
+        <input type="checkbox" name="auto" value="1" {% if auto_on %}checked{% endif %} {% if not ai_ready and not auto_on %}disabled{% endif %}>
         Analyse new rides automatically
       </label>
       <button type="submit" class="btn btn-secondary" {% if not ai_ready and not auto_on %}disabled{% endif %}>Save</button>
@@ -139,20 +139,20 @@
         Generate AI coaching notes for multiple rides at once. Builds ride memories for richer future context.
       </p>
 
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:0.75rem;">
-        <div class="form-group" style="margin:0;">
+      <div class="form-grid">
+        <div class="form-group">
           <label>From</label>
           <input type="date" id="bulkFrom">
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group">
           <label>To</label>
           <input type="date" id="bulkTo">
         </div>
       </div>
 
       <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:1rem; flex-wrap:wrap;">
-        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-size:0.8125rem; color:var(--text-muted);">
-          <input type="checkbox" id="bulkForce" style="accent-color:var(--accent);">
+        <label class="check" style="margin:0;">
+          <input type="checkbox" id="bulkForce">
           Re-analyse existing
         </label>
         <span id="bulkCountLabel" style="font-size:0.8125rem; color:var(--text-muted);"></span>

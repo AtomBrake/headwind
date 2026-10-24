@@ -2,6 +2,7 @@
    Shared by the dashboard and the Activities page (routes/dashboard.py); list_path is the page it's on, so its links stay there.
    Needs list_path, rider_query, sf, active_rider, q, date_from, date_to, min_dist, max_dist, is_filtered, search_results, grouped,
    activities, typed, back_url and sport_choices. #}
+{% from '_activity_row.html' import activity_row %}
 {% set rq = rider_query %}
 {% macro list_url(f, t) %}{{ list_path }}?{% if rq %}{{ rq }}&amp;{% endif %}from={{ f }}&amp;to={{ t }}#ride-history{% endmacro %}
 <!-- Search / Filter -->
@@ -54,29 +55,7 @@
     <button class="btn btn-secondary btn-sm" type="submit">Change type</button>
   </form>
   <div>
-    {% for a in search_results %}
-    <a href="/rides/{{ a.id }}" class="dash-link" data-pick="{{ a.id }}"
-         style="display:flex; align-items:center; gap:0.75rem; padding:0.65rem 0;
-                border-bottom:1px solid var(--divider); cursor:pointer;
-                transition:background 0.1s;"
-         onmouseover="this.style.background='var(--hover-tint)'"
-         onmouseout="this.style.background=''">
-      <div style="flex:1; min-width:0;">
-        <div style="font-size:0.9375rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-          {{ a.sportType | sport_icon }} {{ a.name }}
-          {% if a.aiKudos %}<span style="font-size:0.7rem; color:var(--accent); margin-left:0.3rem; font-weight:400;">AI</span>{% endif %}
-          {% if a.sportType == 'Run' %}<span style="font-size:0.65rem; color:var(--c-violet); margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">RUN</span>{% endif %}{% if a.id.startswith('garmin_') %}<span style="font-size:0.65rem; color:var(--c-sky); margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">GARMIN</span>{% elif a.id.startswith('imp_') %}<span style="font-size:0.65rem; color:var(--c-gold); margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">IMPORT</span>{% endif %}
-        </div>
-        <div style="font-size:0.775rem; color:var(--text-muted); margin-top:0.15rem;">
-          {{ a.startDateLocal | fmt_date }}
-          &nbsp;·&nbsp;<span style="color:var(--text);">{{ a.distance | fmt_dist }}</span>
-          &nbsp;·&nbsp;{{ a.movingTime | fmt_duration }}
-          &nbsp;·&nbsp;{{ a.averageSpeed | fmt_rate(a.sportType) }}
-          {% if a.totalElevationGain and a.sportType | has_climbing %}&nbsp;·&nbsp;{{ a.totalElevationGain | fmt_elev }}{% endif %}
-        </div>
-      </div>
-    </a>
-    {% endfor %}
+    {% for a in search_results %}{{ activity_row(a) }}{% endfor %}
   </div>
   {% else %}
   <p class="hint" style="margin:0.5rem 0;">No activities match your filters.</p>

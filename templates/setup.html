@@ -409,7 +409,7 @@
   </div>
 
   {% if error %}
-  <div style="background:var(--danger-soft); border:1px solid var(--danger); border-radius:8px; padding:0.75rem 1rem; font-size:0.875rem; color:var(--danger); margin-bottom:1rem;">
+  <div class="flash flash-error">
     {{ error }}
   </div>
   {% endif %}
@@ -606,9 +606,9 @@
   </div>
 
   <form method="POST" action="/setup?step=5">
-    <label style="display:flex; align-items:center; gap:0.6rem; margin-bottom:1.5rem; cursor:pointer;">
-      <input type="checkbox" name="telemetry" value="off" style="width:20px; height:20px;">
-      <span style="font-size:0.9375rem; color:var(--text);">Opt out forever — never send this ping</span>
+    <label class="check" style="margin-bottom:1.5rem;">
+      <input type="checkbox" name="telemetry" value="off">
+      <span>Opt out forever — never send this ping</span>
     </label>
     <button type="submit" class="btn btn-primary submit-btn">Continue →</button>
   </form>

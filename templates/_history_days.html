@@ -1,44 +1,13 @@
 {# The days of the history tree on the dashboard and the Activities page (list_path), with their activities: the open month is drawn with the page, every other month is fetched
    from /dashboard/history when it is opened (routes/dashboard.history), so the page doesn't carry every activity ever recorded.
    Needs days (from _group_activities), sf and rider_query. #}
+{% from '_activity_row.html' import activity_row %}
 {% for day in days %}
 <div class="tree-day">
   <div class="tree-day-header">
     <a href="{{ list_path or '/dashboard' }}?{% if rider_query %}{{ rider_query }}&amp;{% endif %}from={{ day.from }}&amp;to={{ day.from }}#ride-history" class="dash-link">{{ day.label }}</a>
     <span class="tree-meta">{{ day.count }} activit{% if day.count != 1 %}ies{% else %}y{% endif %} &middot; {{ day.dist | fmt_dist if sf.group else day.secs | fmt_duration }}</span>
   </div>
-  <div>
-      {% for a in day.activities %}
-      <a href="/rides/{{ a.id }}" class="dash-link" data-pick="{{ a.id }}"
-           style="display:flex; align-items:center; gap:0.75rem; padding:0.55rem 0.25rem;
-                  border-bottom:1px solid var(--divider); cursor:pointer;
-                  transition:background 0.1s;"
-           onmouseover="this.style.background='var(--hover-tint)'"
-           onmouseout="this.style.background=''">
-        <div style="flex:1; min-width:0;">
-          <div style="font-size:0.9375rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-            {{ a.sportType | sport_icon }} {{ a.name }}
-            {% if a.aiKudos %}<span style="font-size:0.7rem; color:var(--accent); margin-left:0.3rem; font-weight:400;">AI</span>{% endif %}
-            {% if a.sportType == 'Run' %}<span style="font-size:0.65rem; color:var(--c-violet); margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">RUN</span>{% endif %}{% if a.id.startswith('garmin_') %}<span style="font-size:0.65rem; color:var(--c-sky); margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">GARMIN</span>{% elif a.id.startswith('imp_') %}<span style="font-size:0.65rem; color:var(--c-gold); margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">IMPORT</span>{% endif %}
-          </div>
-          <div style="font-size:0.775rem; color:var(--text-muted); margin-top:0.15rem; font-variant-numeric:tabular-nums;">
-            <span style="color:var(--text);">{{ a.distance | fmt_dist }}</span>
-            &nbsp;·&nbsp;{{ a.movingTime | fmt_duration }}
-            &nbsp;·&nbsp;{{ a.averageSpeed | fmt_rate(a.sportType) }}
-            {% if a.totalElevationGain and a.sportType | has_climbing %}&nbsp;·&nbsp;{{ a.totalElevationGain | fmt_elev }}{% endif %}
-          </div>
-        </div>
-        {% if a.riderName %}
-        <div style="flex-shrink:0;">
-          {% if a.riderAvatar %}
-            <img src="{{ url_for('static', filename='avatars/' + a.riderAvatar) }}" class="rider-avatar" alt="{{ a.riderName }}" title="{{ a.riderName }}" data-rider-id="{{ a.riderId }}" style="width:24px;height:24px;cursor:pointer;">
-          {% else %}
-            <span class="rider-initial" title="{{ a.riderName }}" style="width:24px;height:24px;font-size:0.6875rem;">{{ a.riderName[0] | upper }}</span>
-          {% endif %}
-        </div>
-        {% endif %}
-      </a>
-      {% endfor %}
-  </div>
+  <div>{% for a in day.activities %}{{ activity_row(a, date=false) }}{% endfor %}</div>
 </div>
 {% endfor %}

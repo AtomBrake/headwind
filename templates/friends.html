@@ -12,11 +12,9 @@
   .fr-note { margin:0.9rem 0 0; }
   .fr-grid { display:grid; gap:0.75rem 1rem; align-items:end; justify-content:start; }
   .fr-grid input:not([type=checkbox]), .fr-grid select, .fr-grid > .btn, .fr-checks { height:2.4rem; }   /* one height, so the labels line up */
-  .fr-field { display:flex; flex-direction:column; gap:0.3rem; min-width:0; margin:0; font-size:0.8rem; color:var(--text-muted); font-weight:500; }
-  .fr-field .hint { font-weight:400; opacity:0.85; }
-  .fr-field input, .fr-field select { color:var(--text); }
-  .fr-checks { display:flex; flex-wrap:wrap; gap:0.4rem 1rem; align-items:center; color:var(--text); font-size:0.875rem; }
-  .fr-checks label { display:flex; align-items:center; gap:0.35rem; margin:0; font-weight:400; color:var(--text); }
+  .fr-field { display:flex; flex-direction:column; gap:0.375rem; min-width:0; margin:0; font-size:0.875rem; font-weight:500; }   /* a label above its field (style.css), in this page's one-row grids */
+  .fr-field .hint { font-weight:400; }
+  .fr-checks { align-items:center; }
   .fr-quick { display:flex; flex-wrap:wrap; gap:0.4rem; align-items:center; }
 
   /* New token: name, shares, dates, button on one line; the quick ranges under the dates */
@@ -86,10 +84,10 @@
       <input name="name" type="text" placeholder="e.g. Sam" required maxlength="60">
     </label>
     <div class="fr-field">Shares
-      <div class="fr-checks">
-        <label><input type="checkbox" name="shareRides" value="1" checked> Activities</label>
-        <label><input type="checkbox" name="shareSegments" value="1" checked> Segments</label>
-        <label><input type="checkbox" name="shareFoods" value="1" checked> Foods</label>
+      <div class="checks fr-checks">
+        <label class="check"><input type="checkbox" name="shareRides" value="1" checked> Activities</label>
+        <label class="check"><input type="checkbox" name="shareSegments" value="1" checked> Segments</label>
+        <label class="check"><input type="checkbox" name="shareFoods" value="1" checked> Foods</label>
       </div>
     </div>
     <label class="fr-field">Activities from <input name="sinceDate" type="date"></label>
@@ -150,10 +148,10 @@
         <td colspan="5">
           <form method="POST" action="{{ url_for('friends.update_token', tid=t.id) }}" class="fr-grid fr-edit">
             <div class="fr-field">Shares
-              <div class="fr-checks">
-                <label><input type="checkbox" name="shareRides" value="1" {% if t.shareRides %}checked{% endif %}> Activities</label>
-                <label><input type="checkbox" name="shareSegments" value="1" {% if t.shareSegments %}checked{% endif %}> Segments</label>
-                <label><input type="checkbox" name="shareFoods" value="1" {% if t.shareFoods %}checked{% endif %}> Foods</label>
+              <div class="checks fr-checks">
+                <label class="check"><input type="checkbox" name="shareRides" value="1" {% if t.shareRides %}checked{% endif %}> Activities</label>
+                <label class="check"><input type="checkbox" name="shareSegments" value="1" {% if t.shareSegments %}checked{% endif %}> Segments</label>
+                <label class="check"><input type="checkbox" name="shareFoods" value="1" {% if t.shareFoods %}checked{% endif %}> Foods</label>
               </div>
             </div>
             <label class="fr-field">Activities from <input type="date" name="sinceDate" value="{{ t.sinceDate or '' }}"></label>
@@ -191,7 +189,7 @@
     <button id="probe-btn" type="button" onclick="probeInstance()" class="btn btn-secondary" style="white-space:nowrap;">Connect</button>
   </div>
 
-  <div id="probe-error" style="display:none; margin-top:0.6rem; color:var(--danger-text); font-size:0.85rem;"></div>
+  <div id="probe-error" class="flash flash-error" style="display:none; margin:0.75rem 0 0;"></div>
 
   <!-- Step 2: pick rider + name (hidden until probe succeeds) -->
   <form id="add-form" method="POST" action="{{ url_for('friends.add') }}"

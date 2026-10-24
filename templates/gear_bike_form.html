@@ -5,9 +5,9 @@
 {% block parent %}{% if bike %}<a href="{{ url_for('gear.bike', bike_id=bike.id) }}">{{ bike.name }}</a>{% else %}<a href="{{ url_for('gear.index') }}">Gear</a>{% endif %}{% endblock %}
 {% block topbar_actions %}<a class="btn btn-secondary" href="{{ url_for('gear.bike', bike_id=bike.id) if bike else url_for('gear.index') }}">Cancel</a>{% endblock %}
 {% block content %}
-{% if error %}<div class="gear-err">{{ error }}</div>{% endif %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
 <div class="card" style="max-width:760px;">
-  <form method="POST" action="{{ url_for('gear.bike_save') }}" enctype="multipart/form-data" class="gform">
+  <form method="POST" action="{{ url_for('gear.bike_save') }}" enctype="multipart/form-data" class="form-grid">
     {% if bike %}<input type="hidden" name="id" value="{{ bike.id }}">{% endif %}
     <input type="hidden" name="rider" value="{{ rid }}">
     <label class="wide">Name<input name="name" required maxlength="80" value="{{ bike.name if bike else '' }}" placeholder="e.g. Roubaix, Winter bike, Gravel"></label>
@@ -19,8 +19,8 @@
     <label>Already ridden before Headwind ({{ 'km' if units == 'metric' else 'miles' }})<input name="start" type="number" min="0" step="1" value="{{ start_disp }}" placeholder="0"></label>
     <label class="wide">Photo (optional)<input name="photo" type="file" accept="image/*"></label>
     <label class="wide">Notes<textarea name="notes" rows="3" maxlength="1000">{{ bike.notes or '' if bike else '' }}</textarea></label>
-    <div class="wide"><button class="btn btn-primary" type="submit">{{ 'Save' if bike else 'Add bike' }}</button>
-      <span class="hint" style="margin-left:.6rem;">{% if not bike %}The first bike you add becomes your default: new rides are put on it automatically.{% else %}Photos are resized and stored beside your database.{% endif %}</span></div>
+    <div class="wide form-actions"><button class="btn btn-primary" type="submit">{{ 'Save' if bike else 'Add bike' }}</button>
+      <span class="hint">{% if not bike %}The first bike you add becomes your default: new rides are put on it automatically.{% else %}Photos are resized and stored beside your database.{% endif %}</span></div>
   </form>
 </div>
 {% endblock %}
