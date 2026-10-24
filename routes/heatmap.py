@@ -1,9 +1,11 @@
 
+import json
 import logging
 import requests as _requests
 from flask import Blueprint, Response, abort, render_template, request
 from database import get_db, query_db
 from services import tracks as _tracks
+from services.rider_mode import owner_rider_id
 
 log = logging.getLogger(__name__)
 
@@ -12,6 +14,27 @@ bp = Blueprint('heatmap', __name__)
 # The lines drawn are worked out once per activity (services/tracks.py: SAMPLE points for the live map, SAMPLE_HD for the HD export), not from
 # every ride's streams on each request.
 _WITH_LINE = 'FROM Ride a JOIN ActivityTrack t ON t.activityId = a.id WHERE t.line IS NOT NULL'
+
+
+def _people():
+    """Whose lines the heatmap can show: the owner first, then this instance's other riders, then friends (their rides came in by friend
+    sync, routes/friends.py), each only once they have a line to draw."""
+    return query_db(f'''
+        SELECT r.id, r.name, r.isDefault, f.id IS NOT NULL AS isFriend
+        FROM Rider r LEFT JOIN Friend f ON f.riderId = r.id
+        WHERE r.isDefault = 1 OR EXISTS (SELECT 1 {_WITH_LINE} AND a.riderId = r.id)
+        ORDER BY isFriend, r.isDefault DESC, r.name COLLATE NOCASE
+    ''')
+
+
+def _who_sql(who):
+    """?who= as SQL on Ride a: '' (the default) the owner's rides, 'all' everyone's together, or one rider's id."""
+    if who == 'all':
+        return '', []
+    if who.isdigit():
+        return ' AND a.riderId = ?', [int(who)]
+    owner = owner_rider_id()
+    return (' AND a.riderId = ?', [owner]) if owner is not None else ('', [])
 
 
 @bp.route('/heatmap')
@@ -27,7 +50,8 @@ def index():
     return render_template('heatmap.html',
                            min_date=bounds['min_d'] or '',
                            max_date=bounds['max_d'] or '',
-                           sport_types=sport_types)
+                           sport_types=sport_types,
+                           people=[dict(p) for p in _people()])
 
 
 _ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/'
@@ -80,6 +104,7 @@ def data():
     from_date = request.args.get('from', '')
     to_date   = request.args.get('to', '')
     sport     = request.args.get('sport', '').strip()
+    who       = request.args.get('who', '').strip()
 
     hd = request.args.get('hd') == '1'
     col = 't.lineHd' if hd else 't.line'
@@ -97,8 +122,12 @@ def data():
     if sport:
         where += " AND lower(a.sportType) LIKE ?"
         params.append(f'%{sport.lower()}%')
+    who_sql, who_params = _who_sql(who)
+    where += who_sql
+    params.extend(who_params)
 
     _tracks.fill(get_db())                     # anything new since start-up
-    lines = [r[0] for r in query_db(f"SELECT {col} FROM Ride a JOIN ActivityTrack t ON t.activityId = a.id {where}", params)]
-    # Each line is stored as JSON already: joined as they are, rather than parsed and written out again.
-    return Response('{"count":%d,"tracks":[%s]}' % (len(lines), ','.join(lines)), mimetype='application/json')
+    rows = query_db(f"SELECT a.riderId, {col} FROM Ride a JOIN ActivityTrack t ON t.activityId = a.id {where}", params)
+    # Each line is stored as JSON already: joined as they are, rather than parsed and written out again. `riders` is whose each track is.
+    return Response('{"count":%d,"tracks":[%s],"riders":%s}' % (len(rows), ','.join(r[1] for r in rows), json.dumps([r[0] for r in rows])),
+                    mimetype='application/json')
