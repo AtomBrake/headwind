@@ -94,6 +94,7 @@ Every list of activities (dashboard, Activities, Workouts, a bike's, kit's or ri
 - The query needs `id`, `name`, `sportType` (or `sport`), `startDateLocal`, `distance`, `movingTime`, `averageSpeed` and `totalElevationGain`; `riderName` / `riderAvatar` add the rider at the end.
 - `date=false` where a day heading already gives the date; `more=[…]` adds figures to the second line (kcal, steps).
 - `{% call activity_row(a) %}…{% endcall %}` puts controls at the end of the row, above the link. They hide while the Select bar is on.
+- `gear_row(a, pickers, back)` (same file) is a row with a bike or kit picker at the end, for the "no gear" list; `a.isRide` picks which.
 - Don't put activities in a table.
 
 ## Forms

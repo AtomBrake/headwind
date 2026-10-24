@@ -31,3 +31,21 @@
   {%- endif %}
 </div>
 {% endmacro %}
+
+{# An activity with no gear, with the picker that gives it some at the end of the row: a bike for a ride, shoes or other kit for anything else
+   (pickers: {'bike': [...], 'kit': [...]}). The form goes back to the list (back), where the activity has dropped off. A plain row when the
+   rider has nothing to pick. #}
+{% macro gear_row(a, pickers, back, date=true) %}
+{%- set kind = 'bike' if a.isRide else 'kit' %}
+{%- if pickers[kind] %}
+{%- call activity_row(a, date=date) %}
+  <form method="POST" action="{{ url_for('gear.ride_bike' if kind == 'bike' else 'gear.activity_kit', rid=a.id) }}">
+    <input type="hidden" name="back" value="{{ back }}">
+    <select name="{{ kind }}" onchange="this.form.submit()" aria-label="{{ 'Which bike?' if kind == 'bike' else 'Which shoes or other gear?' }}" style="width:auto;">
+      <option value="" selected>{{ 'No bike' if kind == 'bike' else 'No gear' }}</option>
+      {% for g in pickers[kind] %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+    </select>
+  </form>
+{%- endcall %}
+{%- else %}{{ activity_row(a, date=date) }}{% endif %}
+{%- endmacro %}
