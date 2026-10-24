@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{ appearance }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}{% endblock %} — Headwind</title>
+  {% include '_scheme.html' %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
@@ -18,24 +19,88 @@
   UNITS.toPace    = function (mps, style) { return mps > 0 ? (style === 'swim' ? 100 : UNITS.distM) / mps : null; };
   UNITS.paceLabel = function (style) { return style === 'swim' ? '/100 m' : UNITS.pace; };
   UNITS.fmtMinSec = function (s) { s = Math.round(s || 0); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
-  // A colour from the variables in style.css, for what can't read var(--x) itself: Chart.js, Leaflet, canvas, SVG attributes.
-  // cssVar('--danger') is '#ef4444'; cssVar('--danger', 0.15) is 'rgba(239,68,68,0.15)'.
-  window.cssVar = function (name, alpha) {
-    var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    if (alpha === undefined) return v;
-    var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v);
-    if (m) {
-      var h = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1], n = parseInt(h, 16);
-      return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + alpha + ')';
+  (function () {
+    // A colour from the variables in style.css, for what can't read var(--x) itself: Chart.js, Leaflet, canvas. Markup and inline
+    // styles (SVG included, through .style) use var(--x), which follows the scheme by itself.
+    // cssVar('--danger') is '#ef4444'; cssVar('--danger', 0.15) is 'rgba(239,68,68,0.15)'.
+    function colourOf(name, alpha) {
+      var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      if (alpha === undefined) return v;
+      var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v);
+      if (m) {
+        var h = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1], n = parseInt(h, 16);
+        return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + alpha + ')';
+      }
+      m = /^rgba?\(([^,]+),([^,]+),([^,)]+)/.exec(v);
+      return m ? 'rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',' + alpha + ')' : v;
     }
-    m = /^rgba?\(([^,]+),([^,]+),([^,)]+)/.exec(v);
-    return m ? 'rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',' + alpha + ')' : v;
-  };
+    var handedOut = {};                     // 'name alpha' -> [name, alpha, the colour cssVar() gave for it]
+    window.cssVar = function (name, alpha) {
+      var v = colourOf(name, alpha);
+      handedOut[name + ' ' + alpha] = [name, alpha, v];
+      return v;
+    };
+    // When the scheme flips with the page open, every colour cssVar() handed out maps to the same variable's new one. A colour
+    // two variables shared that now differ can't be mapped: null, and the page reloads instead.
+    var stale = {};                         // a colour from an earlier scheme -> the current one
+    window.cssVar.restale = function () {
+      var step = {};
+      for (var k in handedOut) {
+        var h = handedOut[k], now = colourOf(h[0], h[1]);
+        if (h[2] in step && step[h[2]] !== now) return null;
+        step[h[2]] = now; h[2] = now;
+      }
+      for (var old in stale) { if (stale[old] in step) stale[old] = step[stale[old]]; }
+      for (var o in step) stale[o] = step[o];
+      for (var x in stale) { if (stale[x] === x) delete stale[x]; }
+      return stale;
+    };
+  })();
   </script>
   {% block head %}{% endblock %}
   <script>
   // Chart.js draws ticks, labels and grid lines in these unless a chart says otherwise
   if (window.Chart) { Chart.defaults.color = cssVar('--text-muted'); Chart.defaults.borderColor = cssVar('--border'); }
+
+  // Recolouring on a scheme change. Charts and map lines hold the strings cssVar() returned, so they are swapped for the new
+  // scheme's: in what is already drawn, and in charts and lines a page makes later from colours it kept in a variable.
+  (function () {
+    var stale = {}, maps = [];
+    function plain(o) { var p = Object.getPrototypeOf(o); return p === Object.prototype || p === null; }     // Chart.js merges scales into null-prototype objects
+    function swap(o, depth) {             // options and datasets, not the data points
+      for (var k in o) {
+        var x = o[k];
+        if (typeof x === 'string') { if (stale.hasOwnProperty(x)) o[k] = stale[x]; }
+        else if (x && typeof x === 'object' && k !== 'data' && depth < 8 && (Array.isArray(x) || plain(x))) swap(x, depth + 1);
+      }
+    }
+    function swapChart(c) { swap(c.config.data, 0); swap(c.config.options, 0); }
+    function pathStyle(o) {
+      var s = {};
+      ['color', 'fillColor'].forEach(function (k) { if (stale.hasOwnProperty(o[k])) s[k] = stale[o[k]]; });
+      return s;
+    }
+    if (window.Chart) Chart.register({ id: 'scheme', beforeInit: swapChart });
+    if (window.L) {
+      L.Map.addInitHook(function () { maps.push(this); });
+      L.Path.addInitHook(function () { L.Util.extend(this.options, pathStyle(this.options)); });
+    }
+    function themeColour() { document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) { m.content = cssVar('--main-bg'); }); }
+    addEventListener('DOMContentLoaded', themeColour);
+    addEventListener('schemechange', function () {
+      var now = cssVar.restale();
+      if (!now) { location.reload(); return; }
+      stale = now;
+      themeColour();
+      if (window.Chart) {
+        ['color', 'borderColor', 'backgroundColor'].forEach(function (k) { if (stale.hasOwnProperty(Chart.defaults[k])) Chart.defaults[k] = stale[Chart.defaults[k]]; });
+        Object.values(Chart.instances).forEach(function (c) { swapChart(c); c.update('none'); });
+      }
+      maps.forEach(function (m) {
+        m.eachLayer(function (l) { if (l.setStyle && l.options) { var s = pathStyle(l.options); if (Object.keys(s).length) l.setStyle(s); } });
+      });
+    });
+  })();
   </script>
 </head>
 <body>

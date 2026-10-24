@@ -467,6 +467,7 @@ def migrate_db():
         ('nutritionWaterGoalMl', 'INTEGER DEFAULT 2500'),
         ('nutritionBmrKcal',     'INTEGER'),
         ('units',                "TEXT DEFAULT 'imperial'"),
+        ('appearance',           "TEXT DEFAULT 'auto'"),     # the web UI: auto (follows the device), light or dark (routes/settings.APPEARANCES)
         ('distanceBackfillDone', 'INTEGER DEFAULT 0'),
         ('nutritionWeightUnit',     "TEXT DEFAULT 'stlb'"),
         ('nutritionWeightEmaAlpha', 'REAL DEFAULT 0.1'),

@@ -52,7 +52,7 @@ var map = L.map('roughMap', { zoomControl: true });
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics' }).addTo(map);
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, opacity: 1 }).addTo(map);
 var layer = L.layerGroup().addTo(map), fitted = false, since = '';
-var COLOURS = [cssVar('--c-green'), cssVar('--c-lime'), cssVar('--c-amber'), cssVar('--c-orange'), cssVar('--danger')], NAMES = ['smooth', 'good', 'ok', 'rough', 'roughest'];
+var BANDS = ['--c-green', '--c-lime', '--c-amber', '--c-orange', '--danger'], COLOURS = BANDS.map(function(v) { return cssVar(v); }), NAMES = ['smooth', 'good', 'ok', 'rough', 'roughest'];
 
 function setSince(btn) {
   document.querySelectorAll('.rg-chip').forEach(function(b) { b.classList.remove('active'); });
@@ -91,7 +91,7 @@ function load() {
     setTimeout(function() { map.invalidateSize(); }, 150);
     document.getElementById('rgLegend').innerHTML = COLOURS.map(function(c, i) {
       var lo = i === 0 ? 0 : b[i - 1], hi = i < b.length ? b[i] : s.max;
-      return '<span><i style="background:' + c + '"></i>' + NAMES[i] + ' ' + lo + '–' + hi + '</span>';
+      return '<span><i style="background:var(' + BANDS[i] + ')"></i>' + NAMES[i] + ' ' + lo + '–' + hi + '</span>';
     }).join('');
     document.getElementById('rgWorst').innerHTML = (s.worst || []).map(function(c, i) {
       return '<div style="padding:0.3rem 0; border-top:1px solid var(--border);"><a href="#" onclick="map.setView([' + c.lat + ',' + c.lng + '], 18); return false;">' +

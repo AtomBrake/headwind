@@ -1228,15 +1228,15 @@ function renderAll(data) {
   // Macros: filling rings (a ring is full when the goal is reached; sugar is a limit, so it turns red when you pass it)
   const fibreTot = entries.reduce((x,e) => x+(e.fibre||0), 0);
   const sugarTot = entries.reduce((x,e) => x+(e.sugar||0), 0);
-  renderRing('protein', protein, goals.protein, cssVar('--c-yellow'));
-  renderRing('carbs',   carbs,   goals.carbs,   cssVar('--c-sky'));
-  renderRing('fat',     fat,     goals.fat,     cssVar('--c-red'));
-  renderRing('fibre',   fibreTot, goals.fibre || 30, cssVar('--c-orange'));
-  renderRing('sugar',   sugarTot, goals.sugar,  cssVar('--c-pink'), false);         // total sugar: a reference, never a red limit
+  renderRing('protein', protein, goals.protein, 'var(--c-yellow)');
+  renderRing('carbs',   carbs,   goals.carbs,   'var(--c-sky)');
+  renderRing('fat',     fat,     goals.fat,     'var(--c-red)');
+  renderRing('fibre',   fibreTot, goals.fibre || 30, 'var(--c-orange)');
+  renderRing('sugar',   sugarTot, goals.sugar,  'var(--c-pink)', false);         // total sugar: a reference, never a red limit
   const sugEl = document.getElementById('ringVal_sugar');
   if (sugEl && goals.sugar && sugarTot > goals.sugar) sugEl.innerHTML += '<small style="color:var(--text-muted);">above reference</small>';
   const al = data.alcohol || {today: 0, week: 0, goal: goals.alcohol_week || 14};
-  renderRing('alcohol', al.week, al.goal, cssVar('--c-violet'), true, ' u');
+  renderRing('alcohol', al.week, al.goal, 'var(--c-violet)', true, ' u');
   const alEl = document.getElementById('ringVal_alcohol');
   if (alEl && al.today) alEl.innerHTML += `<small style="color:var(--c-violet);">${al.today} today</small>`;
 
@@ -1245,7 +1245,7 @@ function renderAll(data) {
   if (goals.water) {
     document.getElementById('waterGoalLbl').textContent = `goal: ${goals.water.toLocaleString()} ml`;
     renderProg('waterProgWrap','waterProgFill','waterProgPct','waterProgRem',waterMl,goals.water,'{v} ml','{r} ml to go');
-    document.getElementById('waterProgFill').style.background=cssVar('--c-blue');
+    document.getElementById('waterProgFill').style.background='var(--c-blue)';
   } else {
     document.getElementById('waterGoalLbl').textContent = '';
     document.getElementById('waterProgWrap').style.display='none';
@@ -1275,7 +1275,7 @@ function renderRing(key, val, goal, colour, isLimit, unit) {
   const frac = goal ? Math.min(1, val / goal) : 0;
   bar.style.strokeDasharray = RING_C;
   bar.style.strokeDashoffset = RING_C * (1 - frac);
-  bar.style.stroke = (isLimit && goal && val > goal) ? cssVar('--danger') : colour;
+  bar.style.stroke = (isLimit && goal && val > goal) ? 'var(--danger)' : colour;
   const n = v => (unit === 'g' ? Math.round(v) : Math.round(v * 10) / 10);
   txt.innerHTML = goal ? `${n(val)}<small>of ${n(goal)}${unit}</small>` : `${n(val)}<small>${unit}</small>`;
 }
@@ -1330,7 +1330,7 @@ function buildMealSection(meal, entries) {
   // the meal's macros at a glance, next to its calories
   const mt = k => entries.reduce((x, e) => x + (e[k] || 0), 0);
   const chip = (lbl, v, col) => `<span class="meal-mac" style="color:${col};" title="${lbl === 'S' ? 'Total sugar' : ''}"><b>${Math.round(v)}</b><small>${lbl}</small></span>`;
-  const macros = `<div class="meal-macs">${chip('P', mt('protein'), cssVar('--c-yellow'))}${chip('C', mt('carbs'), cssVar('--c-sky'))}${chip('F', mt('fat'), cssVar('--c-red'))}${chip('Fi', mt('fibre'), cssVar('--c-orange'))}${chip('S', mt('sugar'), cssVar('--c-pink'))}${mt('alcoholUnits') > 0 ? `<span class="meal-mac" style="color:var(--c-violet);"><b>${Math.round(mt('alcoholUnits') * 10) / 10}</b><small>U</small></span>` : ''}</div>`;
+  const macros = `<div class="meal-macs">${chip('P', mt('protein'), 'var(--c-yellow)')}${chip('C', mt('carbs'), 'var(--c-sky)')}${chip('F', mt('fat'), 'var(--c-red)')}${chip('Fi', mt('fibre'), 'var(--c-orange)')}${chip('S', mt('sugar'), 'var(--c-pink)')}${mt('alcoholUnits') > 0 ? `<span class="meal-mac" style="color:var(--c-violet);"><b>${Math.round(mt('alcoholUnits') * 10) / 10}</b><small>U</small></span>` : ''}</div>`;
   const header = `
     <div class="meal-header">
       <button class="meal-title-btn" onclick="openNutriSheet({kind:'meal', key:'${meal.key}'})">${escHtml(meal.label)}<span class="chev">&rsaquo;</span></button>
@@ -1423,7 +1423,7 @@ function toggleSection(header) {
 // ── Meal / day nutrition sheet ────────────────────────────────────────
 let lastData = null;       // most recent /api/day payload
 let nutriView = null;      // {kind:'meal', key} | {kind:'day'} while the sheet is open
-const NN_COLORS = { protein:cssVar('--c-yellow'), fibre:cssVar('--c-orange'), carbs:cssVar('--c-sky'), fat:cssVar('--c-red'), sugar:cssVar('--c-pink') };
+const NN_COLORS = { protein:'var(--c-yellow)', fibre:'var(--c-orange)', carbs:'var(--c-sky)', fat:'var(--c-red)', sugar:'var(--c-pink)' };
 
 function sumEntries(list) {
   const s = { calories:0, protein:0, fibre:0, carbs:0, fat:0, sugar:0 };

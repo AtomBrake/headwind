@@ -25,6 +25,17 @@ from services.ai import CLAUDE_MODELS
 
 log = logging.getLogger(__name__)
 
+APPEARANCES = ('auto', 'light', 'dark')       # Settings.appearance; auto follows the device (templates/_scheme.html)
+
+
+def appearance():
+    """The stored Appearance, for data-theme on <html>. 'auto' before setup, or if the column is missing or holds anything else."""
+    try:
+        row = query_db('SELECT appearance FROM Settings WHERE id=1', one=True)
+        return row['appearance'] if row and row['appearance'] in APPEARANCES else 'auto'
+    except Exception:
+        return 'auto'
+
 
 @bp.route('/', methods=['GET', 'POST'])
 def index():
@@ -109,6 +120,8 @@ def index():
             garmin_sync_mode,
             units,
         ])
+        if form.get('appearance') in APPEARANCES:       # anything else keeps what is saved
+            db.execute('UPDATE Settings SET appearance=? WHERE id=1', [form['appearance']])
         if 'timeZone' in form:                          # blank = the server's zone
             from services import tz
             zone = form['timeZone'].strip()
