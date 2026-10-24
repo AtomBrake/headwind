@@ -931,6 +931,8 @@ function openPhoto(a) {
       </button>
       <span style="font-size:0.8125rem; color:var(--text-muted);">Generated {{ activity.aiKudosAt | fmt_date }}{% if has_memory %} · using ride history{% endif %}</span>
     </div>
+  {% elif ai_pending %}
+    <p id="kudosPending" data-rid="{{ activity.id }}" style="color:var(--text-muted); margin:0;">Analysing… This new ride's coaching notes will appear here in a moment.</p>
   {% else %}
     <p style="color:var(--text-muted); margin-bottom:1rem;">
       Get a personalised coaching analysis{% if has_memory %} comparing this ride against your history{% endif %}.

@@ -205,6 +205,13 @@ def overview(db):
         jobs.append(_card('Activity type check', c['status'], c['error'] or c['result'] or 'Asking Garmin for the type of each Garmin ride…',
                           c['finishedAt'], {'url': '/garmin/sports', 'label': 'Open'}))
 
+    # New rides analysed by the AI coach as they're imported (services/auto_analyse.py), when that's on
+    if s.get('aiAutoAnalyse'):
+        a = last(db, 'ai_analysis')
+        jobs.append(_card('AI analysis of new rides', a['status'] if a else 'idle',
+                          f"{a['label']}: {a['error'] or a['result'] or 'in progress…'}" if a else 'Waiting for a new ride.',
+                          (a or {}).get('finishedAt'), {'url': '/ai', 'label': 'AI Coach'}))
+
     # An import started on the Import page
     try:
         from routes import import_rides

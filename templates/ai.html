@@ -96,6 +96,26 @@
   </div>
   {% endif %}
 
+  <!-- New rides analysed as they're imported (services/auto_analyse.py) -->
+  <form method="POST" action="{{ url_for('ai_page.save_auto_analyse') }}" class="card" style="margin:0;">
+    <div class="card-title">Analyse New Rides</div>
+    <p style="color:var(--text-muted); font-size:0.875rem; margin-bottom:1rem;">
+      Write coaching notes for each new ride as soon as it arrives from Garmin, the phone app or an import, using the coach personality you last chose on a ride.
+      Only rides from the last {{ recent_days }} days: use Bulk Analysis below for older ones. Each analysis is a call to your AI provider.
+    </p>
+    {% set auto_on = settings and settings.aiAutoAnalyse %}
+    {% if missing_key %}
+    <p style="font-size:0.875rem; margin-bottom:1rem; color:var(--warning);">{{ missing_key }}{% if auto_on %} Until then new rides aren't analysed.{% endif %}</p>
+    {% endif %}
+    <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+      <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-size:0.875rem; color:var(--text);">
+        <input type="checkbox" name="auto" value="1" {% if auto_on %}checked{% endif %} {% if not ai_ready and not auto_on %}disabled{% endif %} style="accent-color:var(--accent);">
+        Analyse new rides automatically
+      </label>
+      <button type="submit" class="btn btn-secondary" {% if not ai_ready and not auto_on %}disabled{% endif %}>Save</button>
+    </div>
+  </form>
+
   <!-- Goals + Bulk Analysis side by side -->
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; align-items:start;">
 

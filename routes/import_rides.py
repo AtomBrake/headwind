@@ -414,6 +414,8 @@ def _process_single_file(path, original_name, rider_id=None, bike_id=None):
             log.error('Duplicate resolution failed for %s: %s', act['id'], e)
             db.rollback()
         kept = (dup or {}).get('kept', act['id'])
+        from services import auto_analyse
+        auto_analyse.queue_ride(db, kept)               # this path does its own sanity and segment steps, not services/ingest.after_ride_added
         try:
             from services.mqtt import push_update
             act_row = db.execute('SELECT * FROM Activity WHERE id=?', [kept]).fetchone()

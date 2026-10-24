@@ -480,5 +480,42 @@ RULES:
     return chat([{'role': 'user', 'content': user_msg}], system=system_msg, max_tokens=1000, temperature=0.7)
 
 
+def ensure_weather(db, activity):
+    """The activity with its weather fetched and stored, when it has none yet (the analysis reads it). Commits."""
+    if activity['weatherSummary'] or not activity['startLat'] or not activity['startLng']:
+        return activity
+    try:
+        from services.weather import fetch_weather, save_weather
+        w = fetch_weather(
+            activity['startLat'],
+            activity['startLng'],
+            activity['startDateLocal'],
+            activity['streams'],
+        )
+        if w:
+            save_weather(db, activity['id'], w)
+            db.commit()
+            return query_db('SELECT * FROM Activity WHERE id=?', [activity['id']], one=True)
+    except Exception:
+        log.warning('Weather fetch before the AI analysis failed', exc_info=True)
+    return activity
+
+
+def analyse_ride(db, activity, personality_key=None):
+    """Everything 'analyse this ride' does, for the ride page's button, the AI page's batch and the analysis of new rides
+    (services/auto_analyse.py): weather if it has none, the analysis, stored on the ride and in its RideMemory. Returns the text;
+    raises when there is no provider or it fails. Commits."""
+    activity = ensure_weather(db, activity)
+    text = generate_analysis(activity, personality_key=personality_key)
+    db.execute(
+        "UPDATE Activity SET aiKudos=?, aiKudosAt=datetime('now') WHERE id=?",
+        [text, activity['id']],
+    )
+    db.commit()
+    from services.context import save_ride_memory
+    save_ride_memory(activity, text)
+    return text
+
+
 # backward-compat alias used by webhook.py
 generate_kudos = generate_analysis

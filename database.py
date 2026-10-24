@@ -394,6 +394,7 @@ def migrate_db():
         ('mqttPassword',     'TEXT'),
         ('coachingGoals',    'TEXT'),
         ('coachPersonality', "TEXT DEFAULT 'default'"),
+        ('aiAutoAnalyse',    'INTEGER DEFAULT 0'),     # analyse each new ride as it's imported (services/auto_analyse.py)
         ('garminEmail',      'TEXT'),
         ('garminPassword',   'TEXT'),      # no longer kept: only an older install's, until services/garmin._client swaps it for tokens
         ('garminSyncHours',  'REAL DEFAULT 0.5'),
