@@ -15,6 +15,7 @@ import secrets
 from datetime import date, datetime, timedelta
 
 from services.gear_catalog import BY_KIND
+from services.sports import RIDE_SQL
 
 log = logging.getLogger(__name__)
 MI = 1609.344
@@ -305,6 +306,60 @@ def calendar_month(db, rider_id, year, month):
         else:
             d['bikes'][str(r['b'])] = d['bikes'].get(str(r['b']), 0) + r['n']
     return out
+
+
+# Activities with no gear, on Activity a: a ride with no bike, anything else with no shoes or other kit (services/kit.py). The keys are the
+# activity lists' ?gear= values (routes/dashboard._gear_filter).
+_A_RIDE = RIDE_SQL.replace('sportType', 'a.sportType')
+NO_GEAR_SQL = {
+    'none':      f'((a.bikeId IS NULL AND {_A_RIDE}) OR (a.kitId IS NULL AND NOT {_A_RIDE}))',
+    'bike-none': f'(a.bikeId IS NULL AND {_A_RIDE})',
+    'kit-none':  f'(a.kitId IS NULL AND NOT {_A_RIDE})',
+}
+
+
+def no_gear_kind(db, rider_id):
+    """Which activities with no gear are worth pointing out: rides once the rider has a bike, the rest once they have kit ('none' for both),
+    or None when they have neither, since there's nothing to put them on."""
+    bikes = db.execute('SELECT 1 FROM Bike WHERE riderId=? AND COALESCE(archived, 0)=0', [rider_id]).fetchone()
+    items = db.execute('SELECT 1 FROM Kit WHERE riderId=? AND retiredOn IS NULL', [rider_id]).fetchone()
+    return 'none' if bikes and items else 'bike-none' if bikes else 'kit-none' if items else None
+
+
+def no_gear_counts(db, rider_id, which):
+    """[(sport, n)] of the rider's activities with no gear (NO_GEAR_SQL[which]), most first. A row with no sport counts as a Ride, as the sport
+    filter has it (services/sport_filter.COL_SQL)."""
+    from services.sport_filter import COL_SQL
+    if which not in NO_GEAR_SQL:
+        return []
+    col = COL_SQL.format(col='a.sportType')
+    return [(r[0], r[1]) for r in db.execute(f'SELECT {col} AS s, COUNT(*) AS n FROM Activity a WHERE a.riderId=? AND {NO_GEAR_SQL[which]} '
+                                             f'GROUP BY s ORDER BY n DESC, s', [rider_id]).fetchall()]
+
+
+DAY_RIDES_MAX = 40       # the calendar lists this many of the picked days' rides; more days than that are better done by range
+
+
+def day_rides(db, rider_id, dates):
+    """The rider's rides on these days, oldest first, for the calendar to list with a bike picker each: ([{id, name, sport, when, distance,
+    bike, bike_name}], how many in all). Raises ValueError on a date that isn't one."""
+    ds = sorted({str(d)[:10] for d in dates})[:400]
+    for d in ds:
+        parse_date(d)
+    if not ds:
+        return [], 0
+    where = f"a.riderId=? AND substr(a.startDateLocal,1,10) IN ({','.join('?' * len(ds))})"
+    total = db.execute(f'SELECT COUNT(*) FROM Ride a WHERE {where}', [rider_id] + ds).fetchone()[0]
+    rows = db.execute(f'SELECT a.id, a.name, a.sportType, a.startDateLocal, a.distance, a.bikeId, b.name AS bikeName FROM Ride a '
+                      f'LEFT JOIN Bike b ON b.id = a.bikeId WHERE {where} ORDER BY a.startDateLocal LIMIT {DAY_RIDES_MAX}', [rider_id] + ds).fetchall()
+    from services.dates import day_month
+    from services.sports import label
+    out = []
+    for r in rows:
+        start = str(r['startDateLocal'] or '')
+        out.append({'id': r['id'], 'name': r['name'] or label(r['sportType']), 'sport': label(r['sportType']), 'distance': r['distance'] or 0,
+                    'when': f"{day_month(date.fromisoformat(start[:10]))} {start[11:16]}".strip(), 'bike': r['bikeId'], 'bike_name': r['bikeName']})
+    return out, total
 
 
 def ride_span(db, rider_id):

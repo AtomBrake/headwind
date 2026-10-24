@@ -191,39 +191,94 @@ def _activities(where, params):
         WHERE {' AND '.join(where)}
         ORDER BY a.startDateLocal DESC
     ''', params)
-    return [dict(a, name=_name(a)) for a in rows]
+    return [dict(a, name=_name(a), isRide=sports.is_ride(a['sportType'])) for a in rows]
 
 
 @bp.route('/dashboard/history')
 def history():
     """The days of one stretch of the history tree (a month, from= to=), drawn when it is opened: the dashboard draws only the open month, so it
-    doesn't carry every activity ever recorded. Same rider and sport filter as the dashboard it came from."""
+    doesn't carry every activity ever recorded. Same rider, sport and gear filter as the dashboard it came from."""
     _, active_rider, rid = _riders(request.args)
     sf = SportFilter(get_db(), rid, request.args)
+    gf = _gear_filter(get_db(), rid, request.args.get('gear', '').strip())
     date_from, date_to = request.args.get('from', '').strip(), request.args.get('to', '').strip()
     clause, cparams = sf.sql('a.sportType')
     where, params = ['a.riderId=?', clause], [rid] + cparams
+    if gf['sql']:
+        where.append(gf['sql']); params += gf['params']
     if date_from:
         where.append('date(a.startDateLocal) >= ?'); params.append(date_from)
     if date_to:
         where.append('date(a.startDateLocal) <= ?'); params.append(date_to)
     days = [d for yr in _group_activities(_activities(where, params)) for mo in yr['months'] for d in mo['days']]
     list_path = request.args.get('list') if request.args.get('list') in LIST_PATHS else '/dashboard'
-    return render_template('_history_days.html', days=days, sf=sf, rider_query=urlencode(_rider_args(active_rider) + sf.args()), list_path=list_path)
+    rider_query = urlencode(_rider_args(active_rider) + sf.args() + gf['args'])
+    return render_template('_history_days.html', days=days, sf=sf, rider_query=rider_query, list_path=list_path, row_picker=gf['row_picker'],
+                           gear_pickers=gf['pickers'], back_url=list_path + ('?' + rider_query if rider_query else ''))
 
 
 LIST_PATHS = ('/dashboard', '/activities')     # the pages that show the activity list (templates/_activity_list.html)
 
 
+def _gear_filter(db, rid, value):
+    """The list's gear filter, from ?gear=: none (no gear: a ride with no bike, anything else with no shoes or other kit), bike-none, kit-none
+    (services/gear.NO_GEAR_SQL), bike-<id> or kit-<id>. Returns {value, sql (None for no filter), params, args (to keep it on links), choices
+    for the form as [(group, [(value, label)])], row_picker (a bike or kit picker on each row, to deal with them one by one), pickers (the
+    rider's bikes and kit for it)}."""
+    from services import gear, kit
+    bikes = gear.list_bikes(db, rid, include_archived=True)
+    items = kit.list_kit(db, rid, include_retired=True)
+    choices = [('', [('none', 'No gear (every sport)')])] if bikes or items else []
+    if bikes:
+        choices.append(('Bikes', [('bike-none', 'Rides with no bike')] + [(f"bike-{b['id']}", b['name'] + (' (retired)' if b['archived'] else '')) for b in bikes]))
+    if items:
+        choices.append(('Shoes and other gear', [('kit-none', 'Other sports with no gear')] + [(f"kit-{k['id']}", k['name'] + (' (retired)' if k['retiredOn'] else '')) for k in items]))
+    out = dict(value='', sql=None, params=[], args=[], choices=choices, row_picker=False,
+               pickers={'bike': [b for b in bikes if not b['archived']], 'kit': [k for k in items if not k['retiredOn']]})
+    kind, _, which = (value or '').partition('-')
+    if value in gear.NO_GEAR_SQL:
+        out.update(value=value, sql=gear.NO_GEAR_SQL[value], row_picker=True)
+    elif kind in ('bike', 'kit') and which.isdigit():
+        out.update(value=value, sql=f'a.{kind}Id = ?', params=[int(which)])
+    if out['value']:
+        out['args'] = [('gear', out['value'])]
+    return out
+
+
+def _open_newest(grouped):
+    """Open the newest year and month of a history tree that has nothing in the current one (a gear filter's list, say), so it starts on
+    something; the other months are still fetched when they're opened."""
+    if grouped and not any(y['is_current'] for y in grouped):
+        grouped[0]['is_current'] = True
+    for y in grouped:
+        if y['is_current'] and y['months'] and not any(m['is_current'] for m in y['months']):
+            y['months'][0]['is_current'] = True
+    return grouped
+
+
+def _gear_types(db, rid, value, sf, link):
+    """For a "no gear" list: [(sport, n, link to that sport alone, active)] of the activities it has, the "All" link first (sport None)."""
+    from services import gear
+    counts = gear.no_gear_counts(db, rid, value)
+    if not counts:
+        return []
+    names = [s for s, _ in sf.sports]
+    only = sf.kept[0] if len(sf.kept) == 1 else None
+    return [(None, sum(n for _, n in counts), link([]), not sf.skip)] + \
+           [(s, n, link([x for x in names if x != s]), s == only) for s, n in counts]
+
+
 def _activity_list(args, list_path):
     """The activity list's filters and rows, shared by the dashboard and the Activities page: (the template's values, where, params, the rider
-    links' args). Name, dates, distance and the sports left in (services/sport_filter) all come from the URL, so a filtered list can be linked."""
+    links' args). Name, dates, distance, gear and the sports left in (services/sport_filter) all come from the URL, so a filtered list can be
+    linked."""
     all_riders, active_rider, rid = _riders(args)
     q         = args.get('q', '').strip()
     date_from = args.get('from', '').strip()
     date_to   = args.get('to', '').strip()
     min_dist, max_dist, min_m, max_m = dist_filters(args)
     sf        = SportFilter(get_db(), rid, args)     # the sports left in, for the totals, the chart and the list alike
+    gf        = _gear_filter(get_db(), rid, args.get('gear', '').strip())    # kept in the history tree: a gear filter's list is paged by month
     is_filtered = any([q, date_from, date_to, min_dist, max_dist])
 
     where  = ['a.riderId=?']
@@ -238,12 +293,14 @@ def _activity_list(args, list_path):
         where.append('a.distance >= ?'); params.append(min_m)
     if max_m is not None:
         where.append('a.distance <= ?'); params.append(max_m)
+    if gf['sql']:
+        where.append(gf['sql']); params += gf['params']
     clause, cparams = sf.sql('a.sportType')
     where.append(clause); params += cparams
 
     rider_args = _rider_args(active_rider)
     def link(skip):
-        args_ = rider_args + sf.args(skip)
+        args_ = rider_args + sf.args(skip) + gf['args']
         return list_path + ('?' + urlencode(args_) if args_ else '')
 
     activities = _activities(where, params)
@@ -254,16 +311,19 @@ def _activity_list(args, list_path):
         back_url=list_path + '?' + urlencode([(k, v) for k, v in args.items(multi=True) if k != 'typed']),
         sport_choices=[('Ride', 'Ride'), ('VirtualRide', 'Indoor ride'), ('Walk', 'Walk'), ('Run', 'Run'), ('Hike', 'Hike')],
         activities=activities,
-        grouped=_group_activities(activities) if not is_filtered else [],
+        grouped=(_open_newest if gf['value'] else (lambda g: g))(_group_activities(activities)) if not is_filtered else [],
         search_results=activities if is_filtered else [],
         is_filtered=is_filtered,
         q=q, date_from=date_from, date_to=date_to,
         min_dist=min_dist, max_dist=max_dist,
+        gear=gf['value'], gear_choices=gf['choices'], row_picker=gf['row_picker'], gear_pickers=gf['pickers'],
+        gear_types=_gear_types(get_db(), rid, gf['value'], sf, link),
         sf=sf,
         sport_links=[(label, icon, link(skip), active) for label, icon, skip, active in sf.shortcuts()],
         all_riders=all_riders,
         active_rider=active_rider,
-        rider_query=urlencode(rider_args + sf.args()),     # kept on every link the page makes: the rider and the sports left out
+        rider_query=urlencode(rider_args + sf.args() + gf['args']),     # kept on every link the page makes: the rider, the sports left out, the gear
+        clear_url=list_path + ('?' + urlencode(rider_args + sf.args()) if rider_args or sf.args() else ''),     # Clear drops the search and the gear
     )
     return ctx, where, params, link
 

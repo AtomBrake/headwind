@@ -25,10 +25,13 @@
 </div>
 {% endif %}
 
-{% if span.unassigned and bikes %}
+{% if no_gear %}
 <div class="gear-note">
-  <div><strong>{{ '{:,}'.format(span.unassigned) }}</strong> of {{ '{:,}'.format(span.total) }} rides have no bike yet. New rides get your default bike automatically; use the calendar to say which bike rode the older ones.</div>
-  <a class="btn btn-secondary btn-sm" href="{{ url_for('gear.assign_page', rider=rid) }}">Assign rides by calendar</a>
+  <div><a href="{{ no_gear.href }}"><strong>{{ '{:,}'.format(no_gear.n) }}</strong> activit{{ 'y has' if no_gear.n == 1 else 'ies have' }} no gear</a> yet:
+    {% for s, n, href in no_gear.types %}<a href="{{ href }}">{{ s | sport_icon }} {{ '{:,}'.format(n) }} {{ s | sport_label }}</a>{{ ',' if not loop.last }} {% endfor %}
+    <div class="hint">New ones get your default bike or shoes automatically. Pick the gear for each of the older ones in the list{% if span.unassigned and bikes %}, or use the calendar to say which bike rode the rides by day{% endif %}.</div></div>
+  <a class="btn btn-secondary btn-sm" href="{{ no_gear.href }}">See them</a>
+  {% if span.unassigned and bikes %}<a class="btn btn-secondary btn-sm" href="{{ url_for('gear.assign_page', rider=rid) }}">Assign rides by calendar</a>{% endif %}
 </div>
 {% endif %}
 

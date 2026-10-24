@@ -18,7 +18,9 @@ You will have years of rides with no bike. **Gear > Assign rides** opens a calen
 * pick the bike, and decide whether rides that already have a bike are left alone (the default);
 * Headwind shows exactly how many rides will change *before* you press Apply.
 
-Days with rides that still have no bike are outlined in orange, and each ride day carries a colour stripe for the bike(s) it was on. Walks, runs and hikes are never touched.
+Days with rides that still have no bike are outlined in orange, and each ride day carries a colour stripe for the bike(s) it was on. The picked days' rides are listed under the calendar, each with its own bike picker, so a day with a road ride and a mountain-bike ride can be split. Walks, runs and hikes are never touched.
+
+To go through them one by one instead, click the count in the Gear page's "activities have no gear" note, or one of the types after it (rides, runs, walks, ...). It opens the Activities page filtered to them (the **Gear** filter in the search form, "No gear"), a month at a time like the rest of the history, with a row of types and their counts above it to show one sport alone. Each row has a picker at the end: a bike for a ride, shoes or other gear for anything else. An activity leaves the list as soon as it has some. The same filter lists a bike's rides or a pair of shoes' activities.
 
 On any single ride, the **Bike** dropdown at the top of the ride page changes just that ride.
 

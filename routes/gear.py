@@ -49,6 +49,12 @@ def _catalog_for_ui(units):
     return out
 
 
+def _back(default):
+    """Where a form says to go next (a list it was sent from), if it's a path on this site; otherwise the default."""
+    back = request.form.get('back') or ''
+    return back if back.startswith('/') and not back.startswith('//') else default
+
+
 def _flash_redirect(url, error=None):
     from urllib.parse import quote
     if error:
@@ -73,10 +79,25 @@ def index():
     items = [{'kit': k, 'stats': used.get(k['id'], {}), 'status': kit.status(db, k, used.get(k['id'], {}).get('distance', 0)), 'defaults': kit.defaults_of(db, k['id']),
               'icon': kit.KIND_ICONS.get(k['kind'], '')}
              for k in kit.list_kit(db, rid, include_retired=request.args.get('retired') == '1')]
-    return render_template('gear.html', bikes=bikes, kit_items=items, kit_due=kit.due_items(db, rid), show_retired=request.args.get('retired') == '1',
+    return render_template('gear.html', bikes=bikes, kit_items=items, no_gear=_no_gear(db, rid), kit_due=kit.due_items(db, rid), show_retired=request.args.get('retired') == '1',
                            has_retired=bool(query_db('SELECT 1 FROM Kit WHERE riderId=? AND retiredOn IS NOT NULL', [rid], one=True)), strava=strava, default_id=default['defaultBikeId'] if default else None, due=gear.due_items(db, rid), span=gear.ride_span(db, rid), rid=rid,
                            riders=query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name') if multi_rider() else [], error=request.args.get('error'), units=units,
                            show_archived=request.args.get('archived') == '1', has_archived=bool(query_db('SELECT 1 FROM Bike WHERE riderId=? AND archived=1', [rid], one=True)))
+
+
+def _no_gear(db, rid):
+    """The Gear page's note on activities with no gear: {'href': the Activities page filtered to them, 'n', 'types': [(sport, n, href)]},
+    each type linking to that sport alone. Rides count once there's a bike, the rest once there's kit (gear.no_gear_kind); None for nothing."""
+    from urllib.parse import urlencode
+    from werkzeug.datastructures import MultiDict
+    from services.sport_filter import SportFilter
+    which = gear.no_gear_kind(db, rid)
+    counts = gear.no_gear_counts(db, rid, which) if which else []
+    if not counts:
+        return None
+    names = [s for s, _ in SportFilter(db, rid, MultiDict()).sports]
+    href = lambda skip=(): url_for('dashboard.activities_page') + '?' + urlencode([('gear', which), ('rider', rid)] + [('skip', x) for x in skip])
+    return {'href': href(), 'n': sum(n for _, n in counts), 'types': [(s, n, href([x for x in names if x != s])) for s, n in counts]}
 
 
 @bp.route('/photo/<name>')
@@ -409,13 +430,14 @@ def kit_delete(kit_id):
 @bp.route('/activity/<rid>/kit', methods=['POST'])
 def activity_kit(rid):
     db = get_db()
+    back = _back(url_for('rides.detail', rid=rid))
     try:
         kit.set_activity_kit(db, rid, request.form.get('kit', type=int))
         db.commit()
     except ValueError as e:
         db.rollback()
-        return _flash_redirect(url_for('rides.detail', rid=rid), e)
-    return redirect(url_for('rides.detail', rid=rid))
+        return _flash_redirect(back, e)
+    return redirect(back)
 
 
 # ---------- which bike on which ride ----------
@@ -423,17 +445,23 @@ def activity_kit(rid):
 def ride_bike(rid):
     db = get_db()
     bike_id = request.form.get('bike', type=int)
+    back = _back(url_for('rides.detail', rid=rid))
     try:
-        gear.set_ride_bike(db, rid, bike_id)
-        db.commit()
-        a = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone()
-        if bike_id and a:
-            gear.evaluate_alerts(db, rider_id=a['riderId'])
-            db.commit()
+        _set_bike(db, rid, bike_id)
     except ValueError as e:
         db.rollback()
-        return _flash_redirect(url_for('rides.detail', rid=rid), e)
-    return redirect(url_for('rides.detail', rid=rid))
+        return _flash_redirect(back, e)
+    return redirect(back)
+
+
+def _set_bike(db, rid, bike_id):
+    """Put one ride on a bike (or none) and commit, then see whether that brought a part due."""
+    gear.set_ride_bike(db, rid, bike_id)
+    db.commit()
+    a = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone()
+    if bike_id and a:
+        gear.evaluate_alerts(db, rider_id=a['riderId'])
+        db.commit()
 
 
 @bp.route('/assign')
@@ -454,6 +482,34 @@ def api_calendar():
     except (KeyError, ValueError):
         return jsonify({'error': 'year and month are required'}), 400
     return jsonify({'days': gear.calendar_month(get_db(), rid, year, month)})
+
+
+@bp.route('/api/day-rides')
+def api_day_rides():
+    """The rides on the days picked on the calendar (?dates=YYYY-MM-DD,...), so each can get its own bike: [{id, name, sport, when, distance,
+    bike, bike_name}], at most gear.DAY_RIDES_MAX, and how many there are in all."""
+    try:
+        dates = [d for d in (request.args.get('dates') or '').split(',') if d]
+        rides, total = gear.day_rides(get_db(), _rider_id(), dates)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'rides': rides, 'total': total})
+
+
+@bp.route('/api/ride-bike', methods=['POST'])
+def api_ride_bike():
+    """JSON {ride: id, bike: id|null}: one ride's bike, from the calendar's list of a day's rides."""
+    db = get_db()
+    b = request.get_json(silent=True) or {}
+    a = db.execute('SELECT a.id FROM Ride a WHERE a.id=? AND a.riderId=?', [str(b.get('ride') or ''), _rider_id()]).fetchone()
+    if not a:
+        return jsonify({'error': 'ride not found'}), 404
+    try:
+        _set_bike(db, a['id'], int(b['bike']) if b.get('bike') else None)
+    except (ValueError, TypeError) as e:
+        db.rollback()
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'ok': True})
 
 
 @bp.route('/api/assign', methods=['POST'])

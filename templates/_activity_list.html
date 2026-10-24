@@ -1,8 +1,8 @@
 {# The activity list: the search form, then search results or the history tree (years, months, days), with the "Select" bar.
    Shared by the dashboard and the Activities page (routes/dashboard.py); list_path is the page it's on, so its links stay there.
    Needs list_path, rider_query, sf, active_rider, q, date_from, date_to, min_dist, max_dist, is_filtered, search_results, grouped,
-   activities, typed, back_url and sport_choices. #}
-{% from '_activity_row.html' import activity_row %}
+   activities, typed, back_url, clear_url, sport_choices, and the gear filter's gear, gear_choices, gear_types, row_picker and gear_pickers. #}
+{% from '_activity_row.html' import activity_row, gear_row %}
 {% set rq = rider_query %}
 {% macro list_url(f, t) %}{{ list_path }}?{% if rq %}{{ rq }}&amp;{% endif %}from={{ f }}&amp;to={{ t }}#ride-history{% endmacro %}
 <!-- Search / Filter -->
@@ -28,10 +28,19 @@
     <label>Max {{ U.dist }}</label>
     <input type="number" name="max_dist" value="{{ max_dist }}" placeholder="&infin;" min="0" step="1">
   </div>
+  {% if gear_choices %}
+  <div class="form-group-sm" style="flex:1.4; min-width:140px;">
+    <label>Gear</label>
+    <select name="gear">
+      <option value="">Any</option>
+      {% for group, opts in gear_choices %}{% if group %}<optgroup label="{{ group }}">{% endif %}{% for v, l in opts %}<option value="{{ v }}" {{ 'selected' if v == gear }}>{{ l }}</option>{% endfor %}{% if group %}</optgroup>{% endif %}{% endfor %}
+    </select>
+  </div>
+  {% endif %}
   <div style="display:flex; gap:0.4rem;">
     <button type="submit" class="btn btn-primary btn-sm">Search</button>
-    {% if is_filtered %}
-    <a href="{{ list_path }}{% if rq %}?{{ rq }}{% endif %}" class="btn btn-secondary btn-sm">&times; Clear</a>
+    {% if is_filtered or gear %}
+    <a href="{{ clear_url }}" class="btn btn-secondary btn-sm">&times; Clear</a>
     {% endif %}
   </div>
 </form>
@@ -43,6 +52,13 @@
     {% if activities %}<button type="button" class="btn btn-secondary pick-toggle" data-pick-toggle title="Pick several activities to delete, re-type, move or download">Select</button>{% endif %}
   </div>
 
+  {% if gear_types %}
+  <div class="sport-include" style="margin:0 0 0.6rem;">
+    <span class="sport-include-label">No gear</span>
+    {% for s, n, href, active in gear_types %}<a class="sport-only{{ ' active' if active }}" href="{{ href }}">{% if s %}{{ s | sport_icon }} {{ s | sport_label }}{% else %}Every sport{% endif %} {{ '{:,}'.format(n) }}</a>{% endfor %}
+  </div>
+  <p class="hint" style="margin:0 0 0.6rem;">Pick the bike or gear at the end of each row, or open the activity first. Each one drops off this list once it has some.</p>
+  {% endif %}
   {% if typed %}{% set t = typed.split('|') %}<div style="margin:0.4rem 0 0.8rem; padding:0.5rem 0.8rem; border:1px solid var(--border); border-radius:8px; font-size:0.85rem;">{{ t[0] }} activit{{ 'y' if t[0] == '1' else 'ies' }} changed to {{ t[2] }}{% if t[1] != '0' %}, {{ t[1] }} could not be changed{% endif %}.</div>{% endif %}
   {% if is_filtered %}
   {% if search_results %}
@@ -55,7 +71,7 @@
     <button class="btn btn-secondary btn-sm" type="submit">Change type</button>
   </form>
   <div>
-    {% for a in search_results %}{{ activity_row(a) }}{% endfor %}
+    {% for a in search_results %}{% if row_picker %}{{ gear_row(a, gear_pickers, back_url) }}{% else %}{{ activity_row(a) }}{% endif %}{% endfor %}
   </div>
   {% else %}
   <p class="hint" style="margin:0.5rem 0;">No activities match your filters.</p>
@@ -86,6 +102,13 @@
       {% endfor %}
     </details>
     {% endfor %}
+  {% elif gear %}
+  <div class="empty-state">
+    <div class="empty-icon">✅</div>
+    <h3>Nothing here</h3>
+    <p>No activity matches this gear filter{% if sf.skip %} among the sports left in{% endif %}.</p>
+    <a class="btn btn-secondary" href="{{ clear_url }}">Show every activity</a>
+  </div>
   {% else %}
   <div class="empty-state">
     <div class="empty-icon">🚴</div>
