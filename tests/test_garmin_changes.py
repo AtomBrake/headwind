@@ -16,8 +16,8 @@ class FakeAPI:
     class ActivityDownloadFormat:
         ORIGINAL = 'orig'
 
-    def __init__(self, acts, fail=False):
-        self.acts, self.fail, self.calls = acts, fail, []
+    def __init__(self, acts, fail=False, count=None):
+        self.acts, self.fail, self.calls, self.count = acts, fail, [], count
 
     def get_activities_by_date(self, start, end=None):
         self.calls.append((start, end))
@@ -25,6 +25,9 @@ class FakeAPI:
             raise RuntimeError('Garmin is down')
         hit = [a for a in self.acts if start <= a['startTimeLocal'][:10] <= (end or '9999')]
         return sorted(hit, key=lambda a: a['startTimeLocal'], reverse=True)
+
+    def count_activities(self):
+        return len(self.acts) if self.count is None else self.count
 
     def get_activities(self, start=0, limit=100):
         return sorted(self.acts, key=lambda a: a['startTimeLocal'], reverse=True)[start:start + limit]
@@ -131,6 +134,33 @@ def test_most_of_them_missing_at_once_is_not_taken_as_deletions(db):
     imported(db, *acts)
     res = gc.check(db, FakeAPI([acts[0], acts[-1]]), 1, '2026-08-01', '2026-10-01')        # 12 of 14 gone: another account, or a broken list
     assert res['suspect'] and gc.pending(db) == []
+
+
+def test_full_resync_judges_the_oldest_and_many_deleted_at_once(db):
+    """Settings' Full re-sync: Garmin's count says the listing is all of it, so the oldest activities are judged and most of them gone is
+    someone tidying Garmin, not a broken list."""
+    acts = [act(i, f'2016-03-{i:02d}') for i in range(1, 13)] + [act(20, '2026-09-01'), act(21, '2026-09-10')]
+    imported(db, *acts)
+    res = gc.full(db, FakeAPI(acts[-2:]), 1)                    # the 12 old ones deleted in Garmin
+    assert res['whole'] and not res['suspect'] and res['deleted'] == 12
+    assert set(flags(db)) == {f'garmin_{i}' for i in range(1, 13)}
+    assert db.execute("SELECT COUNT(*) FROM Activity").fetchone()[0] == 14              # flagged, not deleted
+    assert gc.describe(res).startswith('Checked all 2 activities in Garmin. Flagged for review: 12 deleted in Garmin')
+
+
+def test_full_resync_without_a_matching_count_keeps_the_usual_guards(db):
+    acts = [act(i, f'2016-03-{i:02d}') for i in range(1, 13)] + [act(20, '2026-09-01'), act(21, '2026-09-10')]
+    imported(db, *acts)
+    res = gc.full(db, FakeAPI(acts[-2:], count=50), 1)         # Garmin counts more than it listed: maybe cut short
+    assert not res['whole'] and gc.pending(db) == []
+    assert "didn't match its list" in gc.describe(res)
+
+
+def test_full_resync_with_none_of_them_listed_flags_nothing(db):
+    imported(db, act(1, '2026-09-01'), act(2, '2026-09-05'))
+    res = gc.full(db, FakeAPI([act(7, '2026-09-02')]), 1)       # another Garmin account
+    assert res['whole'] and res['suspect'] and gc.pending(db) == []
+    assert 'another account' in gc.describe(res)
 
 
 def test_rename_and_new_sport_are_offered_and_taken(db):
@@ -264,3 +294,33 @@ def test_pages_show_the_flags_and_the_buttons_settle_them(tmp_path, monkeypatch)
         d = database.get_db()
         assert d.execute("SELECT name FROM Activity WHERE id='garmin_2'").fetchone()[0] == 'New name'
         assert not d.execute("SELECT 1 FROM Activity WHERE id='garmin_1'").fetchone() and gc.pending(d) == []
+
+
+def test_settings_full_resync_button_runs_the_whole_check(tmp_path, monkeypatch):
+    """Settings shows Full re-sync once Garmin is signed in for rides, and it starts garmin_changes.full in the background. Full app."""
+    import app as app_module
+    import config
+    from routes import garmin as garmin_routes
+    from services import credentials
+    monkeypatch.setattr(config.Config, 'DATABASE', str(tmp_path / 'p.db'))
+    monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)
+    monkeypatch.setattr('services.garmin.signed_in', lambda: True)
+    app = app_module.create_app()
+    with app.app_context():
+        d = database.get_db()
+        d.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
+        d.execute("UPDATE Settings SET garminSyncMode='full', garminEmail='a@b.c' WHERE id=1")
+        d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
+        d.commit()
+        av = credentials.auth_version()
+    started = []
+    monkeypatch.setattr(garmin_routes.threading, 'Thread', lambda target, args, daemon: type('T', (), {'start': lambda s: started.append(args)})())
+    c = app.test_client()
+    with c.session_transaction() as s:
+        s['logged_in'] = True
+        s['av'] = av
+    assert 'Full re-sync' in c.get('/settings/').get_data(as_text=True)
+    r = c.post('/garmin/changes/check?whole=1')
+    assert r.status_code == 302 and r.headers['Location'].endswith('/import#garmin-changes')
+    assert started and started[0][1:] == (1, True)
+    garmin_routes._changes_lock.release()

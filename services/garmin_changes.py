@@ -122,16 +122,29 @@ def _recording_changed(db, api, a, act_id):
     return True
 
 
-def check(db, api, rider_id, start, end):
+def _complete(api, listing):
+    """True when Garmin counts exactly as many activities as the listing holds: then it's the whole account, not one cut short."""
+    try:
+        return api.count_activities() == len(listing)
+    except Exception:
+        log.warning('Garmin changes: counting the activities in Garmin failed', exc_info=True)
+        return False
+
+
+def check(db, api, rider_id, start, end, whole=False):
     """Compare Garmin's list for start..end (YYYY-MM-DD) with this rider's Garmin activities, and flag what changed. Raises when Garmin can't be
-    listed. Commits. Returns {'listed', 'baseline', 'deleted', 'edited', 'recordings', 'back', 'suspect'}."""
+    listed. Commits. Returns {'listed', 'baseline', 'deleted', 'edited', 'recordings', 'back', 'suspect', 'whole'}.
+    `whole`: start..end is all of Garmin (full()). When Garmin's own count says the listing is complete, every activity is judged, the oldest
+    ones too, and many missing at once is taken as deleted; only none of them listed at all (another account) is suspect. `whole` in the
+    result: that was so."""
     ensure_schema(db)
-    res = {'listed': 0, 'baseline': 0, 'deleted': 0, 'edited': 0, 'recordings': 0, 'back': 0, 'suspect': False}
+    res = {'listed': 0, 'baseline': 0, 'deleted': 0, 'edited': 0, 'recordings': 0, 'back': 0, 'suspect': False, 'whole': False}
     end_q = (date.fromisoformat(end) + timedelta(days=1)).isoformat()           # a day either side: Headwind's local date can differ from Garmin's
     listing = api.get_activities_by_date(start, end_q) or []
     if not listing:
         return res
     res['listed'] = len(listing)
+    res['whole'] = whole and _complete(api, listing)
     rows = _garmin_rows(db, rider_id)
     flags = {r['garminId']: r for r in db.execute('SELECT * FROM GarminChange WHERE riderId=?', [rider_id])}
     listed = set()
@@ -162,10 +175,14 @@ def check(db, api, rider_id, start, end):
             _accept(db, gid, {**old, 'distance': new['distance'], 'duration': new['duration'], 'start': new['start']})
             res['recordings'] += 1
 
-    covered = min((a.get('startTimeLocal') or '9999')[:10] for a in listing)
+    covered = '' if res['whole'] else min((a.get('startTimeLocal') or '9999')[:10] for a in listing)
     missing = [(gid, r) for gid, r in rows.items() if gid not in listed and covered < str(r['startDateLocal'] or '')[:10] <= end]
     expected = sum(1 for r in rows.values() if covered < str(r['startDateLocal'] or '')[:10] <= end)
-    if len(missing) > MASS and len(missing) * 2 > expected:
+    if res['whole'] and missing and len(missing) == expected:
+        log.warning('Garmin changes: none of %d activities are in Garmin\'s whole list; another account? Not taken as deleted', expected)
+        res['suspect'] = True
+        missing = []
+    elif not res['whole'] and len(missing) > MASS and len(missing) * 2 > expected:
         log.warning('Garmin changes: %d of %d activities from %s to %s are missing from Garmin\'s list; not taken as deleted', len(missing), expected, covered, end)
         res['suspect'] = True
         missing = []
@@ -192,7 +209,7 @@ def run(db, api, rider_id, today=None):
     if oldest and before.isoformat() > oldest:
         start = before - timedelta(days=OLDER_DAYS)
         older = check(db, api, rider_id, start.isoformat(), (before + timedelta(days=2)).isoformat())   # overlapping the block after it
-        total = {k: (total[k] or older[k]) if k == 'suspect' else total[k] + older[k] for k in total}
+        total = {k: (total[k] or older[k]) if k in ('suspect', 'whole') else total[k] + older[k] for k in total}
         nxt = start.isoformat() if start.isoformat() > oldest else None         # past the oldest: start again from the newest next time
     else:
         nxt = None
@@ -201,13 +218,27 @@ def run(db, api, rider_id, today=None):
     return total
 
 
+EARLIEST = '2000-01-01'         # the full check lists Garmin from here: before any activity it can hold (the sync skips anything before 2005)
+
+
+def full(db, api, rider_id, today=None):
+    """The whole history at once, for someone who tidied Garmin (Settings' Full re-sync): every activity, the oldest too. Commits. Returns check()'s
+    counts, and 'full'."""
+    return {**check(db, api, rider_id, EARLIEST, (today or date.today()).isoformat(), whole=True), 'full': True}
+
+
 def describe(res):
     """One line for the task log."""
     bits = [f"{res[k]} {label}" for k, label in (('deleted', 'deleted in Garmin'), ('edited', 'renamed or given a new sport'),
                                                  ('recordings', 'with a changed recording')) if res[k]]
     line = ('Flagged for review: ' + ', '.join(bits) + '.') if bits else 'Nothing changed in Garmin.'
+    if res.get('whole'):
+        line = f"Checked all {res['listed']} activities in Garmin. " + line
+    elif res.get('full') and res['listed']:
+        line += " Garmin's count of your activities didn't match its list, so ones older than the oldest listed weren't judged."
     if res['suspect']:
-        line += " Many activities were missing from Garmin's list at once, so none were taken as deleted."
+        line += (" None of your Garmin activities were in Garmin's list: signed in to another account? None were taken as deleted." if res.get('whole') else
+                 " Many activities were missing from Garmin's list at once, so none were taken as deleted.")
     return line
 
 
