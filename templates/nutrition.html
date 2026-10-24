@@ -20,8 +20,8 @@
     .nu-cal-lbl   { font-size:0.7rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em; margin-top:0.1rem; }
     .nu-cal-sub   { font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem; }
     .nu-net { margin-top:0.5rem; font-size:0.8rem; font-weight:600; padding:0.25rem 0.55rem; border-radius:6px; display:inline-block; }
-    .nu-net.deficit { background:rgba(16,185,129,0.15); color:var(--success); }
-    .nu-net.surplus { background:rgba(239,68,68,0.15);  color:var(--danger); }
+    .nu-net.deficit { background:var(--success-soft); color:var(--success); }
+    .nu-net.surplus { background:var(--danger-soft);  color:var(--danger); }
     .nu-net.neutral { background:var(--border); color:var(--text-muted); }
 
     /* ── Macro grid ────────────────────────────── */
@@ -89,14 +89,14 @@
       background:none; border:none; color:var(--text-muted); font-size:0.9rem;
       cursor:pointer; padding:0.15rem 0.35rem; border-radius:4px; flex-shrink:0;
     }
-    .btn-del:hover { color:var(--danger); background:rgba(239,68,68,0.1); }
+    .btn-del:hover { color:var(--danger); background:var(--danger-soft); }
 
 
     /* ── Phone layout: thumb-sized targets, always-reachable Add bar ─────────────── */
     .nu-spacer { height:0; }
     .nu-snack { position:fixed; left:0.75rem; right:0.75rem; bottom:calc(4.6rem + env(safe-area-inset-bottom, 0px)); z-index:60;
                 display:none; align-items:center; justify-content:space-between; gap:0.75rem; padding:0.7rem 0.9rem;
-                background:#1b3a57; border:1px solid var(--border); border-radius:10px; box-shadow:0 4px 14px rgba(0,0,0,0.5); font-size:0.9rem; }
+                background:var(--raised-hover); border:1px solid var(--border); border-radius:10px; box-shadow:0 4px 14px var(--shadow); font-size:0.9rem; }
     .nu-snack.show { display:flex; }
     .nu-snack button { background:none; border:none; color:var(--accent); font-weight:700; font-size:0.95rem; min-height:44px; padding:0 0.5rem; cursor:pointer; }
     .meal-section.empty-meal .meal-header { border-radius:8px; cursor:default; }
@@ -138,7 +138,7 @@
     /* ── Meal / day nutrition sheet (Team RH-style "Total Nutrition" page) ─────── */
     #mealNutriModal .modal-panel { max-width:none; width:100%; height:100dvh; max-height:100dvh; border-radius:0; padding:0; display:flex; flex-direction:column; }
     @media (min-width:768px) { #mealNutriModal .modal-panel { max-width:520px; height:auto; max-height:90vh; border-radius:12px; } }
-    .nn-hero { padding:1rem 1rem 0.9rem; padding-top:max(1rem, env(safe-area-inset-top)); background:linear-gradient(135deg, rgba(252,76,2,0.28), rgba(252,76,2,0.05)); border-bottom:1px solid var(--border);
+    .nn-hero { padding:1rem 1rem 0.9rem; padding-top:max(1rem, env(safe-area-inset-top)); background:linear-gradient(135deg, var(--accent-line), var(--accent-soft)); border-bottom:1px solid var(--border);
                display:flex; align-items:center; gap:0.5rem; flex-shrink:0; }
     .nn-hero h2 { font-size:1.5rem; font-weight:800; margin:0; flex:1; }
     .nn-h3 { font-size:1.15rem; font-weight:800; margin:0.2rem 0 0.1rem; }
@@ -180,7 +180,7 @@
 
     /* ── Modals ────────────────────────────────── */
     .modal-backdrop {
-      display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7);
+      display:none; position:fixed; inset:0; background:var(--overlay);
       z-index:200; align-items:flex-end; justify-content:center;
     }
     .modal-backdrop.open { display:flex; }
@@ -214,7 +214,7 @@
     .imp-modes { display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.6rem; }
     .imp-mode { min-height:48px; font-size:1rem; font-weight:600; border-radius:10px; cursor:pointer;
                 background:var(--card-bg); color:var(--text); border:1px solid var(--border); }
-    .imp-mode.active { border-color:var(--accent, #38bdf8); color:var(--accent, #38bdf8); }
+    .imp-mode.active { border-color:var(--accent); color:var(--accent); }
     .imp-choose { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:0.25rem; min-height:110px;
                   border:2px dashed var(--border); border-radius:12px; cursor:pointer; text-align:center; padding:1rem;
                   font-size:1rem; font-weight:600; }
@@ -222,15 +222,15 @@
     .imp-thumbs { display:flex; gap:0.5rem; overflow-x:auto; margin:0.75rem 0; padding-bottom:0.25rem; }
     .imp-thumbs img { height:88px; width:auto; border-radius:8px; border:1px solid var(--border); flex-shrink:0; }
     .imp-date { width:100%; min-height:48px; font-size:1rem; }
-    .imp-error { color:var(--danger, #ef4444); font-size:0.9rem; margin-top:0.75rem; }
+    .imp-error { color:var(--danger); font-size:0.9rem; margin-top:0.75rem; }
     .imp-progress { display:flex; flex-direction:column; align-items:center; gap:1rem; padding:2.5rem 0.5rem; text-align:center; }
     .imp-bar { width:100%; height:10px; background:var(--border); border-radius:999px; overflow:hidden; }
-    .imp-bar > div { height:100%; width:0; background:var(--accent, #38bdf8); border-radius:999px; transition:width 0.3s; }
+    .imp-bar > div { height:100%; width:0; background:var(--accent); border-radius:999px; transition:width 0.3s; }
     .imp-stage { font-size:1.05rem; font-weight:600; }
     .imp-sub { font-size:0.85rem; color:var(--text-muted); }
     .imp-chips { display:flex; flex-wrap:wrap; gap:0.4rem; margin-bottom:0.6rem; }
     .imp-chip { background:var(--card-bg); border:1px solid var(--border); border-radius:999px; padding:0.3rem 0.7rem; font-size:0.85rem; }
-    .imp-chip.warn { border-color:var(--danger, #ef4444); }
+    .imp-chip.warn { border-color:var(--danger); }
     .imp-note { font-size:0.8rem; color:var(--text-muted); margin-bottom:0.6rem; }
     .imp-card { border:1px solid var(--border); border-radius:12px; padding:0.7rem; margin-bottom:0.65rem; }
     .imp-card.off { opacity:0.5; }
@@ -254,7 +254,7 @@
     }
 
     /* ── Scan/confirm ──────────────────────────── */
-    #scannerView { border-radius:0.375rem; overflow:hidden; background:#000; margin-bottom:0.75rem; }
+    #scannerView { border-radius:0.375rem; overflow:hidden; background:var(--black); margin-bottom:0.75rem; }
     #scannerView video { width:100%; display:block; }
     #scanHint { font-size:0.8rem; color:var(--text-muted); text-align:center; margin-bottom:0.75rem; }
     .serving-row   { display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem; }
@@ -283,7 +283,7 @@
     .ff-list-lbl { font-size:0.78rem; color:var(--text-muted); margin-bottom:0.6rem; }
     .ff-row { display:flex; align-items:center; gap:0.7rem; padding:0.55rem 0; border-bottom:1px solid var(--border); cursor:pointer; }
     .ff-row:last-child { border-bottom:none; }
-    .ff-row:hover { background:rgba(255,255,255,0.03); }
+    .ff-row:hover { background:var(--hover-tint); }
     .ff-thumb {
       position:relative; flex-shrink:0; width:44px; height:44px; border-radius:8px;
       overflow:hidden; background:var(--border); display:flex; align-items:center; justify-content:center;
@@ -292,38 +292,38 @@
     .ff-thumb-icon { font-size:1.2rem; opacity:0.5; }
     .ff-thumb-badge {
       position:absolute; right:-2px; bottom:-2px; width:15px; height:15px; border-radius:50%;
-      background:var(--success); color:#062; font-size:0.6rem; display:flex; align-items:center; justify-content:center;
+      background:var(--success); color:var(--on-success); font-size:0.6rem; display:flex; align-items:center; justify-content:center;
       border:2px solid var(--card-bg);
     }
     .ff-row-body { flex:1; min-width:0; }
     .ff-row-brand {
       display:inline-block; font-size:0.68rem; font-weight:600; color:var(--success);
-      background:rgba(16,185,129,0.13); padding:0.05rem 0.4rem; border-radius:4px; margin-bottom:0.15rem;
+      background:var(--success-soft); padding:0.05rem 0.4rem; border-radius:4px; margin-bottom:0.15rem;
     }
     .ff-row-name { font-size:0.85rem; font-weight:500; line-height:1.25; }
     .ff-row-meta { font-size:0.72rem; color:var(--text-muted); margin-top:0.15rem; }
     .ff-row-actions { display:flex; align-items:center; gap:0.3rem; flex-shrink:0; }
     .ff-plus-btn {
       flex-shrink:0; width:30px; height:30px; border-radius:50%; background:var(--success);
-      color:#04180f; border:none; font-size:1.1rem; font-weight:700; cursor:pointer;
+      color:var(--on-success); border:none; font-size:1.1rem; font-weight:700; cursor:pointer;
       display:flex; align-items:center; justify-content:center; line-height:1;
     }
     .ff-icon-btn {
       flex-shrink:0; width:26px; height:26px; border-radius:6px; background:none; border:none;
       color:var(--text-muted); cursor:pointer; font-size:0.85rem; display:flex; align-items:center; justify-content:center;
     }
-    .ff-icon-btn:hover { color:var(--text); background:rgba(255,255,255,0.06); }
+    .ff-icon-btn:hover { color:var(--text); background:var(--hover-tint); }
     .ff-empty { text-align:center; color:var(--text-muted); font-size:0.85rem; padding:2.5rem 0; }
     .ff-loadmore { width:100%; margin-top:0.5rem; }
 
     /* ── Full-screen scanner ────────────────────── */
     #scanModal.scanning .modal-panel {
       max-width:none; width:100%; height:100%; max-height:100%; border-radius:0; padding:0;
-      display:flex; flex-direction:column; background:#000;
+      display:flex; flex-direction:column; background:var(--black);
     }
-    #scanModal.scanning .modal-header { padding:0.85rem 1rem; background:#000; margin-bottom:0; }
+    #scanModal.scanning .modal-header { padding:0.85rem 1rem; background:var(--black); margin-bottom:0; }
     #scanModal.scanning #scannerView { flex:1; margin-bottom:0; border-radius:0; display:flex; align-items:center; }
-    #scanModal.scanning #scanHint { padding:0.75rem 1rem; margin-bottom:0; background:#000; }
+    #scanModal.scanning #scanHint { padding:0.75rem 1rem; margin-bottom:0; background:var(--black); }
 
     /* ── Food detail card ──────────────────────── */
     .fd-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem; }
@@ -338,7 +338,7 @@
     .fd-photo-icon { font-size:2.4rem; opacity:0.4; }
     .fd-brand {
       display:block; width:fit-content; margin:0 auto 0.4rem; font-size:0.72rem; font-weight:600;
-      color:var(--success); background:rgba(16,185,129,0.13); padding:0.15rem 0.55rem; border-radius:5px;
+      color:var(--success); background:var(--success-soft); padding:0.15rem 0.55rem; border-radius:5px;
     }
     .fd-name { text-align:center; font-size:1.05rem; font-weight:700; margin-bottom:0.6rem; }
     .fd-badges { display:flex; flex-wrap:wrap; justify-content:center; gap:0.4rem; margin-bottom:0.85rem; }
@@ -346,13 +346,13 @@
       font-size:0.72rem; font-weight:600; padding:0.25rem 0.6rem; border-radius:999px;
       display:inline-flex; align-items:center; gap:0.25rem;
     }
-    .fd-badge.verified   { background:rgba(16,185,129,0.15); color:var(--success); }
-    .fd-badge.quality    { background:rgba(96,165,250,0.15); color:#60a5fa; }
-    .fd-badge.tag-sugar   { background:rgba(244,114,182,0.15); color:#f472b6; }
-    .fd-badge.tag-fibre   { background:rgba(249,115,22,0.15); color:#fb923c; }
-    .fd-badge.tag-protein { background:rgba(234,179,8,0.15);  color:#facc15; }
-    .fd-badge.tag-fat     { background:rgba(239,68,68,0.15);  color:#f87171; }
-    .fd-badge.tag-carbs   { background:rgba(56,189,248,0.15); color:#38bdf8; }
+    .fd-badge.verified   { background:var(--success-soft); color:var(--success); }
+    .fd-badge.quality    { background:color-mix(in srgb, var(--c-blue) 15%, transparent); color:var(--c-blue); }
+    .fd-badge.tag-sugar   { background:color-mix(in srgb, var(--c-pink) 15%, transparent); color:var(--c-pink); }
+    .fd-badge.tag-fibre   { background:color-mix(in srgb, var(--c-orange) 15%, transparent); color:var(--c-orange); }
+    .fd-badge.tag-protein { background:color-mix(in srgb, var(--c-yellow) 15%, transparent); color:var(--c-yellow); }
+    .fd-badge.tag-fat     { background:color-mix(in srgb, var(--c-red) 15%, transparent); color:var(--c-red); }
+    .fd-badge.tag-carbs   { background:color-mix(in srgb, var(--c-sky) 15%, transparent); color:var(--c-sky); }
     .fd-section-lbl { font-weight:700; font-size:0.95rem; margin-bottom:0.15rem; }
     .fd-section-sub { font-size:0.78rem; color:var(--text-muted); margin-bottom:0.75rem; }
     .fd-macro-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:0.4rem; margin-bottom:1rem; }
@@ -362,12 +362,12 @@
       font-size:0.6rem; font-weight:700; text-transform:uppercase; letter-spacing:0.02em;
       padding:0.1rem 0.35rem; border-radius:4px; display:inline-block; margin-bottom:0.35rem;
     }
-    .fd-macro-lbl.cal     { background:rgba(16,185,129,0.18); color:var(--success); }
-    .fd-macro-lbl.protein { background:rgba(234,179,8,0.18);  color:#facc15; }
-    .fd-macro-lbl.sugar   { background:rgba(244,114,182,0.18); color:#f472b6; }
-    .fd-macro-lbl.fibre   { background:rgba(249,115,22,0.18); color:#fb923c; }
-    .fd-macro-lbl.carbs   { background:rgba(56,189,248,0.18); color:#38bdf8; }
-    .fd-macro-lbl.fat     { background:rgba(239,68,68,0.18);  color:#f87171; }
+    .fd-macro-lbl.cal     { background:var(--success-soft); color:var(--success); }
+    .fd-macro-lbl.protein { background:color-mix(in srgb, var(--c-yellow) 18%, transparent); color:var(--c-yellow); }
+    .fd-macro-lbl.sugar   { background:color-mix(in srgb, var(--c-pink) 18%, transparent); color:var(--c-pink); }
+    .fd-macro-lbl.fibre   { background:color-mix(in srgb, var(--c-orange) 18%, transparent); color:var(--c-orange); }
+    .fd-macro-lbl.carbs   { background:color-mix(in srgb, var(--c-sky) 18%, transparent); color:var(--c-sky); }
+    .fd-macro-lbl.fat     { background:color-mix(in srgb, var(--c-red) 18%, transparent); color:var(--c-red); }
     .fd-macro-val { font-size:0.95rem; font-weight:700; }
     .fd-macro-tile input { width:100%; box-sizing:border-box; min-height:40px; font-size:16px; text-align:center; padding:0 0.2rem; }
     .fd-actions { display:flex; gap:0.5rem; flex-wrap:wrap; margin:-0.4rem 0 0.9rem; }
@@ -379,17 +379,17 @@
     .ph-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:0.5rem; padding:0 1rem 1rem; overflow-y:auto; flex:1; align-content:start; }
     .ph-cell { position:relative; aspect-ratio:1; padding:0; border:1px solid var(--border); border-radius:10px; overflow:hidden; background:var(--card-bg); cursor:pointer; }
     .ph-cell img { width:100%; height:100%; object-fit:cover; display:block; }
-    .ph-cell span { position:absolute; left:0; right:0; bottom:0; font-size:0.6rem; background:rgba(0,0,0,0.6); color:#fff; padding:0.1rem 0.25rem; }
+    .ph-cell span { position:absolute; left:0; right:0; bottom:0; font-size:0.6rem; background:var(--overlay); color:var(--white); padding:0.1rem 0.25rem; }
     .fd-more-menu {
       display:none; position:absolute; right:0; top:1.8rem; background:var(--card-bg); border:1px solid var(--border);
-      border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.35); z-index:10; min-width:170px; overflow:hidden;
+      border-radius:8px; box-shadow:0 4px 12px var(--shadow); z-index:10; min-width:170px; overflow:hidden;
     }
     .fd-more-menu.open { display:block; }
     .fd-more-menu button {
       display:block; width:100%; text-align:left; padding:0.6rem 0.85rem; background:none; border:none;
       color:var(--text); font-size:0.82rem; cursor:pointer;
     }
-    .fd-more-menu button:hover { background:rgba(255,255,255,0.05); }
+    .fd-more-menu button:hover { background:var(--hover-tint); }
     .fd-more-menu button.danger { color:var(--danger); }
 
     /* ── Day-view thumbnails ────────────────────── */
@@ -401,7 +401,7 @@
     .meal-entry-thumb-icon { font-size:1rem; opacity:0.5; }
     .meal-entry-thumb-badge {
       position:absolute; right:-2px; bottom:-2px; width:13px; height:13px; border-radius:50%;
-      background:var(--success); color:#062; font-size:0.55rem; display:flex; align-items:center; justify-content:center;
+      background:var(--success); color:var(--on-success); font-size:0.55rem; display:flex; align-items:center; justify-content:center;
       border:2px solid var(--card-bg);
     }
 
@@ -414,7 +414,7 @@
       flex:1; padding:0.25rem 0; font-size:0.78rem; border-radius:4px;
       border:1px solid var(--border); background:transparent; color:var(--text-muted); cursor:pointer;
     }
-    .scale-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+    .scale-btn.active { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
     .saved-meal-actions { display:flex; gap:0.4rem; margin-top:0.5rem; }
     .saved-meal-actions .btn { flex:1; justify-content:center; font-size:0.78rem; padding:0.3rem 0.5rem; }
     #savedMealsEmpty { color:var(--text-muted); text-align:center; padding:2rem 0; font-size:0.875rem; }
@@ -423,26 +423,26 @@
 {% endblock %}
 
 {% block topbar_actions %}
-<button class="btn btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.85rem;" id="btnGoals">Goals</button>
-<a href="/nutrition/week" class="btn btn-secondary" style="padding:0.3rem 0.6rem; font-size:0.85rem; text-decoration:none;">Week →</a>
+<button class="btn btn-secondary btn-sm" id="btnGoals">Goals</button>
+<a href="/nutrition/week" class="btn btn-secondary btn-sm">Week →</a>
 {% endblock %}
 
 {% block content %}
-<div id="profileNudge" class="card" style="display:none; margin-bottom:1rem; border-color:#b45309; background:rgba(180,83,9,0.10);">
+<div id="profileNudge" class="card" style="display:none; margin-bottom:1rem; border-color:var(--warning-line); background:var(--warning-soft);">
   <div style="font-weight:600; margin-bottom:0.2rem;">Finish your profile for goals made for you</div>
-  <div style="font-size:0.85rem; color:var(--text-muted); line-height:1.5;" id="profileNudgeText"></div>
-  <a href="/settings#profileCard" class="btn btn-secondary" style="margin-top:0.6rem; display:inline-block; padding:0.3rem 0.9rem;">Open Profile &amp; goals</a>
+  <div class="hint" id="profileNudgeText"></div>
+  <a href="/settings#profileCard" class="btn btn-secondary btn-sm" style="margin-top:0.6rem; display:inline-block;">Open Profile &amp; goals</a>
 </div>
 
 
 <!-- Date nav -->
 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
   <div style="display:flex; align-items:center; gap:0.4rem;">
-    <button class="btn btn-secondary" style="padding:0.3rem 0.6rem;" id="prevDay">&#8592;</button>
+    <button class="btn btn-secondary btn-sm" id="prevDay">&#8592;</button>
     <span id="dateLabel" style="font-size:0.9rem; font-weight:600; min-width:6rem; text-align:center;"></span>
-    <button class="btn btn-secondary" style="padding:0.3rem 0.6rem;" id="nextDay">&#8594;</button>
+    <button class="btn btn-secondary btn-sm" id="nextDay">&#8594;</button>
   </div>
-  <button class="btn btn-secondary" style="padding:0.3rem 0.7rem; font-size:0.85rem;" id="btnCopyYd">Copy yd</button>
+  <button class="btn btn-secondary btn-sm" id="btnCopyYd">Copy yd</button>
 </div>
 
 <!-- Calories card -->
@@ -540,7 +540,7 @@
   </div>
   <div style="display:flex; gap:0.4rem; margin-top:0.5rem;">
     <button class="btn btn-primary" id="btnWeighIn" style="flex:1; justify-content:center;">&#x2696; Weigh in</button>
-    <a href="/nutrition/weight/backfill" class="btn btn-secondary" style="flex:1; justify-content:center; text-decoration:none;">Backfill</a>
+    <a href="/nutrition/weight/backfill" class="btn btn-secondary" style="flex:1; justify-content:center;">Backfill</a>
   </div>
 </div>
 
@@ -554,7 +554,7 @@
     </div>
   </div>
   <div id="waterProgWrap" style="display:none;">
-    <div class="nu-prog-bg"><div class="nu-prog-fill" id="waterProgFill" style="width:0%; background:#60a5fa;"></div></div>
+    <div class="nu-prog-bg"><div class="nu-prog-fill" id="waterProgFill" style="width:0%; background:var(--c-blue);"></div></div>
     <div class="nu-prog-label"><span id="waterProgPct"></span><span id="waterProgRem"></span></div>
   </div>
   <div class="nu-water-btns">
@@ -678,7 +678,7 @@
     <div class="form-group"><label>Calories (kcal, each)</label><input type="number" id="drKcal" min="0" step="1" inputmode="numeric"><small style="color:var(--text-muted);">Filled in from the alcohol alone (about 55 kcal a unit). Beer, cider and mixers add sugars on top, so type the label figure if you know it.</small></div>
     <div id="drSummary" style="font-size:0.9rem; margin:0.4rem 0 0.8rem; font-weight:600;"></div>
     <div class="form-group"><label>Meal</label><select id="drMeal"></select></div>
-    <button class="btn btn-primary" id="drLog" style="width:100%; min-height:46px; justify-content:center;">Log drink</button>
+    <button class="btn btn-primary btn-block" id="drLog" style="min-height:46px;">Log drink</button>
     <p style="font-size:0.75rem; color:var(--text-muted); margin:0.6rem 0 0;">One UK unit is 10 ml of pure alcohol, so units = ml &times; strength &divide; 1000. Pours vary, so treat the total as an estimate.</p>
   </div>
 </div>
@@ -733,7 +733,7 @@
         <div class="form-group" style="display:flex; align-items:end;"><label style="display:flex; gap:0.5rem; align-items:center; min-height:46px;"><input type="checkbox" id="sgAuto" style="width:22px;height:22px;"> Update my goals automatically</label></div>
       </div>
       <div id="sgPlan" style="font-size:0.85rem; line-height:1.55; background:var(--main-bg); border:1px solid var(--border); border-radius:8px; padding:0.6rem 0.7rem; margin:0.4rem 0;"></div>
-      <button class="btn btn-secondary" id="sgApply" style="width:100%; min-height:46px; justify-content:center;">Use these goals now</button>
+      <button class="btn btn-secondary btn-block" id="sgApply" style="min-height:46px;">Use these goals now</button>
     </details>
     <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.5rem;">Leave blank to hide progress bars.</p>
     <hr style="border-color:var(--border); margin:1rem 0;">
@@ -795,7 +795,7 @@
       <label>Meal name *</label>
       <input type="text" id="bmName" placeholder="e.g. Post-ride recovery">
     </div>
-    <div style="margin:1rem 0; font-size:0.82rem; color:var(--text-muted);">Ingredients</div>
+    <div class="hint" style="margin:1rem 0;">Ingredients</div>
     <div id="bmIngredients" style="margin-bottom:1rem; max-height:300px; overflow-y:auto;"></div>
     <div style="text-align:center; margin-bottom:0.75rem; font-size:0.9rem;">
       <span style="color:var(--accent); font-weight:600;" id="bmTotalKcal">0 kcal</span>
@@ -962,7 +962,7 @@
       <div id="pmRange" style="font-size:0.78rem; color:var(--text-muted); margin:0.4rem 0 0.75rem;"></div>
       <details style="margin-bottom:0.75rem;"><summary style="cursor:pointer; min-height:36px; display:flex; align-items:center; font-size:0.85rem;">What the AI saw</summary><div id="pmItems" style="font-size:0.82rem; line-height:1.6;"></div></details>
       <div class="form-group"><label>Meal</label><select id="pmMeal" style="min-height:46px; font-size:16px;"></select></div>
-      <button class="btn btn-secondary" id="pmRedo" style="width:100%; min-height:46px; justify-content:center;">Add a note &amp; re-estimate</button>
+      <button class="btn btn-secondary btn-block" id="pmRedo" style="min-height:46px;">Add a note &amp; re-estimate</button>
     </div>
 
     <div class="imp-foot" id="pmFootPick"><button class="btn btn-secondary" id="pmCancel">Cancel</button></div>
@@ -1018,7 +1018,7 @@
       <select id="fdMealType"></select>
     </div>
     <div class="modal-btns" style="margin-top:0.85rem;">
-      <button class="btn btn-primary" id="fdSaveBtn" style="width:100%; justify-content:center;">Add</button>
+      <button class="btn btn-primary btn-block" id="fdSaveBtn">Add</button>
     </div>
   </div>
 </div>
@@ -1228,24 +1228,24 @@ function renderAll(data) {
   // Macros: filling rings (a ring is full when the goal is reached; sugar is a limit, so it turns red when you pass it)
   const fibreTot = entries.reduce((x,e) => x+(e.fibre||0), 0);
   const sugarTot = entries.reduce((x,e) => x+(e.sugar||0), 0);
-  renderRing('protein', protein, goals.protein, '#facc15');
-  renderRing('carbs',   carbs,   goals.carbs,   '#38bdf8');
-  renderRing('fat',     fat,     goals.fat,     '#f87171');
-  renderRing('fibre',   fibreTot, goals.fibre || 30, '#fb923c');
-  renderRing('sugar',   sugarTot, goals.sugar,  '#f472b6', false);         // total sugar: a reference, never a red limit
+  renderRing('protein', protein, goals.protein, cssVar('--c-yellow'));
+  renderRing('carbs',   carbs,   goals.carbs,   cssVar('--c-sky'));
+  renderRing('fat',     fat,     goals.fat,     cssVar('--c-red'));
+  renderRing('fibre',   fibreTot, goals.fibre || 30, cssVar('--c-orange'));
+  renderRing('sugar',   sugarTot, goals.sugar,  cssVar('--c-pink'), false);         // total sugar: a reference, never a red limit
   const sugEl = document.getElementById('ringVal_sugar');
   if (sugEl && goals.sugar && sugarTot > goals.sugar) sugEl.innerHTML += '<small style="color:var(--text-muted);">above reference</small>';
   const al = data.alcohol || {today: 0, week: 0, goal: goals.alcohol_week || 14};
-  renderRing('alcohol', al.week, al.goal, '#a78bfa', true, ' u');
+  renderRing('alcohol', al.week, al.goal, cssVar('--c-violet'), true, ' u');
   const alEl = document.getElementById('ringVal_alcohol');
-  if (alEl && al.today) alEl.innerHTML += `<small style="color:#a78bfa;">${al.today} today</small>`;
+  if (alEl && al.today) alEl.innerHTML += `<small style="color:var(--c-violet);">${al.today} today</small>`;
 
   // Hydration
   document.getElementById('waterTotal').textContent = waterMl.toLocaleString();
   if (goals.water) {
     document.getElementById('waterGoalLbl').textContent = `goal: ${goals.water.toLocaleString()} ml`;
     renderProg('waterProgWrap','waterProgFill','waterProgPct','waterProgRem',waterMl,goals.water,'{v} ml','{r} ml to go');
-    document.getElementById('waterProgFill').style.background='#60a5fa';
+    document.getElementById('waterProgFill').style.background=cssVar('--c-blue');
   } else {
     document.getElementById('waterGoalLbl').textContent = '';
     document.getElementById('waterProgWrap').style.display='none';
@@ -1275,7 +1275,7 @@ function renderRing(key, val, goal, colour, isLimit, unit) {
   const frac = goal ? Math.min(1, val / goal) : 0;
   bar.style.strokeDasharray = RING_C;
   bar.style.strokeDashoffset = RING_C * (1 - frac);
-  bar.style.stroke = (isLimit && goal && val > goal) ? '#ef4444' : colour;
+  bar.style.stroke = (isLimit && goal && val > goal) ? cssVar('--danger') : colour;
   const n = v => (unit === 'g' ? Math.round(v) : Math.round(v * 10) / 10);
   txt.innerHTML = goal ? `${n(val)}<small>of ${n(goal)}${unit}</small>` : `${n(val)}<small>${unit}</small>`;
 }
@@ -1330,7 +1330,7 @@ function buildMealSection(meal, entries) {
   // the meal's macros at a glance, next to its calories
   const mt = k => entries.reduce((x, e) => x + (e[k] || 0), 0);
   const chip = (lbl, v, col) => `<span class="meal-mac" style="color:${col};" title="${lbl === 'S' ? 'Total sugar' : ''}"><b>${Math.round(v)}</b><small>${lbl}</small></span>`;
-  const macros = `<div class="meal-macs">${chip('P', mt('protein'), '#facc15')}${chip('C', mt('carbs'), '#38bdf8')}${chip('F', mt('fat'), '#f87171')}${chip('Fi', mt('fibre'), '#fb923c')}${chip('S', mt('sugar'), '#f472b6')}${mt('alcoholUnits') > 0 ? `<span class="meal-mac" style="color:#a78bfa;"><b>${Math.round(mt('alcoholUnits') * 10) / 10}</b><small>U</small></span>` : ''}</div>`;
+  const macros = `<div class="meal-macs">${chip('P', mt('protein'), cssVar('--c-yellow'))}${chip('C', mt('carbs'), cssVar('--c-sky'))}${chip('F', mt('fat'), cssVar('--c-red'))}${chip('Fi', mt('fibre'), cssVar('--c-orange'))}${chip('S', mt('sugar'), cssVar('--c-pink'))}${mt('alcoholUnits') > 0 ? `<span class="meal-mac" style="color:var(--c-violet);"><b>${Math.round(mt('alcoholUnits') * 10) / 10}</b><small>U</small></span>` : ''}</div>`;
   const header = `
     <div class="meal-header">
       <button class="meal-title-btn" onclick="openNutriSheet({kind:'meal', key:'${meal.key}'})">${escHtml(meal.label)}<span class="chev">&rsaquo;</span></button>
@@ -1423,7 +1423,7 @@ function toggleSection(header) {
 // ── Meal / day nutrition sheet ────────────────────────────────────────
 let lastData = null;       // most recent /api/day payload
 let nutriView = null;      // {kind:'meal', key} | {kind:'day'} while the sheet is open
-const NN_COLORS = { protein:'#facc15', fibre:'#fb923c', carbs:'#38bdf8', fat:'#f87171', sugar:'#f472b6' };
+const NN_COLORS = { protein:cssVar('--c-yellow'), fibre:cssVar('--c-orange'), carbs:cssVar('--c-sky'), fat:cssVar('--c-red'), sugar:cssVar('--c-pink') };
 
 function sumEntries(list) {
   const s = { calories:0, protein:0, fibre:0, carbs:0, fat:0, sugar:0 };
@@ -1771,7 +1771,7 @@ function pmRenderReview() {
   document.getElementById('pmAssume').textContent = d.assumptions || '';
   document.getElementById('pmMeal').innerHTML = mealTypeOptions(currentMealType);
   document.getElementById('pmScales').innerHTML = PM_SCALES.map(s =>
-    `<button class="btn ${s === pmScale ? 'btn-primary' : 'btn-secondary'}" data-s="${s}" style="min-height:44px; padding:0; justify-content:center;">${s === 1 ? '1×' : s + '×'}</button>`).join('');
+    `<button class="btn btn-secondary${s === pmScale ? ' active' : ''}" data-s="${s}" style="min-height:44px; padding:0; justify-content:center;">${s === 1 ? '1×' : s + '×'}</button>`).join('');
   document.getElementById('pmItems').innerHTML = d.items.map(i =>
     `<div>${escHtml(i.name)}${i.portion ? ' <span style="color:var(--text-muted)">(' + escHtml(i.portion) + ')</span>' : ''} — <b>${Math.round(i.calories * pmScale)}</b> kcal</div>`).join('');
   pmFill();
@@ -1795,7 +1795,7 @@ function pmFill() {
 document.getElementById('pmScales').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   pmScale = parseFloat(b.dataset.s);
-  document.querySelectorAll('#pmScales button').forEach(x => x.className = 'btn ' + (parseFloat(x.dataset.s) === pmScale ? 'btn-primary' : 'btn-secondary'));
+  document.querySelectorAll('#pmScales button').forEach(x => x.className = 'btn btn-secondary' + (parseFloat(x.dataset.s) === pmScale ? ' active' : ''));
   document.getElementById('pmItems').querySelectorAll('div').forEach((row, i) => { row.querySelector('b').textContent = Math.round(pmData.items[i].calories * pmScale); });
   pmFill();
 });
@@ -2068,7 +2068,7 @@ async function loadFfTab() {
     myFoods = await (await fetch('/nutrition/api/my-foods')).json();
     renderFfList(myFoods, 'myfoods');
     document.getElementById('ffList').insertAdjacentHTML('afterbegin',
-      `<button class="btn btn-secondary" style="width:100%; justify-content:center; margin-bottom:0.75rem;" onclick="openMyFoodModal(null)">+ Create food</button>`);
+      `<button class="btn btn-secondary btn-block" style="margin-bottom:0.75rem;" onclick="openMyFoodModal(null)">+ Create food</button>`);
   }
 }
 
@@ -2160,7 +2160,7 @@ function renderFfList(items, kind) {
 
 function renderFfRecipes() {
   const list = document.getElementById('ffList');
-  const createBtn = `<button class="btn btn-secondary" style="width:100%; justify-content:center; margin-bottom:0.75rem;" onclick="openBuildMeal()">+ Create meal</button>`;
+  const createBtn = `<button class="btn btn-secondary btn-block" style="margin-bottom:0.75rem;" onclick="openBuildMeal()">+ Create meal</button>`;
   if (!savedMeals.length) { list.innerHTML = createBtn + '<div class="ff-empty">No saved meals yet.</div>'; return; }
   list.innerHTML = createBtn + savedMeals.map(m => {
     const opts = mealTypeOptions(currentMealType);
@@ -2177,7 +2177,7 @@ function renderFfRecipes() {
       </div>
       <div class="saved-meal-actions">
         <button class="btn btn-primary" onclick="logSavedMealFf(${m.id})">+ Log</button>
-        <button class="btn btn-secondary" style="color:var(--danger);" onclick="deleteSavedMealFf(${m.id})">Delete</button>
+        <button class="btn btn-danger-quiet" onclick="deleteSavedMealFf(${m.id})">Delete</button>
       </div>
     </div>`;
   }).join('');

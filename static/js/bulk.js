@@ -104,7 +104,7 @@
     if (act === 'none') { picked.clear(); return render(); }
     if (act === 'done') return setMode(false);
     if (!n) return;
-    if (act === 'delete' && !confirm('Delete ' + plural(n) + '? This cannot be undone.')) return;
+    if (act === 'delete' && !confirm('Delete ' + plural(n) + '? Their photos, notes and segment times go with them. This cannot be undone.')) return;
     if (act === 'dismiss' && !confirm('Mark ' + plural(n) + ' as right? Flagged ones count in the speed and weather analytics again.')) return;
     if (act === 'rename') {
       var name = prompt('New name for ' + plural(n) + ':');

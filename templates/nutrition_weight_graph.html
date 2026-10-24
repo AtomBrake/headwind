@@ -25,7 +25,7 @@
   .wg-table .loss { color: var(--success); }
   .wg-table .gain { color: var(--danger); }
   .wg-src { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; background: var(--border); color: var(--text-muted); }
-  .wg-src.scale { background: var(--accent); color: #fff; }
+  .wg-src.scale { background: var(--accent); color: var(--on-accent); }
   @media (max-width: 600px) { .wg-table .wg-trend { display: none; } }
 </style>
 {% endblock %}
@@ -41,9 +41,9 @@
 </div>
 
 <div class="wg-nav">
-  <button class="btn btn-secondary" id="wgPrev" style="padding:0.3rem 0.6rem;">&#8592;</button>
+  <button class="btn btn-secondary btn-sm" id="wgPrev">&#8592;</button>
   <div class="wg-nav-label" id="wgRangeLabel">—</div>
-  <button class="btn btn-secondary" id="wgNext" style="padding:0.3rem 0.6rem;">&#8594;</button>
+  <button class="btn btn-secondary btn-sm" id="wgNext">&#8594;</button>
 </div>
 
 <div class="wg-headline" id="wgHeadline" style="display:none;">
@@ -58,7 +58,7 @@
 </div>
 
 <div id="wgMetrics" style="display:none; margin-top:1rem;">
-  <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.5rem;">From the scale &middot; individual readings can be noisy, so watch the direction, not the number</div>
+  <div class="hint" style="margin-bottom:0.5rem;">From the scale &middot; individual readings can be noisy, so watch the direction, not the number</div>
   <div id="wgMetricCards" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:0.6rem;"></div>
 </div>
 
@@ -69,15 +69,15 @@
 
 <div class="card" id="wgLog" style="display:none; margin-top:1rem; overflow-x:auto;">
   <div class="card-title">Weigh-ins <span id="wgLogCount" style="font-weight:400; color:var(--text-muted);"></span></div>
-  <table class="table-compact wg-table">
+  <table class="table table-compact wg-table">
     <thead><tr><th>Date</th><th class="num">Weight</th><th class="num wg-trend">Trend</th><th class="num">Change</th><th>Source</th></tr></thead>
     <tbody id="wgLogBody"></tbody>
   </table>
 </div>
 
 <div class="wg-links">
-  <a href="/nutrition/weight/backfill" class="btn btn-secondary" style="text-decoration:none;">Backfill history</a>
-  <a href="/nutrition" class="btn btn-secondary" style="text-decoration:none;">&#8592; Back to day</a>
+  <a href="/nutrition/weight/backfill" class="btn btn-secondary">Backfill history</a>
+  <a href="/nutrition" class="btn btn-secondary">&#8592; Back to day</a>
 </div>
 {% endblock %}
 

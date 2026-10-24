@@ -13,7 +13,7 @@
     #routePanel {
       position: absolute; top: 1rem; left: 1rem; z-index: 1000;
       width: 264px;
-      background: rgba(7,20,33,0.92); border: 1px solid #1e4060;
+      background: color-mix(in srgb, var(--main-bg) 92%, transparent); border: 1px solid var(--border-strong);
       border-radius: 8px; padding: 0.75rem;
       backdrop-filter: blur(6px);
       display: flex; flex-direction: column; gap: 0.55rem;
@@ -26,7 +26,7 @@
       line-height: 1.4;
     }
 
-    .panel-divider { border-top: 1px solid #1e4060; margin: 0.1rem 0; }
+    .panel-divider { border-top: 1px solid var(--border-strong); margin: 0.1rem 0; }
 
     .stat-row {
       display: flex; gap: 1rem;
@@ -40,7 +40,7 @@
 
     .panel-btn {
       flex: 1; padding: 0.35rem 0.5rem;
-      border-radius: 6px; border: 1px solid #1e4060;
+      border-radius: 6px; border: 1px solid var(--border-strong);
       font-size: 0.8rem; cursor: pointer;
       transition: background 0.12s, color 0.12s, border-color 0.12s;
       white-space: nowrap;
@@ -49,18 +49,18 @@
       background: transparent; color: var(--text-muted);
     }
     .panel-btn.secondary:hover:not(:disabled) {
-      background: #0e2437; color: var(--text);
+      background: var(--raised-bg); color: var(--text);
     }
     .panel-btn.primary {
-      background: var(--accent); color: #fff; border-color: var(--accent);
+      background: var(--accent); color: var(--on-accent); border-color: var(--accent);
     }
     .panel-btn.primary:hover:not(:disabled) { opacity: 0.88; }
     .panel-btn:disabled { opacity: 0.38; cursor: default; }
 
     .save-input {
       width: 100%; box-sizing: border-box;
-      background: #071525; color: var(--text);
-      border: 1px solid #1e4060; border-radius: 6px;
+      background: var(--field-bg); color: var(--text);
+      border: 1px solid var(--border-strong); border-radius: 6px;
       padding: 0.3rem 0.5rem; font-size: 0.82rem;
       color-scheme: dark;
     }
@@ -80,10 +80,10 @@
     .route-row {
       display: flex; align-items: center; gap: 0.4rem;
       padding: 0.4rem 0.5rem; border-radius: 6px;
-      border: 1px solid #1a3550;
+      border: 1px solid var(--border);
       transition: background 0.1s;
     }
-    .route-row:hover { background: #0b1e30; }
+    .route-row:hover { background: var(--card-bg); }
 
     .route-info {
       flex: 1; cursor: pointer; min-width: 0;
@@ -99,14 +99,14 @@
     .route-actions { display: flex; gap: 0.25rem; flex-shrink: 0; }
 
     .icon-btn {
-      background: transparent; border: 1px solid #1e4060;
+      background: transparent; border: 1px solid var(--border-strong);
       border-radius: 4px; padding: 0.15rem 0.4rem;
       font-size: 0.75rem; color: var(--text-muted);
       cursor: pointer; text-decoration: none; line-height: 1.6;
       transition: background 0.1s, color 0.1s;
     }
-    .icon-btn:hover { background: #0e2437; color: var(--text); }
-    .icon-btn.danger:hover { border-color: #c0392b; color: #e74c3c; background: rgba(192,57,43,0.12); }
+    .icon-btn:hover { background: var(--raised-bg); color: var(--text); }
+    .icon-btn.danger:hover { border-color: var(--danger-line); color: var(--danger); background: var(--danger-soft); }
 
     .empty-hint { font-size: 0.78rem; color: var(--text-muted); padding: 0.25rem 0; }
 
@@ -114,24 +114,24 @@
     .wp-icon { background: none !important; border: none !important; }
     .wp-dot {
       width: 12px; height: 12px;
-      background: var(--accent); border: 2px solid rgba(255,255,255,0.85);
+      background: var(--accent); border: 2px solid var(--white);
       border-radius: 50%;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.55);
+      box-shadow: 0 1px 4px var(--shadow);
     }
-    .wp-dot.start { background: #27ae60; width: 14px; height: 14px; margin: -1px; }
-    .wp-dot.end   { background: #e74c3c; width: 14px; height: 14px; margin: -1px; }
+    .wp-dot.start { background: var(--success); width: 14px; height: 14px; margin: -1px; }
+    .wp-dot.end   { background: var(--danger); width: 14px; height: 14px; margin: -1px; }
 
     #exportSpinner { display: none; font-size: 0.78rem; color: var(--text-muted); text-align: center; }
 
     .layer-btn {
       font-size: 0.72rem; padding: 0.18rem 0.45rem;
-      border-radius: 999px; border: 1px solid #1e4060;
+      border-radius: 999px; border: 1px solid var(--border-strong);
       background: transparent; color: var(--text-muted);
       cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s;
       white-space: nowrap;
     }
-    .layer-btn:hover  { background: #0e2437; color: var(--text); }
-    .layer-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .layer-btn:hover  { background: var(--raised-bg); color: var(--text); }
+    .layer-btn.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   </style>
 {% endblock %}
 
@@ -307,7 +307,7 @@ function refreshPolyline() {
   if (waypoints.length >= 2) {
     polyline = L.polyline(
       waypoints.map(function(w) { return [w.lat, w.lng]; }),
-      { color: '#fc4c02', weight: 3, opacity: 0.9 }
+      { color: cssVar('--accent'), weight: 3, opacity: 0.9 }
     ).addTo(map);
   }
 }
@@ -491,7 +491,7 @@ function loadSaved(id) {
 function deleteRoute(id) {
   var route = savedRoutes.find(function(r) { return r.id === id; });
   var name  = route ? route.name : 'this route';
-  if (!confirm('Delete "' + name + '"?')) return;
+  if (!confirm('Delete "' + name + '"? This cannot be undone.')) return;
   fetch('/planner/routes/' + id, { method: 'DELETE' })
     .then(function() { loadSavedRoutes(); });
 }

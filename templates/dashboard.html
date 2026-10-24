@@ -17,11 +17,11 @@
 {% set data_url = '/data' ~ ('?' ~ rq if rq else '') %}
 {% macro list_url(f, t) %}/dashboard?{% if rq %}{{ rq }}&amp;{% endif %}from={{ f }}&amp;to={{ t }}#ride-history{% endmacro %}
 {% if gear_due %}
-<div class="card" style="margin-bottom:1.25rem;border-color:rgba(251,146,60,.6);">
+<div class="card" style="margin-bottom:1.25rem;border-color:var(--due-line);">
   <div style="display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;">
     <strong>Gear needs attention</strong>
     <span style="color:var(--text-muted);font-size:.9rem;flex:1;min-width:200px;">{% for d in gear_due %}{% if d.kit %}{{ d.kit.name }} (replace){% else %}{{ d.part.name }} on {{ d.bike.name }} ({{ 'replace' if d.status.due == 'replace' else 'check' }}){% endif %}{{ ', ' if not loop.last }}{% endfor %}</span>
-    <a class="btn btn-secondary btn-sm" style="padding:.25rem .7rem;font-size:.8rem;" href="{{ url_for('gear.index') }}">Open Gear</a>
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('gear.index') }}">Open Gear</a>
   </div>
 </div>
 {% endif %}
@@ -31,7 +31,7 @@
   <a href="{{ url_for('dashboard.dashboard', rider=r.id) }}"
      style="display:inline-flex; align-items:center; gap:0.5rem; padding:0.4rem 0.75rem 0.4rem 0.4rem;
             border-radius:999px; border:1px solid {% if r.id == active_rider.id %}var(--accent){% else %}var(--border){% endif %};
-            background:{% if r.id == active_rider.id %}rgba(252,76,2,0.12){% else %}var(--card-bg){% endif %};
+            background:{% if r.id == active_rider.id %}var(--accent-soft){% else %}var(--card-bg){% endif %};
             text-decoration:none; color:var(--text); font-size:0.875rem; font-weight:{% if r.id == active_rider.id %}600{% else %}400{% endif %};">
     {% if r.avatarPath %}
       <img src="{{ url_for('static', filename='avatars/' + r.avatarPath) }}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
@@ -196,7 +196,7 @@
       {% if activities %}<a href="/activities{% if rq %}?{{ rq }}{% endif %}" style="font-size:0.75rem; color:var(--accent); text-decoration:none;">View all &rarr;</a>{% endif %}
     </div>
     {% if activities %}
-    <table class="table-compact">
+    <table class="table table-compact">
       <thead>
         <tr><th>Date</th><th>Name</th><th>Distance</th><th>Time</th><th>{{ {'speed': 'Avg Speed', 'pace': 'Avg Pace', 'swim': 'Pace /100 m'}.get(sf.style, 'Speed / Pace') }}</th><th>Elevation</th></tr>
       </thead>
@@ -214,8 +214,10 @@
       </tbody>
     </table>
     {% else %}
-    <div class="empty-state" style="padding:1.5rem;">
-      <p>No activities yet. Connect Garmin in Settings, record with the phone app, or <a href="/import" style="color:var(--accent);">import files</a>.</p>
+    <div class="empty-state">
+      <h3>No activities yet</h3>
+      <p>Connect Garmin in Settings, record with the phone app, or import files.</p>
+      <a class="btn btn-primary" href="/import">Import files</a>
     </div>
     {% endif %}
   </div>
@@ -228,7 +230,7 @@
     </div>
     <a href="/recovery" class="dash-link" style="display:block;">
     {% if recovery.bodyBattery %}
-    <div class="gauge-ring" style="--pct:{{ recovery.bodyBattery }}; --gauge-color:{{ '#ef4444' if recovery.bodyBattery < 25 else ('#f59e0b' if recovery.bodyBattery < 50 else 'var(--success)') }};">
+    <div class="gauge-ring" style="--pct:{{ recovery.bodyBattery }}; --gauge-color:{{ 'var(--danger)' if recovery.bodyBattery < 25 else ('var(--warning)' if recovery.bodyBattery < 50 else 'var(--success)') }};">
       <span class="gauge-value">{{ recovery.bodyBattery }}%</span>
     </div>
     <div style="text-align:center; font-size:0.75rem; color:var(--text-muted); margin-bottom:0.25rem;">Body Battery &middot; {{ recovery.date | fmt_date }}</div>
@@ -236,19 +238,19 @@
     <div class="recovery-stats-row">
       {% if recovery.restingHR %}
       <div>
-        <div class="m-value" style="color:{{ '#ef4444' if recovery.restingHR > 65 else ('#f59e0b' if recovery.restingHR > 58 else 'var(--success)') }};">{{ recovery.restingHR }} bpm</div>
+        <div class="m-value" style="color:{{ 'var(--danger)' if recovery.restingHR > 65 else ('var(--warning)' if recovery.restingHR > 58 else 'var(--success)') }};">{{ recovery.restingHR }} bpm</div>
         <div class="m-label">Resting HR</div>
       </div>
       {% endif %}
       {% if recovery.stressScore %}
       <div>
-        <div class="m-value" style="color:{{ '#ef4444' if recovery.stressScore > 60 else ('#f59e0b' if recovery.stressScore > 35 else 'var(--success)') }};">{{ recovery.stressScore }}</div>
+        <div class="m-value" style="color:{{ 'var(--danger)' if recovery.stressScore > 60 else ('var(--warning)' if recovery.stressScore > 35 else 'var(--success)') }};">{{ recovery.stressScore }}</div>
         <div class="m-label">Stress</div>
       </div>
       {% endif %}
       {% if recovery.sleepHours %}
       <div>
-        <div class="m-value" style="color:#a855f7;">{{ recovery.sleepHours }}h</div>
+        <div class="m-value" style="color:var(--c-purple);">{{ recovery.sleepHours }}h</div>
         <div class="m-label">Sleep</div>
       </div>
       {% endif %}
@@ -259,23 +261,23 @@
 </div>
 
 {% if flagged %}
-<div class="card" id="flaggedCard" style="margin-bottom:1rem; border-color:#b45309; background:rgba(180,83,9,0.10);">
+<div class="card" id="flaggedCard" style="margin-bottom:1rem; border-color:var(--warning-line); background:var(--warning-soft);">
   <div class="card-title">Rides that look wrong ({{ flagged|length }})</div>
-  <p style="color:var(--text-muted); font-size:0.8125rem; line-height:1.5; margin:0 0 0.5rem;">These broke a sanity limit (an impossible speed, a tiny blip, a climb that does not fit the distance). They are left out of the speed and weather analytics until you decide: keep one if it is genuinely right, or delete it.{% if garmin_full %} A swim or run listed here was probably saved as a ride by an older Garmin sync: <a href="{{ url_for('garmin.sports_page') }}" style="color:var(--accent);">check activity types with Garmin</a>.{% endif %}</p>
+  <p class="hint" style="margin:0 0 0.5rem;">These broke a sanity limit (an impossible speed, a tiny blip, a climb that does not fit the distance). They are left out of the speed and weather analytics until you decide: keep one if it is genuinely right, or delete it.{% if garmin_full %} A swim or run listed here was probably saved as a ride by an older Garmin sync: <a href="{{ url_for('garmin.sports_page') }}" style="color:var(--accent);">check activity types with Garmin</a>.{% endif %}</p>
   {% set blips = flagged | selectattr('isBlip') | list %}
   {% if blips %}
   <form method="POST" action="{{ url_for('rides.delete_blips') }}" style="margin:0 0 0.5rem;"
         onsubmit="return confirm('Delete the {{ blips | length }} flagged ride{{ 's' if blips | length != 1 }} shorter than 160 m? This cannot be undone.')">
     {% if not active_rider.isDefault %}<input type="hidden" name="rider" value="{{ active_rider.id }}">{% endif %}
-    <button class="btn btn-secondary" type="submit" style="padding:0.25rem 0.8rem; font-size:0.8125rem;">Delete all {{ blips | length }} blip{{ 's' if blips | length != 1 }} (under 160 m)</button>
+    <button class="btn btn-danger-quiet btn-sm" type="submit">Delete all {{ blips | length }} blip{{ 's' if blips | length != 1 }} (under 160 m)</button>
   </form>
   {% endif %}
   {% for f in flagged %}
-  <div id="flag_{{ f.id }}" style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; padding:0.4rem 0; border-top:1px solid rgba(22,51,82,0.6); font-size:0.8125rem;">
+  <div id="flag_{{ f.id }}" style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; padding:0.4rem 0; border-top:1px solid var(--divider); font-size:0.8125rem;">
     <a href="/rides/{{ f.id }}" class="dash-link" style="flex:1 1 14rem;"><span style="color:var(--accent);">{{ f.startDateLocal | fmt_date }} · {{ f.name or 'Ride' }}</span><br><span style="color:var(--text-muted);">{{ f.flagReason }}</span></a>
-    {% if f.stravaClimb is not none %}<button class="btn btn-secondary" style="padding:0.2rem 0.6rem;" onclick="useStravaClimb('{{ f.id }}')"
+    {% if f.stravaClimb is not none %}<button class="btn btn-secondary btn-sm" onclick="useStravaClimb('{{ f.id }}')"
       title="Strava recalculated the climb; the altitude in the file can't be real">Use Strava's climb ({{ f.stravaClimb | fmt_elev }})</button>{% endif %}
-    <button class="btn btn-secondary" style="padding:0.2rem 0.6rem;" onclick="dismissFlagged('{{ f.id }}')">It's right</button>
+    <button class="btn btn-secondary btn-sm" onclick="dismissFlagged('{{ f.id }}')">It's right</button>
   </div>
   {% endfor %}
 </div>
@@ -317,8 +319,8 @@ const rateStyle     = {{ sf.style | tojson }};       // 'speed', 'pace' or 'swim
 // A bar opens that week's activities (the search below already filters by date); a point on the speed line opens that activity.
 const weekLinks = weeklyData.map(w => '/dashboard?' + (riderQuery ? riderQuery + '&' : '') + 'from=' + w.from + '&to=' + w.to + '#ride-history');
 
-const TICK_COLOR = '#4d7d95';
-const GRID_COLOR = '#163352';
+const TICK_COLOR = cssVar('--text-muted');
+const GRID_COLOR = cssVar('--border');
 
 function baseScales(yUnit, opts) {
   opts = opts || {};
@@ -332,7 +334,7 @@ function baseScales(yUnit, opts) {
 // Weekly bars, one stack per group: a week of runs and a ride shows both, each in its own colour. With one group it is a plain bar.
 function weekly(label, value, fmt) {
   return { type: 'bar', label, sub: 'Last 12 weeks', labels: weeklyData.map(w => w.label), links: weekLinks, hint: 'Click to see this week\'s activities', stacked: true, fmt,
-           datasets: chartGroups.map(g => ({ label: g.label, color: 'rgb(' + g.color + ')', data: weeklyData.map(w => value(w.by[g.key] || {})) })) };
+           datasets: chartGroups.map(g => ({ label: g.label, color: g.color, data: weeklyData.map(w => value(w.by[g.key] || {})) })) };
 }
 const onePlace = v => +(v || 0).toFixed(1);
 const hm = h => { const mins = Math.round(h * 60); return Math.floor(mins / 60) + 'h ' + String(mins % 60).padStart(2, '0') + 'm'; };
@@ -347,7 +349,7 @@ if (rateStyle) {
   METRICS.speed = { type: 'line', label: unit, sub: 'This year, per activity' + (pace ? ' (faster is higher)' : ''), labels: yearSpeedData.map(r => fmtDate(r.d)),
                     names: yearSpeedData.map(r => r.name), links: yearSpeedData.map(r => '/rides/' + encodeURIComponent(r.id)), hint: 'Click to open this activity',
                     reverse: pace, fmt: v => (pace ? UNITS.fmtMinSec(v) : v.toFixed(1)) + ' ' + unit, tick: pace ? (v => UNITS.fmtMinSec(v)) : null,
-                    datasets: [{ label: unit, color: 'rgb(' + (chartGroups[0] ? chartGroups[0].color : '252,76,2') + ')',
+                    datasets: [{ label: unit, color: chartGroups[0] ? chartGroups[0].color : '--accent',
                                  data: yearSpeedData.map(r => pace ? Math.round(UNITS.toPace(r.mps, rateStyle)) : onePlace(UNITS.toSpeed(r.mps))) }] };
 }
 
@@ -365,13 +367,13 @@ function renderMainChart(metric) {
       datasets: m.datasets.map(d => ({
         label: d.label,
         data: d.data,
-        backgroundColor: isBar ? d.color.replace('rgb', 'rgba').replace(')', ', 0.75)') : 'transparent',
-        borderColor: d.color,
+        backgroundColor: isBar ? cssVar(d.color, 0.75) : 'transparent',
+        borderColor: cssVar(d.color),
         borderWidth: isBar ? 1 : 2,
         borderRadius: isBar ? 3 : 0,
         pointRadius: isBar ? 0 : 3,
         pointHoverRadius: isBar ? 0 : 5,
-        pointBackgroundColor: d.color,
+        pointBackgroundColor: cssVar(d.color),
         fill: false,
         tension: 0.3,
       }))

@@ -11,55 +11,55 @@
 
 <div style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;">
   {% for t in tabs %}
-  <a href="{{ url_for('segments.index', sport=t.family) }}" class="btn {{ 'btn-primary' if sport == t.family else 'btn-secondary' }}">{{ t.icon }} {{ t.label }}{% if t.n %} <span style="opacity:.7;">({{ t.n }})</span>{% endif %}</a>
+  <a href="{{ url_for('segments.index', sport=t.family) }}" class="btn btn-secondary{{ ' active' if sport == t.family }}">{{ t.icon }} {{ t.label }}{% if t.n %} <span style="opacity:.7;">({{ t.n }})</span>{% endif %}</a>
   {% endfor %}
   {% if only_links %}
   <span style="flex:1;"></span>
   <span style="display:flex;gap:.35rem;align-items:center;" title="Bike and e-bike rides share the ride segments; each keeps its own PRs">
     {% for o in only_links %}
-    <a href="{{ o.href }}" class="btn {{ 'btn-primary' if o.active else 'btn-secondary' }}" style="font-size:0.8125rem; padding:0.35rem 0.75rem;">{{ o.icon }} {{ o.label }}</a>
+    <a href="{{ o.href }}" class="btn btn-secondary btn-sm{{ ' active' if o.active }}">{{ o.icon }} {{ o.label }}</a>
     {% endfor %}
   </span>
   {% endif %}
 </div>
 
 {% if not segments %}
-<div class="card" style="max-width:600px; text-align:center; padding:3rem 2rem;">
-  <div style="font-size:2.5rem; margin-bottom:1rem;">🏁</div>
-  <div class="card-title">No segments yet</div>
-  <p style="color:var(--text-muted); font-size:0.9375rem; line-height:1.7; margin-bottom:0;">
-    {% if sport == 'foot' %}Open a walk, run or hike that has a map, then click <strong style="color:var(--text);">Create Segment</strong>
+<div class="card empty-state">
+  <div class="empty-icon">🏁</div>
+  <h3>No segments yet</h3>
+  <p>
+    {% if sport == 'foot' %}Open a walk, run or hike that has a map, then click <strong>Create Segment</strong>
     to mark a start and end point on your route. Walks, runs and hikes share these segments: one leaderboard, one PR.
-    {% else %}Open any ride that has a map, then click <strong style="color:var(--text);">Create Segment</strong>
+    {% else %}Open any ride that has a map, then click <strong>Create Segment</strong>
     to mark a start and end point on your route. Bike and e-bike rides share these segments, each with its own PRs, and the leaderboards show either or both.
     A ride counts as an e-bike ride when Strava or Garmin says so, or when it was ridden on a bike of kind E-bike (Gear). Indoor rides, walks and runs are not matched.{% endif %}
   </p>
 </div>
 {% else %}
 <div class="card" style="padding:0; overflow:hidden;">
-  <table style="width:100%; border-collapse:collapse;">
+  <table class="table flush">
     <thead>
-      <tr style="border-bottom:1px solid #1e4060;">
-        <th style="padding:0.875rem 1.25rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Segment</th>
-        <th style="padding:0.875rem 0.5rem; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">KOM</th>
-        <th style="padding:0.875rem 1rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Best Time</th>
-        <th style="padding:0.875rem 1rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Efforts</th>
-        <th style="padding:0.875rem 1rem; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Distance</th>
-        <th style="padding:0.875rem 1.25rem;"></th>
+      <tr>
+        <th>Segment</th>
+        <th>KOM</th>
+        <th class="num">Best Time</th>
+        <th class="num">Efforts</th>
+        <th class="num">Distance</th>
+        <th></th>
       </tr>
     </thead>
     <tbody>
       {% for s in segments %}
       {% set kom = kom_map.get(s.id) %}
-      <tr style="border-bottom:1px solid #1e4060; transition:background 0.15s;"
-          onmouseover="this.style.background='rgba(255,255,255,0.02)'"
-          onmouseout="this.style.background=''">
-        <td style="padding:1rem 1.25rem;">
+      <tr
+          onmouseover="this.style.background='var(--hover-tint)'"
+          onmouseout="this.style.background=''" style="transition:background 0.15s;">
+        <td>
           <div style="font-weight:600; color:var(--text);">
             {{ s.name }}
             {% if s.friend_name %}
-            <span style="font-size:0.7rem; font-weight:400; background:rgba(252,76,2,0.12);
-                         color:var(--accent); border:1px solid rgba(252,76,2,0.3);
+            <span style="font-size:0.7rem; font-weight:400; background:var(--accent-soft);
+                         color:var(--accent); border:1px solid var(--accent-line);
                          border-radius:999px; padding:0.1rem 0.45rem; margin-left:0.4rem;
                          vertical-align:middle;">from {{ s.friend_name }}</span>
             {% endif %}
@@ -68,7 +68,7 @@
           <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.2rem;">PR set {{ s.pr_date | fmt_date }}</div>
           {% endif %}
         </td>
-        <td style="padding:1rem 0.5rem;">
+        <td>
           {% set koms = kom_map.get(s.id, []) %}
           {% if koms %}
             <div style="display:flex;gap:2px;align-items:center;">
@@ -84,15 +84,15 @@
             </div>
           {% else %}—{% endif %}
         </td>
-        <td style="padding:1rem; text-align:right; font-weight:600; color:var(--accent); font-variant-numeric:tabular-nums;">
+        <td class="num" style="font-weight:600; color:var(--accent);">
           {% if s.best_secs %}{{ s.best_secs | fmt_duration }}{% else %}—{% endif %}
         </td>
-        <td style="padding:1rem; text-align:right; color:var(--text-muted);">{{ s.effort_count }}</td>
-        <td style="padding:1rem; text-align:right; color:var(--text-muted);">
+        <td class="num" style="color:var(--text-muted);">{{ s.effort_count }}</td>
+        <td class="num" style="color:var(--text-muted);">
           {% if s.distanceM %}{{ s.distanceM | fmt_dist }}{% else %}—{% endif %}
         </td>
-        <td style="padding:1rem 1.25rem; text-align:right;">
-          <a href="{{ url_for('segments.detail', sid=s.id, only=only) }}" class="btn btn-secondary" style="font-size:0.8125rem; padding:0.35rem 0.875rem;">View</a>
+        <td class="num">
+          <a href="{{ url_for('segments.detail', sid=s.id, only=only) }}" class="btn btn-secondary btn-sm">View</a>
         </td>
       </tr>
       {% endfor %}

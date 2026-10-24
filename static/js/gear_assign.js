@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const G = window.GEAR_ASSIGN, $ = (id) => document.getElementById(id);
-  const COLOURS = ['#38bdf8', '#a78bfa', '#34d399', '#f472b6', '#fbbf24', '#60a5fa', '#f87171', '#2dd4bf'];
+  const COLOURS = ['--c-sky', '--c-violet', '--c-green', '--c-pink', '--c-amber', '--c-blue', '--c-red', '--c-teal'].map((v) => `var(${v})`);
   const colourOf = Object.fromEntries(G.bikes.map((id, i) => [String(id), COLOURS[i % COLOURS.length]]));
   const nameOf = Object.fromEntries(G.bikes.map((id, i) => [String(id), G.names[i]]));
   const pad = (n) => String(n).padStart(2, '0'), iso = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`;
@@ -20,7 +20,7 @@
   const firstYear = +(G.span.first || G.today).slice(0, 4), lastYear = Math.max(t.getFullYear(), +(G.span.last || G.today).slice(0, 4));
   MONTHS.forEach((n, i) => $('monthSel').add(new Option(n, i + 1)));
   for (let y = lastYear; y >= Math.min(firstYear, lastYear); y--) $('yearSel').add(new Option(y, y));
-  $('legend').innerHTML = G.bikes.map((id) => `<span><i style="background:${colourOf[String(id)]}"></i>${nameOf[String(id)].replace(/</g, '&lt;')}</span>`).join('') + '<span><i style="box-shadow:inset 0 0 0 2px rgba(252,76,2,.8);background:transparent"></i>has rides with no bike</span>';
+  $('legend').innerHTML = G.bikes.map((id) => `<span><i style="background:${colourOf[String(id)]}"></i>${nameOf[String(id)].replace(/</g, '&lt;')}</span>`).join('') + '<span><i style="box-shadow:inset 0 0 0 2px var(--accent-line);background:transparent"></i>has rides with no bike</span>';
 
   // ---- range helpers ----
   function range() {
@@ -47,7 +47,7 @@
       if (selected.has(key)) cls.push('sel'); else if (inRange(key)) cls.push('inrange');
       if (key === G.today) cls.push('today');
       let stripes = '';
-      if (info) { const total = info.n; stripes = '<div class="stripes">' + Object.entries(info.bikes).map(([b, c]) => `<i style="flex:${c};background:${colourOf[b] || '#888'}" title="${(nameOf[b] || 'bike')}"></i>`).join('') + (info.unassigned ? `<i style="flex:${info.unassigned}"></i>` : '') + '</div>'; }
+      if (info) { const total = info.n; stripes = '<div class="stripes">' + Object.entries(info.bikes).map(([b, c]) => `<i style="flex:${c};background:${colourOf[b] || 'var(--c-grey)'}" title="${(nameOf[b] || 'bike')}"></i>`).join('') + (info.unassigned ? `<i style="flex:${info.unassigned}"></i>` : '') + '</div>'; }
       h += `<div class="${cls.join(' ')}" data-d="${key}"><span class="n">${d}</span>${info ? `<span class="c">${info.n}</span>` : ''}${stripes}</div>`;
     }
     $('calGrid').innerHTML = h;

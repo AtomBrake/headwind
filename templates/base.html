@@ -18,8 +18,25 @@
   UNITS.toPace    = function (mps, style) { return mps > 0 ? (style === 'swim' ? 100 : UNITS.distM) / mps : null; };
   UNITS.paceLabel = function (style) { return style === 'swim' ? '/100 m' : UNITS.pace; };
   UNITS.fmtMinSec = function (s) { s = Math.round(s || 0); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  // A colour from the variables in style.css, for what can't read var(--x) itself: Chart.js, Leaflet, canvas, SVG attributes.
+  // cssVar('--danger') is '#ef4444'; cssVar('--danger', 0.15) is 'rgba(239,68,68,0.15)'.
+  window.cssVar = function (name, alpha) {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    if (alpha === undefined) return v;
+    var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v);
+    if (m) {
+      var h = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1], n = parseInt(h, 16);
+      return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + alpha + ')';
+    }
+    m = /^rgba?\(([^,]+),([^,]+),([^,)]+)/.exec(v);
+    return m ? 'rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',' + alpha + ')' : v;
+  };
   </script>
   {% block head %}{% endblock %}
+  <script>
+  // Chart.js draws ticks, labels and grid lines in these unless a chart says otherwise
+  if (window.Chart) { Chart.defaults.color = cssVar('--text-muted'); Chart.defaults.borderColor = cssVar('--border'); }
+  </script>
 </head>
 <body>
 
@@ -130,7 +147,8 @@
         <span class="hamburger-line"></span>
         <span class="hamburger-line"></span>
       </button>
-      <h1>{% block page_title %}{% endblock %}</h1>
+      {# The way back is the page above this one, named before the title: Gear › Stumpjumper. A page sets it with {% block parent %}<a href="…">Gear</a>{% endblock %}. #}
+      <h1>{% if self.parent() | trim %}<span class="crumb">{% block parent %}{% endblock %}</span><span class="crumb-sep" aria-hidden="true">›</span>{% endif %}{% block page_title %}{% endblock %}</h1>
       <div class="topbar-right">
         <div class="import-pill" id="importPill" hidden>
           <a href="{{ url_for('import_rides.index') }}" id="importPillText"></a>
@@ -201,7 +219,7 @@
   (function () {
     var tip = document.createElement('div');
     tip.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;display:none;'
-      + 'border-radius:50%;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.6);'
+      + 'border-radius:50%;overflow:hidden;box-shadow:0 4px 20px var(--shadow);'
       + 'border:2px solid var(--border);width:96px;height:96px;';
     var tipImg = document.createElement('img');
     tipImg.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
