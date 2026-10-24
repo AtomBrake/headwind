@@ -224,7 +224,7 @@ def _gear_filter(db, rid, value):
     """The list's gear filter, from ?gear=: none (no gear: a ride with no bike, or anything else with no shoes or other kit in a sport that has
     some), bike-none, kit-none (services/gear.no_gear_sql), bike-<id> or kit-<id>. Returns {value, sql (None for no filter), params, args (to keep it on links), choices
     for the form as [(group, [(value, label)])], row_picker (a bike or kit picker on each row, to deal with them one by one), pickers (the
-    rider's bikes and kit for it)}."""
+    rider's bikes and kit for it, the retired ones last: an old activity may have been on one)}."""
     from services import gear, kit
     bikes = gear.list_bikes(db, rid, include_archived=True)
     items = kit.list_kit(db, rid, include_retired=True)
@@ -234,7 +234,7 @@ def _gear_filter(db, rid, value):
     if items:
         choices.append(('Shoes and other gear', [('kit-none', 'Other sports with no gear')] + [(f"kit-{k['id']}", k['name'] + (' (retired)' if k['retiredOn'] else '')) for k in items]))
     out = dict(value='', sql=None, params=[], args=[], choices=choices, row_picker=False,
-               pickers={'bike': [b for b in bikes if not b['archived']], 'kit': [k for k in items if not k['retiredOn']]})
+               pickers={'bike': bikes, 'kit': items})
     kind, _, which = (value or '').partition('-')
     if value in gear.NO_GEAR:
         sql, params = gear.no_gear_sql(db, rid, value)
