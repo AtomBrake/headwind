@@ -62,7 +62,6 @@
       background: var(--field-bg); color: var(--text);
       border: 1px solid var(--border-strong); border-radius: 6px;
       padding: 0.3rem 0.5rem; font-size: 0.82rem;
-      color-scheme: dark;
     }
     .save-input:focus { outline: none; border-color: var(--accent); }
 
@@ -142,7 +141,7 @@
     <div class="panel-hint">Click the map to add waypoints &middot; drag to adjust</div>
 
     <div style="display:flex; gap:0.3rem; flex-wrap:wrap;">
-      <button class="layer-btn active" id="layer-dark"     onclick="setLayer('dark',     this)">Dark</button>
+      <button class="layer-btn"        id="layer-dark"     onclick="setLayer('dark',     this)">Dark</button>
       <button class="layer-btn"        id="layer-light"    onclick="setLayer('light',    this)">Light</button>
       <button class="layer-btn"        id="layer-sat"      onclick="setLayer('sat',      this)">Satellite</button>
       <button class="layer-btn"        id="layer-satlabel" onclick="setLayer('satlabel', this)">Sat + Labels</button>
@@ -216,6 +215,7 @@ var TILE_DEFS = {
 };
 
 var activeTileLayers = [];
+var currentLayerKey  = 'dark';
 
 function setLayer(key, btn) {
   activeTileLayers.forEach(function(l) { map.removeLayer(l); });
@@ -226,11 +226,15 @@ function setLayer(key, btn) {
   // Keep markers and polyline on top (markers is declared further down and is still undefined on the first, start-up call)
   (markers || []).forEach(function(m) { m.addTo(map); });
   if (polyline) polyline.addTo(map);
+  currentLayerKey = key;
   document.querySelectorAll('.layer-btn').forEach(function(b) { b.classList.remove('active'); });
   if (btn) btn.classList.add('active');
 }
 
-setLayer('dark', document.getElementById('layer-dark'));
+// Start on the grey map that matches the page, and follow the page when it flips between light and dark (unless on satellite)
+function schemeLayer() { var k = document.documentElement.dataset.scheme === 'light' ? 'light' : 'dark'; setLayer(k, document.getElementById('layer-' + k)); }
+schemeLayer();
+addEventListener('schemechange', function () { if (currentLayerKey === 'dark' || currentLayerKey === 'light') schemeLayer(); });
 
 // ── State ─────────────────────────────────────────────────────────
 var waypoints  = [];   // [{lat, lng}, ...]

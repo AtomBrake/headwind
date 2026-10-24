@@ -74,6 +74,19 @@
       </div>
     </div>
     <div class="form-group" style="margin:1rem 0 0;">
+      <label>Appearance</label>
+      <div style="display:flex; gap:0.5rem 1rem; margin-top:0.5rem; flex-wrap:wrap;">
+        {% for value, label in [('auto', 'Auto'), ('light', 'Light'), ('dark', 'Dark')] %}
+        <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer; font-weight:400;">
+          <input type="radio" name="appearance" value="{{ value }}" {% if appearance == value %}checked{% endif %}
+                 onchange="document.documentElement.dataset.theme = this.value; applyScheme();" style="cursor:pointer;">
+          {{ label }}
+        </label>
+        {% endfor %}
+      </div>
+      <small style="color:var(--text-muted); display:block; margin-top:0.3rem;">Auto follows each device's light or dark setting, and switches with it (at sunset, say). Light and Dark apply on every device.</small>
+    </div>
+    <div class="form-group" style="margin:1rem 0 0;">
       <label for="timeZone">Time zone</label>
       <select name="timeZone" id="timeZone" style="max-width:22rem;">
         <option value="">The server's ({{ server_zone }})</option>

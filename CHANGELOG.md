@@ -2,11 +2,12 @@
 
 ## [Unreleased]
 
-Migration, at the first start: `Settings` gains `garminChangesBefore` and `aiAutoAnalyse`, and there are new `GarminSeen` and `GarminChange` tables.
+Migration, at the first start: `Settings` gains `garminChangesBefore`, `aiAutoAnalyse` and `appearance`, and there are new `GarminSeen` and `GarminChange` tables.
 
 ### Added
 - **Activities deleted or changed in Garmin Connect are flagged for review.** A deletion, rename, change of sport or crop in Garmin used to never reach Headwind, because the sync only reads new activities. Once a day (with activity sync on) Headwind compares the last 90 days in Garmin, and a little further back each day, with what it imported. Each change is listed on the Import page and the activity's page, and nothing changes until you choose: delete it here too or keep it; use Garmin's name or sport or keep yours; a cropped recording is offered like a re-import (keep, replace or fill in). A name or sport you changed in Headwind is never overwritten or flagged. A listing that fails, or one missing most activities at once (another account, say), flags nothing. Activities imported before this version are compared from their first check on.
 - **New rides can be analysed by the AI coach as they arrive.** A new "Analyse New Rides" setting on the AI page writes the coaching notes for each new ride from Garmin, the phone app or an import, with the coach personality you last chose. It's off by default and can only be turned on once an AI provider is set up. Only rides from the last 3 days are analysed, so importing your history doesn't run up a bill; use Bulk Analysis for older rides. While a ride is being analysed its page shows "Analysing…". A failed analysis shows on the Tasks page and isn't retried, and the ride keeps its Analyse button. With ntfy set up, you get a notification when the analysis is ready.
+- **Light mode.** Settings → Display Preferences has a new Appearance choice: Auto (the default) follows each device's light or dark setting and switches with it, at sunset say, while Light and Dark apply everywhere. Charts and maps change colour with the page, with no reload.
 
 ### Changed
 - **Python 3.14.** The Docker image and the Windows build are now built on Python 3.14. Running Headwind outside Docker still works on Python 3.12 or later.

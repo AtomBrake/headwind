@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{ appearance }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Login — Headwind</title>
+  {% include '_scheme.html' %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <style>
     body { display:flex; align-items:center; justify-content:center; min-height:100vh; background:var(--main-bg); }

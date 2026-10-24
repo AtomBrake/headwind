@@ -581,13 +581,8 @@ new Chart(document.getElementById('monthlyChart'), {
   const yoyData   = {{ year_on_year | tojson }};
   const months    = {{ month_labels | tojson }};
   const years     = Object.keys(yoyData).sort();
-  const palette   = [ORANGE, BLUE, GREEN, PURPLE, YELLOW, RED, TEAL,
-                     cssVar('--c-orange'),cssVar('--info'),cssVar('--c-teal'),cssVar('--c-violet'),cssVar('--c-pink'),cssVar('--c-green'),cssVar('--c-yellow'),cssVar('--c-indigo')];
-
-  function hexToRgba(hex, a) {
-    const n = parseInt(hex.replace('#',''), 16);
-    return `rgba(${n>>16},${(n>>8)&255},${n&255},${a})`;
-  }
+  const palette   = ['--accent', '--c-sky', '--success', '--c-purple', '--warning', '--danger', '--c-cyan',
+                     '--c-orange', '--info', '--c-teal', '--c-violet', '--c-pink', '--c-green', '--c-yellow', '--c-indigo'];
 
   const datasets = years.map((yr, i) => {
     const age    = years.length - 1 - i;
@@ -596,7 +591,7 @@ new Chart(document.getElementById('monthlyChart'), {
     return {
       label: yr,
       data:  yoyData[yr],
-      borderColor: hexToRgba(color, recent ? 1 : 0.28),
+      borderColor: cssVar(color, recent ? 1 : 0.28),
       backgroundColor: 'transparent',
       borderWidth: age === 0 ? 2.5 : (recent ? 1.8 : 1),
       pointRadius: age === 0 ? 3 : 0,
@@ -704,7 +699,7 @@ new Chart(document.getElementById('dowChart'), {
   today.setHours(0, 0, 0, 0);
 
   const STEPS = {{ heat_steps | tojson }}, HEAT_UNIT = {{ heat_unit | tojson }};      // in the unit shown: distance for one group of sports, else minutes
-  const HEAT = ['--heat-0', '--heat-1', '--heat-2', '--heat-3', '--heat-4'].map(v => cssVar(v));
+  const HEAT = ['--heat-0', '--heat-1', '--heat-2', '--heat-3', '--heat-4'].map(v => 'var(' + v + ')');     // cell backgrounds: follow the scheme
   function heatColor(v) {
     if (v <= 0)        return HEAT[0];
     if (v < STEPS[0])  return HEAT[1];

@@ -1,6 +1,8 @@
 /* Every colour in the app comes from these variables: templates, inline styles and scripts too
-   (charts, maps and canvas read them through cssVar() in base.html). Don't write a colour anywhere else. */
+   (charts, maps and canvas read them through cssVar() in base.html). Don't write a colour anywhere else.
+   These are the dark scheme; the light one below redefines the same variables. */
 :root {
+  color-scheme:    dark;      /* form controls, scrollbars and date pickers */
   --sidebar-w:     220px;
 
   /* Surfaces, darkest first */
@@ -37,7 +39,7 @@
   --sidebar-line:  rgba(255,255,255,0.08);
   --sidebar-hover: rgba(255,255,255,0.04);
   --sidebar-active-bg: rgba(252,76,2,0.07);
-  --sidebar-active-border: #fc4c02;
+  --sidebar-active-border: var(--accent);
 
   /* Status. -soft is a tinted background, -line its border, -text readable text on the tint. */
   --accent:        #fc4c02;
@@ -87,12 +89,102 @@
   --heat-1:    #4a2c15;
   --heat-2:    #8c4a1e;
   --heat-3:    #c4621f;
-  --heat-4:    #fc4c02;
-  /* Brands */
+  --heat-4:    var(--accent);
+  /* Brands: the same in both schemes */
   --strava:    #fc4c02;
   --coffee:    #ffdd00;
 
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%234d7d95' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");   /* a <select>'s arrow, in --text-muted: a data URI can't read a variable */
+}
+
+/* Light: the Appearance setting, or the device when it's Auto. _scheme.html sets data-scheme on <html> before the page draws,
+   and flips it when the device does (e.g. at sunset). Every colour variable above has a light value here, and only those
+   (tests/test_ui_colours.py). Text is AA (4.5:1) on cards; the accent is a deeper orange than Strava's, which is 3.4:1 on white. */
+:root[data-scheme="light"] {
+  color-scheme:    light;
+
+  --sidebar-bg:    #e8eef3;
+  --main-bg:       #f2f5f8;
+  --field-bg:      #ffffff;
+  --inset-bg:      #f5f8fa;
+  --card-bg:       #ffffff;
+  --raised-bg:     #e9eff4;
+  --raised-hover:  #dde6ed;
+  --hover-tint:    rgba(10,26,40,0.04);
+  --overlay:       rgba(10,26,40,0.5);
+  --shadow:        rgba(10,26,40,0.15);
+
+  --border:        #d5dfe7;
+  --border-strong: #c2d0db;
+  --divider:       rgba(194,208,219,0.6);
+
+  --text:          #1d3242;
+  --text-strong:   #0a1a28;
+  --text-soft:     #3d5f75;
+  --text-muted:    #557285;
+  --on-accent:     #ffffff;
+  --on-success:    #04180f;
+  --white:         #ffffff;
+  --black:         #000000;
+
+  --sidebar-text:  #4b6b80;
+  --sidebar-label: #6f8797;
+  --sidebar-text-active: #0a1a28;
+  --sidebar-line:  rgba(10,26,40,0.08);
+  --sidebar-hover: rgba(10,26,40,0.04);
+  --sidebar-active-bg: rgba(216,67,0,0.08);
+  --sidebar-active-border: var(--accent);
+
+  --accent:        #d84300;
+  --accent-hover:  #b83800;
+  --success:       #059669;
+  --warning:       #d97706;
+  --due:           #ea580c;
+  --danger:        #dc2626;
+  --danger-hover:  #b91c1c;
+  --info:          #2563eb;
+  --accent-soft:   color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-line:   color-mix(in srgb, var(--accent) 40%, transparent);
+  --success-soft:  color-mix(in srgb, var(--success) 10%, transparent);
+  --success-line:  color-mix(in srgb, var(--success) 45%, transparent);
+  --success-text:  #047857;
+  --warning-soft:  color-mix(in srgb, var(--warning) 12%, transparent);
+  --warning-line:  color-mix(in srgb, var(--warning) 50%, transparent);
+  --warning-text:  #92400e;
+  --due-soft:      color-mix(in srgb, var(--due) 12%, transparent);
+  --due-line:      color-mix(in srgb, var(--due) 55%, transparent);
+  --danger-soft:   color-mix(in srgb, var(--danger) 10%, transparent);
+  --danger-line:   color-mix(in srgb, var(--danger) 40%, transparent);
+  --danger-text:   #b91c1c;
+  --info-soft:     color-mix(in srgb, var(--info) 10%, transparent);
+  --info-line:     color-mix(in srgb, var(--info) 40%, transparent);
+  --info-text:     #1d4ed8;
+
+  /* Data hues a shade or two darker, to hold up on white */
+  --c-red:     #ef4444;
+  --c-orange:  #ea580c;
+  --c-amber:   #d4880a;
+  --c-yellow:  #ca8a04;
+  --c-lime:    #65a30d;
+  --c-green:   #16a34a;
+  --c-teal:    #0d9488;
+  --c-cyan:    #0891b2;
+  --c-sky:     #0284c7;
+  --c-blue:    #3b82f6;
+  --c-indigo:  #4f46e5;
+  --c-violet:  #7c3aed;
+  --c-purple:  #9333ea;
+  --c-pink:    #db2777;
+  --c-gold:    #a8862a;
+  --c-grey:    #64748b;
+  --heat-0:    #e6ecf1;
+  --heat-1:    #fdd9c6;
+  --heat-2:    #fbac80;
+  --heat-3:    #f47a3d;
+  --heat-4:    var(--accent);
+
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%23557285' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -426,7 +518,7 @@ select {
   -webkit-appearance: none;
   appearance: none;
   padding-right: 1.75rem !important;     /* room for the chevron, even where a page sets its own padding inline */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%234d7d95' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: var(--chevron);
   background-repeat: no-repeat;
   background-position: right 0.55rem center;
   background-size: 12px;
