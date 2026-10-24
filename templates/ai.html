@@ -216,7 +216,7 @@
   var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
   line.setAttribute('x1', PAD); line.setAttribute('x2', W - PAD);
   line.setAttribute('y1', base); line.setAttribute('y2', base);
-  line.setAttribute('stroke', cssVar('--border-strong')); line.setAttribute('stroke-width', '1');
+  line.style.stroke = 'var(--border-strong)'; line.setAttribute('stroke-width', '1');
   svg.appendChild(line);
 
   dots.forEach(function(d) {
@@ -256,7 +256,7 @@
     var t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     t.setAttribute('x', x); t.setAttribute('y', H - 2);
     t.setAttribute('text-anchor', anchor);
-    t.setAttribute('font-size', '9'); t.setAttribute('fill', cssVar('--text-muted'));
+    t.setAttribute('font-size', '9'); t.style.fill = 'var(--text-muted)';
     t.textContent = text;
     svg.appendChild(t);
   }

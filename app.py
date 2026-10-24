@@ -486,6 +486,11 @@ def create_app():
         return {'units': _get_units(), 'U': _units.spec()}
 
     @app.context_processor
+    def inject_appearance():
+        from routes.settings import appearance
+        return {'appearance': appearance()}
+
+    @app.context_processor
     def inject_task_notice():
         """How many start-up repairs ran that nobody has looked at yet (a notice on every page until the Tasks page is opened)."""
         if not session.get('logged_in') or request.endpoint == 'tasks.index':
