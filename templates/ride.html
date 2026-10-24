@@ -496,37 +496,37 @@ function typeChanged(sel) {
     {% if charts.elevation %}
     <div class="card">
       <div class="card-title">Elevation{% if charts.heartrate %} &amp; Heart Rate{% endif %}</div>
-      <canvas id="elevChart"></canvas>
+      <div class="cbox"><canvas id="elevChart"></canvas></div>
     </div>
     {% endif %}
     {% if charts.speed %}
     <div class="card">
       <div class="card-title">Speed ({{ U.speed }})</div>
-      <canvas id="speedChart"></canvas>
+      <div class="cbox"><canvas id="speedChart"></canvas></div>
     </div>
     {% endif %}
     {% if charts.pace %}
     <div class="card">
       <div class="card-title">Pace ({{ '/100 m' if view == 'swim' else U.pace }})</div>
-      <canvas id="paceChart"></canvas>
+      <div class="cbox"><canvas id="paceChart"></canvas></div>
     </div>
     {% endif %}
     {% if charts.heartrate and not charts.elevation %}
     <div class="card">
       <div class="card-title">Heart Rate (bpm)</div>
-      <canvas id="hrChart"></canvas>
+      <div class="cbox"><canvas id="hrChart"></canvas></div>
     </div>
     {% endif %}
     {% if charts.power %}
     <div class="card">
       <div class="card-title">Power (W)</div>
-      <canvas id="powerChart"></canvas>
+      <div class="cbox"><canvas id="powerChart"></canvas></div>
     </div>
     {% endif %}
     {% if charts.cadence %}
     <div class="card">
       <div class="card-title">{% if view == 'foot' %}Cadence (spm){% elif view in ('swim', 'water') %}Stroke rate (spm){% else %}Cadence (rpm){% endif %}</div>
-      <canvas id="cadenceChart"></canvas>
+      <div class="cbox"><canvas id="cadenceChart"></canvas></div>
     </div>
     {% endif %}
   </div>

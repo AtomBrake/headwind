@@ -374,9 +374,11 @@ body {
   flex-direction: column;
   padding-bottom: 0.5rem;
 }
-.map-charts-grid.has-both .charts-col .card canvas { flex: 1; min-height: 0; }
+/* Chart.js (maintainAspectRatio: false) sizes the canvas to its parent, so each canvas sits in a .cbox that takes
+   what's left of the card under its title. Sized by the card itself, a chart was drawn as tall as the whole card and squashed. */
+.charts-col .card .cbox { position: relative; flex: 1; min-height: 0; }
 /* No map beside them (an indoor ride, a watch with no GPS): the charts sit side by side, each card a fixed height.
-   Chart.js (maintainAspectRatio: false) fills its box, so a card sized by its own canvas grew on every resize. */
+   A card sized by its own canvas grew on every resize. */
 .map-charts-grid:not(.has-both) .charts-col {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
@@ -387,7 +389,6 @@ body {
   flex-direction: column;
   padding-bottom: 0.5rem;
 }
-.map-charts-grid:not(.has-both) .charts-col .card canvas { flex: 1; min-height: 0; }
 
 /* ── Stats ───────────────────────────────────────────── */
 
