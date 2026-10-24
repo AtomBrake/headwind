@@ -65,6 +65,21 @@ function getKudos(rid) {
     });
 }
 
+// A new ride being analysed in the background (services/auto_analyse.py): look every few seconds, and show the page again once it's done.
+(function () {
+  var el = document.getElementById('kudosPending');
+  if (!el) return;
+  var rid = el.getAttribute('data-rid');
+  var timer = setInterval(function () {
+    fetch('/rides/' + rid + '/kudos/status')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.pending) { clearInterval(timer); location.reload(); }
+      })
+      .catch(function () {});
+  }, 5000);
+})();
+
 // Safari draws an empty date field with today's date in it, which reads as a value. Mark empty ones so the CSS can dim them.
 (function () {
   function mark(el) { el.classList.toggle('is-empty', !el.value); }
