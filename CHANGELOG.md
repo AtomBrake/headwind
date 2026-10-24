@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.19-beta] - 2026-10-25
+
+### Added
+- **A default bike for each kind of ride, and for commutes.** A new "Defaults for new activities" card on the Gear page has a line for commutes, mountain bike, gravel, e-bike and indoor rides (and any other kind you've ridden) beside your default bike, which now covers every other ride. A bike's form has the same choices under "Default for new rides". A commute goes on the commute bike whatever its sport; otherwise a ride takes the bike for its kind. Shoes and other gear can have a commute default too. Ticking Commute or changing an activity's sport later picks its gear again, unless you chose it yourself (or the phone, or a Strava export, named it).
+- **Apply your defaults to past activities.** The defaults card says how many older activities would get different gear and moves them: those with none, or still on what a default gave them, and, if you tick it, those on other gear too. Rides whose Strava bike you haven't matched yet wait for the match.
+- **Strava bikes bring their default sports.** Matching a Strava bike makes it your default for the kinds of ride Strava had it as the default for, where you have none yet.
+
+### Changed
+- **One gear page for bikes and shoes.** A bike's page and a pair of shoes' page (and their forms, and their cards on the Gear page) are now the same, with the parts and service log on bikes only. Shoes and other gear gain a photo, distance by year, assigning activities by date for the sports you tick, and speed or pace. Bikes gain a breakdown by sport, first and last used, and their most worn part with a bar at the top. Both say Retire with the date, and list the 10 most recent activities with "See all".
+- **Garmin keeps mountain bike and gravel rides.** They used to arrive as plain rides; now they come in as mountain bike and gravel rides, which can be typed in and picked in "change the type" too. Rides an older sync saved as plain rides are offered their kind back by "Check activity types with Garmin" in Settings.
+- **A friend's activity is shown, never changed here.** Its page says whose it is and when it was synced, and keeps only the map, charts, segments, splits and GPX. Every change to one is refused, and the selection bar skips them and says how many were a friend's.
+- **Retired gear can still be picked for an activity**, listed last and marked retired, so an old activity can be put on what it was done on. A ride on a retired bike no longer shows "No bike chosen".
+- **Top-bar actions fit on a phone.** The ride page keeps ‹ and › and puts Download GPX, Open on Strava and Delete in a ⋯ menu; other pages' actions wrap under the title.
+
+### Fixed
+- A GPX file whose type is GravelRide was saved as "Other", not a ride.
+- Charts on the ride page and a segment's time trend were squashed into their cards; they're now drawn at the size they're shown.
+- Each hourly friend sync said the same rides were new; it now counts only the new or changed ones ("Nothing new" when there are none).
+
 ## [0.7.18-beta] - 2026-10-24
 
 ### Changed
