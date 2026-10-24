@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.16-beta] - 2026-10-24
+
+### Added
+- **Full re-sync with Garmin.** A new Full re-sync button in Settings → Garmin Connect (with activity sync on) checks every Garmin activity in Headwind against all of your Garmin Connect history at once, not just the last 90 days and a little older each day. Anything deleted, renamed, given another sport or cropped in Garmin is listed on the Import page for review, as with the daily check, and nothing changes until you choose. When Garmin's count of your activities matches its list, the oldest ones are checked too, and a big clear-out counts as deletions rather than a broken list. If none of your activities are in Garmin's list (signed in to another account, say), nothing is flagged.
+
 ## [0.7.15-beta] - 2026-10-24
 
 Migration, at the first start: `Settings` gains `garminChangesBefore`, `aiAutoAnalyse` and `appearance`, `WeightLog` gains `sourceDetail`, and there are new `GarminSeen` and `GarminChange` tables.
