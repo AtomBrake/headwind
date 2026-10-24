@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.17-beta] - 2026-10-24
+
+Dependency: `cryptography` 42.0 or later (`pip install -r requirements.txt` outside Docker). At the first start, a key file, `.secrets_key`, is made beside the database, and the keys and passwords saved in the database are encrypted with it.
+
+### Added
+- **Whose rides the heatmap shows.** A new Whose choice on the heatmap shows **Mine**, one friend's rides, or **Everyone together**. Friends' rides used to be mixed into yours with no way to tell them apart; the heatmap now opens on yours alone. Each person keeps their own colour, yours the usual orange, and Everyone together has a key with each person's ride count. Picking someone zooms the map to their rides. The choice only appears once a friend (or another rider on your instance) has rides with a map.
+- **A list of the activities with no gear.** The note on the Gear page counts every ride with no bike and every other activity with no shoes or kit, says how many of each type, and links to them on the Activities page, a month at a time. Each row there has a bike or kit picker, so they can be sorted out one by one. The Gear choice in the Activities search also finds one bike's rides or one pair of shoes' activities. On the gear calendar, the rides on the days you pick are listed under it, each with its own bike, so a day with two rides on two bikes can be split.
+
+### Changed
+- **Saved keys and passwords are encrypted.** The AI keys, the Home Assistant token, the MQTT password, friends' feed tokens and the Garmin sign-in are encrypted in the database, with the key in `.secrets_key` beside it. A copy of `bike.db` or a backup, shared for troubleshooting say, gives none of them away. Backups leave the key out: restoring on the same server keeps everything, while a restore on another server says which to enter again, or to copy `.secrets_key` across and restart.
+- **Activities look the same on every list.** The dashboard, Activities, Workouts, bike, kit and rider pages draw each activity the same way: sport, name, date, distance, time, speed or pace for the sport, and the climb. Forms share one layout, with any error at the top.
+
+### Fixed
+- **The heatmap export ignored the sport filter**, and always drew every sport. It now draws what the map shows. Changing the sport no longer clears the highlighted date range and map type.
+
 ## [0.7.16-beta] - 2026-10-24
 
 ### Added
