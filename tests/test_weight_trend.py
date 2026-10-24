@@ -5,6 +5,7 @@ import pytest
 from services.weight_trend import (
     compute_trend,
     format_weight,
+    is_scale_reading,
     kg_to_stone_lb,
     parse_backfill_rows,
     parse_log_date,
@@ -194,3 +195,15 @@ def test_stone_milestones_basic():
 
 def test_stone_milestones_none_start():
     assert stone_milestones(None, 50) == []
+
+
+# ── Scale or typed in ────────────────────────────────────────────────────
+
+def test_garmin_counts_as_a_scale_unless_garmin_says_it_was_typed_in():
+    assert is_scale_reading('homeassistant')
+    assert is_scale_reading('garmin', None)
+    assert is_scale_reading('garmin', 'INDEX_SCALE')
+    assert not is_scale_reading('garmin', 'MANUAL')
+    assert not is_scale_reading('garmin', 'manual')
+    assert not is_scale_reading('manual')
+    assert not is_scale_reading('backfill', 'INDEX_SCALE')

@@ -173,6 +173,19 @@ def test_later_garmin_weigh_in_updates_its_own_row(wenv):
     assert db.execute('SELECT COUNT(*) FROM WeightLog').fetchone()[0] == 1
 
 
+def test_weigh_in_keeps_garmins_source_type_and_refreshes_it_on_an_unchanged_weight(wenv):
+    db, run = wenv
+    typed = _day('2026-10-15', (81000, 1))
+    typed['allWeightMetrics'][0]['sourceType'] = 'MANUAL'
+    run([typed, _day('2026-10-16', (80500, 1))])
+    detail = lambda: dict(db.execute('SELECT logDate, sourceDetail FROM WeightLog').fetchall())
+    assert detail() == {'2026-10-15': 'MANUAL', '2026-10-16': None}
+    scale = _day('2026-10-16', (80500, 1))
+    scale['allWeightMetrics'][0]['sourceType'] = 'INDEX_SCALE'
+    run([scale])                                     # same weight, so only the source tells it apart
+    assert detail()['2026-10-16'] == 'INDEX_SCALE'
+
+
 def test_bad_or_failed_weigh_ins_are_ignored(wenv):
     db, run = wenv
     assert run([_day('2026-10-15', (5000, 1)), _day('2026-10-16'), {'summaryDate': '2026-10-17'}]) == {}   # 5 kg, empty day, no data

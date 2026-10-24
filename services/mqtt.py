@@ -518,9 +518,10 @@ def _history_payloads():
 
     # weight: every weigh-in (last 180) with its smoothed trend and that day's body fat
     try:
-        from services.weight_trend import compute_trend
-        rows = query_db('SELECT logDate, weightKg FROM WeightLog WHERE riderId=? ORDER BY logDate', [rid])
+        from services.weight_trend import compute_trend, is_scale_reading
+        rows = query_db('SELECT logDate, weightKg, source, sourceDetail FROM WeightLog WHERE riderId=? ORDER BY logDate', [rid])
         entries = [(date.fromisoformat(r['logDate']), r['weightKg']) for r in rows]
+        src = {r['logDate']: r for r in rows}
         settings = query_db('SELECT nutritionWeightEmaAlpha, heightCm FROM Settings WHERE id=1', one=True)
         alpha = (settings['nutritionWeightEmaAlpha'] if settings else None) or 0.1
         height_m = ((settings['heightCm'] if settings else None) or 0) / 100
@@ -533,10 +534,11 @@ def _history_payloads():
             't': [round(trend[d], 2) if d in trend else None for d, _ in entries],
             'bf': [fat.get(d.isoformat()) for d, _ in entries],
             'bmi': [round(w / height_m ** 2, 1) if height_m else None for _, w in entries],
-            'src': [(query_db('SELECT source FROM WeightLog WHERE riderId=? AND logDate=?', [rid, d.isoformat()], one=True) or {'source': ''})['source'] for d, _ in entries],
+            'src': [src[d.isoformat()]['source'] or '' for d, _ in entries],
+            'scale': [is_scale_reading(src[d.isoformat()]['source'], src[d.isoformat()]['sourceDetail']) for d, _ in entries],
         }
     except Exception:
-        out['nutrition_weight_history'] = {'d': [], 'w': [], 't': [], 'bf': [], 'src': []}
+        out['nutrition_weight_history'] = {'d': [], 'w': [], 't': [], 'bf': [], 'src': [], 'scale': []}
 
     # diary: last 30 days of daily totals (missing days = 0) + the goals to draw against
     start = today - timedelta(days=29)

@@ -18,6 +18,7 @@ from services.weight_trend import (
     MAX_SANE_KG,
     MIN_SANE_KG,
     compute_trend,
+    is_scale_reading,
     parse_backfill_rows,
     stone_lb_to_kg,
     stone_milestones,
@@ -162,7 +163,7 @@ def _weight_snapshot(rider_id, date_str):
     if not entries:
         return {'raw': None, 'trend': None, 'unit': settings['unit']}
     d = date.fromisoformat(date_str)
-    src = query_db('SELECT source FROM WeightLog WHERE riderId=? AND logDate=?', [rider_id, date_str], one=True)
+    src = query_db('SELECT source, sourceDetail FROM WeightLog WHERE riderId=? AND logDate=?', [rider_id, date_str], one=True)
     fat = query_db("SELECT value FROM BodyMetric WHERE riderId=? AND metric='body_fat' AND logDate<=? ORDER BY logDate DESC LIMIT 1",
                    [rider_id, date_str], one=True)
     trend_map = compute_trend(entries, alpha=settings['emaAlpha'], end_date=d)
@@ -173,6 +174,7 @@ def _weight_snapshot(rider_id, date_str):
         'trend': round(trend, 2) if trend is not None else None,
         'unit':  settings['unit'],
         'source': src['source'] if src else None,
+        'scale':  bool(src) and is_scale_reading(src['source'], src['sourceDetail']),
         'bodyFat': round(fat['value'], 1) if fat else None,
     }
 
@@ -1898,11 +1900,19 @@ def weight_graph_data():
     trend_end = max(end_date, entries[-1][0], today)
     trend_map = compute_trend(entries, alpha=settings['emaAlpha'], end_date=trend_end)
 
-    sources = {x['logDate']: x['source'] for x in query_db('SELECT logDate, source FROM WeightLog WHERE riderId=?', [rider_id])}
-    raw_points = [
-        {'date': d.isoformat(), 'kg': round(w, 2), 'source': sources.get(d.isoformat())}
-        for d, w in entries if start_date <= d <= end_date
-    ]
+    sources = {x['logDate']: x for x in query_db('SELECT logDate, source, sourceDetail FROM WeightLog WHERE riderId=?', [rider_id])}
+    # changeKg is against the previous weigh-in overall, so the oldest row in the window still gets one
+    raw_points = []
+    for i, (d, w) in enumerate(entries):
+        if not start_date <= d <= end_date:
+            continue
+        src = sources[d.isoformat()]
+        raw_points.append({
+            'date': d.isoformat(), 'kg': round(w, 2), 'source': src['source'], 'sourceDetail': src['sourceDetail'],
+            'scale': is_scale_reading(src['source'], src['sourceDetail']),
+            'trendKg': round(trend_map[d], 2) if d in trend_map else None,
+            'changeKg': round(w - entries[i - 1][1], 2) if i else None,
+        })
     trend_points = [
         {'date': d.isoformat(), 'kg': round(t, 2)}
         for d, t in sorted(trend_map.items()) if start_date <= d <= end_date

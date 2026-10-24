@@ -20,6 +20,13 @@
   #wgSvg { width: 100%; height: auto; display: block; }
   .wg-empty { text-align: center; color: var(--text-muted); padding: 2rem 0; }
   .wg-links { display: flex; gap: 0.5rem; margin-top: 1rem; }
+  .wg-table td { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .wg-table .num { text-align: right; }
+  .wg-table .loss { color: var(--success); }
+  .wg-table .gain { color: var(--danger); }
+  .wg-src { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; background: var(--border); color: var(--text-muted); }
+  .wg-src.scale { background: var(--accent); color: #fff; }
+  @media (max-width: 600px) { .wg-table .wg-trend { display: none; } }
 </style>
 {% endblock %}
 
@@ -58,6 +65,14 @@
 <div style="font-size:0.75rem; color:var(--text-muted); margin:0.75rem 0;">
   <svg width="12" height="12" style="vertical-align:-1px;"><circle cx="6" cy="6" r="4" fill="var(--accent)" stroke="var(--card-bg)" stroke-width="1.5"/></svg> scale reading
   &nbsp; <svg width="12" height="12" style="vertical-align:-1px;"><circle cx="6" cy="6" r="4" fill="var(--text)" stroke="var(--card-bg)" stroke-width="1.5"/></svg> typed in
+</div>
+
+<div class="card" id="wgLog" style="display:none; margin-top:1rem; overflow-x:auto;">
+  <div class="card-title">Weigh-ins <span id="wgLogCount" style="font-weight:400; color:var(--text-muted);"></span></div>
+  <table class="table-compact wg-table">
+    <thead><tr><th>Date</th><th class="num">Weight</th><th class="num wg-trend">Trend</th><th class="num">Change</th><th>Source</th></tr></thead>
+    <tbody id="wgLogBody"></tbody>
+  </table>
 </div>
 
 <div class="wg-links">
@@ -165,6 +180,8 @@ function render(data) {
       ? `${new Date(data.periodStart).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})} – ${new Date(data.periodEnd).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}`
       : '—';
 
+  renderLog(raw);
+
   if (!raw.length && !trend.length) {
     svg.innerHTML = '';
     empty.style.display = '';
@@ -193,6 +210,41 @@ function render(data) {
   }
 
   drawChart(raw, trend, data);
+}
+
+// WeightLog.source values; anything else (a newer client) is shown as stored
+const SOURCE_LABELS = { manual: 'Typed in', backfill: 'Backfill', homeassistant: 'Scale (Home Assistant)', garmin: 'Scale (Garmin)' };
+
+function sourceLabel(p) {
+  const src = p.source || 'manual';
+  if (src === 'garmin' && !p.scale) return 'Typed into Garmin';
+  return SOURCE_LABELS[src] || src;
+}
+
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
+
+function renderLog(raw) {
+  const box = document.getElementById('wgLog');
+  box.style.display = raw.length ? '' : 'none';
+  document.getElementById('wgLogCount').textContent = raw.length ? `· ${raw.length}` : '';
+  const thisYear = new Date().getFullYear();
+  document.getElementById('wgLogBody').innerHTML = raw.slice().reverse().map(p => {
+    const d = new Date(p.date + 'T12:00:00');
+    const opts = { weekday: 'short', day: 'numeric', month: 'short' };
+    if (d.getFullYear() !== thisYear) opts.year = 'numeric';
+    let change = '—', cls = '';
+    if (p.changeKg != null) {
+      change = fmtDeltaMain(Math.abs(p.changeKg) < 0.05 ? 0 : p.changeKg);
+      cls = p.changeKg <= -0.05 ? 'loss' : (p.changeKg >= 0.05 ? 'gain' : '');
+    }
+    return `<tr>
+      <td>${d.toLocaleDateString('en-GB', opts)}</td>
+      <td class="num">${fmtWeight(p.kg)}</td>
+      <td class="num wg-trend" style="color:var(--text-muted);">${p.trendKg != null ? fmtWeight(p.trendKg) : '—'}</td>
+      <td class="num ${cls}">${change}</td>
+      <td><span class="wg-src ${p.scale ? 'scale' : ''}">${esc(sourceLabel(p))}</span></td>
+    </tr>`;
+  }).join('');
 }
 
 function drawChart(raw, trend, data) {
@@ -264,7 +316,7 @@ function drawChart(raw, trend, data) {
 
   // Raw weigh-in dots
   raw.forEach(p => {
-    const scale = p.source === 'homeassistant';
+    const scale = p.scale;
     svgEls.push(`<circle cx="${x(p.date).toFixed(1)}" cy="${y(p.kg).toFixed(1)}" r="${scale ? 5 : 4}" fill="${scale ? 'var(--accent)' : 'var(--text)'}" stroke="var(--card-bg)" stroke-width="1.5"/>`);
   });
 

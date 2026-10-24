@@ -618,10 +618,14 @@ def migrate_db():
             logDate   TEXT NOT NULL,
             weightKg  REAL NOT NULL,
             source    TEXT DEFAULT 'manual',
+            sourceDetail TEXT,
             createdAt TEXT DEFAULT (datetime('now')),
             UNIQUE(riderId, logDate)
         )
     ''')
+    # Garmin's own sourceType for a 'garmin' row (MANUAL = typed into Garmin Connect, anything else a scale); NULL for other sources
+    if 'sourceDetail' not in {r[1] for r in db.execute('PRAGMA table_info(WeightLog)').fetchall()}:
+        db.execute('ALTER TABLE WeightLog ADD COLUMN sourceDetail TEXT')
 
     db.execute('''
         CREATE TABLE IF NOT EXISTS FoodFavourite (
