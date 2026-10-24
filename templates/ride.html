@@ -135,6 +135,25 @@ function typeChanged(sel) {
 </div>
 {% endif %}
 
+{% if garmin_change %}{% set gc = garmin_change %}
+<div class="card" style="margin-bottom:1.25rem;border-color:var(--accent);">
+  {% if gc.kind == 'deleted' %}
+  <div style="font-weight:600;margin-bottom:.35rem;">This activity was deleted in Garmin Connect</div>
+  <div style="color:var(--text-muted);font-size:.9rem;margin-bottom:.75rem;">It's still here. Keep it, or delete it here too: its notes, photos and segment times go with it.</div>
+  {% else %}
+  <div style="font-weight:600;margin-bottom:.35rem;">This activity was changed in Garmin Connect</div>
+  <div style="color:var(--text-muted);font-size:.9rem;margin-bottom:.75rem;">
+    {% for d in gc.diffs %}{{ 'Name' if d.field == 'name' else 'Sport' }}: {{ d.old if d.field == 'name' else d.old | sport_label }} → <strong style="color:var(--text);">{{ d.new if d.field == 'name' else d.new | sport_label }}</strong>{% if not loop.last %}<br>{% endif %}{% endfor %}</div>
+  {% endif %}
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+    {% for choice, label in ((('delete', 'Delete it here too'), ('keep', 'Keep it')) if gc.kind == 'deleted' else (('garmin', "Use Garmin's"), ('keep', 'Keep as it is here'))) %}
+    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=activity.id, choice=choice) }}"{% if choice == 'delete' %} onsubmit="return confirm('Delete this activity here too?')"{% endif %}>
+      <input type="hidden" name="back" value="ride"><button class="btn btn-secondary" type="submit">{{ label }}</button></form>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {% if dups %}
 <div class="card" style="margin-bottom:1.25rem;border-color:var(--accent,#fc4c02);">
   <div style="font-weight:600;margin-bottom:.35rem;">This ride was also recorded by another device</div>

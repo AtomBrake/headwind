@@ -729,6 +729,32 @@ def _from_summary(a):
     }
 
 
+def read_recording(api, a):
+    """An activity from Garmin's list, read: its original upload (a zip: <id>_ACTIVITY.fit from a device, or the .gpx / .tcx someone uploaded), or
+    what the list says when there's no file (one typed into Garmin Connect, or an empty zip). Returns (parsed, None), or (None, (kind, error)) with
+    kind 'download' or 'parse'."""
+    from services.parser import parse_fit, parse_activity_file
+    if a.get('manualActivity'):
+        return _from_summary(a), None
+    try:
+        zip_bytes = api.download_activity(str(a.get('activityId', '')), dl_fmt=api.ActivityDownloadFormat.ORIGINAL)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            names = zf.namelist()
+            file_name = next((n for n in names if n.lower().endswith('.fit')), None) \
+                or next((n for n in names if n.lower().rsplit('.', 1)[-1] in ('gpx', 'tcx')), None)
+            file_bytes = zf.read(file_name) if file_name else None
+    except Exception as e:
+        return None, ('download', e)
+    if not file_name:
+        return _from_summary(a), None
+    try:
+        parsed = parse_fit(file_bytes) if file_name.lower().endswith('.fit') else parse_activity_file(file_name, file_bytes)
+        err = None if parsed else 'no data in the file'
+    except Exception as e:
+        parsed, err = None, e
+    return (parsed, None) if parsed else (None, ('parse', f'{file_name}: {err}'))
+
+
 def sync_garmin_activities(rider_id, api=None):
     """
     Generator: pull activities from Garmin Connect, download FIT files, parse and insert.
@@ -740,7 +766,7 @@ def sync_garmin_activities(rider_id, api=None):
     """
     import logging
     from database import get_db
-    from services.parser import parse_fit, parse_activity_file, _map_sport
+    from services.parser import _map_sport
     from services.weather import fetch_weather, save_weather
 
     log = logging.getLogger(__name__)
@@ -750,7 +776,7 @@ def sync_garmin_activities(rider_id, api=None):
 
     s = db.execute('SELECT garminActivitySyncDate FROM Settings WHERE id=1').fetchone()
     since = s['garminActivitySyncDate'] if s and s['garminActivitySyncDate'] else None
-    from services import garmin_failures
+    from services import garmin_changes, garmin_failures
     since = garmin_failures.rewind(db, since)        # back to an activity given up on that a newer Headwind may read
 
     yield {'msg': 'Connected to Garmin Connect' + (f' — fetching rides since {since}' if since else ' — full history sync')}
@@ -818,6 +844,7 @@ def sync_garmin_activities(rider_id, api=None):
             # Check if Garmin ID already exists
             from services import duplicates
             if duplicates.exists_anywhere(db, db_id) or duplicates.is_deleted(db, db_id):      # live (any sport), parked, discarded or deleted by the user: never bring it back
+                garmin_changes.remember(db, a, replace=False)      # imported before Garmin's summary was kept: this is its baseline
                 skipped += 1
                 if start_date and (newest is None or start_date > newest):
                     newest = start_date
@@ -847,33 +874,10 @@ def sync_garmin_activities(rider_id, api=None):
                 continue
             label = a.get('activityName')
 
-            if a.get('manualActivity'):
-                # Typed into Garmin Connect: there is no file to download, only what the list says
-                parsed = _from_summary(a)
-            else:
-                # Download the original upload (a zip: <id>_ACTIVITY.fit from a device, or the .gpx / .tcx someone uploaded)
-                try:
-                    zip_bytes = api.download_activity(activity_id, dl_fmt=api.ActivityDownloadFormat.ORIGINAL)
-                    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-                        names = zf.namelist()
-                        file_name = next((n for n in names if n.lower().endswith('.fit')), None) \
-                            or next((n for n in names if n.lower().rsplit('.', 1)[-1] in ('gpx', 'tcx')), None)
-                        file_bytes = zf.read(file_name) if file_name else None
-                except Exception as e:
-                    failed(activity_id, 'download', e, start_date, label)
-                    continue
-
-                if file_name:
-                    try:
-                        parsed = parse_fit(file_bytes) if file_name.lower().endswith('.fit') else parse_activity_file(file_name, file_bytes)
-                        err = None if parsed else 'no data in the file'
-                    except Exception as e:
-                        parsed, err = None, e
-                    if not parsed:
-                        failed(activity_id, 'parse', f'{file_name}: {err}', start_date, label)
-                        continue
-                else:
-                    parsed = _from_summary(a)               # nothing in the zip to read: what the list says is all there is
+            parsed, fail = read_recording(api, a)
+            if not parsed:
+                failed(activity_id, *fail, start_date, label)
+                continue
 
             # Prefer API summary for name and sport; FIT has accurate streams
             sport_type  = garmin_sport(type_key) if type_key else _map_sport(parsed.get('sportType') or 'Ride')
@@ -909,6 +913,7 @@ def sync_garmin_activities(rider_id, api=None):
                     failed(activity_id, 'insert', f'{sport_type}: {e}', start_date, label)
                     continue
                 garmin_failures.clear(db, activity_id)
+                garmin_changes.remember(db, a)                  # what Garmin said, for services/garmin_changes to compare with later
                 imported += 1
                 if start_date and (newest is None or start_date > newest):
                     newest = start_date
@@ -953,6 +958,7 @@ def sync_garmin_activities(rider_id, api=None):
                 continue
             save_laps(db, db_id, parsed.get('laps'))
             garmin_failures.clear(db, activity_id)
+            garmin_changes.remember(db, a)
 
             if parsed.get('startLat') and parsed.get('startLng') and start_local:
                 try:
