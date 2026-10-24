@@ -1,5 +1,6 @@
-"""What every newly stored ride gets, whichever way it arrived (Garmin sync, file import, phone upload): matched against segments, and checked by the
-sanity rails. One place, so a new import path cannot forget one of them. Never raises; does not commit."""
+"""What every newly stored ride gets, whichever way it arrived (Garmin sync, file import, phone upload): matched against segments, checked by the
+sanity rails, and queued for the AI coach's analysis when that's on. One place, so a new import path cannot forget one of them. Never raises; does
+not commit."""
 import logging
 
 log = logging.getLogger(__name__)
@@ -13,6 +14,8 @@ def after_ride_added(db, act_id):
     except Exception:
         log.warning('Sanity check of a new activity failed', exc_info=True)
     scan_new_ride(db, act_id)
+    from services import auto_analyse
+    auto_analyse.queue_ride(db, act_id)         # analysed in the background once the import has committed it
 
 
 def after_ride_removed():
