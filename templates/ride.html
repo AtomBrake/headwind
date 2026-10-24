@@ -24,21 +24,28 @@
     </a>
   {% endfor %}
   {% if prev_ride %}
-    <a href="{{ url_for('rides.detail', rid=prev_ride.id) }}" class="btn btn-secondary" title="{{ prev_ride.name }}">‹ Prev</a>
+    <a href="{{ url_for('rides.detail', rid=prev_ride.id) }}" class="btn btn-secondary" title="{{ prev_ride.name }}" aria-label="Previous activity">‹<span class="wide-only"> Prev</span></a>
   {% else %}
-    <span class="btn btn-secondary" style="opacity:0.3;cursor:default;">‹ Prev</span>
+    <span class="btn btn-secondary" style="opacity:0.3;cursor:default;">‹<span class="wide-only"> Prev</span></span>
   {% endif %}
   {% if next_ride %}
-    <a href="{{ url_for('rides.detail', rid=next_ride.id) }}" class="btn btn-secondary" title="{{ next_ride.name }}">Next ›</a>
+    <a href="{{ url_for('rides.detail', rid=next_ride.id) }}" class="btn btn-secondary" title="{{ next_ride.name }}" aria-label="Next activity"><span class="wide-only">Next </span>›</a>
   {% else %}
-    <span class="btn btn-secondary" style="opacity:0.3;cursor:default;">Next ›</span>
+    <span class="btn btn-secondary" style="opacity:0.3;cursor:default;"><span class="wide-only">Next </span>›</span>
   {% endif %}
-  {% if not is_workout %}<a href="{{ url_for('rides.export_gpx', rid=activity.id) }}" class="btn btn-secondary" title="Download GPX">GPX</a>{% endif %}
-  {% for l in source_links %}<a href="{{ l.url }}" class="btn btn-secondary" target="_blank" rel="noopener" title="Open this activity on {{ l.name }}">{{ l.name }} ↗</a>{% endfor %}
-  {% if not friend %}
-  <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=activity.id) if is_workout else url_for('rides.delete', rid=activity.id) }}" style="display:inline;" onsubmit="return confirm('{{ 'Delete this activity? Its photos and notes go with it. This cannot be undone.' if is_workout else 'Delete this activity? Its photos, notes and segment times go with it, and a later sync or import will not bring it back. This cannot be undone.' }}')">
-    <button type="submit" class="btn btn-danger">Delete</button>
-  </form>
+  {% if not is_workout or source_links or not friend %}
+  <details class="more-menu">
+    <summary class="btn btn-secondary" title="More" aria-label="More actions">⋯</summary>
+    <div class="more-menu-list">
+      {% if not is_workout %}<a href="{{ url_for('rides.export_gpx', rid=activity.id) }}">Download GPX</a>{% endif %}
+      {% for l in source_links %}<a href="{{ l.url }}" target="_blank" rel="noopener">Open on {{ l.name }} ↗</a>{% endfor %}
+      {% if not friend %}
+      <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=activity.id) if is_workout else url_for('rides.delete', rid=activity.id) }}" onsubmit="return confirm('{{ 'Delete this activity? Its photos and notes go with it. This cannot be undone.' if is_workout else 'Delete this activity? Its photos, notes and segment times go with it, and a later sync or import will not bring it back. This cannot be undone.' }}')">
+        <button type="submit" class="danger">Delete</button>
+      </form>
+      {% endif %}
+    </div>
+  </details>
   {% endif %}
 {% endblock %}
 

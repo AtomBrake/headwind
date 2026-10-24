@@ -8,6 +8,20 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 });
 
+// A ⋯ menu (.more-menu) closes on a click outside it or on Esc.
+document.addEventListener('click', function (ev) {
+  document.querySelectorAll('details.more-menu[open]').forEach(function (d) {
+    if (!d.contains(ev.target)) d.removeAttribute('open');
+  });
+});
+document.addEventListener('keydown', function (ev) {
+  if (ev.key !== 'Escape') return;
+  document.querySelectorAll('details.more-menu[open]').forEach(function (d) {
+    d.removeAttribute('open');
+    d.querySelector('summary').focus();
+  });
+});
+
 function doSync() {
   var btn = document.getElementById('syncBtn');
   if (!btn) return;

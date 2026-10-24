@@ -46,6 +46,20 @@ The topbar holds the title, the page's actions (`{% block topbar_actions %}`) an
 
 Don't add "← Back" buttons; a form's **Cancel** stays.
 
+On a phone the actions wrap to a second row under the title rather than widen the page. When a page has more than a few, keep the main ones as buttons and put the rest in a ⋯ menu, with the page's Delete last in it (the ride page does this):
+
+```jinja
+<details class="more-menu">
+  <summary class="btn btn-secondary" title="More" aria-label="More actions">⋯</summary>
+  <div class="more-menu-list">
+    <a href="…">Download GPX</a>
+    <form method="POST" action="…" onsubmit="return confirm('…')"><button type="submit" class="danger">Delete</button></form>
+  </div>
+</details>
+```
+
+A word that can go on a phone goes in `<span class="wide-only">`: `‹<span class="wide-only"> Prev</span>`.
+
 ## Text
 
 - `.hint` is helper text: what a field, card or list is for, or what happens next. It's the one class for it; `.text-muted` is the old name.
