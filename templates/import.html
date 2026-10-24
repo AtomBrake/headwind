@@ -174,6 +174,7 @@
   <p class="hint" style="margin:0.5rem 0 0;">
     Once a day Headwind looks at your last 90 days in Garmin Connect, and a little further back each time, for activities deleted, renamed,
     given another sport or cropped there since they came in. Nothing changes here until you choose. A cropped one is listed with the imports above.
+    Full re-sync on the <a href="{{ url_for('settings.index') }}#garmin">Settings</a> page checks all of your history at once.
     {% if garmin_check and not running %}<br>Last check: {{ garmin_check.error or garmin_check.result }}
       <span data-when="{{ garmin_check.finishedAt }}">{{ garmin_check.finishedAt }}</span>{% endif %}</p>
 

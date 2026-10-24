@@ -235,22 +235,25 @@ _changes_lock = threading.Lock()
 @bp.route('/garmin/changes/check', methods=['POST'])
 def changes_check():
     """Look for activities deleted or changed in Garmin now, rather than at the daily sweep (services/garmin_changes.run), in the background.
-    Its progress and result are in TaskLog, shown on the Import page and the Tasks page."""
+    ?whole=1 (Settings' Full re-sync): all of the history at once (garmin_changes.full). Its progress and result are in TaskLog, shown on the
+    Import page and the Tasks page."""
     from flask import current_app, redirect, url_for
     rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
+    whole = request.args.get('whole') == '1'
     if _garmin_on() and rider and _changes_lock.acquire(blocking=False):     # already running: the page shows that one
-        threading.Thread(target=_bg_changes_check, args=(current_app._get_current_object(), rider['id']), daemon=True).start()
+        threading.Thread(target=_bg_changes_check, args=(current_app._get_current_object(), rider['id'], whole), daemon=True).start()
     return redirect(url_for('import_rides.index') + '#garmin-changes')
 
 
-def _bg_changes_check(app, rider_id):
+def _bg_changes_check(app, rider_id, whole=False):
     from services import garmin_changes, tasks
     from services.garmin import _client
     try:
         with app.app_context():
             db = get_db()
-            with tasks.run(db, garmin_changes.TASK, 'Garmin changes check') as t:
-                t.result = garmin_changes.describe(garmin_changes.run(db, _client(), rider_id))
+            with tasks.run(db, garmin_changes.TASK, 'Garmin full re-sync' if whole else 'Garmin changes check') as t:
+                check = garmin_changes.full if whole else garmin_changes.run
+                t.result = garmin_changes.describe(check(db, _client(), rider_id))
     except Exception as e:                              # already logged as failed by tasks.run
         log.warning('Garmin changes check failed: %s', e)
     finally:
