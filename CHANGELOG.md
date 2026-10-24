@@ -1,16 +1,25 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.15-beta] - 2026-10-24
 
-Migration, at the first start: `Settings` gains `garminChangesBefore`, `aiAutoAnalyse` and `appearance`, and there are new `GarminSeen` and `GarminChange` tables.
+Migration, at the first start: `Settings` gains `garminChangesBefore`, `aiAutoAnalyse` and `appearance`, `WeightLog` gains `sourceDetail`, and there are new `GarminSeen` and `GarminChange` tables.
 
 ### Added
 - **Activities deleted or changed in Garmin Connect are flagged for review.** A deletion, rename, change of sport or crop in Garmin used to never reach Headwind, because the sync only reads new activities. Once a day (with activity sync on) Headwind compares the last 90 days in Garmin, and a little further back each day, with what it imported. Each change is listed on the Import page and the activity's page, and nothing changes until you choose: delete it here too or keep it; use Garmin's name or sport or keep yours; a cropped recording is offered like a re-import (keep, replace or fill in). A name or sport you changed in Headwind is never overwritten or flagged. A listing that fails, or one missing most activities at once (another account, say), flags nothing. Activities imported before this version are compared from their first check on.
 - **New rides can be analysed by the AI coach as they arrive.** A new "Analyse New Rides" setting on the AI page writes the coaching notes for each new ride from Garmin, the phone app or an import, with the coach personality you last chose. It's off by default and can only be turned on once an AI provider is set up. Only rides from the last 3 days are analysed, so importing your history doesn't run up a bill; use Bulk Analysis for older rides. While a ride is being analysed its page shows "Analysing…". A failed analysis shows on the Tasks page and isn't retried, and the ride keeps its Analyse button. With ntfy set up, you get a notification when the analysis is ready.
+- **A Weight page.** The weight graph is now Health → Weight in the sidebar (it was only reachable from the Nutrition day view), and under the graph a table lists the period's weigh-ins, newest first: weight, that day's trend, the change since the previous weigh-in and where it came from.
 - **Light mode.** Settings → Display Preferences has a new Appearance choice: Auto (the default) follows each device's light or dark setting and switches with it, at sunset say, while Light and Dark apply everywhere. Charts and maps change colour with the page, with no reload.
 
 ### Changed
+- **One look across the app.** Pages were styled one by one, so the same thing looked different from page to page. Buttons, tables, helper text, empty lists and colours now come from one set of shared styles. Small buttons work on every page (they did nothing outside Gear), only a page's main action is orange, and a selected option (a sport, a period) is highlighted rather than orange. Every table has the same headings and spacing, with numbers right-aligned.
+- **The way back is in the page title.** A page that sits under another shows it before its title, Gear › Stumpjumper, as a link, in place of the "← Back" buttons.
+- **The same words for the same thing.** Bikes are **Retired** and **Brought back** like other gear (they were Archived and Restored). A form says **Add** when it makes something and **Save** when it changes it. Delete warnings say what goes and what stays.
+- **Garmin weigh-ins count as scale readings**, unless Garmin says they were typed into Garmin Connect. This decides the dots on the weight graph, the "scale" tag on the Nutrition day and the Home Assistant weight chart.
+- **Times like "last used" and "last synced"** show as a date and time in your time zone, not a raw UTC timestamp.
 - **Python 3.14.** The Docker image and the Windows build are now built on Python 3.14. Running Headwind outside Docker still works on Python 3.12 or later.
+
+### Fixed
+- **An activity page with no map grew taller and taller.** On an indoor ride, a watch recording without GPS or a pool swim, the charts stretched every time the window changed size until the page couldn't be used. Without a map beside them, the charts now have a fixed height and sit side by side.
 
 ## [0.7.14-beta] - 2026-10-20
 
