@@ -12,6 +12,8 @@ Rules:
 * Saving a match fills in the rides that have no bike, and moves the rides the previous match put on a bike. A bike set any other way (by
   hand, by the calendar, the default stamped on when it was first imported) is changed only when asked (`replace`).
 * Only rides take a bike.
+* A matched bike's default sport types in bikes.csv (Mountain Bike Ride, Virtual Ride, ...) make it the rider's default bike for those kinds of
+  ride (gear.pick_bike) where they have none yet.
 
 Shoes (shoes.csv) become kit (services/kit.py) without a match page: there was no shoe tracking before, so there's nothing of the rider's to
 match them to. Each shoe a walk, run or hike names becomes an item (or joins one with the same name), shoes last used more than a year ago come
@@ -302,6 +304,7 @@ def save(db, rider_id, choices, replace=False):
         db.execute('UPDATE StravaBike SET bikeId=?, status=? WHERE riderId=? AND name=?', [bid, MATCHED if bid else IGNORED, rider_id, name])
         moved += _move(db, rider_id, name, bid, prev=prev, replace=replace)
         if bid and bid not in retire:
+            _seed_defaults(db, rider_id, bid, sb['sports'])
             d = db.execute('SELECT MAX(startDateLocal) FROM Activity WHERE bikeId=?', [bid]).fetchone()[0]
             last_ride[bid] = max(last_ride.get(bid) or '', d or '')
     if not had_default and last_ride:                  # a turbo only when there's nothing else: the default goes on every new ride, outdoors too
@@ -312,6 +315,18 @@ def save(db, rider_id, choices, replace=False):
     if moved:
         gear.evaluate_alerts(db, rider_id=rider_id)
     return {'created': created, 'moved': moved}
+
+
+def _seed_defaults(db, rider_id, bike_id, sports):
+    """bikes.csv's default sport types for a matched bike ('Mountain Bike Ride|Virtual Ride') become its defaults for those kinds of ride
+    (gear.pick_bike), where the rider has none yet. A plain Ride is left to the rider's default bike. Does not commit."""
+    from services.kit import sport_key
+    have = gear.bike_defaults(db, rider_id)
+    for s in (sports or '').split('|'):
+        key = sport_key(s)
+        if key and key != 'Ride' and key not in have and is_ride(s):
+            gear.set_default_for(db, rider_id, key, bike_id)
+            have[key] = bike_id
 
 
 def strava_name(db, bike_id):

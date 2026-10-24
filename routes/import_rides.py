@@ -16,6 +16,7 @@ from flask import Blueprint, Response, current_app, render_template, request, st
 from database import get_db, query_db
 from services.parser import ACTIVITY_EXTENSIONS, parse_activity_file
 from services.limits import safe_gunzip, safe_zip_read, check_zip
+from services.sports import RIDES
 
 log = logging.getLogger(__name__)
 
@@ -472,6 +473,9 @@ def _strava_extras(db, zf, names, row, ride_id, photos_on, captions):
     ticked = 0
     if (row.get('Commute') or '').strip().lower() == 'true' or (row.get('Commute (2)') or '').strip() in ('1', '1.0'):
         ticked = db.execute('UPDATE Activity SET commute=1 WHERE id=? AND commute IS NULL', [ride_id]).rowcount
+        if ticked:                                  # the default bike was stamped on before the tick: the commute one, if the rider has one
+            from services import gear
+            gear.regear(db, ride_id)
     added = 0
     if photos_on:
         from services import photos
@@ -982,7 +986,7 @@ def _insert(db, act, rider_id=None):
     # blank number on the ride card: services.goal_model.day_burn() filters WHERE calories IS NOT NULL, so an
     # un-estimated ride is invisible to the day's burn total, not counted as zero. Estimate one rather than
     # leave that silently wrong when we have enough to go on.
-    if not calories and rider_id and sport in ('Ride', 'VirtualRide', 'EBikeRide'):
+    if not calories and rider_id and sport in RIDES:
         try:
             from services.goal_model import current_weight_kg
             from services.parser import estimate_ride_calories

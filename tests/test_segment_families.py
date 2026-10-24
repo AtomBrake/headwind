@@ -159,7 +159,7 @@ def test_the_garmin_type_check_proposes_e_bike_for_garmin_rides(db):
             return [{'activityId': 1, 'activityType': {'typeKey': 'e_bike_mountain'}, 'startTimeLocal': '2026-10-07 10:00:00'},
                     {'activityId': 2, 'activityType': {'typeKey': 'mountain_biking'}, 'startTimeLocal': '2026-10-07 10:00:00'}][start:start + limit]
     sport_fix.scan(db, Api(), 1)
-    assert [(p['rideId'], p['newSport']) for p in sport_fix.pending(db, 1)] == [('garmin_1', 'EBikeRide')]
+    assert [(p['rideId'], p['newSport']) for p in sport_fix.pending(db, 1)] == [('garmin_1', 'EBikeRide'), ('garmin_2', 'MountainBikeRide')]
     ride = add_seg(db, 'ride')
     sport_fix.apply(db, 1, ['garmin_1'])
     assert db.execute("SELECT sportType FROM Activity WHERE id='garmin_1'").fetchone()[0] == 'EBikeRide'

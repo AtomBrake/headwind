@@ -1,7 +1,8 @@
 """Put right the sport of activities an older Garmin sync saved as rides. That sync turned every Garmin type it did not know into a ride, so swims, surf
 sessions, trail and treadmill runs were saved as rides, count in the ride totals and get flagged by the ride sanity checks; and runs, walks and hikes it did
 know were still kept with the rides rather than the workouts. The original Garmin type was never stored, so it is fetched again (the activity list gives 100 per
-call), each wrong one is written down as a proposal, and nothing moves until the rider has looked at the list and applied it."""
+call), each wrong one is written down as a proposal, and nothing moves until the rider has looked at the list and applied it. Mountain bike and gravel
+rides the sync saved as a plain Ride are offered their own kind too, so they can follow the rider's default bike for them (services/gear.pick_bike)."""
 import logging
 
 log = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ def scan(db, api, rider_id):
         r, new = rows[aid], garmin_sport(key)
         if not key or new == r['sportType'] or aid in kept:
             continue
-        if new in RIDES and r['sportType'] in RIDES and new == 'Ride':      # an MTB / gravel label on a ride is fine; indoor and e-bike are what matter
+        if new == 'Ride' and r['sportType'] in RIDES:      # a ride already labelled more closely (indoor, e-bike, mountain, gravel) stays so
             continue
         db.execute('INSERT OR REPLACE INTO SportFix (rideId, riderId, name, startDateLocal, distance, oldSport, newSport, typeKey) VALUES (?,?,?,?,?,?,?,?)',
                    [aid, rider_id, r['name'], r['startDateLocal'], r['distance'], r['sportType'], new, key])

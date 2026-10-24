@@ -62,3 +62,21 @@
 .cal-bar select { width: auto; min-width: 8rem; }
 .cal-bar { align-items: center; }
 .card p a { color: var(--accent); }
+
+/* one gear page for bikes and kit (gear_item.html, _gear.html) */
+.gear-title { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
+.gear-emoji { line-height:1; }
+.bike-card .ph .gear-emoji { font-size:2.6rem !important; }
+.odo-big { font-size:2rem; font-weight:700; font-variant-numeric:tabular-nums; margin-top:.4rem; }
+.gear-pair { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1rem; margin-bottom:1rem; }
+.gear-pair .card { margin:0; }
+.gear-line { display:flex; gap:.6rem; justify-content:space-between; padding:.3rem 0; border-bottom:1px solid var(--divider); }
+.gear-line:last-child { border-bottom:none; }
+
+/* defaults for new activities, on the Gear page */
+.defaults-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1rem 2rem; }
+.defaults-grid h4 { margin:0 0 .4rem; font-size:.78rem; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); }
+.default-line { display:flex; gap:.6rem; align-items:center; justify-content:space-between; padding:.3rem 0; border-bottom:1px solid var(--divider); }
+.default-line span { flex:1; min-width:0; }
+.default-line select { width:auto; max-width:14rem; }
+.apply-defaults .plan { margin:.2rem 0 .6rem 1.1rem; padding:0; font-size:.9rem; }

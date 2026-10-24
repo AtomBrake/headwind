@@ -9,7 +9,7 @@ from services.garmin import garmin_sport
 
 @pytest.mark.parametrize('sport, sub, want', [
     # FIT: sport, sub_sport -> what Strava called it
-    ('cycling', 'generic', 'Ride'), ('cycling', 'mountain', 'Ride'), ('cycling', 'road', 'Ride'), ('cycling', None, 'Ride'),
+    ('cycling', 'generic', 'Ride'), ('cycling', 'mountain', 'MountainBikeRide'), ('cycling', 'gravel_cycling', 'GravelRide'), ('cycling', 'road', 'Ride'), ('cycling', None, 'Ride'),
     ('cycling', 'virtual_activity', 'VirtualRide'), ('cycling', 'indoor_cycling', 'VirtualRide'),
     ('cycling', 'e_bike_fitness', 'EBikeRide'), ('cycling', 'e_bike_mountain', 'EBikeRide'), ('e_biking', None, 'EBikeRide'),
     ('walking', 'generic', 'Walk'), ('walking', None, 'Walk'), ('running', 'generic', 'Run'), ('running', 'trail', 'Run'), ('hiking', 'generic', 'Hike'),
@@ -20,7 +20,7 @@ from services.garmin import garmin_sport
     ('training', 'yoga', 'Other'), ('training', 'strength_training', 'Other'), ('training', 'cardio_training', 'Other'),
     ('tennis', 'generic', 'Other'), ('snowshoeing', 'generic', 'Other'), (62, 'generic', 'Other'), (64, 85, 'Other'),
     # GPX <type>
-    ('cycling', None, 'Ride'), ('mountain_biking', None, 'Ride'), ('EMountainBikeRide', None, 'EBikeRide'), ('ebikeride', None, 'EBikeRide'),
+    ('cycling', None, 'Ride'), ('mountain_biking', None, 'MountainBikeRide'), ('MountainBikeRide', None, 'MountainBikeRide'), ('GravelRide', None, 'GravelRide'), ('EMountainBikeRide', None, 'EBikeRide'), ('ebikeride', None, 'EBikeRide'),
     ('running', None, 'Run'), ('trail_running', None, 'Run'), ('walking', None, 'Walk'), ('hiking', None, 'Hike'),
     ('StandUpPaddling', None, 'Paddle'), ('Canoeing', None, 'Paddle'), ('1', None, 'Ride'), ('9', None, 'Run'),
     # TCX Sport

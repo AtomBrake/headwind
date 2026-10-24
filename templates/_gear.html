@@ -1,0 +1,39 @@
+{# The pieces a bike and an item of kit share, so the Gear page's cards and each item's page show both the same way (routes/gear._item
+   builds the item: what, name, photo, icon, sub, odometer, wear, defaults, retired, n, noun, moving, last, url).
+   {% from '_gear.html' import gear_ph, wear_bar, gear_chips, gear_card %} #}
+
+{% macro bike_icon(size=46) %}<svg width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="16" r="3.5"/><circle cx="18.5" cy="16" r="3.5"/><path d="M5.5 16 9 8h5l4.5 8M9 8l3.5 8M14 8l-1-3h-2"/></svg>{% endmacro %}
+
+{# Its picture, else a bike drawing or the kind of kit's emoji. #}
+{% macro gear_ph(item, size=46) -%}
+{%- if item.photo %}<img src="{{ item.photo }}" alt="{{ item.name }}">
+{%- elif item.icon %}<span class="gear-emoji" style="font-size:{{ size / 18 }}rem;">{{ item.icon }}</span>
+{%- else %}{{ bike_icon(size) }}{% endif -%}
+{%- endmacro %}
+
+{# How worn it is: a bike's most worn part, kit's distance against its "replace at". #}
+{% macro wear_bar(wear, style='') -%}
+<div class="bar {{ wear.level }}"{% if style %} style="{{ style }}"{% endif %}><i style="width:{{ [100, ((wear.ratio or 0) * 100) | round | int] | min }}%"></i></div>
+{%- endmacro %}
+
+{# The chips after its name: what it's the default for, retired, and how worn when it needs doing. long=true on its own page. #}
+{% macro gear_chips(item, long=false, limit=3) -%}
+{%- if long %}<span class="chip">{{ item.kind_label }}</span>{% endif %}
+{%- if item.defaults %}{% if long %}<span class="hint">Default for</span>{% endif %}{% for d in item.defaults[:(99 if long else limit)] %}<span class="chip default">{{ d }}</span>{% endfor %}{% if not long and item.defaults | length > limit %}<span class="chip default">+{{ item.defaults | length - limit }}</span>{% endif %}{% endif %}
+{%- if item.retired %}<span class="chip">Retired{% if long and item.retired_on %} {{ item.retired_on | fmt_date }}{% endif %}</span>{% endif %}
+{%- if item.wear and item.wear.level != 'ok' %}<span class="chip {{ item.wear.level }}">{{ 'Replace soon' if item.wear.level == 'soon' and item.what == 'kit' else 'Due soon' if item.wear.level == 'soon' else 'Overdue' if item.wear.level == 'overdue' else 'Due' }}</span>{% endif %}
+{%- endmacro %}
+
+{# One card on the Gear page, the same for a bike and for shoes. #}
+{% macro gear_card(item) %}
+<a class="bike-card" href="{{ item.url }}">
+  <div class="ph">{{ gear_ph(item) }}</div>
+  <div class="body">
+    <div class="gear-title"><h3>{{ item.name }}</h3>{{ gear_chips(item) }}</div>
+    <div class="sub">{{ item.sub or item.kind_label }}</div>
+    <div class="odo">{{ item.odometer | fmt_dist }}</div>
+    {% if item.wear %}{{ wear_bar(item.wear, 'margin:.2rem 0;') }}{% endif %}
+    <div class="sub">{{ '{:,}'.format(item.n) }} {{ item.noun[0] if item.n == 1 else item.noun[1] }} · {{ item.moving | fmt_hours }}{% if item.last %} · last {{ item.last | fmt_date }}{% endif %}</div>
+  </div>
+</a>
+{% endmacro %}

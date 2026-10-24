@@ -66,6 +66,7 @@ def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None, c
                 db.execute('UPDATE Activity SET name=? WHERE id=?', [name.strip()[:200], act_id])
             elif action == 'commute':                       # 0, not NULL, for "not a commute": a Strava import then leaves it alone (routes/rides.set_commute)
                 db.execute('UPDATE Activity SET commute=? WHERE id=?', [int(commute), act_id])
+                gear.regear(db, act_id)                      # a bike or shoes given automatically follow the tick (the commute default)
             elif action == 'dismiss':
                 if kind != 'ride':
                     skipped += 1

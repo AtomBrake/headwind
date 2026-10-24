@@ -381,6 +381,8 @@ def set_commute(rid):
     """Tick or untick 'Commute'. Unticking stores 0, not NULL, so importing a Strava export again doesn't tick it back."""
     db = get_db()
     n = db.execute('UPDATE Activity SET commute=? WHERE id=?', [1 if request.form.get('commute') == '1' else 0, rid]).rowcount
+    from services import gear
+    gear.regear(db, rid)                    # a bike or shoes it was given automatically follow the tick (the rider's commute default)
     db.commit()
     return ('', 204) if n else abort(404)
 

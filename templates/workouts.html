@@ -7,7 +7,7 @@
 <details class="gcard" {% if error %}open{% endif %}>
   <summary>+ Add an activity by hand</summary>
   <form method="POST" action="{{ url_for('workouts_ui.workouts_new') }}" class="form-grid">
-    <label>Type<select name="sport"><option>Ride</option><option value="VirtualRide">Indoor ride</option><option>Walk</option><option>Run</option><option>Hike</option></select></label>
+    <label>Type<select name="sport"><option>Ride</option><option value="MountainBikeRide">Mountain bike ride</option><option value="GravelRide">Gravel ride</option><option value="VirtualRide">Indoor ride</option><option>Walk</option><option>Run</option><option>Hike</option></select></label>
     <label>Date<input type="date" name="date" value="{{ today }}" max="{{ today }}" required></label>
     <label>Start time<input type="time" name="time" value="{{ now }}" required></label>
     <label>Hours<input type="number" name="hours" min="0" max="47" value="0"></label>

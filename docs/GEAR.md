@@ -6,7 +6,19 @@ Everything is computed from your rides, so correcting a ride's bike corrects all
 ## 1. Add your bikes
 **Gear > + Add bike.** Name, type, brand, model, year, an optional photo, and any mileage the bike already had before you started using Headwind.
 The first bike you add becomes your **default**: every new ride (Garmin sync, a file you import, a phone recording, an activity you type in) is put on it automatically.
-Change the default any time on the Gear page, a bike's page, or your rider page. Changing it only affects rides that arrive afterwards, never history.
+
+With more than one bike, give each kind of ride its own: **Defaults for new activities** at the bottom of the Gear page has a line for commutes,
+mountain bike, gravel, e-bike and indoor rides (and any other kind you've ridden), and one for every other ride. Or tick them in a bike's form
+under "Default for new rides". A commute goes on the commute bike whatever its sport; otherwise a ride takes the bike for its kind, else the one
+for every other ride. Retired bikes are skipped. Garmin's mountain biking and gravel types come in as mountain bike and gravel rides; rides an
+older sync saved as plain rides can be given their kind back with "Check activity types with Garmin" in Settings. A Strava bike's default sport types
+(bikes.csv) become its defaults when you match it, where you have none yet.
+
+Changing a default only affects rides that arrive afterwards. Ticking **Commute** or changing a ride's sport later picks its bike again, as long
+as the bike was given by a default; one you chose yourself (or the phone, or a Strava export, named) stays. To bring older rides in line, the
+defaults card lists how many would move and **Apply to past activities** moves them: rides with no bike or still on the bike a default gave
+them, and, if you tick it, rides on another bike too (rides from before Headwind kept track can't be told apart from ones you picked by hand).
+Rides whose Strava bike you haven't matched yet wait for the match.
 
 Photos are resized to a JPEG and stored beside your database (`bikeimg/`), so they are included in backups and survive upgrades.
 
@@ -51,17 +63,18 @@ Turn alerts off per part. Time-based parts are re-checked about hourly, so seala
 Below the bikes, **Shoes and other gear** keeps everything else an activity is done in or on: shoes, a wetsuit, skis, a board, a boat. **Gear > + Add shoes or gear**:
 name, type, brand, model, when you bought it, any distance it had before Headwind, and a **replace at** distance (700 km to start with for shoes; blank for never).
 
-* Tick the sports it's the **default** for (runs, walks, hikes, ...): each new activity of those sports is put on it, as a new ride is put on the default bike. A sport has one default; ticking it on another item moves it there.
+* Tick the sports it's the **default** for (runs, walks, hikes, ..., and commutes): each new activity of those sports is put on it, as a new ride is put on its bike. A sport has one default; ticking it on another item moves it there. They're on the Gear page's defaults card too, and follow the same rules as bikes: a commute first, a change of sport or commute picks again unless you chose the gear yourself, and **Apply to past activities** brings older ones in line.
 * Its distance and time are added up from its activities, so moving an activity to other shoes corrects both pairs.
 * At 90%, 100% and 125% of its replace-at distance you get the same nudge as a bike part, once each, and it shows under "Needs attention" and on the dashboard.
-* **Retire** a pair when it's done: it keeps its history, stops being a default and stops nudging. It can still be picked for an activity, listed last and marked retired, so an old run can be put in the shoes it was done in. Retired bikes are the same.
+* **Retire** a pair when it's done: it keeps its history and the date, stops being a default and stops nudging. It can still be picked for an activity, listed last and marked retired, so an old run can be put in the shoes it was done in. Retired bikes are the same.
+* Its page is laid out like a bike's: a photo, its figures, distance by year and by sport, **Assign activities to it** by date for the sports you tick, and the recent ones with "See all". Only a bike has parts and a service log.
 * On an activity's page the **Gear** dropdown changes that activity; on the Activities page, **Select** then **Gear…** changes many. Rides keep their bike and never take kit.
 
 Importing a **Strava export** makes an item for each pair of shoes your walks, runs and hikes name in it, and puts those activities on it. Pairs last worn more than a year ago come in retired.
 
 ## Data and backups
-Gear adds tables `Bike`, `Part`, `ServiceLog` and `PartAlert`, a `bikeId` on rides and a `defaultBikeId` on riders; shoes and other gear add `Kit`, `KitDefault`, `KitAlert` and `StravaKit`, and a `kitId` on activities. They are created automatically on upgrade (nothing is dropped).
-Bike photos live in `<data folder>/bikeimg/`: `/data/bikeimg/` in Docker, `%LOCALAPPDATA%\Headwind\bikeimg\` for the Windows build. Settings > Backup includes them and Restore brings them back.
+Gear adds tables `Bike`, `Part`, `ServiceLog`, `PartAlert` and `BikeDefault`, a `bikeId` and `bikeAuto` on rides and a `defaultBikeId` on riders; shoes and other gear add `Kit`, `KitDefault`, `KitAlert` and `StravaKit`, and a `kitId` and `kitAuto` on activities (`*Auto`: the gear a default gave it). They are created automatically on upgrade (nothing is dropped).
+Bike and kit photos live in `<data folder>/bikeimg/`: `/data/bikeimg/` in Docker, `%LOCALAPPDATA%\Headwind\bikeimg\` for the Windows build. Settings > Backup includes them and Restore brings them back.
 
 ## Not in v1 (planned)
 The phone app does not have a Gear screen yet (a bike picker on ride detail is next). Components cannot yet be moved between bikes (log a replacement on the new bike instead).

@@ -51,11 +51,14 @@ def ping():
 
 
 def _bikes(rider_id):
-    """The rider's bikes that aren't archived, for the app's bike picker: id, name, kind (services/gear.BIKE_KINDS) and which is the default."""
+    """The rider's bikes that aren't archived, for the app's bike picker: id, name, kind (services/gear.BIKE_KINDS), whether it is the default
+    for every other ride, and default_for: the kinds of ride it is the default for (sport keys such as 'EBikeRide', 'MountainBikeRide', and
+    'Commute'), so the picker can start on the bike the server would pick (services/gear.pick_bike)."""
     from services import gear
     db = get_db()
     d = db.execute('SELECT defaultBikeId FROM Rider WHERE id=?', [rider_id]).fetchone()
-    return [{'id': b['id'], 'name': b['name'], 'kind': b['kind'], 'is_default': bool(d and b['id'] == d[0])}
+    return [{'id': b['id'], 'name': b['name'], 'kind': b['kind'], 'is_default': bool(d and b['id'] == d[0]),
+             'default_for': [k for k in gear.bike_defaults_of(db, b['id']) if k != gear.ANY]}
             for b in gear.list_bikes(db, rider_id)]
 
 
@@ -609,6 +612,8 @@ def set_commute(kind, rid):
     if not isinstance(commute, bool):
         return jsonify({'error': 'commute must be true or false'}), 400
     db.execute('UPDATE Activity SET commute=? WHERE id=?', [int(commute), rid])
+    from services import gear
+    gear.regear(db, rid)                    # as on the web: gear given automatically follows the tick
     db.commit()
     return jsonify({'id': str(rid), 'commute': commute})
 
