@@ -37,7 +37,7 @@ def _friends_autosync(app):
                 failed, rides = [], 0
                 for f in (friends or []):
                     try:
-                        res = _do_sync(f['id'])                   # (rides synced, error text or None)
+                        res = _do_sync(f['id'])                   # (activities new or changed here, error text or None)
                         if isinstance(res, tuple) and res[1]:
                             failed.append(f"{f['name']}: {str(res[1])[:80]}")
                         elif isinstance(res, tuple):
@@ -47,7 +47,8 @@ def _friends_autosync(app):
                         log.warning('Auto-sync failed for friend %s: %s', f['id'], e)
                 if task_id:
                     n = len(friends)
-                    summary = f"{n - len(failed)} of {n} friend{'s' if n != 1 else ''} synced, {rides} new ride{'s' if rides != 1 else ''}."
+                    summary = f"{n - len(failed)} of {n} friend{'s' if n != 1 else ''} synced, " + \
+                        (f"{rides} new or changed activit{'ies' if rides != 1 else 'y'}." if rides else 'nothing new.')
                     if failed and len(failed) < n:
                         summary += ' Failed: ' + '; '.join(failed)
                     tasks.finish(_gdb(), task_id, summary, '; '.join(failed) if failed and len(failed) == n else None)

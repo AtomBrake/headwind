@@ -395,7 +395,7 @@ function syncFriend(fid, btn) {
   fetch('/friends/' + fid + '/sync', { method: 'POST' })
     .then(r => r.json())
     .then(d => {
-      btn.textContent = d.ok ? ('✓ ' + d.synced + (d.synced === 1 ? ' activity' : ' activities')) : ('Error: ' + d.error);
+      btn.textContent = d.ok ? (d.synced ? '✓ ' + d.synced + ' new or changed' : '✓ Nothing new') : ('Error: ' + d.error);
       setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
       if (d.ok) setTimeout(() => location.reload(), 1200);
     })
