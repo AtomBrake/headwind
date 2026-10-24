@@ -186,5 +186,5 @@ def test_a_backup_leaves_out_an_older_installs_password(app, client, tmp_path):
     assert r.status_code == 200
     out = tmp_path / 'restored.db'
     out.write_bytes(zipfile.ZipFile(io.BytesIO(r.data)).read('headwind.db'))
-    row = sqlite3.connect(out).execute('SELECT garminEmail, garminPassword FROM Settings').fetchone()
-    assert row == ('tom@example.com', None)
+    email, pw = sqlite3.connect(out).execute('SELECT garminEmail, garminPassword FROM Settings').fetchone()
+    assert pw is None and email.startswith('enc:v1:')                # the email stays, encrypted (services/vault.py)

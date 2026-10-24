@@ -6,6 +6,7 @@ requests>=2.31.0
 polyline>=2.0.0
 paho-mqtt>=1.6.1
 garminconnect>=0.3.19
+cryptography>=42.0   # encrypts the keys and passwords saved in the database (services/vault.py)
 fitparse>=1.2.0
 Pillow>=10.0.0
 gunicorn>=22.0.0

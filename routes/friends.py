@@ -14,7 +14,7 @@ from database import get_db, query_db
 from services.segments import scan_activity_against_segments, scan_all_activities, _refresh_prs, seg_sport
 from services.limits import bounded_lines
 from services.peer_http import open_peer
-from services import feed_tokens
+from services import feed_tokens, vault
 
 bp = Blueprint('friends', __name__)
 
@@ -241,7 +241,7 @@ def add():
 
     db = get_db()
     db.execute('INSERT INTO Friend (name, url, token, riderName) VALUES (?,?,?,?)',
-               [name, url, token, rider_name])
+               [name, url, vault.seal(token), rider_name])
     db.commit()
     fid = db.execute('SELECT last_insert_rowid()').fetchone()[0]
 
@@ -269,7 +269,7 @@ def set_friend_token(fid):
     token = (request.form.get('token') or '').strip()
     if token:
         db = get_db()
-        db.execute('UPDATE Friend SET token=? WHERE id=?', [token, fid])
+        db.execute('UPDATE Friend SET token=? WHERE id=?', [vault.seal(token), fid])
         db.commit()
     return redirect(url_for('friends.index'))
 

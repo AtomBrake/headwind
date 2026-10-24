@@ -164,3 +164,17 @@ def apply(live_db, staged_db, assets, avatar_dest):
     finally:
         src.close()
         dst.close()
+
+
+def secrets_note():
+    """After a restore has been applied and migrated: encrypt the secrets of a backup from before they were, and say which ones a backup
+    from another server needs entered again (its keys and passwords are encrypted with the key beside the database it came from, which
+    a backup leaves out; services/vault.py). None when there are none. Commits."""
+    from database import get_db
+    from services import vault
+    vault.seal_plain(get_db())
+    lost = vault.unreadable(get_db())
+    if not lost:
+        return None
+    return ('The backup came from another server, so its saved keys and passwords can\'t be read here. Enter them again: '
+            + '; '.join(lost) + f'. Or copy {vault.KEY_FILE} from beside the old server\'s database to beside this one, and restart.')

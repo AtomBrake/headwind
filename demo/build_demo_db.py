@@ -602,7 +602,8 @@ def main():
     if chk.execute('SELECT COUNT(*) FROM Friend').fetchone()[0] or chk.execute('SELECT COUNT(*) FROM DeviceToken').fetchone()[0]:
         bad.append('friends/tokens present')
     st = chk.execute('SELECT * FROM Settings').fetchone()
-    for col in ('garminEmail', 'garminPassword', 'mqttHost', 'mqttPassword', 'aiApiKey', 'haToken', 'ntfyUrl'):
+    from services.vault import COLUMNS
+    for col in (*COLUMNS['Settings'], 'mqttHost', 'ntfyUrl'):
         if col in st.keys() and st[col]:
             bad.append(f'secret in Settings.{col}')
     if bad:

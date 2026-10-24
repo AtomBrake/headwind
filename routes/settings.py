@@ -14,6 +14,7 @@ _backfill_state = {'running': False, 'done': 0, 'failed': 0}
 from dotenv import load_dotenv, set_key
 from flask import Blueprint, after_this_request, current_app, flash, jsonify, redirect, render_template, request, send_file, session
 from database import get_db, migrate_db, query_db
+from services import vault
 
 import time
 bp = Blueprint('settings', __name__)
@@ -106,16 +107,16 @@ def index():
                 units=excluded.units
         ''', [
             provider,
-            openai_key if openai_key else kept_key,
+            vault.seal(openai_key if openai_key else kept_key),
             openai_model,
-            claude_key if claude_key else kept_claude,
+            vault.seal(claude_key if claude_key else kept_claude),
             claude_model,
             ollama_url,
             ollama_model,
             mqtt_host,
             int(mqtt_port) if mqtt_port.isdigit() else 1883,
             mqtt_user,
-            mqtt_password if mqtt_password else kept_mqtt_pw,
+            vault.seal(mqtt_password if mqtt_password else kept_mqtt_pw),
             garmin_sync_hours,
             garmin_sync_mode,
             units,
@@ -438,6 +439,7 @@ def backup_import():
         backup.prepare(tmp_db)   # migrate + smoke-test the staged copy before anything live changes
         backup.apply(_db_path(), tmp_db, assets, _avatar_dir())
         migrate_db()   # an older backup may predate current columns/tables
+        note = backup.secrets_note()
     except backup.BackupError as e:
         log.warning('Restore refused: %s', e)
         flash(str(e), 'error')
@@ -451,4 +453,6 @@ def backup_import():
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     flash('Restored from backup — previous database saved as .pre-restore.', 'success')
+    if note:
+        flash(note, 'error')
     return redirect('/settings')

@@ -625,11 +625,12 @@ Garmin credentials, the MQTT broker, Home Assistant URL/token and mappings, AI p
 
 | Path (in the container) | Contents |
 |---|---|
-| `/data/bike.db` | The SQLite database (WAL mode) — rides, food, weight, settings, **including credentials you enter in Settings**. |
+| `/data/bike.db` | The SQLite database (WAL mode) — rides, food, weight, settings. Keys, passwords and tokens you enter (AI, MQTT, Home Assistant, friends' feed tokens, the Garmin email) are stored encrypted. |
 | `/data/avatars/` | Profile photos. |
 | `/data/foodimg/` | Food photos fetched or uploaded. |
 | `/data/bikeimg/` | Bike photos (Gear). |
 | `/data/.secret_key`, `/data/.admin_login` | The generated session key and login (mode 600). |
+| `/data/.secrets_key` | The key those saved secrets are encrypted with (mode 600). Not in backups: keep a copy to move to another server with them. |
 | `/app/.garmin_tokens/` | Garmin login tokens (so MFA isn't needed every sync). |
 
 ---
@@ -708,8 +709,8 @@ Behind a proxy Headwind trusts one `X-Forwarded-*` hop, but only from a loopback
 
 ## Backups, updates and your data
 
-- **Backup:** **Settings → Backup & Restore → Download** gives one zip: the database, rider avatars and food photos. It deliberately excludes the Garmin token files, your generated login/key files and `.env` — **but the database itself holds anything you configured in Settings (Garmin email, AI key, MQTT/HA credentials), so a backup is a secret.** Store it accordingly.
-- **Restore:** **Settings → Backup & Restore → Restore** (or from the setup wizard on a fresh install). The uploaded database is checked for integrity, migrated and smoke-tested **before** anything live is touched; your current database is kept as `bike.db.pre-restore`; the swap itself is atomic. A backup this version can't use is rejected with "Nothing was changed".
+- **Backup:** **Settings → Backup & Restore → Download** gives one zip: the database, rider avatars and food photos. It deliberately excludes the Garmin token files, your generated login/key files and `.env`. The keys and passwords saved in Settings (AI, MQTT, Home Assistant, friends' feed tokens, the Garmin email) stay encrypted in it, and the key to them (`.secrets_key`) is left out, so a backup shared by mistake doesn't give them away. The rest of your data (rides with GPS, health, food) is in it as it is, so store it accordingly.
+- **Restore:** **Settings → Backup & Restore → Restore** (or from the setup wizard on a fresh install). The uploaded database is checked for integrity, migrated and smoke-tested **before** anything live is touched; your current database is kept as `bike.db.pre-restore`; the swap itself is atomic. A backup this version can't use is rejected with "Nothing was changed". Restored on another server, the backup's saved keys and passwords can't be read: Headwind lists which to enter again. To keep them, copy `.secrets_key` from beside the old database to beside the new one and restart.
 - **Updating (Docker):** `docker compose pull && docker compose up -d`. Migrations run automatically at start-up. Take a backup first on a beta.
 - **Upgrading from an older compose file that used the placeholder `changeme` login:** the placeholder is no longer accepted — a random login is generated; read it from `docker logs`.
 - **Moving to a new host:** copy `./data` and `./garmin_tokens`, or restore a backup and sign in to Garmin again.
