@@ -299,8 +299,25 @@ body {
 .topbar h1 .crumb a:hover { color: var(--accent); }
 .topbar h1 .crumb-sep { color: var(--text-muted); margin: 0 0.45rem; font-weight: 400; }
 
-.topbar-actions { display: flex; gap: 0.5rem; }
+.topbar-actions { display: flex; align-items: center; gap: 0.5rem; }
 .topbar-right { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+
+/* A page's less-used actions, behind ⋯ in its head (ride.html). Items are links or buttons; closes on a click outside or Esc (app.js). */
+.more-menu { position: relative; }
+.more-menu > summary { list-style: none; }
+.more-menu > summary::-webkit-details-marker { display: none; }
+.more-menu-list {
+  position: absolute; right: 0; top: calc(100% + 0.25rem); z-index: 50; min-width: 11rem;
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.5rem;
+  box-shadow: 0 4px 12px var(--shadow); padding: 0.25rem 0;
+}
+.more-menu-list form { margin: 0; }
+.more-menu .more-menu-list a, .more-menu-list button {
+  display: block; width: 100%; text-align: left; padding: 0.55rem 0.9rem; background: none; border: none;
+  color: var(--text); font: inherit; font-size: 0.875rem; text-decoration: none; cursor: pointer; white-space: nowrap;
+}
+.more-menu .more-menu-list a:hover, .more-menu-list button:hover { background: var(--hover-tint); }
+.more-menu-list .danger { color: var(--danger); border-top: 1px solid var(--border); }
 
 /* background import indicator */
 .import-pill {
@@ -1017,7 +1034,12 @@ body.bulk-mode .act-end form { display: none; }                 /* a row's own c
   .sidebar-overlay.open { display: block; }
   .menu-toggle { display: flex; }
   .main { width: 100%; min-height: 100vh; overflow: visible; }
-  .topbar { padding: 0 1rem; gap: 0.75rem; }
+  /* Actions that don't fit beside the title wrap to a second row rather than widen the page. */
+  .topbar { height: auto; min-height: 52px; padding: 0.5rem 1rem; gap: 0.5rem 0.75rem; flex-wrap: wrap; }
+  .topbar h1 { flex: 1 1 8rem; }
+  .topbar-right { margin-left: auto; max-width: 100%; }
+  .topbar-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .wide-only { display: none; }
   .content { padding: 1rem; }
   .stats-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
   .metric-row, .metric-row-sub { grid-template-columns: 1fr; }
