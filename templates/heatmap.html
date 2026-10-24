@@ -48,6 +48,14 @@
     }
     #exportBtn:hover:not(:disabled) { background: var(--raised-bg); color: var(--text); }
     #exportBtn:disabled { opacity: 0.45; cursor: default; }
+    .overlay-select {
+      width: 100%; box-sizing: border-box; background-color: var(--field-bg); color: var(--text);
+      border: 1px solid var(--border-strong); border-radius: 5px; padding: 0.35rem 0.6rem; font-size: 0.875rem;
+    }
+    .overlay-label { font-size: 0.75rem; color: var(--text-muted); width: 100%; margin-bottom: 0.25rem; }
+    #whoKey { gap: 0.35rem 0.75rem; font-size: 0.8125rem; color: var(--text-muted); }
+    #whoKey span { display: inline-flex; align-items: center; gap: 0.35rem; }
+    #whoKey i { width: 0.65rem; height: 0.65rem; border-radius: 50%; flex-shrink: 0; }
   </style>
 {% endblock %}
 
@@ -55,7 +63,7 @@
 <div style="position:relative;">
   <div id="mapOverlay">
     <!-- Presets -->
-    <div class="overlay-row">
+    <div class="overlay-row" id="datePresets">
       <button class="preset-btn" onclick="applyPreset(this,'all')">All Time</button>
       <button class="preset-btn" onclick="applyPreset(this,'year')">This Year</button>
       <button class="preset-btn" onclick="applyPreset(this,'lastyear')">Last Year</button>
@@ -72,10 +80,25 @@
              min="{{ min_date }}" max="{{ max_date }}"
              onchange="applyCustom()">
     </div>
+    <!-- Whose rides: only once there's someone besides the owner (a friend, or another rider here) -->
+    {% if people | length > 1 %}
+    {% set others = people | rejectattr('isFriend') | rejectattr('isDefault') | list %}
+    {% set friends = people | selectattr('isFriend') | list %}
+    <div class="overlay-row" style="gap: 0.25rem;">
+      <label for="whoFilter" class="overlay-label">Whose</label>
+      <select id="whoFilter" class="overlay-select" onchange="fitNext = true; reload()">
+        <option value="">Mine</option>
+        <option value="all">Everyone together</option>
+        {% if others %}<optgroup label="Riders">{% for p in others %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</optgroup>{% endif %}
+        {% if friends %}<optgroup label="Friends">{% for p in friends %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</optgroup>{% endif %}
+      </select>
+    </div>
+    <div class="overlay-row" id="whoKey" style="display:none;"></div>
+    {% endif %}
     <!-- Sport filter -->
     <div class="overlay-row" style="gap: 0.25rem;">
-      <label style="font-size:0.75rem; color:var(--text-muted); width:100%; margin-bottom:0.25rem;">Sport</label>
-      <select id="sportFilter" onchange="applyCustom()" style="width:100%; box-sizing:border-box; background-color:var(--field-bg); color:var(--text); border:1px solid var(--border-strong); border-radius:5px; padding:0.35rem 0.6rem; font-size:0.875rem;">
+      <label for="sportFilter" class="overlay-label">Sport</label>
+      <select id="sportFilter" class="overlay-select" onchange="reload()">
         <option value="">All Sports</option>
         {% for st in sport_types %}
         <option value="{{ st.sportType }}">{{ st.sportType }}</option>
@@ -141,9 +164,46 @@ function schemeLayer() { var k = document.documentElement.dataset.scheme === 'li
 schemeLayer();
 addEventListener('schemechange', function () { if (currentLayerKey === 'dark' || currentLayerKey === 'light') schemeLayer(); });
 layerGroup.addTo(map);
-var initialLoad = true;
+var fitNext = true;                    // zoom to the tracks on the next load: the first, and after switching whose rides are shown
 var currentFrom = '', currentTo = '';
 var currentCount = 0;
+
+// Each person keeps one colour in every view: the owner the accent, everyone else the next data colour along
+var PEOPLE = {{ people | tojson }};
+var PERSON_COLOURS = ['--c-blue', '--c-green', '--c-pink', '--c-yellow', '--c-violet', '--c-teal', '--c-sky', '--c-lime', '--c-purple', '--c-red'];
+var colourVar = {};
+PEOPLE.filter(function (p) { return !p.isDefault; }).forEach(function (p, i) { colourVar[p.id] = PERSON_COLOURS[i % PERSON_COLOURS.length]; });
+function personVar(id) { return colourVar[id] || '--accent'; }
+
+function whoValue() { var w = document.getElementById('whoFilter'); return w ? w.value : ''; }
+
+// The filters on the map now, as /heatmap/data's query string
+function filterParams() {
+  var params = new URLSearchParams();
+  if (currentFrom) params.set('from', currentFrom);
+  if (currentTo)   params.set('to', currentTo);
+  var sport = document.getElementById('sportFilter').value;
+  if (sport) params.set('sport', sport);
+  if (whoValue()) params.set('who', whoValue());
+  return params;
+}
+
+// Everyone together: a key of who's who, with each person's count
+function showKey(d) {
+  var key = document.getElementById('whoKey');
+  if (!key) return;
+  var counts = {};
+  d.riders.forEach(function (r) { counts[r] = (counts[r] || 0) + 1; });
+  var shown = whoValue() === 'all' ? PEOPLE.filter(function (p) { return counts[p.id]; }) : [];
+  key.innerHTML = '';
+  shown.forEach(function (p) {
+    var item = document.createElement('span'), dot = document.createElement('i');
+    dot.style.background = 'var(' + personVar(p.id) + ')';
+    item.append(dot, p.name + ' ' + counts[p.id]);
+    key.appendChild(item);
+  });
+  key.style.display = shown.length > 1 ? '' : 'none';
+}
 
 function opacityFor(count) {
   if (count < 30)  return 0.55;
@@ -159,31 +219,25 @@ function loadRange(from, to) {
   document.getElementById('exportBtn').disabled = true;
   currentFrom = from; currentTo = to;
 
-  var params = new URLSearchParams();
-  if (from) params.set('from', from);
-  if (to)   params.set('to', to);
-  var sport = document.getElementById('sportFilter').value;
-  if (sport) params.set('sport', sport);
-
-  fetch('/heatmap/data?' + params.toString())
+  fetch('/heatmap/data?' + filterParams().toString())
     .then(r => r.json())
     .then(function(d) {
       layerGroup.clearLayers();
       var opacity = opacityFor(d.count);
       var bounds  = [];
-      var colour  = cssVar('--accent');
 
-      d.tracks.forEach(function(pts) {
+      d.tracks.forEach(function(pts, i) {
         if (!pts || pts.length < 2) return;
-        L.polyline(pts, { color: colour, weight: 2, opacity: opacity, interactive: false })
+        L.polyline(pts, { color: cssVar(personVar(d.riders[i])), weight: 2, opacity: opacity, interactive: false })
          .addTo(layerGroup);
         pts.forEach(function(p) { bounds.push(p); });
       });
 
-      if (initialLoad && bounds.length) {
+      if (fitNext && bounds.length) {
         map.fitBounds(L.latLngBounds(bounds), { padding: [20, 20] });
-        initialLoad = false;
+        fitNext = false;
       }
+      showKey(d);
 
       currentCount = d.count;
       document.getElementById('loadingMsg').style.display = 'none';
@@ -196,8 +250,10 @@ function loadRange(from, to) {
     });
 }
 
+function reload() { loadRange(currentFrom, currentTo); }
+
 function setActive(btn) {
-  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#datePresets .preset-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
 }
 
@@ -279,10 +335,8 @@ function exportHD() {
     }));
   });
 
-  // Fetch HD track data
-  var params = new URLSearchParams();
-  if (currentFrom) params.set('from', currentFrom);
-  if (currentTo)   params.set('to', currentTo);
+  // Fetch HD track data, under the same filters as the map
+  var params = filterParams();
   params.set('hd', '1');
   var trackPromise = fetch('/heatmap/data?' + params.toString()).then(r => r.json());
 
@@ -320,14 +374,14 @@ function exportHD() {
           }
 
           var alpha = Math.max(0.12, 4.0 / Math.max(trackData.tracks.length, 1));
-          ctx.strokeStyle = cssVar('--accent');
           ctx.lineWidth   = 1.8;
           ctx.lineCap     = 'round';
           ctx.lineJoin    = 'round';
           ctx.globalAlpha = alpha;
 
-          trackData.tracks.forEach(function(pts) {
+          trackData.tracks.forEach(function(pts, i) {
             if (pts.length < 2) return;
+            ctx.strokeStyle = cssVar(personVar(trackData.riders[i]));
             ctx.beginPath();
             var p0 = project(pts[0][0], pts[0][1]);
             ctx.moveTo(p0[0], p0[1]);
@@ -345,8 +399,10 @@ function exportHD() {
           var label = (currentFrom && currentTo)
             ? currentFrom + '_' + currentTo
             : (currentFrom || currentTo || 'all-time');
+          var whoSel = document.getElementById('whoFilter');
+          var whose  = whoSel && whoSel.value ? whoSel.options[whoSel.selectedIndex].text.replace(/[^\w-]+/g, '-').toLowerCase() + '_' : '';
           a.href     = url;
-          a.download = 'heatmap_' + label + '.png';
+          a.download = 'heatmap_' + whose + label + '.png';
           a.click();
           setTimeout(function() { URL.revokeObjectURL(url); }, 2000);
           btn.disabled = false;
@@ -363,6 +419,6 @@ function exportHD() {
 }
 
 // Default: this year
-applyPreset(document.querySelector('.preset-btn:nth-child(2)'), 'year');
+applyPreset(document.querySelector('#datePresets .preset-btn:nth-child(2)'), 'year');
 </script>
 {% endblock %}
