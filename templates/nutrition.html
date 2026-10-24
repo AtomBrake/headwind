@@ -3204,7 +3204,7 @@ function renderWeightCard(weight) {
     if (weight.raw != null) {
       rawWrap.style.display = '';
       document.getElementById('weightRawVal').textContent = formatWeightJs(weight.raw, weightUnit);
-      document.getElementById('weightSrc').textContent = weight.source === 'homeassistant' ? ' · ⚖ scale' : '';
+      document.getElementById('weightSrc').textContent = weight.scale ? ' · ⚖ scale' : '';
     } else {
       rawWrap.style.display = 'none';
     }

@@ -78,7 +78,7 @@
 
       <div class="nav-section-label">Health</div>
       <a href="{{ url_for('nutrition.index') }}"
-         class="nav-item {% if request.blueprint == 'nutrition' %}active{% endif %}">
+         class="nav-item {% if request.blueprint == 'nutrition' and request.endpoint not in ('nutrition.steps_page', 'nutrition.weight_graph_page', 'nutrition.weight_backfill_page') %}active{% endif %}">
         {% include 'icons/_leaf.svg' %} Nutrition
       </a>
       <a href="{{ url_for('workouts_ui.workouts_page') }}"
@@ -88,6 +88,10 @@
       <a href="{{ url_for('nutrition.steps_page') }}"
          class="nav-item {% if request.endpoint == 'nutrition.steps_page' %}active{% endif %}">
         {% include 'icons/_footprint.svg' %} Steps
+      </a>
+      <a href="{{ url_for('nutrition.weight_graph_page') }}"
+         class="nav-item {% if request.endpoint in ('nutrition.weight_graph_page', 'nutrition.weight_backfill_page') %}active{% endif %}">
+        {% include 'icons/_scale.svg' %} Weight
       </a>
 
       <div class="nav-section-label">System</div>

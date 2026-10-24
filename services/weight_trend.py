@@ -19,6 +19,14 @@ MIN_SANE_KG = 20
 MAX_SANE_KG = 300
 
 
+def is_scale_reading(source, source_detail=None):
+    """A weigh-in a scale sent (vs one somebody typed). Garmin marks typed-in ones sourceType MANUAL; any other or no
+    sourceType counts as its scale, since that's how most Garmin weigh-ins arrive."""
+    if source == 'homeassistant':
+        return True
+    return source == 'garmin' and (source_detail or '').upper() != 'MANUAL'
+
+
 def kg_to_lb(kg):
     return kg * LB_PER_KG
 
