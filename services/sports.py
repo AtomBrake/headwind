@@ -85,6 +85,18 @@ def climb_sql(col='totalElevationGain', sport='sportType'):
     return f'(CASE WHEN {water} THEN 0 ELSE {col} END)'
 
 
+def is_virtual(sport):
+    """Zwift and the like: VirtualRide, Strava's "Virtual Ride" and "Virtual Run", "Indoor Cycling". Its track, if any, is in a game world
+    (services/zwift), not where the rider was."""
+    s = (sport or '').lower()
+    return 'virtual' in s or 'indoor' in s
+
+
+def virtual_sql(sport='sportType'):
+    """is_virtual as SQL."""
+    return f"(lower(COALESCE({sport}, '')) LIKE '%virtual%' OR lower(COALESCE({sport}, '')) LIKE '%indoor%')"
+
+
 def label(sport):
     """What a person reads for a sport: 'Indoor ride' for VirtualRide, 'E-bike ride' for EBikeRide, else the sport itself."""
     return LABELS.get(sport, sport or 'Ride')
