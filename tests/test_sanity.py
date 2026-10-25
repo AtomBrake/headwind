@@ -119,6 +119,29 @@ def test_flagged_activities_of_every_sport_are_listed_and_left_out_of_the_charts
     assert db.execute('SELECT id FROM Activity WHERE ' + sanity.SANE_SQL).fetchall()[0][0] == 'walk'
 
 
+def test_a_broken_moving_time_can_take_the_elapsed_time(db):
+    import json
+    ride(db, 'gpx', sport='Run', dist=11779.9, moving=9, elapsed=4200, avg=1308.8778, top=0, gain=0, kcal=1399)    # timestamps bunched at both ends
+    assert 'moving time of 9 s' in sanity.flag(db, 'gpx')
+    assert sanity.flagged(db, 1)[0]['elapsedFix'] == 4200
+    assert sanity.use_elapsed_time(db, 'gpx')
+    r = db.execute("SELECT movingTime, averageSpeed, flagReason, rawData FROM Activity WHERE id='gpx'").fetchone()
+    assert (r['movingTime'], r['averageSpeed'], r['flagReason']) == (4200, 2.8047, None) and json.loads(r['rawData'])['fileMoving'] == 9
+    assert not sanity.use_elapsed_time(db, 'gpx')                                  # nothing left to put right
+
+
+@pytest.mark.parametrize('kw', [
+    dict(dist=30000, moving=5400, elapsed=6000, avg=1133.0),                      # the moving time is fine: it's the speed that's wrong
+    dict(sport='Run', dist=11000, moving=9, elapsed=200, avg=1222.0),             # 55 m/s from start to finish is no run either
+    dict(dist=20000, moving=3, elapsed=50000, avg=6666.0),                        # 0.9 mph over the elapsed time: "barely moved" instead
+    dict(dist=20000, moving=3, elapsed=3, avg=6666.0),                            # no elapsed time to go on
+])
+def test_the_elapsed_time_is_not_offered_when_it_does_not_put_it_right(db, kw):
+    ride(db, 'bad', **kw)
+    assert sanity.flag(db, 'bad')
+    assert sanity.flagged(db, 1)[0]['elapsedFix'] is None and not sanity.use_elapsed_time(db, 'bad')
+
+
 def test_changing_the_sport_checks_it_against_the_new_one(db):
     from services import convert
     ride(db, 'car', dist=8000, moving=1440, avg=5.6, top=30.0)                    # 20 km/h, 108 km/h top: a ride, not a walk

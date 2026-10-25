@@ -274,10 +274,13 @@ def detail(rid):
     try:                                                # a Strava export's climb taken in place of the file's impossible one (import_rides._strava_climb_if_impossible)
         raw = json.loads(activity['rawData'] or '{}')
         file_climb = raw.get('fileClimb') if raw.get('fileClimb') is not None and activity['totalElevationGain'] == raw.get('stravaClimb') else None
+        file_moving = raw.get('fileMoving') if activity['movingTime'] == activity['elapsedTime'] else None     # "Use the elapsed time" (sanity.use_elapsed_time)
     except (ValueError, TypeError, AttributeError):
-        file_climb = None
+        file_climb = file_moving = None
+    from services import sanity as _sanity
+    elapsed_fix = _sanity.elapsed_fix(activity) if activity['flagReason'] and not activity['flagDismissed'] else None
     return render_template('ride.html', friend=friend, kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, zwift_world=zwift_world, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
-                           file_climb=file_climb, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
+                           file_climb=file_climb, file_moving=file_moving, elapsed_fix=elapsed_fix, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
                            charts=charts, has_memory=memory_count > 0, ai_pending=_auto_analyse.is_pending(activity['id']),
                            seg_efforts=seg_efforts, alt_raw=alt_raw,
                            co_riders=co_riders, seg_rivals=seg_rivals,
@@ -368,6 +371,19 @@ def use_strava_climb(rid):
     db = get_db()
     if not sanity.use_strava_climb(db, rid):
         return ('No climb from Strava for this ride', 404)
+    db.commit()
+    row = db.execute('SELECT flagReason FROM Activity WHERE id=?', [rid]).fetchone()
+    return jsonify(ok=True, flagged=bool(row and row['flagReason']))
+
+
+@bp.route('/<rid>/moving/elapsed', methods=['POST'])
+def use_elapsed_time(rid):
+    """A flagged activity whose file made its moving time seconds takes the elapsed time in its place (services/sanity.use_elapsed_time)."""
+    from flask import jsonify
+    from services import sanity
+    db = get_db()
+    if not sanity.use_elapsed_time(db, rid):
+        return ('The elapsed time does not put this activity right', 404)
     db.commit()
     row = db.execute('SELECT flagReason FROM Activity WHERE id=?', [rid]).fetchone()
     return jsonify(ok=True, flagged=bool(row and row['flagReason']))

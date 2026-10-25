@@ -287,15 +287,17 @@
   {% for f in flagged %}
   <div id="flag_{{ f.id }}" style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; padding:0.4rem 0; border-top:1px solid var(--divider); font-size:0.8125rem;">
     <a href="/rides/{{ f.id }}" class="dash-link" style="flex:1 1 14rem;"><span style="color:var(--accent);">{{ f.startDateLocal | fmt_date }} · {{ f.name or f.sportLabel }}</span><br><span style="color:var(--text-muted);">{{ f.flagReason }}</span></a>
-    {% if f.stravaClimb is not none %}<button class="btn btn-secondary btn-sm" onclick="useStravaClimb('{{ f.id }}')"
+    {% if f.stravaClimb is not none %}<button class="btn btn-secondary btn-sm" onclick="fixFlagged('{{ f.id }}', 'climb/strava')"
       title="Strava recalculated the climb; the altitude in the file can't be real">Use Strava's climb ({{ f.stravaClimb | fmt_elev }})</button>{% endif %}
+    {% if f.elapsedFix %}<button class="btn btn-secondary btn-sm" onclick="fixFlagged('{{ f.id }}', 'moving/elapsed')"
+      title="The file's timestamps are broken; start to finish gives {{ (f.distance / f.elapsedFix) | fmt_rate(f.sportType) }}">Use the elapsed time ({{ f.elapsedFix | fmt_duration }})</button>{% endif %}
     <button class="btn btn-secondary btn-sm" onclick="dismissFlagged('{{ f.id }}')">It's right</button>
   </div>
   {% endfor %}
 </div>
 <script>
-function useStravaClimb(id) {
-  fetch('/rides/' + id + '/climb/strava', { method: 'POST' }).then(function(r) { return r.ok ? r.json() : null; }).then(function(d) {
+function fixFlagged(id, fix) {
+  fetch('/rides/' + id + '/' + fix, { method: 'POST' }).then(function(r) { return r.ok ? r.json() : null; }).then(function(d) {
     if (!d) return;
     if (!d.flagged) { var e = document.getElementById('flag_' + id); if (e) e.remove(); if (!document.querySelector('[id^=flag_]')) { var c = document.getElementById('flaggedCard'); if (c) c.remove(); } }
     else location.reload();

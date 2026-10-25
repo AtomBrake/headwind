@@ -121,6 +121,23 @@ def test_blips_go_in_one_click_and_the_rest_stay_flagged(client):
     assert left == {'spiky'}
 
 
+def test_a_run_whose_file_made_its_moving_time_seconds_takes_the_elapsed_time(client):
+    from services import sanity
+    with client.application.app_context():
+        db = database.get_db()
+        db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime, averageSpeed) "
+                   "VALUES ('gpx', 'Neyland', 'Run', 1, '2011-12-28T13:01:58', 11779.9, 9, 4200, 1308.8778)")
+        sanity.flag(db, 'gpx')
+        db.commit()
+    html, _, _ = _page(client)
+    assert "fixFlagged('gpx', 'moving/elapsed')" in html and 'Use the elapsed time (1:10:00)' in html and 'gives 9:34 /mi' in html
+    assert 'Use the elapsed time (1:10:00)' in client.get('/rides/gpx').get_data(as_text=True)
+    assert client.post('/rides/gpx/moving/elapsed').get_json() == {'ok': True, 'flagged': False}
+    page = client.get('/rides/gpx').get_data(as_text=True)
+    assert 'looks wrong' not in page and 'Elapsed time: the file said 0:09' in page
+    assert client.post('/rides/gpx/moving/elapsed').status_code == 404 and client.post('/rides/nope/moving/elapsed').status_code == 404
+
+
 def test_activity_type_review_page_lists_pending_changes(client):
     with client.application.app_context():
         db = database.get_db()

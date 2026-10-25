@@ -64,6 +64,8 @@
   <div style="font-weight:600; margin-bottom:0.25rem;">This {{ 'activity' if is_workout else 'ride' }} looks wrong</div>
   <div class="hint">{{ activity.flagReason }}. It is left out of the speed and weather analytics until you decide.</div>
   <div style="margin-top:0.6rem; display:flex; gap:0.6rem; flex-wrap:wrap;">
+    {% if elapsed_fix %}<button class="btn btn-secondary" onclick="useElapsedTime()"
+      title="The file's timestamps are broken; start to finish gives {{ (activity.distance / elapsed_fix) | fmt_rate(activity.sportType) }}">Use the elapsed time ({{ elapsed_fix | fmt_duration }})</button>{% endif %}
     <button class="btn btn-secondary" onclick="dismissFlag()">It's right, keep it</button>
     <form method="POST" action="/rides/{{ activity.id }}/delete" onsubmit="return confirm('Delete this activity? Its photos, notes and segment times go with it, and a later sync or import will not bring it back. This cannot be undone.')" style="margin:0;"><button class="btn btn-danger-quiet" type="submit">Delete the {{ 'activity' if is_workout else 'ride' }}</button></form>
   </div>
@@ -208,6 +210,8 @@ function typeChanged(sel) {
     <div class="stat-label">Moving Time</div>
     {% if activity.elapsedTime and activity.elapsedTime != activity.movingTime %}
       <div class="stat-sub">{{ activity.elapsedTime | fmt_duration }} elapsed</div>
+    {% elif file_moving is not none %}
+      <div class="stat-sub" title="The file's timestamps were broken, so the time from start to finish is used">Elapsed time: the file said {{ file_moving | fmt_duration }}</div>
     {% endif %}
   </div>
 
@@ -1061,6 +1065,10 @@ function openPhoto(a) {
 })();
 {% endif %}
 {% endif %}
+
+function useElapsedTime() {
+  fetch('/rides/{{ activity.id }}/moving/elapsed', { method: 'POST' }).then(function(r) { if (r.ok) location.reload(); });
+}
 
 function dismissFlag() {
   fetch('/rides/{{ activity.id }}/flag/dismiss', { method: 'POST' }).then(function(r) { if (r.ok) { var b = document.getElementById('flagBanner'); if (b) b.remove(); } });
