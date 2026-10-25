@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.7.22-beta] - 2026-10-25
+
+### Added
+- **"Looks wrong" checks for every sport.** Runs, walks, hikes and swims are flagged when they can't be real (a walk at 20 km/h, a run faster than any record, a swim with nothing recorded), and every sport when its heart rate is below 30 or above 230 bpm, or its moving time is seconds against a real distance. Flagged activities of every sport are listed on the dashboard and left out of the speed charts until you keep or delete them. Every activity is checked once when you upgrade.
+
+### Fixed
+- **Activities counted twice.** A Strava export imported before 0.7.11 could save again an activity already set aside as a copy of another recording, so the session counted twice in every total. On upgrade each pair is decided again as an import would, and the other recording is set aside, with its photos, commute and gear moved to the one kept.
+- **Deleting an activity no longer loses the recordings set aside behind it.** One that's another recording of the same session moves behind that one; otherwise an activity deleted in Garmin brings its other recording back as its own, and one you delete takes them with it. On upgrade, copies an earlier delete left out of sight move behind the activity of the same session that's still here.
+- **Ride best times count rides only.** The phone app's Perform tab could name a walk as your fastest 5 or 10 miles on a ride, and the AI coach compared a ride's best times with walks and with other riders' rides.
+
 ## [0.7.21-beta] - 2026-10-25
 
 ### Changed
