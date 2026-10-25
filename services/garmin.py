@@ -9,15 +9,6 @@ import zipfile
 from datetime import date, timedelta
 from pathlib import Path
 
-# Activity type keys that have meaningful GPS data worth importing
-# Activity types with no GPS data that aren't worth importing
-_SKIP_TYPES = {
-    'strength_training', 'yoga', 'fitness_equipment', 'elliptical',
-    'stair_climbing', 'indoor_rowing', 'pilates', 'barre', 'floor_climbing',
-    'breathwork', 'meditation',
-}
-
-
 def garmin_sport(type_key):
     """Garmin's activity type (`typeKey`, e.g. 'mountain_biking', 'lap_swimming', 'treadmill_running') -> our sport. Rides are Ride / VirtualRide /
     EBikeRide (an e-bike ride races other e-bike rides for segment PRs: services/sports.segment_class);
@@ -834,11 +825,6 @@ def sync_garmin_activities(rider_id, api=None):
                     done = True
                     break
                 older_page = True
-
-            # Skip activities with no GPS (gym, yoga, strength, etc.)
-            if type_key in _SKIP_TYPES:
-                skipped += 1
-                continue
 
             db_id = f'garmin_{activity_id}'
             # Check if Garmin ID already exists
