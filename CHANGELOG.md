@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.7.20-beta] - 2026-10-25
+
+### Added
+- **Same-route comparisons.** An activity's page shows the other times you've done it: the same start, finish and roads, the same way round, the same kind of activity. It ranks this one by moving time, compares it with the last 20 and charts every time. The AI coach gets the same comparison.
+- **Goals.** Distance, climbing, time or number of activities for a sport, every week, month or year, measured against an even pace, on a new Goals page and on the dashboard.
+- **Challenges with friends.** A race over set dates, sent on the friends feed to the friends you invite. Each instance works out the standings from the activities it syncs.
+- **Zwift rides drawn over their Zwift world.** A virtual ride is matched to one of Zwift's 12 worlds and drawn over that world's map on its page, with a switch to hide it. The heatmap leaves virtual rides out by default, with Include and Only Zwift, draws the worlds' maps under their tracks (in the HD export too) and has a button for each world.
+- **Tables sort by clicking a column heading**, and a second click turns the order round. The choice stays in the link. Segments and leaderboards, a ride's splits, sets, laps and segments, segment PRs, records, a bike's parts and service log, the nutrition week and Friends all sort.
+- **Full re-sync finds what's missing from Garmin.** Activities of a type the sync used to skip are brought in. Any other Garmin activity that isn't here is listed on the Import page under "In Garmin, not here", to bring in or leave out. Garmin activities you deleted here are listed under "Deleted here, still in Garmin", with Bring back.
+
+### Changed
+- **Garmin imports every activity type.** Strength training, yoga, pilates, gym equipment, breathwork and the like used to be dropped; now they're saved, as Other workouts with no track until they become sports of their own.
+- **Segment names open the segment** on the Segments page; the View button and the ride page's arrow are gone.
+
 ## [0.7.19-beta] - 2026-10-25
 
 ### Added
