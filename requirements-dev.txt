@@ -1,0 +1,3 @@
+-r requirements.txt
+pytest>=8.0.0
+websockets>=12.0  # only used by the optional docs/ha/hawss.py dev tool, not the app itself

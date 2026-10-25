@@ -35,16 +35,32 @@ foodimg/
 *.db.corrupted
 *.corrupted
 
-.pytest_cache/
-docs/HANDOFF.md
-docs/removed/
-docs/ha/backup/
-docs/ha/pc/
 scripts/headwind-both.sh
 demo_gpx*/
-docs/screenshots/
-docs/promo/
 
 # developer-only tool that works on personal GPS data: never ship it in an image
 export_demo_rides.py
 demo/out/
+
+# Not needed to run the app: the image is only what the server runs. CI tests the checkout before building.
+tests/
+.pytest_cache/
+requirements-dev.txt
+docs/
+.github/
+ios/
+README.md
+CHANGELOG.md
+TODO.md
+/logo.png
+docker-compose*.yml
+.env.example
+windows_launcher.py
+scripts/build_windows.py
+scripts/smoke_*.py
+
+# Local clutter
+venv/
+.venv/
+logs/
+**/.DS_Store
