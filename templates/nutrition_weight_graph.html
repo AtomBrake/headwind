@@ -257,10 +257,12 @@ function drawChart(raw, trend, data) {
   const end   = new Date(data.periodEnd);
   const spanMs = Math.max(1, end - start);
 
-  const allKg = raw.map(p => p.kg).concat(trend.map(p => p.kg)).concat(data.stoneLines || []);
+  // fit the axis to what's in view; milestone lines show only if they land inside it
+  const allKg = raw.map(p => p.kg).concat(trend.map(p => p.kg));
   let minKg = Math.min(...allKg), maxKg = Math.max(...allKg);
-  if (minKg === maxKg) { minKg -= 1; maxKg += 1; }
-  const pad = (maxKg - minKg) * 0.12 || 1;
+  const MIN_SPAN_KG = 1;   // so a flat week doesn't blow 0.2 kg of scale noise up to full height
+  if (maxKg - minKg < MIN_SPAN_KG) { const mid = (minKg + maxKg) / 2; minKg = mid - MIN_SPAN_KG / 2; maxKg = mid + MIN_SPAN_KG / 2; }
+  const pad = (maxKg - minKg) * 0.12;
   minKg -= pad; maxKg += pad;
 
   const x = (d) => padL + ((new Date(d) - start) / spanMs) * plotW;
@@ -277,12 +279,12 @@ function drawChart(raw, trend, data) {
     svgEls.push(`<text x="${W-padR+8}" y="${yy+4}" font-size="12" fill="var(--text-muted)">${fmtWeight(kg)}</text>`);
   }
 
-  // Stone milestone lines
-  (data.stoneLines || []).forEach((kg, i) => {
-    if (kg < minKg || kg > maxKg) return;
-    const yy = y(kg);
+  // Milestone lines (every stone, or every 5 kg in metric)
+  (data.milestones || []).forEach(m => {
+    if (m.kg < minKg || m.kg > maxKg) return;
+    const yy = y(m.kg);
     svgEls.push(`<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" stroke="var(--accent)" stroke-opacity="0.35" stroke-dasharray="1,3" stroke-width="1.5"/>`);
-    svgEls.push(`<text x="${padL+4}" y="${yy-4}" font-size="10" fill="var(--accent)" opacity="0.8">-${i+1}st</text>`);
+    svgEls.push(`<text x="${padL+4}" y="${yy-4}" font-size="10" fill="var(--accent)" opacity="0.8">${esc(m.label)}</text>`);
   });
 
   // Diet start marker
