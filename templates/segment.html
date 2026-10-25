@@ -160,28 +160,28 @@
       </select>
     </div>
   </div>
-  <table class="table flush">
+  <table class="table flush sortable">
     <thead>
       <tr>
-        <th>#</th>
+        <th aria-sort="ascending" data-col="rank">#</th>
         <th>Rider</th>
-        <th>Date</th>
+        <th data-first="desc">Date</th>
         <th>Activity</th>
         <th class="num">Time</th>
-        <th class="num">Avg {{ 'Pace' if on_foot else 'Speed' }}</th>
+        <th class="num" data-col="avg"{% if not on_foot %} data-first="desc"{% endif %}>Avg {{ 'Pace' if on_foot else 'Speed' }}</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
       {% for e in efforts %}
-      <tr data-year="{{ e.activityDate[:4] }}" data-rider-id="{{ e.rider_id }}"
+      <tr data-year="{{ e.activityDate[:4] }}" data-rider-id="{{ e.rider_id }}" data-i="{{ loop.index0 }}"
           style="border-bottom:1px solid var(--border-strong); {% if e.isPR %}background:var(--accent-soft);{% endif %}"
           onmouseover="this.style.background='var(--hover-tint)'"
           onmouseout="this.style.background='{% if e.isPR %}var(--accent-soft){% endif %}'">
-        <td class="effort-rank" style="color:var(--text-muted);">
+        <td class="effort-rank" data-sort="{{ loop.index }}" style="color:var(--text-muted);">
           {%- if loop.index == 1 %}🥇{%- elif loop.index == 2 %}🥈{%- elif loop.index == 3 %}🥉{%- else %}{{ loop.index }}{%- endif %}
         </td>
-        <td>
+        <td data-sort="{{ e.rider_name or '' }}">
           {% if e.rider_name %}
             <span title="{{ e.rider_name }}">
               {% if e.rider_avatar %}
@@ -192,18 +192,18 @@
             </span>
           {% endif %}
         </td>
-        <td style="color:var(--text-muted);">{{ e.activityDate | fmt_date }}</td>
-        <td>
-          <a href="{{ url_for('rides.detail', rid=e.ride_id) }}" style="color:var(--text); text-decoration:none; font-size:0.9375rem;">
+        <td data-sort="{{ e.activityDate }}" style="color:var(--text-muted);">{{ e.activityDate | fmt_date }}</td>
+        <td data-sort="{{ e.ride_name }}">
+          <a href="{{ url_for('rides.detail', rid=e.ride_id) }}" style="font-size:0.9375rem;">
             {% if on_foot %}<span title="{{ e.sportType | sport_label }}">{{ e.sportType | sport_icon }}</span> {% elif e.cls == 'ebike' %}<span title="E-bike">⚡</span> {% endif %}{{ e.ride_name }}
           </a>
           {% if e.isPR %}<span style="margin-left:0.5rem; font-size:0.7rem; background:var(--accent); color:var(--on-accent); padding:0.1rem 0.4rem; border-radius:4px; vertical-align:middle;"{% if e.cls == 'ebike' %} title="E-bike PR"{% elif e.cls == 'bike' %} title="Bike PR"{% endif %}>PR</span>{% endif %}
         </td>
-        <td class="num" style="font-weight:600;
+        <td class="num" data-sort="{{ e.elapsedSecs }}" style="font-weight:600;
                    color:{% if e.isPR %}var(--accent){% else %}var(--text){% endif %};">
           {% if e.approx %}<span title="Close match: you rode this but not exactly through the start/end markers, so the time is estimated" style="color:var(--text-muted); font-weight:400;">≈</span> {% endif %}{{ e.elapsedSecs | fmt_duration }}
         </td>
-        <td class="num" style="color:var(--text-muted);">
+        <td class="num" data-sort="{% if e.avgSpeedMps %}{{ (1 / e.avgSpeedMps) if on_foot else e.avgSpeedMps }}{% endif %}" style="color:var(--text-muted);">
           {% if e.avgSpeedMps %}{% if on_foot %}{{ e.avgSpeedMps | fmt_pace }}{% else %}{{ e.avgSpeedMps | fmt_speed }}{% endif %}{% else %}—{% endif %}
         </td>
         <td class="num">
@@ -233,7 +233,8 @@ function filterEfforts() {
   var yr     = document.getElementById('yearFilter').value;
   var riderEl = document.getElementById('riderFilter');
   var rider  = riderEl ? riderEl.value : 'all';
-  var rows   = document.querySelectorAll('tr[data-year]');
+  var rows   = Array.from(document.querySelectorAll('tr[data-year]'))
+    .sort(function(a, b) { return a.dataset.i - b.dataset.i; });   // ranked by time, whichever column the table is sorted on
   var rank   = 1;
   rows.forEach(function(row) {
     var yearOk  = yr === 'all' || row.dataset.year === yr;

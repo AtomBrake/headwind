@@ -37,26 +37,24 @@
 </div>
 {% else %}
 <div class="card" style="padding:0; overflow:hidden;">
-  <table class="table flush">
+  <div class="table-wrap">
+  <table class="table flush sortable">
     <thead>
       <tr>
         <th>Segment</th>
         <th>KOM</th>
         <th class="num">Best Time</th>
-        <th class="num">Efforts</th>
-        <th class="num">Distance</th>
-        <th></th>
+        <th class="num" data-first="desc">Efforts</th>
+        <th class="num" data-first="desc">Distance</th>
       </tr>
     </thead>
     <tbody>
       {% for s in segments %}
-      {% set kom = kom_map.get(s.id) %}
-      <tr
-          onmouseover="this.style.background='var(--hover-tint)'"
-          onmouseout="this.style.background=''" style="transition:background 0.15s;">
-        <td>
-          <div style="font-weight:600; color:var(--text);">
-            {{ s.name }}
+      {% set koms = kom_map.get(s.id, []) %}
+      <tr>
+        <td data-sort="{{ s.name }}">
+          <div style="font-weight:600;">
+            <a href="{{ url_for('segments.detail', sid=s.id, only=only) }}">{{ s.name }}</a>
             {% if s.friend_name %}
             <span style="font-size:0.7rem; font-weight:400; background:var(--accent-soft);
                          color:var(--accent); border:1px solid var(--accent-line);
@@ -65,11 +63,10 @@
             {% endif %}
           </div>
           {% if s.pr_date %}
-          <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.2rem;">PR set {{ s.pr_date | fmt_date }}</div>
+          <div class="hint" style="margin-top:0.2rem;">PR set {{ s.pr_date | fmt_date }}</div>
           {% endif %}
         </td>
-        <td>
-          {% set koms = kom_map.get(s.id, []) %}
+        <td data-sort="{{ koms | map(attribute='rider_name') | join(', ') }}">
           {% if koms %}
             <div style="display:flex;gap:2px;align-items:center;">
               {% for k in koms %}
@@ -84,20 +81,18 @@
             </div>
           {% else %}—{% endif %}
         </td>
-        <td class="num" style="font-weight:600; color:var(--accent);">
+        <td class="num" data-sort="{{ s.best_secs or '' }}" style="font-weight:600; color:var(--accent);">
           {% if s.best_secs %}{{ s.best_secs | fmt_duration }}{% else %}—{% endif %}
         </td>
         <td class="num" style="color:var(--text-muted);">{{ s.effort_count }}</td>
-        <td class="num" style="color:var(--text-muted);">
+        <td class="num" data-sort="{{ s.distanceM or '' }}" style="color:var(--text-muted);">
           {% if s.distanceM %}{{ s.distanceM | fmt_dist }}{% else %}—{% endif %}
-        </td>
-        <td class="num">
-          <a href="{{ url_for('segments.detail', sid=s.id, only=only) }}" class="btn btn-secondary btn-sm">View</a>
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  </div>
 </div>
 {% endif %}
 

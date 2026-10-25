@@ -331,16 +331,17 @@ def _hms(secs):
 def _achievements(key, title, noun, rate_label, style, distances, rows, scan=False):
     """One best-times table for the Data page: {key, title, noun, rate_label, distances [(key, label)], by_year, by_month, rows, scan}. by_year and
     by_month hold the quickest effort at each distance in that year or month: {period: {distance key: {secs, time, rate, ride, rideId, date}}}.
+    `rate` is worded; `mps` is the number behind it.
     `rows` are sorted quickest first within each distance."""
     from services import units
     by_year, by_month = defaultdict(dict), defaultdict(dict)
     for e in rows:
         day = str(e['activityDate'])
         rec = {'secs': e['elapsedSecs'], 'time': _hms(e['elapsedSecs']), 'rate': units.fmt_rate(e['avgSpeedMps'], style) if e['avgSpeedMps'] else '—',
-               'ride': e['name'] or noun, 'rideId': e['activityId'], 'date': day[:10]}
+               'mps': e['avgSpeedMps'], 'ride': e['name'] or noun, 'rideId': e['activityId'], 'date': day[:10]}
         by_year[day[:4]].setdefault(e['key'], rec)
         by_month[day[:7]].setdefault(e['key'], rec)
-    return {'key': key, 'title': title, 'noun': noun, 'rate_label': rate_label, 'distances': distances, 'by_year': dict(by_year),
+    return {'key': key, 'title': title, 'noun': noun, 'rate_label': rate_label, 'style': style, 'distances': distances, 'by_year': dict(by_year),
             'by_month': dict(by_month), 'rows': len(rows), 'scan': scan}
 
 
@@ -350,7 +351,7 @@ RECORD_MIN_M = {'speed': 1000, 'pace': 1000, 'swim': 100}
 
 def _sport_records(rows):
     """Each sport's biggest single activities, all time and per year: {'all' | 'YYYY': [{sport, icon, dist, time, climb, fast}]}, sports in the
-    usual order (rides, on foot, swims, the rest). Each record is {v (worded), id, name, date}, or None when the sport has nothing to show (a yoga
+    usual order (rides, on foot, swims, the rest). Each record is {v (worded), n (the number: metres, seconds, m/s), id, name, date}, or None when the sport has nothing to show (a yoga
     session has no distance)."""
     from services import sports, units
     best = defaultdict(dict)        # (period, sport) -> {what: (value, row)}
@@ -389,7 +390,7 @@ def _sport_records(rows):
                  'order': (sports.stat_order(sports.stat_group(any_row['sportType'] or 'Ride')), sport)}
         for what in ('dist', 'time', 'climb', 'fast'):
             v = recs.get(what)
-            entry[what] = {'v': worded(what, v[0], v[1]['sportType']), 'id': v[1]['id'], 'name': v[1]['name'] or sport,
+            entry[what] = {'v': worded(what, v[0], v[1]['sportType']), 'n': v[0], 'id': v[1]['id'], 'name': v[1]['name'] or sport,
                            'date': str(v[1]['startDateLocal'])[:10]} if v else None
         out[period].append(entry)
     for period in out:

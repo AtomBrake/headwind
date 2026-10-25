@@ -8,8 +8,8 @@
   {% if not parts %}<p class="hint">Nothing tracked yet. Add the chain, tyres, cassette, bar tape and so on below, and Headwind will count the miles on each from the day you fitted it.</p>
   {% if item.strava %}<p class="hint">This bike's distance is the rides Strava had on <strong>{{ item.strava }}</strong>; Strava's export doesn't include the parts fitted to it. Add them below with the date each was fitted (and how far it had already gone) to start tracking wear.</p>{% endif %}{% endif %}
   {% if parts %}
-  <table class="table">
-    <thead><tr><th>Part</th><th>Fitted</th><th>Used</th><th>Replace</th><th>Check</th><th></th></tr></thead>
+  <table class="table sortable" data-sort-name="parts">
+    <thead><tr><th>Part</th><th data-first="desc">Fitted</th><th data-first="desc">Used</th><th data-first="desc">Replace</th><th data-first="desc">Check</th><th></th></tr></thead>
     <tbody>
     {% set ns = namespace(group='') %}
     {% for pi in parts %}
@@ -17,15 +17,15 @@
       {% set grp = pi.group %}
       {% if grp != ns.group %}{% set ns.group = grp %}<tr class="grp"><td colspan="6">{{ grp }}</td></tr>{% endif %}
       <tr>
-        <td><strong>{{ p.name }}</strong>{% if pi.label != p.name %}<div class="hint">{{ pi.label }}</div>{% endif %}{% if p.notes %}<div class="hint">{{ p.notes }}</div>{% endif %}{% if not p.notify %}<div class="hint">alerts off</div>{% endif %}</td>
-        <td>{{ p.installedOn | fmt_date }}<div class="hint">{{ st.days }} days ago</div></td>
-        <td>{{ st.meters | fmt_dist }}</td>
-        <td style="min-width:150px;">{% if p.replaceEveryM or p.replaceEveryDays %}{{ bar(st.replace.level, st.replace.ratio) }}<div class="hint"><span class="chip {{ st.replace.level }}">{{ st.replace.level }}</span> every {{ interval(p.replaceEveryM, p.replaceEveryDays) }}</div>{% else %}<span class="hint">no interval</span>{% endif %}</td>
-        <td style="min-width:150px;">{% if p.checkEveryM or p.checkEveryDays %}{{ bar(st.check.level, st.check.ratio) }}<div class="hint"><span class="chip {{ st.check.level }}">{{ st.check.level }}</span> every {{ interval(p.checkEveryM, p.checkEveryDays) }} · last {{ st.last_check | fmt_date }}</div>{% else %}<span class="hint">no interval</span>{% endif %}</td>
+        <td data-sort="{{ p.name }}"><strong>{{ p.name }}</strong>{% if pi.label != p.name %}<div class="hint">{{ pi.label }}</div>{% endif %}{% if p.notes %}<div class="hint">{{ p.notes }}</div>{% endif %}{% if not p.notify %}<div class="hint">alerts off</div>{% endif %}</td>
+        <td data-sort="{{ p.installedOn }}">{{ p.installedOn | fmt_date }}<div class="hint">{{ st.days }} days ago</div></td>
+        <td data-sort="{{ st.meters }}">{{ st.meters | fmt_dist }}</td>
+        <td data-sort="{{ st.replace.ratio if p.replaceEveryM or p.replaceEveryDays }}" style="min-width:150px;">{% if p.replaceEveryM or p.replaceEveryDays %}{{ bar(st.replace.level, st.replace.ratio) }}<div class="hint"><span class="chip {{ st.replace.level }}">{{ st.replace.level }}</span> every {{ interval(p.replaceEveryM, p.replaceEveryDays) }}</div>{% else %}<span class="hint">no interval</span>{% endif %}</td>
+        <td data-sort="{{ st.check.ratio if p.checkEveryM or p.checkEveryDays }}" style="min-width:150px;">{% if p.checkEveryM or p.checkEveryDays %}{{ bar(st.check.level, st.check.ratio) }}<div class="hint"><span class="chip {{ st.check.level }}">{{ st.check.level }}</span> every {{ interval(p.checkEveryM, p.checkEveryDays) }} · last {{ st.last_check | fmt_date }}</div>{% else %}<span class="hint">no interval</span>{% endif %}</td>
         <td><div class="mini-actions"><button class="btn btn-secondary btn-sm" type="button" onclick="logFor({{ p.id }})">Log service</button>
           <button class="btn btn-secondary btn-sm" type="button" onclick="document.getElementById('edit{{ p.id }}').toggleAttribute('hidden')">Edit</button></div></td>
       </tr>
-      <tr id="edit{{ p.id }}" hidden><td colspan="6">
+      <tr id="edit{{ p.id }}" data-follows hidden><td colspan="6">
         <form method="POST" action="{{ url_for('gear.part_edit', part_id=p.id) }}" class="form-grid">
           <label>Name<input name="name" value="{{ p.name }}" maxlength="80"></label>
           <label>Fitted on<input type="date" name="installedOn" value="{{ p.installedOn }}"></label>
@@ -86,10 +86,10 @@
     </form>
   </details>
   {% if log %}
-  <table class="table">
-    <thead><tr><th>Date</th><th>What</th><th>Part</th><th>Odometer</th><th>Cost</th><th>Notes</th><th></th></tr></thead>
+  <table class="table sortable" data-sort-name="log">
+    <thead><tr><th aria-sort="descending" data-first="desc">Date</th><th>What</th><th>Part</th><th class="num" data-first="desc">Odometer</th><th class="num" data-first="desc">Cost</th><th>Notes</th><th></th></tr></thead>
     <tbody>{% for s in log %}
-      <tr><td>{{ s.date | fmt_date }}</td><td>{{ s.action | replace('_', ' ') | capitalize }}</td><td>{{ s.partName or 'Whole bike' }}</td><td>{{ s.odometerM | fmt_dist if s.odometerM is not none else '' }}</td><td>{{ '%.2f' | format(s.cost) if s.cost else '' }}</td><td>{{ s.notes or '' }}</td>
+      <tr><td data-sort="{{ s.date }}">{{ s.date | fmt_date }}</td><td>{{ s.action | replace('_', ' ') | capitalize }}</td><td>{{ s.partName or 'Whole bike' }}</td><td class="num" data-sort="{{ s.odometerM if s.odometerM is not none }}">{{ s.odometerM | fmt_dist if s.odometerM is not none else '' }}</td><td class="num">{{ '%.2f' | format(s.cost) if s.cost else '' }}</td><td>{{ s.notes or '' }}</td>
         <td><form method="POST" action="{{ url_for('gear.log_delete', log_id=s.id) }}" onsubmit="return confirm('Delete this service log entry? The part then counts its wear from the service before it, or from when it was fitted.')"><button class="btn btn-danger-quiet btn-sm">Delete</button></form></td></tr>
     {% endfor %}</tbody>
   </table>
@@ -98,8 +98,8 @@
 
 {% if retired %}
 <details class="gcard"><summary>Retired parts ({{ retired | length }})</summary>
-  <table class="table" style="margin-top:.6rem;"><thead><tr><th>Part</th><th>Fitted</th><th>Retired</th><th>Lasted</th></tr></thead>
-    <tbody>{% for pi in retired %}<tr><td>{{ pi.part.name }}</td><td>{{ pi.part.installedOn | fmt_date }}</td><td>{{ pi.part.retiredOn | fmt_date }}</td><td>{{ pi.status.meters | fmt_dist }} · {{ pi.status.days }} days</td></tr>{% endfor %}</tbody></table>
+  <table class="table sortable" data-sort-name="retired" style="margin-top:.6rem;"><thead><tr><th>Part</th><th data-first="desc">Fitted</th><th data-first="desc">Retired</th><th data-first="desc">Lasted</th></tr></thead>
+    <tbody>{% for pi in retired %}<tr><td>{{ pi.part.name }}</td><td data-sort="{{ pi.part.installedOn }}">{{ pi.part.installedOn | fmt_date }}</td><td data-sort="{{ pi.part.retiredOn }}">{{ pi.part.retiredOn | fmt_date }}</td><td data-sort="{{ pi.status.meters }}">{{ pi.status.meters | fmt_dist }} · {{ pi.status.days }} days</td></tr>{% endfor %}</tbody></table>
 </details>
 {% endif %}
 

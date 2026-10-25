@@ -107,17 +107,18 @@
   <div class="card">
     <div class="card-title">Segment PRs</div>
     {% if seg_prs %}
-    <table class="table">
+    <table class="table sortable" data-sort-name="prs">
+      <thead><tr><th>Segment</th><th class="num">Time</th><th class="num" data-first="desc">Date</th></tr></thead>
       <tbody>
         {% for e in seg_prs %}
         <tr>
-          <td>
-            <a href="{{ url_for('segments.detail', sid=e.seg_id) }}" style="color:var(--text); text-decoration:none;">{{ e.seg_name }}</a>
+          <td data-sort="{{ e.seg_name }}">
+            <a href="{{ url_for('segments.detail', sid=e.seg_id) }}">{{ e.seg_name }}</a>
           </td>
-          <td class="num" style="font-weight:600; color:var(--accent);">
+          <td class="num" data-sort="{{ e.elapsedSecs }}" style="font-weight:600; color:var(--accent);">
             {{ e.elapsedSecs | fmt_duration }}
           </td>
-          <td class="num" style="color:var(--text-muted); font-size:0.8125rem;">
+          <td class="num" data-sort="{{ e.activityDate }}" style="color:var(--text-muted); font-size:0.8125rem;">
             {{ e.activityDate | fmt_date }}
           </td>
         </tr>
@@ -142,7 +143,7 @@
           {% if dist in best_by_dist %}
           {% set e = best_by_dist[dist] %}
           <tr>
-            <td style="font-weight:600;"><a href="/rides/{{ e.activityId }}" style="color:var(--text); text-decoration:none;">{{ (dist * 1609.344) | fmt_dist(0 if units != 'metric' else 1) }}</a></td>
+            <td style="font-weight:600;"><a href="/rides/{{ e.activityId }}">{{ (dist * 1609.344) | fmt_dist(0 if units != 'metric' else 1) }}</a></td>
             <td class="num" style="font-weight:600; color:var(--accent);">
               {{ e.elapsedSecs | fmt_duration }}
             </td>
@@ -157,7 +158,7 @@
         <tr><td colspan="3" style="{{ head }}">{{ heading }}</td></tr>
         {% for label, e, mps in rows %}
           <tr>
-            <td style="font-weight:600;"><a href="/rides/{{ e.activityId }}" style="color:var(--text); text-decoration:none;">{{ label }}</a></td>
+            <td style="font-weight:600;"><a href="/rides/{{ e.activityId }}">{{ label }}</a></td>
             <td class="num" style="font-weight:600; color:var(--accent);">
               {{ e.elapsedSecs | fmt_duration }}
             </td>
