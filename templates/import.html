@@ -159,7 +159,7 @@
 </div>
 {% endif %}
 
-{% if garmin_full or garmin_changes %}
+{% if garmin_full or garmin_changes or garmin_missing or garmin_deleted %}
 <div class="card" id="garmin-changes" style="margin-top:1.25rem;">
   {% set deleted = garmin_changes | selectattr('kind', 'equalto', 'deleted') | list %}
   {% set edited = garmin_changes | selectattr('kind', 'equalto', 'edited') | list %}
@@ -174,7 +174,8 @@
   <p class="hint" style="margin:0.5rem 0 0;">
     Once a day Headwind looks at your last 90 days in Garmin Connect, and a little further back each time, for activities deleted, renamed,
     given another sport or cropped there since they came in. Nothing changes here until you choose. A cropped one is listed with the imports above.
-    Full re-sync on the <a href="{{ url_for('settings.index') }}#garmin">Settings</a> page checks all of your history at once.
+    Full re-sync on the <a href="{{ url_for('settings.index') }}#garmin">Settings</a> page checks all of your history at once, and finds activities
+    in Garmin that never came in or that you deleted here.
     {% if garmin_check and not running %}<br>Last check: {{ garmin_check.error or garmin_check.result }}
       <span data-when="{{ garmin_check.finishedAt }}">{{ garmin_check.finishedAt }}</span>{% endif %}</p>
 
@@ -233,6 +234,60 @@
       <button class="btn btn-secondary btn-sm">Keep as here</button></form>
   </div>
   {% endfor %}
+  {% endif %}
+
+  {% if garmin_missing %}
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-top:1rem;">
+    <div style="font-weight:600; font-size:0.875rem;">In Garmin, not here ({{ garmin_missing | length }})</div>
+    {% if garmin_missing | length > 1 %}
+    <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+      <form method="POST" action="{{ url_for('garmin.missing_resolve', gid='all', choice='import') }}" style="margin:0;" onsubmit="this.querySelector('button').disabled = true;">
+        <button class="btn btn-secondary btn-sm"{% if running %} disabled{% endif %}>Bring all in</button></form>
+      <form method="POST" action="{{ url_for('garmin.missing_resolve', gid='all', choice='leave') }}" style="margin:0;"
+            onsubmit="return confirm('Leave out all {{ garmin_missing | length }}? Garmin won\'t offer them again.')">
+        <button class="btn btn-secondary btn-sm">Leave all out</button></form>
+    </div>
+    {% endif %}
+  </div>
+  <p class="hint" style="margin:0.25rem 0 0;">An older sync passed over these: perhaps you deleted them here, or they were left out beside the same activity from Strava.
+    One brought in that's the same session as an activity here is set aside behind the better recording.</p>
+  {% for m in garmin_missing %}
+  <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;">
+    <span style="flex:1; min-width:12rem;">
+      {{ m.startDateLocal | fmt_date }} · {{ m.name or 'Activity' }}
+      <span style="color:var(--text-muted);"> · {{ m.sportType | sport_label }}{% if m.distance %} · {{ m.distance | fmt_dist }}{% endif %}</span>
+    </span>
+    <form method="POST" action="{{ url_for('garmin.missing_resolve', gid=m.garminId, choice='import') }}" style="margin:0;">
+      <button class="btn btn-secondary btn-sm"{% if running %} disabled{% endif %}>Bring in</button></form>
+    <form method="POST" action="{{ url_for('garmin.missing_resolve', gid=m.garminId, choice='leave') }}" style="margin:0;">
+      <button class="btn btn-secondary btn-sm">Leave out</button></form>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if garmin_deleted %}
+  <details style="margin-top:1rem;">
+    <summary style="font-weight:600; font-size:0.875rem; cursor:pointer;">Deleted here, still in Garmin ({{ garmin_deleted | length }})</summary>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-top:0.25rem;">
+      <p class="hint" style="margin:0; flex:1; min-width:14rem;">You deleted these here, or left them out above, so no sync brings them in. Bring one back and
+        it comes as Garmin has it: notes, photos and gear chosen here went when it was deleted.</p>
+      {% if garmin_deleted | length > 1 %}
+      <form method="POST" action="{{ url_for('garmin.missing_resolve', gid='all', choice='restore') }}" style="margin:0;"
+            onsubmit="if (!confirm('Bring back all {{ garmin_deleted | length }} from Garmin?')) return false; this.querySelector('button').disabled = true;">
+        <button class="btn btn-secondary btn-sm"{% if running %} disabled{% endif %}>Bring all back</button></form>
+      {% endif %}
+    </div>
+    {% for m in garmin_deleted %}
+    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;">
+      <span style="flex:1; min-width:12rem;">
+        {{ m.startDateLocal | fmt_date }} · {{ m.name or 'Activity' }}
+        <span style="color:var(--text-muted);"> · {{ m.sportType | sport_label }}{% if m.distance %} · {{ m.distance | fmt_dist }}{% endif %}</span>
+      </span>
+      <form method="POST" action="{{ url_for('garmin.missing_resolve', gid=m.garminId, choice='restore') }}" style="margin:0;">
+        <button class="btn btn-secondary btn-sm"{% if running %} disabled{% endif %}>Bring back</button></form>
+    </div>
+    {% endfor %}
+  </details>
   {% endif %}
 </div>
 {% endif %}

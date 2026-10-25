@@ -9,7 +9,11 @@ nothing flagged). A later check compares Garmin's list with that, not with Headw
 - another distance or length: cropped or recalculated, so the file is read again and handed to the re-import review (services/reimport.propose).
 Only a successful listing counts, and only for the days it reaches: an error raises, an empty listing judges nothing, and an activity older than
 the oldest one listed isn't judged. A Garmin copy set aside as a duplicate (ActivityDuplicate) isn't live, so it and the activity kept in its place
-are left alone."""
+are left alone.
+
+Full re-sync also finds activities in Garmin that aren't here at all and that the sync has gone past (_left_behind): one of a type the sync used to
+skip is brought in, any other is listed (GarminMissing) to bring in or leave out. Those deleted here that are still in Garmin are listed too,
+with Garmin's name and date (Headwind keeps only the id), to bring back."""
 import json
 import logging
 from datetime import date, timedelta
@@ -37,6 +41,17 @@ def ensure_schema(db):
         diffs     TEXT NOT NULL DEFAULT '[]',     -- edited: [{field: name | sport, old, new}]
         garmin    TEXT,                      -- edited: Garmin's summary now, the baseline once it's settled
         status    TEXT NOT NULL DEFAULT 'pending',  -- pending | kept (deleted in Garmin, kept here: not flagged again)
+        foundAt   TEXT DEFAULT (datetime('now'))
+    )''')
+    db.execute('''CREATE TABLE IF NOT EXISTS GarminMissing (
+        garminId  TEXT PRIMARY KEY,          -- Garmin's activity id: in Garmin, not here, and older than the sync's cursor
+        riderId   INTEGER,
+        name      TEXT,
+        typeKey   TEXT,
+        startDateLocal TEXT,
+        distance  REAL,
+        activity  TEXT NOT NULL,             -- the entry in Garmin's list, as garmin.save_activity takes it
+        deleted   INTEGER NOT NULL DEFAULT 0,     -- 1: deleted here (or left out), still in Garmin; offered to bring back, never brought in by itself
         foundAt   TEXT DEFAULT (datetime('now'))
     )''')
 
@@ -138,7 +153,8 @@ def check(db, api, rider_id, start, end, whole=False):
     ones too, and many missing at once is taken as deleted; only none of them listed at all (another account) is suspect. `whole` in the
     result: that was so."""
     ensure_schema(db)
-    res = {'listed': 0, 'baseline': 0, 'deleted': 0, 'edited': 0, 'recordings': 0, 'back': 0, 'suspect': False, 'whole': False}
+    res = {'listed': 0, 'baseline': 0, 'deleted': 0, 'edited': 0, 'recordings': 0, 'back': 0, 'suspect': False, 'whole': False,
+           'imported': 0, 'failed': 0, 'missing': 0, 'deleted_here': 0}
     end_q = (date.fromisoformat(end) + timedelta(days=1)).isoformat()           # a day either side: Headwind's local date can differ from Garmin's
     listing = api.get_activities_by_date(start, end_q) or []
     if not listing:
@@ -194,7 +210,104 @@ def check(db, api, rider_id, start, end, whole=False):
                    [r['id'], gid, rider_id, r['name']])
         res['deleted'] += 1
     db.commit()
+    if whole and not res['suspect']:
+        _left_behind(db, api, rider_id, listing, rows, res)
     return res
+
+
+def _left_behind(db, api, rider_id, listing, rows, res):
+    """Activities in Garmin's list that aren't here, older than the sync's cursor, so it won't fetch them. One of a type the sync used to skip
+    (garmin.ONCE_SKIPPED) was never here, so it can't have been deleted: it's brought in now. Any other may be one deleted before Headwind
+    remembered deletions (upstream didn't), or a Garmin copy an older sync left out beside a Strava one: those are listed (GarminMissing) for the
+    rider to bring in or leave out. One deleted here (duplicates.is_deleted) is listed as such, whatever its date, since no sync will fetch it.
+    The list is made afresh each time. Commits."""
+    from services import duplicates, garmin, garmin_failures
+    s = db.execute('SELECT garminActivitySyncDate FROM Settings WHERE id=1').fetchone()
+    cursor = s['garminActivitySyncDate'] if s else None
+    db.execute('DELETE FROM GarminMissing WHERE riderId=?', [rider_id])
+
+    def listed(a, gid, deleted):
+        key = summary(a)['typeKey']
+        db.execute('INSERT OR REPLACE INTO GarminMissing (garminId, riderId, name, typeKey, startDateLocal, distance, activity, deleted) VALUES (?,?,?,?,?,?,?,?)',
+                   [gid, rider_id, summary(a)['name'], key, (a.get('startTimeLocal') or '')[:19].replace(' ', 'T'), a.get('distance') or 0, json.dumps(a), int(deleted)])
+
+    for a in listing:
+        gid = str(a.get('activityId') or '')
+        day = (a.get('startTimeLocal') or '')[:10]
+        if not gid or gid in rows or day < '2005-01-01':       # here (under a newer id too); the sync's own rule for bogus dates
+            continue
+        if duplicates.exists_anywhere(db, f'garmin_{gid}') or garmin.garmin_twin(db, a, rider_id):
+            continue
+        if duplicates.is_deleted(db, f'garmin_{gid}'):
+            listed(a, gid, True)
+            res['deleted_here'] += 1
+            continue
+        if not cursor or day >= cursor:                         # never synced, or from the cursor on: the sync's to fetch
+            continue
+        fail = garmin_failures.get(db, gid)
+        if fail and not garmin_failures.due(fail):
+            continue
+        if summary(a)['typeKey'] not in garmin.ONCE_SKIPPED:
+            listed(a, gid, False)
+            res['missing'] += 1
+            continue
+        err = garmin.save_activity(db, api, a, rider_id)
+        if err:
+            log.warning('Garmin activity %s %s failed: %s', gid, *err)
+            garmin_failures.record(db, gid, *err, day, a.get('activityName'))
+            res['failed'] += 1
+        else:
+            res['imported'] += 1
+        db.commit()                                         # one at a time: each is a download
+    db.commit()
+
+
+def not_here(db, rider_id=None, deleted=False):
+    """The activities in Garmin that Full re-sync found and didn't bring in, newest first: never here, or (deleted) deleted here."""
+    from services.garmin import garmin_sport
+    ensure_schema(db)
+    return [dict(r, sportType=garmin_sport(r['typeKey'])) for r in db.execute(f"""SELECT garminId, name, typeKey, startDateLocal, distance FROM GarminMissing
+                                            WHERE deleted=? {'AND riderId=?' if rider_id else ''} ORDER BY startDateLocal DESC""",
+                                                                              [int(deleted)] + ([rider_id] if rider_id else []))]
+
+
+def bring_in(db, api, garmin_ids):
+    """Fetch and save these listed activities (garmin.save_activity); one deleted here is no longer remembered as deleted. Returns (brought in,
+    failed). One that fails is recorded like a sync failure and stays listed, to try again. Commits."""
+    from services import garmin, garmin_failures
+    ensure_schema(db)
+    done = failed = 0
+    for gid in garmin_ids:
+        r = db.execute('SELECT * FROM GarminMissing WHERE garminId=?', [str(gid)]).fetchone()
+        if not r:
+            continue
+        a = json.loads(r['activity'])
+        err = garmin.save_activity(db, api, a, r['riderId'])
+        if err:
+            log.warning('Garmin activity %s %s failed: %s', gid, *err)
+            garmin_failures.record(db, gid, *err, (a.get('startTimeLocal') or '')[:10], a.get('activityName'))
+            failed += 1
+        else:
+            db.execute("DELETE FROM ActivityDuplicate WHERE id=? AND status='deleted'", [f'garmin_{gid}'])     # brought back on purpose
+            db.execute('DELETE FROM GarminMissing WHERE garminId=?', [str(gid)])
+            done += 1
+        db.commit()
+    return done, failed
+
+
+def leave_out(db, garmin_ids):
+    """Never bring these in: remembered as deleted (duplicates.tombstone), so a sync never fetches them, and moved to the deleted ones, to bring
+    back from there. Returns how many. Does not commit."""
+    from services import duplicates
+    ensure_schema(db)
+    n = 0
+    for gid in garmin_ids:
+        r = db.execute('SELECT riderId FROM GarminMissing WHERE garminId=? AND deleted=0', [str(gid)]).fetchone()
+        if r:
+            duplicates.tombstone(db, f'garmin_{gid}', r['riderId'])
+            db.execute('UPDATE GarminMissing SET deleted=1 WHERE garminId=?', [str(gid)])
+            n += 1
+    return n
 
 
 def run(db, api, rider_id, today=None):
@@ -232,6 +345,15 @@ def describe(res):
     bits = [f"{res[k]} {label}" for k, label in (('deleted', 'deleted in Garmin'), ('edited', 'renamed or given a new sport'),
                                                  ('recordings', 'with a changed recording')) if res[k]]
     line = ('Flagged for review: ' + ', '.join(bits) + '.') if bits else 'Nothing changed in Garmin.'
+    if res.get('imported') or res.get('failed'):
+        line += f" Brought in {res['imported']} strength, yoga or other gym activit{'ies' if res['imported'] != 1 else 'y'} an older sync skipped" + \
+                (f" ({res['failed']} couldn't be read: tried again next time)." if res['failed'] else '.')
+    if res.get('missing'):
+        n = res['missing']
+        line += f" {n} other activit{'ies' if n != 1 else 'y'} in Garmin {'are' if n != 1 else 'is'}n't here: listed to bring in or leave out."
+    if res.get('deleted_here'):
+        n = res['deleted_here']
+        line += f" {n} you deleted here {'are' if n != 1 else 'is'} still in Garmin: listed to bring back."
     if res.get('whole'):
         line = f"Checked all {res['listed']} activities in Garmin. " + line
     elif res.get('full') and res['listed']:

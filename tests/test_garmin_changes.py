@@ -163,6 +163,106 @@ def test_full_resync_with_none_of_them_listed_flags_nothing(db):
     assert 'another account' in gc.describe(res)
 
 
+def missing_ids(db):
+    return [m['garminId'] for m in gc.not_here(db)]
+
+
+def deleted_ids(db):
+    return [m['garminId'] for m in gc.not_here(db, deleted=True)]
+
+
+def test_full_resync_brings_in_skipped_gym_activities_and_lists_the_rest(db):
+    """An older sync left out strength and yoga (garmin.ONCE_SKIPPED): never here, so never deleted, and brought in. A ride missing below the
+    cursor may be one deleted before Headwind remembered deletions: listed, not brought back. Newer than the cursor is the sync's to fetch."""
+    here = [act(1, '2026-09-01'), act(9, '2026-09-20')]
+    imported(db, *here)                                          # cursor: 2026-09-20
+    left = [act(2, '2026-09-03', key='strength_training'), act(3, '2026-09-04', key='yoga'), act(4, '2026-09-05', name='Gone ride'),
+            act(5, '1999-01-01', key='yoga'), act(6, '2026-09-25', key='yoga')]
+    res = gc.full(db, FakeAPI(here + left), 1)
+    assert res['imported'] == 2 and res['missing'] == 1 and not res['failed']
+    ids = {r[0] for r in db.execute('SELECT id FROM Activity')}
+    assert ids == {'garmin_1', 'garmin_9', 'garmin_2', 'garmin_3'}
+    assert db.execute("SELECT type FROM Activity WHERE id='garmin_2'").fetchone()[0] not in ('Ride', 'VirtualRide', 'EBikeRide')
+    assert missing_ids(db) == ['4']
+    line = gc.describe(res)
+    assert 'Brought in 2 strength, yoga or other gym activities' in line and "1 other activity in Garmin isn't here" in line
+    res = gc.full(db, FakeAPI(here + left), 1)                   # again: nothing new, the same one listed
+    assert res['imported'] == 0 and missing_ids(db) == ['4']
+
+
+def test_full_resync_leaves_deleted_parked_and_unsynced_alone(db):
+    here = [act(1, '2026-09-01'), act(9, '2026-09-20')]
+    imported(db, *here)
+    duplicates.tombstone(db, 'garmin_2', 1)                      # deleted by you
+    db.commit()
+    acts = here + [act(2, '2026-09-03', key='yoga'), act(3, '2026-09-04')]
+    assert gc.full(db, FakeAPI(acts), 1)['imported'] == 0
+    assert not db.execute("SELECT 1 FROM Activity WHERE id='garmin_2'").fetchone() and missing_ids(db) == ['3']
+    assert deleted_ids(db) == ['2']                              # listed apart, to bring back; never brought in by itself
+    db.execute('UPDATE Settings SET garminActivitySyncDate=NULL WHERE id=1')     # never synced: the sync fetches the whole history itself
+    db.commit()
+    assert gc.full(db, FakeAPI(acts), 1)['missing'] == 0 and missing_ids(db) == [] and deleted_ids(db) == ['2']
+
+
+def test_full_resync_on_another_account_brings_in_nothing(db):
+    imported(db, act(1, '2026-09-01'), act(2, '2026-09-20'))
+    res = gc.full(db, FakeAPI([act(7, '2026-09-02', key='yoga'), act(8, '2026-09-03')]), 1)
+    assert res['suspect'] and res['imported'] == 0 and missing_ids(db) == []
+
+
+def test_listed_ones_are_brought_in_or_left_out_for_good(db, monkeypatch):
+    here = [act(1, '2026-09-01'), act(9, '2026-09-20')]
+    imported(db, *here)
+    acts = here + [act(3, '2026-09-04'), act(4, '2026-09-05'), act(5, '2026-09-06')]
+    gc.full(db, FakeAPI(acts), 1)
+    assert missing_ids(db) == ['5', '4', '3']
+    assert gc.leave_out(db, ['4']) == 1
+    db.commit()
+    assert deleted_ids(db) == ['4']                              # straight to the deleted ones: Leave out can be undone
+    assert gc.bring_in(db, FakeAPI(acts), ['3']) == (1, 0)
+    assert db.execute("SELECT 1 FROM Activity WHERE id='garmin_3'").fetchone() and missing_ids(db) == ['5']
+    downloads = FakeAPI.download_activity
+    monkeypatch.setattr(FakeAPI, 'download_activity', lambda self, aid, dl_fmt=None: (_ for _ in ()).throw(RuntimeError('boom')))
+    assert gc.bring_in(db, FakeAPI(acts), ['5']) == (0, 1)
+    assert missing_ids(db) == ['5']                              # still listed, to try again
+    gc.full(db, FakeAPI(acts), 1)
+    assert missing_ids(db) == []                                 # left out: never offered again; failed: not before its next try
+    for _ in garmin.sync_garmin_activities(1, api=FakeAPI(acts)):
+        pass
+    assert not db.execute("SELECT 1 FROM Activity WHERE id='garmin_4'").fetchone()
+    monkeypatch.setattr(FakeAPI, 'download_activity', downloads)  # Garmin downloads again
+    assert gc.bring_in(db, FakeAPI(acts), ['4']) == (1, 0)       # changed your mind
+    assert db.execute("SELECT 1 FROM Activity WHERE id='garmin_4'").fetchone() and not duplicates.is_deleted(db, 'garmin_4')
+
+
+def test_one_deleted_here_is_listed_with_garmins_details_and_brought_back(db):
+    """Headwind keeps only a deleted activity's id; Garmin's list gives back its name and date, whatever its date, and it can be brought back."""
+    acts = [act(1, '2026-09-01', name='Commute'), act(2, '2026-09-10', name='Hill reps'), act(9, '2026-09-20')]
+    imported(db, *acts)
+    duplicates.delete_activity(db, 'garmin_2')
+    duplicates.delete_activity(db, 'garmin_9')                   # on the cursor's own day: the sync won't fetch it either
+    db.commit()
+    res = gc.full(db, FakeAPI(acts), 1)
+    assert res['deleted_here'] == 2 and res['missing'] == 0 and not res['deleted']
+    assert [(m['garminId'], m['name'], m['startDateLocal']) for m in gc.not_here(db, deleted=True)] == \
+        [('9', 'ride 9', '2026-09-20T09:00:00'), ('2', 'Hill reps', '2026-09-10T09:00:00')]
+    assert '2 you deleted here are still in Garmin' in gc.describe(res)
+    assert gc.bring_in(db, FakeAPI(acts), ['2']) == (1, 0)
+    assert db.execute("SELECT name FROM Activity WHERE id='garmin_2'").fetchone()[0] == 'Hill reps'
+    assert deleted_ids(db) == ['9']
+    gc.full(db, FakeAPI(acts), 1)
+    assert deleted_ids(db) == ['9'] and missing_ids(db) == []
+
+
+def test_one_deleted_in_garmin_drops_off_the_list(db):
+    here = [act(1, '2026-09-01'), act(9, '2026-09-20')]
+    imported(db, *here)
+    gc.full(db, FakeAPI(here + [act(3, '2026-09-04')]), 1)
+    assert missing_ids(db) == ['3']
+    gc.full(db, FakeAPI(here), 1)
+    assert missing_ids(db) == []
+
+
 def test_rename_and_new_sport_are_offered_and_taken(db):
     imported(db, act(1, '2026-09-01', name='Morning ride'))
     api = FakeAPI([act(1, '2026-09-01', name='Lunch run', key='running')])
@@ -323,4 +423,45 @@ def test_settings_full_resync_button_runs_the_whole_check(tmp_path, monkeypatch)
     r = c.post('/garmin/changes/check?whole=1')
     assert r.status_code == 302 and r.headers['Location'].endswith('/import#garmin-changes')
     assert started and started[0][1:] == (1, True)
+    garmin_routes._changes_lock.release()
+
+
+def test_import_page_lists_the_missing_and_its_buttons_work(tmp_path, monkeypatch):
+    """In Garmin, not here: listed on the Import page; Leave out settles it there and then, Bring in starts a background fetch. Full app."""
+    import app as app_module
+    import config
+    from routes import garmin as garmin_routes
+    from services import credentials
+    monkeypatch.setattr(config.Config, 'DATABASE', str(tmp_path / 'p.db'))
+    monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)
+    monkeypatch.setattr('services.garmin.signed_in', lambda: True)
+    app = app_module.create_app()
+    with app.app_context():
+        d = database.get_db()
+        d.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
+        d.execute("UPDATE Settings SET garminSyncMode='full', garminEmail='a@b.c', garminActivitySyncDate='2026-09-20' WHERE id=1")
+        d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
+        d.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, distance, movingTime) VALUES ('garmin_1', 'r', 'Ride', 'Ride', 1, '2026-09-01T09:00:00', 20000, 3600)")
+        d.commit()
+        gc.full(d, FakeAPI([act(1, '2026-09-01'), act(3, '2026-09-04', name='Lost ride'), act(4, '2026-09-05', name='Other lost ride')]), 1)
+        av = credentials.auth_version()
+    started = []
+    monkeypatch.setattr(garmin_routes.threading, 'Thread', lambda target, args, daemon: type('T', (), {'start': lambda s: started.append(args)})())
+    c = app.test_client()
+    with c.session_transaction() as s:
+        s['logged_in'] = True
+        s['av'] = av
+    page = c.get('/import').get_data(as_text=True)
+    assert 'In Garmin, not here (2)' in page and 'Lost ride' in page and 'Bring all in' in page
+    r = c.post('/garmin/missing/4/leave')
+    assert r.status_code == 302 and r.headers['Location'].endswith('/import#garmin-changes')
+    with app.app_context():
+        assert missing_ids(database.get_db()) == ['3'] and duplicates.is_deleted(database.get_db(), 'garmin_4')
+    page = c.get('/import').get_data(as_text=True)
+    assert 'Deleted here, still in Garmin (1)' in page and 'Other lost ride' in page
+    c.post('/garmin/missing/all/import')
+    assert started and started[0][1] == ['3']
+    garmin_routes._changes_lock.release()
+    c.post('/garmin/missing/all/restore')
+    assert started[1][1] == ['4']
     garmin_routes._changes_lock.release()

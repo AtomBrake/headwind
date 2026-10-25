@@ -261,6 +261,44 @@ def _bg_changes_check(app, rider_id, whole=False):
         _changes_lock.release()
 
 
+@bp.route('/garmin/missing/<gid>/<choice>', methods=['POST'])
+def missing_resolve(gid, choice):
+    """Activities in Garmin that Full re-sync found and didn't bring in (services/garmin_changes._left_behind). gid 'all' settles every one in
+    its list. 'import' (never here) and 'restore' (deleted here) fetch them in the background (its progress and result are in TaskLog, like the
+    check's); 'leave' moves one never here to the deleted ones, so no sync fetches it."""
+    from flask import current_app, flash, redirect, url_for
+    from services import garmin_changes
+    db = get_db()
+    ids = [m['garminId'] for m in garmin_changes.not_here(db, deleted=choice == 'restore')] if gid == 'all' else [gid]
+    if choice == 'leave':
+        n = garmin_changes.leave_out(db, ids)
+        db.commit()
+        flash(f"Left out {n} activit{'ies' if n != 1 else 'y'}: no sync brings {'them' if n != 1 else 'it'} in. To change your mind, see "
+              f"Deleted here, still in Garmin.", 'success')
+    elif choice in ('import', 'restore') and ids and _garmin_on() and _changes_lock.acquire(blocking=False):     # one Garmin task at a time
+        threading.Thread(target=_bg_bring_in, args=(current_app._get_current_object(), ids), daemon=True).start()
+    return redirect(url_for('import_rides.index') + '#garmin-changes')
+
+
+def _bg_bring_in(app, ids):
+    from services import garmin_changes, tasks
+    from services.garmin import _client
+    try:
+        with app.app_context():
+            db = get_db()
+            with tasks.run(db, garmin_changes.TASK, 'Garmin: bringing in activities') as t:
+                done, failed = garmin_changes.bring_in(db, _client(), ids)
+                t.result = f"Brought in {done} activit{'ies' if done != 1 else 'y'} from Garmin." + \
+                           (f" {failed} couldn't be read and {'are' if failed != 1 else 'is'} still listed." if failed else '')
+            if done:
+                from services.mqtt import push_update
+                push_update()
+    except Exception as e:                              # already logged as failed by tasks.run
+        log.warning('Bringing in Garmin activities failed: %s', e)
+    finally:
+        _changes_lock.release()
+
+
 @bp.route('/garmin/changes/<path:ride_id>/<choice>', methods=['POST'])
 def changes_resolve(ride_id, choice):
     """Settle activities changed in Garmin (services/garmin_changes.resolve). ride_id 'deleted' or 'edited' settles every one of that kind.
