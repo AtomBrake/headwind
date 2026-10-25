@@ -819,7 +819,7 @@ docs/               Home Assistant builders, screenshots, notes
 ## Development
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 python3 -m pytest tests -q                    # unit tests
 
 # End-to-end smoke tests — throwaway instance only (they write data):

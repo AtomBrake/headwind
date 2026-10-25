@@ -1,13 +1,20 @@
-FROM python:3.14-slim
+FROM python:3.14-slim AS build
 
-WORKDIR /app
-
+# gcc only for a dependency with no wheel for this platform; it stays in this stage, out of the image
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+
+
+FROM python:3.14-slim
+
+WORKDIR /app
+
+COPY --from=build /opt/venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
 
 COPY . .
 
