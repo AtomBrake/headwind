@@ -90,6 +90,8 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
     dup = duplicates.resolve(db, wid)                  # the same session from Garmin, Strava or a file: keep the better recording
     from services import gear
     gear.on_ride_added(db, (dup or {}).get('kept', wid))  # attaches waiting phone sensors; the rider's default shoes for the sport
+    from services import sanity
+    sanity.flag(db, (dup or {}).get('kept', wid))        # a walk with a car journey in it
     db.commit()
     if dup and dup['parked'] == wid:
         return _kept_instead(wid), False
@@ -183,13 +185,14 @@ def delete(db, wid, rider_id):
     does not bring it back. Returns True if it existed. Does not commit."""
     if not db.execute(f'SELECT 1 FROM Activity WHERE id=? AND riderId=? AND NOT {RIDE_SQL}', [wid, rider_id]).fetchone():
         return False
+    from services import duplicates
+    duplicates.settle_parked(db, wid)                  # the copies set aside behind it: behind another recording of it, or discarded with it
     forget(db, wid)
     db.execute('DELETE FROM Activity WHERE id=?', [wid])
     from flask import current_app
     from services import photos
     photos.delete_for(db, [wid], current_app.config['DATABASE'])
     if str(wid).startswith('garmin_'):
-        from services import duplicates
         duplicates.tombstone(db, wid, rider_id)
     return True
 

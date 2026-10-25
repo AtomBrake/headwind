@@ -704,6 +704,8 @@ def _save_workout(db, wid, rider_id, sport, name, start_utc, start_local, parsed
         import logging
         logging.getLogger(__name__).warning('Garmin activity %s matched an existing recording; kept the better one', wid)
     gear.on_ride_added(db, (dup or {}).get('kept', wid))  # the rider's default shoes (or other kit) for the sport
+    from services import sanity
+    sanity.flag(db, (dup or {}).get('kept', wid))        # a run's 9 s moving time over 12 km, a strap's 21 bpm
 
 
 def _local_where(utc_iso, lat, lng, sport=None):

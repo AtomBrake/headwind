@@ -399,7 +399,7 @@ def resolve(db, ride_id, choice):
             raise ValueError('choose keep or delete')
         from services import duplicates
         db.execute('DELETE FROM GarminChange WHERE rideId=?', [ride_id])
-        duplicates.delete_activity(db, ride_id)
+        duplicates.delete_activity(db, ride_id, by_garmin=True)       # only Garmin's record went: a copy set aside behind it stays
         db.execute('DELETE FROM RideMemory WHERE rideId=?', [ride_id])
         return 'deleted'
     if choice not in ('garmin', 'keep'):

@@ -59,13 +59,13 @@
 
 {% block content %}
 
-{% if not is_workout and not friend and activity.flagReason and not activity.flagDismissed %}
+{% if not friend and activity.flagReason and not activity.flagDismissed %}
 <div class="card" id="flagBanner" style="margin-bottom:1rem; padding:0.8rem 1rem; border-color:var(--warning-line); background:var(--warning-soft);">
-  <div style="font-weight:600; margin-bottom:0.25rem;">This ride looks wrong</div>
+  <div style="font-weight:600; margin-bottom:0.25rem;">This {{ 'activity' if is_workout else 'ride' }} looks wrong</div>
   <div class="hint">{{ activity.flagReason }}. It is left out of the speed and weather analytics until you decide.</div>
   <div style="margin-top:0.6rem; display:flex; gap:0.6rem; flex-wrap:wrap;">
     <button class="btn btn-secondary" onclick="dismissFlag()">It's right, keep it</button>
-    <form method="POST" action="/rides/{{ activity.id }}/delete" onsubmit="return confirm('Delete this activity? Its photos, notes and segment times go with it, and a later sync or import will not bring it back. This cannot be undone.')" style="margin:0;"><button class="btn btn-danger-quiet" type="submit">Delete the ride</button></form>
+    <form method="POST" action="/rides/{{ activity.id }}/delete" onsubmit="return confirm('Delete this activity? Its photos, notes and segment times go with it, and a later sync or import will not bring it back. This cannot be undone.')" style="margin:0;"><button class="btn btn-danger-quiet" type="submit">Delete the {{ 'activity' if is_workout else 'ride' }}</button></form>
   </div>
 </div>
 {% endif %}

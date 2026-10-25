@@ -37,7 +37,7 @@ def _ride_to_workout(db, row, sport, discard_parked=False):
     name = row['name'] if (row['name'] or '').strip().lower() not in _GENERIC_NAMES else None
     for sid in duplicates._drop_derived(db, row['id']):  # best efforts, segment efforts, ride memory
         _refresh_prs(db, sid)
-    db.execute("UPDATE Activity SET type=?, sportType=?, name=?, calories=?, caloriesRaw=?, bikeId=NULL, flagReason=NULL, source=COALESCE(source, 'converted'), "
+    db.execute("UPDATE Activity SET type=?, sportType=?, name=?, calories=?, caloriesRaw=?, bikeId=NULL, source=COALESCE(source, 'converted'), "
                "updatedAt=datetime('now') WHERE id=?", [sport, sport, name, kcal, kcal_raw, row['id']])
     from services import workouts as _wk, kit
     _wk.refresh_derived(db, row['id'])
@@ -60,6 +60,14 @@ def _workout_to_ride(db, row, sport):
     duplicates.rebuild_derived(db, row['id'])           # best efforts + segment efforts, now that it is a ride
     gear.on_ride_added(db, row['id'])                   # the rider's default bike
     return {'kind': 'ride', 'id': row['id'], 'sport': sport}
+
+
+def _checked(db, res):
+    """The new sport's "looks wrong" limits (services/sanity): a 140 m swim saved as a ride is no blip, a walk at 20 km/h is wrong where a
+    ride at that speed isn't."""
+    from services import sanity
+    sanity.flag(db, res['id'])
+    return res
 
 
 def change_sport(db, kind, act_id, sport, discard_parked=False):
@@ -89,9 +97,9 @@ def change_sport(db, kind, act_id, sport, discard_parked=False):
         gear.regear(db, act_id)                         # a bike it was given automatically follows the new sport (a mountain bike ride: the MTB)
         return {'kind': 'ride', 'id': act_id, 'sport': sport, 'changed': True}
     if kind == 'ride':
-        return dict(_ride_to_workout(db, row, sport, discard_parked), changed=True)
+        return _checked(db, dict(_ride_to_workout(db, row, sport, discard_parked), changed=True))
     if sport in RIDES:
-        return dict(_workout_to_ride(db, row, sport), changed=True)
+        return _checked(db, dict(_workout_to_ride(db, row, sport), changed=True))
     db.execute('UPDATE Activity SET sportType=?, type=? WHERE id=?', [sport, sport, act_id])
     from services import workouts as _wk
     _wk.refresh_derived(db, act_id)                      # walks, runs and hikes share foot segments; a swim has none; runs and swims have best times
@@ -102,4 +110,4 @@ def change_sport(db, kind, act_id, sport, discard_parked=False):
         db.execute('UPDATE Activity SET calories=?, caloriesRaw=? WHERE id=?', [kcal, kcal_raw, act_id])
     from services import gear
     gear.regear(db, act_id)                              # shoes it was given automatically follow the new sport (a hike: the boots)
-    return {'kind': 'workout', 'id': act_id, 'sport': sport, 'changed': True}
+    return _checked(db, {'kind': 'workout', 'id': act_id, 'sport': sport, 'changed': True})

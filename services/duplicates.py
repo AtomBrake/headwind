@@ -466,14 +466,61 @@ def _drop_photos(db, act_ids):
     photos.delete_for(db, act_ids, current_app.config['DATABASE'])
 
 
-def delete_activity(db, act_id):
-    """The one place a ride is deleted (web button, phone app): derived data, parked duplicates of it, then a tombstone. Does not commit."""
+def _overlap_s(a, b):
+    sa, sb = span(a), span(b)
+    return (min(sa[1], sb[1]) - max(sa[0], sb[0])).total_seconds() if sa and sb else 0
+
+
+def _match_for(db, row, exclude_ids=()):
+    """The live activity a copy set aside is the same ride as (same_ride), the one it overlaps most when there are several, or None."""
+    cands = find_duplicates(db, row, exclude_ids)
+    return max(cands, key=lambda c: _overlap_s(row, c)) if cands else None
+
+
+def settle_parked(db, act_id, by_garmin=False):
+    """Before an activity is deleted: the copies set aside behind it, which nothing would show any more. One that is the same ride as another live
+    activity moves behind that one. Otherwise, when the activity was deleted in Garmin (by_garmin: only Garmin's record went, not the session), the
+    copy comes back as its own activity, as an import of it alone would have saved it; when the rider deleted it, the copy is discarded with it (its
+    id stays remembered, so no sync brings it back). Returns the id now standing for the session when one does (where the photos can go), else
+    None. Does not commit."""
+    ensure_schema(db)
+    stands = None
+    for d in db.execute("SELECT id, rowJson FROM ActivityDuplicate WHERE primaryId=? AND status='parked' AND id<>? ORDER BY parkedAt",
+                        [act_id, act_id]).fetchall():
+        try:
+            row = json.loads(d['rowJson'] or '{}')
+        except (TypeError, ValueError):
+            row = {}
+        other = _match_for(db, row, (act_id,)) if row else None
+        if other:
+            db.execute('UPDATE ActivityDuplicate SET primaryId=? WHERE id=?', [other['id'], d['id']])
+            log.warning('Delete of %s: its copy %s moved behind %s, the same ride', act_id, d['id'], other['id'])
+            stands = stands or other['id']
+        elif by_garmin and row:
+            _restore(db, d['id'])
+            db.execute('DELETE FROM ActivityDuplicate WHERE id=?', [d['id']])
+            rebuild_derived(db, d['id'])
+            log.warning('Delete of %s (deleted in Garmin): its copy %s is back as its own activity', act_id, d['id'])
+            stands = stands or d['id']
+        else:
+            discard(db, d['id'])
+            log.warning('Delete of %s: its copy %s discarded with it', act_id, d['id'])
+    return stands
+
+
+def delete_activity(db, act_id, by_garmin=False):
+    """The one place a ride is deleted (web button, phone app, deleted in Garmin): derived data, the copies set aside behind it (settle_parked),
+    then a tombstone. by_garmin: deleted because Garmin deleted it, so its photos go to the copy that now stands for the session. Does not commit."""
     from services.segments import _refresh_prs
     row = db.execute('SELECT id, riderId FROM Activity WHERE id=?', [act_id]).fetchone()
     if not row:
         return False
+    stands = settle_parked(db, act_id, by_garmin)
     seg_ids = _drop_derived(db, act_id)
     db.execute('DELETE FROM Activity WHERE id=?', [act_id])
+    if by_garmin and stands:
+        from services import photos
+        photos.move(db, act_id, stands)                 # most came from the copy set aside behind it, when it was merged
     _drop_photos(db, [act_id])
     db.execute('UPDATE RideSensor SET rideKind=NULL, rideId=NULL WHERE rideId=?', [act_id])      # the phone's sensor recording stays, waiting for another ride
     db.execute("UPDATE ActivityDuplicate SET primaryId='' WHERE primaryId=? AND status='kept_both'", [act_id])
@@ -595,6 +642,98 @@ def recover_names(db):
     if renamed:
         log.warning('Duplicates: %d merged activit%s took back the name chosen on the copy set aside', len(renamed), 'y' if len(renamed) == 1 else 'ies')
     return {'checked': len(rows), 'renamed': len(renamed), 'ran': True}
+
+
+def repair_live_parked(db):
+    """Run once (Settings.liveParkedFixDone): a Strava export imported before 0.7.11 saved again an activity already set aside as a copy of another
+    (routes/import_rides now skips those), so the copy is live AND parked, and the session counts twice in every total. Each such pair is decided
+    again, by the rule an import uses (pick_winner, and the better name with it), between the two live rows as they are now: the loser is set aside
+    with its row as it is today (rowJson from before the import is older than the live row), its photos, commute, bike, kit and notes go to the one
+    kept (park), and the one kept gets its best and segment efforts again. A copy the rider chose to set aside (CHOSEN) stays behind the one they
+    chose; a pair that is no longer the same ride (same_ride) is kept apart, as an import of both would have. A copy live while the activity it was
+    parked behind is gone just loses its parked row. Also drops the 'discarded' rows of activities live again since (re-imported): their data was
+    already gone ('{}'), and an import skips only an id that isn't live. Friends' activities are left alone. Commits.
+    Returns {'ran', 'decided': [(kept, set aside, reason)], 'apart': [(id, id)], 'orphans': n, 'discarded': n}."""
+    ensure_schema(db)
+    s = db.execute('SELECT liveParkedFixDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['liveParkedFixDone']:
+        return {'ran': False, 'decided': [], 'apart': [], 'orphans': 0, 'discarded': 0}
+    from services import origin
+    origin.backfill(db)                                 # matches a converted activity to its first id through every remembered id: before any go
+    friends = 'SELECT riderId FROM Friend WHERE riderId IS NOT NULL'
+    ids = [r[0] for r in db.execute(f"""SELECT d.id FROM ActivityDuplicate d JOIN Activity a ON a.id = d.id
+                                         WHERE d.status='parked' AND a.riderId NOT IN ({friends}) ORDER BY d.parkedAt""").fetchall()]
+    decided, apart, orphans = [], [], 0
+    for dup_id in ids:
+        d = db.execute("SELECT primaryId, reason FROM ActivityDuplicate WHERE id=? AND status='parked'", [dup_id]).fetchone()
+        live = db.execute('SELECT * FROM Activity WHERE id=?', [dup_id]).fetchone()
+        if not d or not live:                           # set aside again by an earlier pair: decided already
+            continue
+        kept = db.execute('SELECT * FROM Activity WHERE id=?', [d['primaryId']]).fetchone() if d['primaryId'] != dup_id else None
+        db.execute('DELETE FROM ActivityDuplicate WHERE id=?', [dup_id])       # live: decided again below, as if both had just come in
+        if not kept:
+            orphans += 1
+            continue
+        if d['reason'] == CHOSEN:
+            winner, loser, reason = kept, live, CHOSEN
+        elif not same_ride(live, kept):
+            apart.append((dup_id, kept['id']))
+            continue
+        else:
+            winner, loser, reason = pick_winner(kept, live)
+        name = winner['name']
+        park(db, loser['id'], winner['id'], reason)    # takes the better name, the photos, commute, bike or kit and notes; fresh rowJson
+        rebuild_derived(db, winner['id'])
+        now = db.execute('SELECT name FROM Activity WHERE id=?', [winner['id']]).fetchone()['name']
+        decided.append((winner['id'], loser['id'], reason))
+        log.warning('Duplicates: %s was live and set aside as a copy of %s; kept %s%s, set aside %s (%s)', dup_id, kept['id'], winner['id'],
+                    f' (renamed "{name}" to "{now}")' if now != name else '', loser['id'], reason)
+    for a, b in apart:
+        log.warning('Duplicates: %s was live and set aside as a copy of %s, which it no longer matches: both kept', a, b)
+    if orphans:
+        log.warning('Duplicates: %d live activit%s had a parked row behind an activity that is gone: the row dropped', orphans, 'y' if orphans == 1 else 'ies')
+    discarded = db.execute(f"""DELETE FROM ActivityDuplicate WHERE status='discarded' AND id IN (SELECT id FROM Activity
+                                WHERE riderId NOT IN ({friends}))""").rowcount
+    if discarded:
+        log.warning('Duplicates: %d discarded cop%s live again since: the stale rows dropped', discarded, 'y' if discarded == 1 else 'ies')
+    db.execute('UPDATE Settings SET liveParkedFixDone=1 WHERE id=1')
+    db.commit()
+    return {'ran': True, 'decided': decided, 'apart': apart, 'orphans': orphans, 'discarded': discarded}
+
+
+def repair_stranded_parked(db):
+    """Run once (Settings.strandedParkedFixDone), after repair_live_parked: before settle_parked, a delete (most often Import's "delete everything
+    deleted in Garmin") left the copies set aside behind the activity pointing at an id that's gone, where nothing shows them. Each moves behind the live
+    activity it is the same ride as (same_ride; the one it overlaps most, if several). One that matches nothing is left as it is and listed: nothing
+    is guessed. Friends' activities are left alone. Commits. Returns {'ran', 'moved': [(id, new primary)], 'unmatched': [(id, name, old primary)]}."""
+    ensure_schema(db)
+    s = db.execute('SELECT strandedParkedFixDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['strandedParkedFixDone']:
+        return {'ran': False, 'moved': [], 'unmatched': []}
+    ids = [r[0] for r in db.execute("""SELECT id FROM ActivityDuplicate WHERE status='parked'
+                                        AND id NOT IN (SELECT id FROM Activity) AND primaryId NOT IN (SELECT id FROM Activity)
+                                        AND COALESCE(riderId, -1) NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL) ORDER BY parkedAt""")]
+    moved, unmatched = [], []
+    for dup_id in ids:                                  # one at a time: rowJson is a whole activity with its streams
+        d = db.execute('SELECT primaryId, rowJson FROM ActivityDuplicate WHERE id=?', [dup_id]).fetchone()
+        try:
+            row = json.loads(d['rowJson'] or '{}')
+        except (TypeError, ValueError):
+            row = {}
+        other = _match_for(db, row) if row.get('riderId') is not None else None
+        if other:
+            db.execute('UPDATE ActivityDuplicate SET primaryId=? WHERE id=?', [other['id'], dup_id])
+            moved.append((dup_id, other['id']))
+        else:
+            unmatched.append((dup_id, row.get('name'), d['primaryId']))
+    db.execute('UPDATE Settings SET strandedParkedFixDone=1 WHERE id=1')
+    db.commit()
+    if moved:
+        log.warning('Duplicates: %d cop%s set aside behind a deleted activity moved behind the live one of the same ride: %s', len(moved),
+                    'y' if len(moved) == 1 else 'ies', ', '.join(f'{a} -> {b}' for a, b in moved))
+    for a, name, was in unmatched:
+        log.warning('Duplicates: %s (%s), set aside behind %s, which is gone, matches no live activity: left as it is', a, name, was)
+    return {'ran': True, 'moved': moved, 'unmatched': unmatched}
 
 
 def recheck_workouts(db):

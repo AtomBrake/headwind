@@ -134,7 +134,8 @@ def heavy_last(db, table, heavy):
 # are downloads still to do.
 _REPAIR_FLAGS = ('distanceBackfillDone', 'utcStartFixDone', 'awayStartRecheckDone', 'localZoneFixDone', 'workoutDupCheckDone', 'dupNameFixDone',
                  'segmentFamiliesDone', 'segmentBikesMergedDone', 'movingTimeFixDone', 'segmentMatchFixDone', 'sportEffortsDone',
-                 'movingTimePausedDone', 'bestEffortsCleanDone', 'sensorTopSpeedDone', 'mmDistancesDone', 'stravaManualDone')
+                 'movingTimePausedDone', 'bestEffortsCleanDone', 'sensorTopSpeedDone', 'mmDistancesDone', 'stravaManualDone', 'sanityAllSportsDone',
+                 'liveParkedFixDone', 'strandedParkedFixDone')
 
 
 def migrate_db():
@@ -442,6 +443,9 @@ def migrate_db():
         ('sensorTopSpeedDone',     'INTEGER DEFAULT 0'), # top speeds from the GPS where the speed sensor went wrong (services/max_stats.fix_sensor_top_speed)
         ('mmDistancesDone',        'INTEGER DEFAULT 0'), # distances an old Strava import stored in mm, of every sport (services/mm_distances.fix)
         ('stravaManualDone',       'INTEGER DEFAULT 0'), # manual entries an old Strava import saved unmarked, marked and brought back (services/strava_manual.fix)
+        ('liveParkedFixDone',      'INTEGER DEFAULT 0'), # activities both live and set aside as a copy (a Strava export before 0.7.11), decided again (services/duplicates.repair_live_parked)
+        ('strandedParkedFixDone',  'INTEGER DEFAULT 0'), # copies left behind a deleted activity moved behind the live one of the same ride (services/duplicates.repair_stranded_parked)
+        ('sanityAllSportsDone',    'INTEGER DEFAULT 0'), # every sport checked once against the "looks wrong" limits, heart rate included (services/sanity.scan_every_sport)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
         ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
@@ -971,6 +975,33 @@ def migrate_db():
                       f"{res['checked']} copies set aside checked; {res['renamed']} activit{'y' if res['renamed'] == 1 else 'ies'} "
                       "took back the name chosen on the copy" if res['renamed'] else f"{res['checked']} copies set aside checked; no names needed changing")
         db.commit()
+    from services.duplicates import repair_live_parked
+    res = repair_live_parked(db)
+    if res['ran'] and (res['decided'] or res['apart'] or res['orphans'] or res['discarded']):
+        n = len(res['decided'])
+        names = {r[0]: r[1] for r in db.execute(f"SELECT id, name FROM Activity WHERE id IN ({','.join('?' * n)})", [k for k, _, _ in res['decided']])} if n else {}
+        msg = ((f"{n} activit{'y was' if n == 1 else 'ies were'} saved twice: once as {'its' if n == 1 else 'their'} own and once set aside as a copy "
+                "of another recording (a Strava export imported before 0.7.11), so the session counted twice in every total. Each pair was "
+                "decided again as an import would, and the other recording set aside with its photos, commute and gear moved to the one kept: "
+                + '; '.join(names.get(k) or k for k, _, _ in res['decided'][:5]) + ('…' if n > 5 else '') + '. ' if n else '')
+               + (f"{len(res['apart'])} no longer match the recording they were set aside behind, and both are kept. " if res['apart'] else '')
+               + (f"{res['orphans']} had been set aside behind an activity since deleted, and stay as their own. " if res['orphans'] else '')
+               + (f"{res['discarded']} recording{'s' if res['discarded'] != 1 else ''} thrown away and imported again since "
+                  f"{'are' if res['discarded'] != 1 else 'is'} no longer remembered as thrown away." if res['discarded'] else ''))
+        _tasks.record(db, 'startup:live_parked', 'Activities counted twice', msg.strip())
+        db.commit()
+    from services.duplicates import repair_stranded_parked
+    res = repair_stranded_parked(db)
+    if res['ran'] and (res['moved'] or res['unmatched']):
+        n, left = len(res['moved']), res['unmatched']
+        msg = ((f"{n} recording{'s' if n != 1 else ''} set aside as a copy of an activity since deleted (most by deleting what was deleted in "
+                f"Garmin) {'were' if n != 1 else 'was'} out of sight; each now sits behind the activity of the same session that's still here, "
+                "where you can swap it in. " if n else '')
+               + (f"{len(left)} match{'' if len(left) != 1 else 'es'} nothing still here and {'are' if len(left) != 1 else 'is'} left as "
+                  f"{'they are' if len(left) != 1 else 'it is'}: " + '; '.join(f"{u[1] or u[0]}" for u in left[:5]) + ('…' if len(left) > 5 else '') + '.'
+                  if left else ''))
+        _tasks.record(db, 'startup:stranded_parked', 'Copies left behind deleted activities', msg.strip())
+        db.commit()
     from services.segments import regroup as _regroup_segments
     res = _regroup_segments(db)
     if res.get('ran') and db.execute('SELECT 1 FROM Segment LIMIT 1').fetchone():
@@ -1048,6 +1079,15 @@ def migrate_db():
                           "1 km to the marathon on foot, 100 m to 3.8 km in the water. They're on the Data page and your profile.")
         db.commit()
     from services import sanity as _sanity              # after the repairs above: a flag set before one put the ride right is out of date
+    res = _sanity.scan_every_sport(db)
+    if res['ran'] and res['flagged']:
+        n = len(res['flagged'])
+        _tasks.record(db, 'startup:sanity_all_sports', 'Activities that look wrong',
+                      f"Runs, walks, hikes and swims are now checked for what can't be real, and every sport for a heart rate no heart has and a "
+                      f"moving time of seconds against a real distance. {n} activit{'y' if n == 1 else 'ies'} flagged, left out of the speed charts "
+                      "until you look at them on the dashboard: " + '; '.join(f"{f[1] or f[0]} ({f[3]})" for f in res['flagged'][:5])
+                      + ('…' if n > 5 else '') + '.')
+        db.commit()
     cleared = [r[1] for r in db.execute('SELECT id, name FROM Activity WHERE flagReason IS NOT NULL AND COALESCE(flagDismissed, 0) = 0').fetchall()
                if _sanity.flag(db, r[0]) is None]
     if cleared:
