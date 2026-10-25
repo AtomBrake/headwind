@@ -156,3 +156,64 @@ def test_an_upload_left_behind_is_cleared(app, client):
     os.utime(left, (0, 0))
     _upload(client, _export())
     assert os.listdir(_dir(app)) == ['1.zip']
+
+
+def _advise(monkeypatch, *lines):
+    monkeypatch.setattr(strava_export, 'REIMPORT_ADVISED', [(f'9.{i}', line) for i, line in enumerate(lines)])
+
+
+def test_a_release_that_advises_it_asks_for_the_export_again(app, client, monkeypatch):
+    _upload(client, _export())
+    page = client.get('/import').get_data(as_text=True)
+    assert 'Strava export again' not in page and 'nav-badge" title="Import your Strava export again' not in page
+    _advise(monkeypatch, 'Photos on runs')
+    page = client.get('/import').get_data(as_text=True)
+    assert 'Import your Strava export again' in page and 'Photos on runs' in page and "It's kept here" in page
+    assert 'title="Import your Strava export again">1<' in client.get('/import').get_data(as_text=True)
+    assert 'title="Import your Strava export again">1<' in client.get('/settings/').get_data(as_text=True)   # the badge is on every page
+    _post(client, '/import/strava-export/1/again', {})
+    assert 'Strava export again' not in client.get('/import').get_data(as_text=True)
+
+
+def test_an_export_not_kept_is_asked_for_by_upload(app, client, monkeypatch):
+    _upload(client, _export(), keepExport='0')
+    _advise(monkeypatch, 'Photos on runs')
+    page = client.get('/import').get_data(as_text=True)
+    assert "It isn't kept here" in page and f'importAgain(1' not in page
+    _upload(client, _export(), keepExport='0')                  # uploaded again, still not kept: done all the same
+    assert 'Strava export again' not in client.get('/import').get_data(as_text=True)
+
+
+def test_not_now_waits_for_a_newer_line(app, client, monkeypatch):
+    _upload(client, _export())
+    _advise(monkeypatch, 'Photos on runs')
+    client.post('/import/strava-export/1/not-now')
+    assert 'Strava export again' not in client.get('/import').get_data(as_text=True)
+    _advise(monkeypatch, 'Photos on runs', 'Commutes on walks')
+    page = client.get('/import').get_data(as_text=True)
+    assert 'Commutes on walks' in page and 'Photos on runs' in page          # everything since the last import, not since Not now
+
+
+def test_only_riders_who_imported_an_export_are_asked(app, client, monkeypatch):
+    _upload(client, _files_zip(), name='rides.zip')
+    _upload(client, _export(), riderId='2')
+    _advise(monkeypatch, 'Photos on runs')
+    with app.app_context():
+        assert [a['riderId'] for a in strava_export.advice(database.get_db(), app.config['DATABASE'])] == [2]
+    client.post('/riders/2/delete')
+    with app.app_context():
+        assert database.get_db().execute('SELECT COUNT(*) FROM StravaExportRead').fetchone()[0] == 0
+
+
+def test_riders_who_imported_before_it_was_recorded_are_asked(app, client, monkeypatch):
+    """An install upgraded to this version: an export imported before shows in ImportSeen, StravaBike or StravaKit, or is still kept."""
+    _upload(client, _export(), keepExport='0')
+    with app.app_context():
+        db = database.get_db()
+        db.execute('DROP TABLE StravaExportRead')
+        db.execute("INSERT INTO StravaBike (riderId, name) VALUES (2, 'Old bike')")
+        strava_export.ensure_schema(db)
+        db.commit()
+        assert [tuple(r) for r in db.execute('SELECT riderId, advised FROM StravaExportRead ORDER BY riderId')] == [(1, 0), (2, 0)]
+        _advise(monkeypatch, 'Photos on runs')
+        assert len(strava_export.advice(db, app.config['DATABASE'])) == 2

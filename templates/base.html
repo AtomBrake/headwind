@@ -191,7 +191,7 @@
       </a>
       <a href="{{ url_for('import_rides.index') }}"
          class="nav-item {% if request.blueprint == 'import_rides' %}active{% endif %}">
-        {% include 'icons/_upload.svg' %} Import
+        {% include 'icons/_upload.svg' %} Import{% if reimport_advised %} <span class="nav-badge" title="Import your Strava export again">{{ reimport_advised }}</span>{% endif %}
       </a>
       <a href="{{ url_for('tasks.index') }}"
          class="nav-item {% if request.blueprint == 'tasks' %}active{% endif %}">

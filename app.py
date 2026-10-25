@@ -505,6 +505,17 @@ def create_app():
             return {'startup_unseen': 0}
 
     @app.context_processor
+    def inject_reimport_notice():
+        """How many riders a release advises to import their Strava export again (services/strava_export.advice): a badge on Import."""
+        if not session.get('logged_in'):
+            return {'reimport_advised': 0}
+        try:
+            from services import strava_export
+            return {'reimport_advised': len(strava_export.advice(get_db(), app.config['DATABASE']))}
+        except Exception:
+            return {'reimport_advised': 0}
+
+    @app.context_processor
     def inject_demo():
         return {'demo_mode': DEMO}
 

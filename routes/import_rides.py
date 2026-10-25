@@ -36,7 +36,8 @@ def index():
                            garmin_missing=garmin_changes.not_here(get_db()), garmin_deleted=garmin_changes.not_here(get_db(), deleted=True),
                            garmin_full=bool(query_db("SELECT 1 FROM Settings WHERE id=1 AND garminSyncMode='full'", one=True)),
                            strava_pending=strava_gear.pending(get_db(), owner_rider_id()),
-                           kept=strava_export.kept(get_db(), current_app.config['DATABASE']))
+                           kept=strava_export.kept(get_db(), current_app.config['DATABASE']),
+                           advice=strava_export.advice(get_db(), current_app.config['DATABASE']))
 
 
 @bp.route('/import/problems/clear', methods=['POST'])
@@ -130,6 +131,8 @@ def upload():
                 else:
                     job.put(item)
         if done is not None:
+            if rider_id:
+                strava_export.note_read(get_db(), rider_id)
             if opt_keep and rider_id:
                 try:
                     strava_export.keep(get_db(), db_path, rider_id, tmp.name, job.state.get('total'), opt_segments, opt_photos)
@@ -167,8 +170,18 @@ def import_again(rider_id):
             for item in _process_strava_export(zf, names, rider_id, segments=opt_segments, photos=opt_photos):
                 job.put(item)
         strava_export.read_again(get_db(), rider_id, job.state.get('total'), opt_segments, opt_photos)
+        strava_export.note_read(get_db(), rider_id)
 
     return _start(work)
+
+
+@bp.route('/import/strava-export/<int:rider_id>/not-now', methods=['POST'])
+def advice_not_now(rider_id):
+    """Put off the advice to import the export again (services/strava_export.advice) until a newer release adds to it."""
+    from flask import redirect, url_for
+    from services import strava_export
+    strava_export.dismiss(get_db(), rider_id)
+    return redirect(url_for('import_rides.index'))
 
 
 @bp.route('/import/strava-export/<int:rider_id>/delete', methods=['POST'])

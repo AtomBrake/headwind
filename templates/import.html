@@ -4,6 +4,28 @@
 {% block page_title %}Import Rides{% endblock %}
 
 {% block content %}
+{% for a in advice %}
+<div class="card" id="advice-{{ a.riderId }}" style="max-width:600px;margin-bottom:1.25rem;border-color:var(--accent);">
+  <div class="card-title">Import {{ a.riderName ~ "'s" if riders | length > 1 else 'your' }} Strava export again</div>
+  <p style="font-size:0.875rem;line-height:1.6;margin:0 0 0.5rem;">
+    Headwind reads more from it than when it was last imported{% if a.readAt %} ({{ a.readAt | fmt_date }}){% endif %}.
+    These fixes only reach the activities already here when the export is imported again:</p>
+  <ul style="margin:0 0 0.75rem 1.25rem;padding:0;font-size:0.875rem;line-height:1.7;">
+    {% for release, reason in a.reasons %}<li>{{ reason }} <span class="hint">({{ release }})</span></li>{% endfor %}
+  </ul>
+  <p class="hint" style="margin:0 0 0.75rem;">
+    {% if a.kept %}It's kept here, so nothing needs uploading: Import again reads it with the options ticked below.
+    {% else %}It isn't kept here: download it again from Strava (Settings &rarr; My Account &rarr; Download or delete your account &rarr; Request your archive) and upload it below.{% endif %}
+    Anything that differs from what's saved waits on this page for you to decide.
+  </p>
+  <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+    {% if a.kept %}<button class="btn btn-primary" onclick="importAgain({{ a.riderId }}, this)">Import again</button>{% endif %}
+    <form method="POST" action="{{ url_for('import_rides.advice_not_now', rider_id=a.riderId) }}" style="margin:0;">
+      <button class="btn btn-secondary">Not now</button></form>
+  </div>
+</div>
+{% endfor %}
+
 <div class="card" style="max-width:600px;">
   <div class="card-title">Import Rides</div>
 
