@@ -736,6 +736,8 @@ def delete(rid):
     photos.delete_for(db, [r[0] for r in db.execute('SELECT id FROM Activity WHERE riderId=?', [rid])], current_app.config['DATABASE'])
     from services import strava_export
     strava_export.forget(db, current_app.config['DATABASE'], rid)                 # their Strava export kept for Import again
+    from services import goals
+    goals.forget_rider(db, rid)
     db.execute('DELETE FROM Activity WHERE riderId=?', [rid])
     db.execute('DELETE FROM Rider WHERE id=?', [rid])
     for sid in seg_ids:

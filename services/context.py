@@ -566,6 +566,11 @@ def build_context(activity):
         lines.append('')
         lines.append(seg_ctx)
 
+    route_ctx = _build_route_context(ride_id)
+    if route_ctx:
+        lines.append('')
+        lines.append(route_ctx)
+
     ach_ctx = _build_achievement_context(ride_id, str(activity['startDateLocal'])[:10])
     if ach_ctx:
         lines.append('')
@@ -577,6 +582,30 @@ def build_context(activity):
             lines.append('')
             lines.append(badge_ctx)
 
+    return '\n'.join(lines)
+
+
+def _build_route_context(ride_id):
+    """The same route ridden before (services/matched): where this one ranks, and how it compares with the last few, with their wind. The
+    "comparable rides" above only match distance and climb; these followed the same roads, so their times compare directly."""
+    from database import get_db
+    from services import matched
+    try:
+        m = matched.compare(get_db(), ride_id)
+    except Exception:
+        return ''
+    if not m:
+        return ''
+    t = m['this']
+    lines = [f"Same route (same start, finish and roads; {m['total']} times since {_fmt_date(str(m['first']))}): this one is "
+             f"{_fmt_dur(t['movingTime'])} moving, the {m['rank']}{'th' if 10 <= m['rank'] % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(m['rank'] % 10, 'th')} "
+             f"quickest of {m['total']}; best {_fmt_dur(m['best']['movingTime'])} on {_fmt_date(str(m['best']['startDateLocal']))}."]
+    if m['median'] is not None:
+        lines.append(f"  vs the last {len(m['recent'])} here: median {_fmt_dur(m['median'])}, this one {_fmt_dur(abs(m['delta']))} "
+                     f"{'quicker' if m['delta'] < 0 else 'slower'}, beating {m['wins']} of them")
+        for r in m['recent'][:5]:
+            wind = f", {r['weatherWindRel']}" if r.get('weatherWindRel') else ''
+            lines.append(f"  {str(r['startDateLocal'])[:10]}: {_fmt_dur(r['movingTime'])}{wind}")
     return '\n'.join(lines)
 
 

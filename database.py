@@ -1063,6 +1063,8 @@ def migrate_db():
     _sport_fix_schema(db)
     from services.garmin_changes import ensure_schema as _garmin_changes_schema
     _garmin_changes_schema(db)
+    from services.goals import ensure_schema as _goals_schema               # goals and friend challenges
+    _goals_schema(db)
     from services.origin import backfill as _origin_backfill
     _origin_backfill(db)
     db.commit()

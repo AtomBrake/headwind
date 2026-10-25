@@ -404,10 +404,19 @@ def dashboard():
     except Exception:
         flagged = []
 
+    from services import goals
+    rider_goals = goals.goals(get_db(), rid)
+    rider_challenges = goals.challenges(get_db(), rid)
+    live_challenges = [c for c in rider_challenges if c['status'] == 'on' and c['joined']]
+    invitations = sum(1 for c in rider_challenges if c['invitation'] and c['status'] != 'finished')
+
     return render_template(
         'dashboard.html',
         gear_due=gear_due,
         flagged=flagged,
+        rider_goals=rider_goals,
+        live_challenges=live_challenges,
+        invitations=invitations,
         garmin_full=bool(query_db("SELECT 1 FROM Settings WHERE id=1 AND garminSyncMode='full'", one=True)),
         athlete=athlete,
         totals=totals,

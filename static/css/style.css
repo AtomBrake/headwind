@@ -1090,3 +1090,32 @@ body.bulk-mode { padding-bottom: 6rem; }
 .pick-toggle { font-size: 0.75rem; padding: 0.2rem 0.7rem; margin-left: auto; }
 .nav-badge { display: inline-block; min-width: 1.1rem; padding: 0 0.3rem; margin-left: 0.35rem; border-radius: 999px; background: var(--accent); color: var(--on-accent);
              font-size: 0.6875rem; font-weight: 700; line-height: 1.1rem; text-align: center; }
+
+/* ── Goals and challenges (templates/_goals.html) ───────────── */
+.section-head { font-size: 1.05rem; font-weight: 700; color: var(--text-strong); margin: 1.5rem 0 0.75rem; }
+.section-head:first-child { margin-top: 0; }
+.goal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+.goal-grid > .card { margin: 0; }
+.goal-grid > .card.invitation { border-color: var(--accent-line); }
+.goal-head { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.45rem; }
+.goal-title { font-weight: 600; color: var(--text-strong); }
+.goal + .goal { margin-top: 0.9rem; }
+.goal-bar { position: relative; height: 8px; background: var(--inset-bg); border-radius: 4px; margin: 0.25rem 0 0.35rem; }
+.goal-fill { height: 100%; border-radius: 4px; background: var(--text-muted); }
+.goal-fill.ahead, .goal-fill.done { background: var(--success); }
+.goal-fill.behind { background: var(--warning); }
+.goal-tick { position: absolute; top: -3px; width: 2px; height: 14px; margin-left: -1px; background: var(--text-strong); border-radius: 1px; }
+.goal-hist { display: flex; gap: 0.35rem; margin-top: 0.6rem; }
+.goal-hist-col { flex: 1; min-width: 0; text-align: center; }
+.goal-hist-bar { height: 36px; display: flex; align-items: flex-end; background: var(--inset-bg); border-radius: 3px; }
+.goal-hist-fill { width: 100%; border-radius: 3px; background: var(--text-muted); }
+.goal-hist-fill.hit { background: var(--success); }
+.goal-hist-label { font-size: 0.625rem; color: var(--text-muted); margin-top: 0.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.standing { display: flex; align-items: center; gap: 0.6rem; padding: 0.35rem 0; }
+.standing + .standing { border-top: 1px solid var(--divider); }
+.standing.me .standing-name { font-weight: 600; }
+.standing-pos { width: 1.1rem; text-align: right; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.standing .rider-avatar, .standing .rider-initial { width: 26px; height: 26px; font-size: 0.75rem; }
+.standing-main { flex: 1; min-width: 0; }
+.standing-main .goal-bar { margin: 0.2rem 0 0; height: 6px; }
+.standing-value { font-variant-numeric: tabular-nums; white-space: nowrap; }

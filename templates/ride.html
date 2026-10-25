@@ -695,6 +695,37 @@ function openPhoto(a) {
 </div>
 {% endif %}
 
+<!-- Same route (routes/matched.py): the other times this way, fetched after the page; nothing when there are none -->
+{% if coords %}
+<div id="matchedCard"></div>
+<script>
+(function () {
+  var slot = document.getElementById('matchedCard');
+  fetch('{{ url_for('matched.card', rid=activity.id) }}').then(function (r) { return r.ok ? r.text() : ''; }).then(function (html) {
+    if (!html.trim()) { slot.remove(); return; }
+    slot.outerHTML = html;
+    var el = document.getElementById('matchedChart');
+    if (!el || !window.Chart) return;
+    var s = JSON.parse(el.dataset.series);
+    new Chart(el, { type: 'line',
+      data: { labels: s.map(function (p) { return p.d; }),
+              datasets: [{ data: s.map(function (p) { return p.secs; }), borderColor: cssVar('--border-strong'), borderWidth: 1, tension: 0,
+                           pointRadius: s.map(function (p) { return p.current ? 6 : 3; }),
+                           pointBackgroundColor: s.map(function (p) { return p.current ? cssVar('--accent') : cssVar('--text-muted'); }),
+                           pointBorderWidth: 0 }] },
+      options: { animation: false, maintainAspectRatio: false,
+        onClick: function (e, items) { if (items.length && !s[items[0].index].current) location.href = '/rides/' + s[items[0].index].id; },
+        plugins: { legend: { display: false }, tooltip: { callbacks: {
+          title: function (c) { return s[c[0].dataIndex].name || c[0].label; },
+          label: function (c) { return c.label + ': ' + UNITS.fmtMinSec(c.parsed.y); } } } },
+        scales: { x: { ticks: { maxTicksLimit: 6, font: { size: 10 } }, grid: { display: false } },
+                  y: { ticks: { font: { size: 10 }, callback: function (v) { return UNITS.fmtMinSec(v); } },
+                       title: { display: true, text: 'moving time (lower is quicker)', font: { size: 10 } } } } } });
+  });
+})();
+</script>
+{% endif %}
+
 <!-- What fits the sport (services/activity_detail): splits on foot and in open water, a pool swim's sets, a ski day's runs, the device's laps -->
 {% if detail.splits %}
 <div class="card" style="margin-top:1rem; overflow-x:auto;" id="splitsCard">

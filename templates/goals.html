@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+{% from '_goals.html' import goal_progress, standings %}
+{% block title %}Goals{% endblock %}
+{% block page_title %}Goals{% endblock %}
+{% block content %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+
+{% macro rider_field() %}<input type="hidden" name="rider" value="{{ rid }}">{% endmacro %}
+{% macro metric_select(id) %}
+<select name="metric" id="{{ id }}" data-units='{{ units_of | tojson }}' onchange="goalUnit(this)">
+  {% for k, label in metrics.items() %}<option value="{{ k }}">{{ label }}</option>{% endfor %}
+</select>
+{% endmacro %}
+{% macro sport_select(default='ride') %}
+<select name="sport">{% for k, label in groups.items() %}<option value="{{ k }}"{{ ' selected' if k == default }}>{{ group_icons[k] }} {{ label }}</option>{% endfor %}</select>
+{% endmacro %}
+
+<h2 class="section-head">Your goals</h2>
+{% if goals %}
+<div class="goal-grid">
+  {% for g in goals %}
+  <div class="card">
+    {{ goal_progress(g) }}
+    <form method="POST" action="{{ url_for('goals.delete_goal', gid=g.id) }}" style="margin-top:0.6rem;"
+          onsubmit="return confirm('Delete the goal {{ g.title | replace("'", "’") }}? Your activities stay. This cannot be undone.')">
+      {{ rider_field() }}<button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card empty-state">
+  <div class="empty-icon">🎯</div>
+  <h3>No goals yet</h3>
+  <p>Set a distance, climbing, time or activity target for every week, month or year, and see each day whether you're on track.</p>
+</div>
+{% endif %}
+
+<details class="gcard"{% if not goals %} open{% endif %}>
+  <summary>+ Add a goal</summary>
+  <form method="POST" action="{{ url_for('goals.add_goal') }}" class="form-grid">
+    {{ rider_field() }}
+    <label>What{{ metric_select('goalMetric') }}</label>
+    <label>Sport{{ sport_select() }}</label>
+    <label>How often<select name="period">{% for p in periods %}<option value="{{ p }}"{{ ' selected' if p == 'week' }}>Every {{ p }}</option>{% endfor %}</select></label>
+    <label>Target (<span data-unit-for="goalMetric">{{ units_of.distance }}</span>)<input type="number" name="target" min="0" step="any" required></label>
+    <div class="wide form-actions"><button class="btn btn-primary" type="submit">Add goal</button>
+      <span class="hint">Weeks run Monday to Sunday. A distance goal is for one kind of sport; climbing, time and activities can count every sport.</span></div>
+  </form>
+</details>
+
+<h2 class="section-head" id="challenges">Challenges with friends</h2>
+{% set open_ones = challenges | rejectattr('status', 'equalto', 'finished') | list %}
+{% set finished = challenges | selectattr('status', 'equalto', 'finished') | list %}
+{% if open_ones %}
+<div class="goal-grid">
+  {% for c in open_ones %}
+  <div class="card{{ ' invitation' if c.invitation }}">
+    <div class="goal-head">
+      <span class="goal-title">{{ c.icon }} {{ c.name }}</span>
+      {% if c.invitation %}<span class="chip accent">Invitation</span>
+      {% elif c.status == 'upcoming' %}<span class="chip">Starts {{ c.start | fmt_date }}</span>
+      {% else %}<span class="chip ok">{{ c.days_left }} day{{ 's' if c.days_left != 1 }} left</span>{% endif %}
+    </div>
+    <div class="hint" style="margin-bottom:0.6rem;">
+      {{ c.title }} · {{ c.start | fmt_date }} to {{ c.end | fmt_date }}{% if c.creator and not c.mine %} · started by {{ c.creator }}{% endif %}
+      {%- if c.invited %} · sent to {{ c.invited | join(', ') }}{% endif %}
+    </div>
+    {{ standings(c) }}
+    <div class="form-actions" style="margin-top:0.6rem;">
+      {% if c.invitation %}
+      <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='join') }}">{{ rider_field() }}<button class="btn btn-primary btn-sm" type="submit">Join</button></form>
+      <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='leave') }}">{{ rider_field() }}<button class="btn btn-secondary btn-sm" type="submit">Not this time</button></form>
+      {% elif c.mine %}
+      <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='delete') }}"
+            onsubmit="return confirm('Delete the challenge {{ c.name | replace("'", "’") }}? Friends who joined keep it without you; the rest stop seeing it on their next sync. This cannot be undone.')">
+        {{ rider_field() }}<button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button></form>
+      {% else %}
+      <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='leave') }}"
+            onsubmit="return confirm('Leave {{ c.name | replace("'", "’") }}? Your friends stop seeing you in it on their next sync.')">
+        {{ rider_field() }}<button class="btn btn-danger-quiet btn-sm" type="submit">Leave</button></form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% elif not finished %}
+<div class="card empty-state">
+  <div class="empty-icon">🏆</div>
+  <h3>No challenges yet</h3>
+  <p>Race friends on distance, climbing, time or activities over the dates you pick. Each of you needs the other's feed on the <a href="{{ url_for('friends.index') }}">Friends</a> page.</p>
+</div>
+{% endif %}
+
+<details class="gcard"{% if not challenges and friends %} open{% endif %}>
+  <summary>+ Start a challenge</summary>
+  <form method="POST" action="{{ url_for('goals.start_challenge') }}" class="form-grid">
+    {{ rider_field() }}
+    <label class="wide">Name (optional)<input type="text" name="name" maxlength="80" placeholder="November climbing"></label>
+    <label>What{{ metric_select('chMetric') }}</label>
+    <label>Sport{{ sport_select() }}</label>
+    <label>First day<input type="date" name="startDate" value="{{ today }}" required></label>
+    <label>Last day<input type="date" name="endDate" value="{{ month_end }}" required></label>
+    <label>Target (<span data-unit-for="chMetric">{{ units_of.distance }}</span>, optional)<input type="number" name="target" min="0" step="any"><span class="hint">Blank: the most wins. Otherwise the race is to the target.</span></label>
+    {% if invitable %}
+    <fieldset class="wide">
+      <legend>Invite</legend>
+      <div class="checks">{% for t in invitable %}<label class="check"><input type="checkbox" name="tokens" value="{{ t.id }}"{{ ' checked' if invitable | length == 1 }}> {{ t.name }}</label>{% endfor %}</div>
+      <p class="hint">The friends you've given a feed token that shares your activities. Each sees the invitation after their next sync.</p>
+    </fieldset>
+    {% endif %}
+    <div class="wide form-actions"><button class="btn btn-primary" type="submit">Start challenge</button>
+      <span class="hint">
+        {% if not invitable %}Nobody reads your feed yet: give a friend a feed token on the <a href="{{ url_for('friends.index') }}">Friends</a> page so they can be invited.{% endif %}
+        A friend's totals show here once you follow their feed too{% if not friends %} (you don't follow anyone yet){% endif %}.
+      </span></div>
+  </form>
+</details>
+
+{% if finished %}
+<details class="gcard">
+  <summary>Finished ({{ finished | length }})</summary>
+  {% for c in finished %}
+  <div style="padding:0.5rem 0;{% if not loop.first %} border-top:1px solid var(--divider);{% endif %}">
+    <div class="goal-head">
+      <span class="goal-title">{{ c.icon }} {{ c.name }}</span>
+      <span class="hint">{{ c.start | fmt_date }} to {{ c.end | fmt_date }}{% if c.leader %} · won by {{ c.leader }}{% endif %}</span>
+    </div>
+    {{ standings(c) }}
+    {% if c.mine %}
+    <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='delete') }}" onsubmit="return confirm('Delete the challenge {{ c.name | replace("'", "’") }}? This cannot be undone.')">
+      {{ rider_field() }}<button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button></form>
+    {% endif %}
+  </div>
+  {% endfor %}
+</details>
+{% endif %}
+
+<script>
+// The target's unit follows what's counted: miles or km, feet or metres, hours, activities
+function goalUnit(sel) {
+  var u = JSON.parse(sel.dataset.units)[sel.value];
+  document.querySelectorAll('[data-unit-for="' + sel.id + '"]').forEach(function (el) { el.textContent = u; });
+}
+</script>
+{% endblock %}

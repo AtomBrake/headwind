@@ -1,0 +1,50 @@
+{# Goal and challenge pieces shared by the Goals page and the dashboard (services/goals.goals and .challenges). #}
+
+{# A goal's progress: the bar, a tick where an even pace would be by tonight, and what's left. compact=true for the dashboard. #}
+{% macro goal_progress(g, compact=false) %}
+<div class="goal">
+  <div class="goal-head">
+    <span class="goal-title">{{ g.icon }} {{ g.title }}</span>
+    <span class="chip {{ 'ok' if g.status != 'behind' else 'soon' }}">{{ {'done': 'Done', 'ahead': 'On track', 'behind': 'Behind'}[g.status] }}</span>
+  </div>
+  <div class="goal-bar" title="The tick is where an even pace would be by the end of today">
+    <div class="goal-fill {{ g.status }}" style="width:{{ g.pct }}%;"></div>
+    {% if g.status != 'done' %}<div class="goal-tick" style="left:{{ g.expected_pct }}%;"></div>{% endif %}
+  </div>
+  <div class="hint">
+    {{ g.period_label }}: <strong>{{ g.done_fmt }}</strong> of {{ g.target_fmt }}
+    {%- if g.status != 'done' %} · {{ g.to_go_fmt }} to go{% if g.per_day_fmt and g.days_left > 1 %}, {{ g.per_day_fmt }} a day for {{ g.days_left }} days{% elif g.days_left == 1 %}, today{% endif %}{% endif %}
+    {%- if g.streak > 1 %} · hit {{ g.streak }} {{ g.period }}s in a row{% endif %}
+  </div>
+  {% if not compact and g.history %}
+  <div class="goal-hist" aria-label="Earlier {{ g.period }}s">
+    {% for h in g.history %}
+    <div class="goal-hist-col" title="{{ h.label }}: {{ h.fmt }}{{ ' (hit)' if h.hit }}">
+      <div class="goal-hist-bar"><div class="goal-hist-fill{{ ' hit' if h.hit }}" style="height:{{ [h.pct, 3] | max }}%;"></div></div>
+      <div class="goal-hist-label">{{ h.label }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endmacro %}
+
+{# A challenge's standings, best first. #}
+{% macro standings(c) %}
+<div class="standings">
+  {% for s in c.standings %}
+  <div class="standing{{ ' me' if s.me }}">
+    <span class="standing-pos">{{ loop.index }}</span>
+    {% if s.avatar %}<img src="{{ url_for('static', filename='avatars/' + s.avatar) }}" class="rider-avatar" alt="">{% else %}<span class="rider-initial">{{ s.name[0] | upper }}</span>{% endif %}
+    <div class="standing-main">
+      <div class="standing-name">{{ s.name }}{% if s.me %} <span class="hint">(you)</span>{% endif %}{% if s.done %} <span class="chip ok">Reached it</span>{% endif %}</div>
+      <div class="goal-bar"><div class="goal-fill{{ ' ahead' if loop.first and s.value > 0 else '' }}" style="width:{{ s.pct }}%;"></div></div>
+    </div>
+    <span class="standing-value">{{ s.fmt }}</span>
+  </div>
+  {% else %}
+  <p class="hint">Nobody is in it yet.</p>
+  {% endfor %}
+  {% if c.friends_missing %}<p class="hint">{{ c.friends_missing | join(', ') }} joined, but {{ 'their' if c.friends_missing | length > 1 else 'the' }} first sync hasn’t finished.</p>{% endif %}
+</div>
+{% endmacro %}

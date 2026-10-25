@@ -133,6 +133,10 @@
          class="nav-item {% if request.blueprint == 'data' %}active{% endif %}">
         {% include 'icons/_bars.svg' %} Analytics
       </a>
+      <a href="{{ url_for('goals.index') }}"
+         class="nav-item {% if request.blueprint == 'goals' %}active{% endif %}">
+        {% include 'icons/_target.svg' %} Goals
+      </a>
       <a href="{{ url_for('segments.index') }}"
          class="nav-item {% if request.blueprint == 'segments' %}active{% endif %}">
         {% include 'icons/_flag.svg' %} Segments
