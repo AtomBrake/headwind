@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.21-beta] - 2026-10-25
+
+### Changed
+- **A lighter Docker image**, about a third smaller (710 MB to 454 MB). The C compiler used to install the packages, the tests and the docs are no longer in it.
+- Running the tests from a copy of the code now needs `pip install -r requirements-dev.txt`; pytest is no longer in `requirements.txt`.
+
 ## [0.7.20-beta] - 2026-10-25
 
 ### Added
