@@ -86,6 +86,16 @@ def test_failed_download_is_retried_not_skipped_forever(env):
     assert db.execute('SELECT COUNT(*) FROM GarminFailure').fetchone()[0] == 0
 
 
+def test_every_activity_type_is_imported(env):
+    """Strength, yoga, gym kit and the rest have no GPS but are still saved, as workouts, not skipped."""
+    db, run = env
+    acts = [dict(_act(i, f'2026-10-0{i} 07:00:00', dist=0), activityType={'typeKey': k})
+            for i, k in enumerate(['strength_training', 'yoga', 'fitness_equipment', 'meditation'], 1)]
+    run(acts)
+    assert _ids(db) == ['garmin_1', 'garmin_2', 'garmin_3', 'garmin_4']
+    assert db.execute("SELECT COUNT(*) FROM Activity WHERE type IN ('Ride', 'VirtualRide', 'EBikeRide')").fetchone()[0] == 0
+
+
 def test_same_ride_from_another_source_keeps_the_garmin_recording(env):
     """A phone/file copy of the ride already exists: the Garmin one (device + sensors) replaces it, the old copy is parked, not lost."""
     db, run = env
