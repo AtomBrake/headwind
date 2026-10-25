@@ -5,6 +5,9 @@
 ### Added
 - **Asked to import the Strava export again when an update needs it.** Some fixes only reach activities already here when the export is imported again, and nothing used to say so outside a note on the kept export's card. Now a release that brings such a fix lists it, and the Import page shows each rider who imported their export before it what's changed, with **Import again** (or, if the export wasn't kept, where to download it from Strava). The Import menu item carries a badge until then. **Not now** hides it until a later release adds to the list. Riders who imported an export before this version are asked too, from the first release that lists a fix.
 
+### Fixed
+- **An activity whose moving time is seconds because of broken timestamps can be put right.** A file whose times bunch at the start and end (an 11.8 km run "moving" for 9 seconds of 70 minutes) was flagged as looking wrong, with no fix but keeping or deleting it. Where the elapsed time makes it believable, the dashboard's "looks wrong" list and the activity's page now offer **Use the elapsed time**, and the activity's page then shows the file's moving time.
+
 ## [0.7.22-beta] - 2026-10-25
 
 ### Added
