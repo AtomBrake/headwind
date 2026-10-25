@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.23-beta] - 2026-10-25
+
+### Added
+- **Asked to import the Strava export again when an update needs it.** Some fixes only reach activities already here when the export is imported again, and nothing used to say so outside a note on the kept export's card. Now a release that brings such a fix lists it, and the Import page shows each rider who imported their export before it what's changed, with **Import again** (or, if the export wasn't kept, where to download it from Strava). The Import menu item carries a badge until then. **Not now** hides it until a later release adds to the list. Riders who imported an export before this version are asked too, from the first release that lists a fix.
+
 ## [0.7.22-beta] - 2026-10-25
 
 ### Added
