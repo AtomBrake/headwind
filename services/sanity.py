@@ -152,6 +152,35 @@ def dismiss(db, act_id):
     db.execute('UPDATE Activity SET flagDismissed=1, flagReason=NULL WHERE id=?', [act_id])
 
 
+def elapsed_fix(r):
+    """The elapsed time, in seconds, when it can stand in for a moving time a broken file made seconds, or None. A GPX whose timestamps bunch at
+    the start and the end (11.8 km "moving" for 9 s of a 70-minute run) leaves the track no use, so the moving-time repairs (services/moving_time)
+    can't put it right. Offered only when the moving time is what's wrong and the elapsed time cures it: none of the activity's figures newly look
+    wrong with it. `r` is a mapping with the COLS columns."""
+    dist, moving, elapsed = float(r['distance'] or 0), float(r['movingTime'] or 0), float(r['elapsedTime'] or 0)
+    if not (dist >= 1000 and 0 < moving < 60 and elapsed >= 60):
+        return None
+    now = reasons(r)
+    fixed = reasons({**{k: r[k] for k in r.keys()}, 'movingTime': elapsed, 'averageSpeed': dist / elapsed})
+    return int(elapsed) if all(x in now for x in fixed) else None
+
+
+def use_elapsed_time(db, act_id):
+    """"Use the elapsed time" on a flagged activity (elapsed_fix): the elapsed time as its moving time, and the average speed that goes with it.
+    The file's moving time is kept in rawData.fileMoving. Checked again. Returns False when it isn't offered. Does not commit."""
+    import json
+    r = db.execute(f'SELECT {COLS}, rawData FROM Activity WHERE id=?', [act_id]).fetchone()
+    secs = elapsed_fix(r) if r else None
+    if secs is None:
+        return False
+    raw = json.loads(r['rawData'] or '{}') or {}
+    raw.setdefault('fileMoving', r['movingTime'])
+    db.execute("UPDATE Activity SET movingTime=?, averageSpeed=?, rawData=?, updatedAt=datetime('now') WHERE id=?",
+               [secs, round(float(r['distance']) / secs, 4), json.dumps(raw), act_id])
+    flag(db, act_id)
+    return True
+
+
 def strava_climb(row):
     """Strava's climb for an activity from a Strava export (kept in rawData at import), or None."""
     import json
@@ -165,10 +194,10 @@ def strava_climb(row):
 def flagged(db, rider_id):
     """The rider's flagged activities of every sport, newest first. `isBlip`: a ride shorter than MIN_DIST_M, a start-stop by mistake (the dashboard
     offers to delete them all). `stravaClimb`: Strava's climb, when the activity came from a Strava export and Strava's differs from the one saved
-    (offered in its place)."""
+    (offered in its place). `elapsedFix`: the elapsed time, when it can stand in for a broken moving time (elapsed_fix)."""
     from services.sports import is_ride, label
     out = []
-    for r in db.execute('SELECT id, name, sportType, startDateLocal, distance, averageSpeed, totalElevationGain, flagReason, rawData FROM Activity '
+    for r in db.execute(f'SELECT {COLS}, name, startDateLocal, flagReason, rawData FROM Activity '
                         'WHERE riderId=? AND flagReason IS NOT NULL AND COALESCE(flagDismissed,0)=0 ORDER BY startDateLocal DESC', [rider_id]).fetchall():
         sc = strava_climb(r)
         d = {k: r[k] for k in r.keys() if k != 'rawData'}
@@ -176,6 +205,7 @@ def flagged(db, rider_id):
         d['sportLabel'] = label(r['sportType'])
         d['isBlip'] = bool(d['isRide'] and r['distance'] is not None and 0 < r['distance'] < MIN_DIST_M)
         d['stravaClimb'] = sc if sc is not None and abs(sc - float(r['totalElevationGain'] or 0)) > 1 else None
+        d['elapsedFix'] = elapsed_fix(r)
         out.append(d)
     return out
 
