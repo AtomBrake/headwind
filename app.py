@@ -557,6 +557,10 @@ def create_app():
     app.register_blueprint(phones_bp)
     from routes.tasks import bp as tasks_bp
     app.register_blueprint(tasks_bp)
+    from routes.goals import bp as goals_bp
+    app.register_blueprint(goals_bp)
+    from routes.matched import bp as matched_bp
+    app.register_blueprint(matched_bp)
 
     threading.Thread(target=_track_summaries, args=(app,), daemon=True).start()
     if DEMO:                                   # no background threads that talk to the network; just the nightly reset

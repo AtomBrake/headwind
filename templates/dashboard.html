@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% from '_activity_row.html' import activity_row %}
+{% from '_goals.html' import goal_progress %}
 
 {% block title %}Dashboard{% endblock %}
 {% block page_title %}Dashboard{% endblock %}
@@ -160,6 +161,31 @@
     <span class="m-label">Mt. Everests climbed</span>
   </a>
   {% endif %}
+</div>
+{% endif %}
+
+<!-- Goals and challenges (services/goals): where each stands today -->
+{% if rider_goals or live_challenges or invitations %}
+<div class="card chart-card">
+  <div class="recovery-panel-head">
+    <div class="card-title">Goals</div>
+    <a href="{{ url_for('goals.index', rider=None if active_rider.isDefault else active_rider.id) }}">Goals &rarr;</a>
+  </div>
+  {% for g in rider_goals[:4] %}{{ goal_progress(g, compact=true) }}{% endfor %}
+  {% for c in live_challenges[:3] %}
+  {% set me = c.standings | selectattr('me') | first %}
+  <div class="goal">
+    <div class="goal-head">
+      <span class="goal-title">🏆 {{ c.name }}</span>
+      <span class="hint">{{ c.days_left }} day{{ 's' if c.days_left != 1 }} left</span>
+    </div>
+    <div class="hint">
+      {% if me and c.standings | length > 1 %}You're {{ (c.standings.index(me) + 1) }} of {{ c.standings | length }} with {{ me.fmt }}{% if c.leader and not c.standings[0].me %}; {{ c.leader }} leads with {{ c.standings[0].fmt }}{% endif %}.
+      {% elif me %}{{ me.fmt }} so far; nobody else has joined yet.{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+  {% if invitations %}<p class="hint" style="margin-top:0.6rem;"><a href="{{ url_for('goals.index') }}#challenges">{{ invitations }} challenge invitation{{ 's' if invitations != 1 }}</a> from friends.</p>{% endif %}
 </div>
 {% endif %}
 

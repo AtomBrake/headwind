@@ -79,9 +79,11 @@ def food_image(ref):
 @bp.route('/api/feed')
 def feed():
     """Token-authenticated NDJSON stream — no session required.
-    Each line is a JSON object with a 'type' field: meta | segment | ride | manifest | end ('end' only once everything was sent).
+    Each line is a JSON object with a 'type' field: meta | segment | challenge | ride | manifest | end ('end' only once everything was sent).
     A 'ride' is any of the rider's activities, of any sport (rides only before 0.7.6; the line keeps its name for older friends).
-    shareRides on the token: share the activities.
+    A 'challenge' (0.7.20 on) is one the rider started and invited this token's friend to, or joined from a friend (services/goals.feed_lines);
+    older friends ignore the line.
+    shareRides on the token: share the activities, and the challenges (a race needs the activities).
     Accepts ?since=YYYY-MM-DD and ?rider=<name> to filter. The token decides whether segments and rides are sent at all, and
     its date window (inclusive) narrows the rides.
     Since 0.7.6 a friend asks ?manifest=1 instead: the segments and a manifest, [id, updatedAt] of every ride it may have, and no rides; then
@@ -112,6 +114,11 @@ def feed():
                 yield json.dumps({'type': 'segment', **dict(s), 'sport': 'run' if s['family'] == 'foot' else 'ride'}) + '\n'
 
         owner_id = rider['id'] if rider else None
+        if rider and scope['shareRides'] and ids is None:
+            from services import goals
+            for line in goals.feed_lines(db, rider, scope['id']):
+                yield json.dumps(line) + '\n'
+
         where, args = ['riderId=?'], [owner_id]
         if scope['sinceDate']:
             where.append('substr(startDateLocal, 1, 10) >= ?')
@@ -285,6 +292,8 @@ def delete(fid):
         db.execute('DELETE FROM RideMemory WHERE rideId IN (SELECT id FROM Activity WHERE riderId=?)', [friend['riderId']])
         db.execute('DELETE FROM Activity WHERE riderId=?', [friend['riderId']])
         db.execute('DELETE FROM Rider WHERE id=?', [friend['riderId']])
+    from services import goals
+    goals.forget_friend(db, fid)
     # Segments imported from this friend cascade-delete their efforts via ON DELETE CASCADE
     db.execute('DELETE FROM Segment WHERE friendId=?', [fid])
     db.execute('DELETE FROM Friend WHERE id=?', [fid])
@@ -347,6 +356,7 @@ class _Pull:
         self.changed = 0         # and different from what was here: the rest came again unchanged (an old feed's ?since=, a stopped sync)
         self.segments = 0
         self.manifest = None     # remote id -> updatedAt, every ride the friend shares (0.7.6 on)
+        self.challenges = set()  # uids of the challenges the friend is in (0.7.20 on)
         self.complete = False    # the feed said 'end'
 
 
@@ -394,6 +404,12 @@ def _read_feed(db, pull, resp):
             elif t == 'segment':
                 if _store_segment(db, friend_id, obj):
                     pull.segments += 1
+
+            elif t == 'challenge':
+                from services import goals
+                uid = goals.store_from_friend(db, friend_id, obj)
+                if uid:
+                    pull.challenges.add(uid)
 
             elif t == 'ride' and pull.rider_id:
                 aid, kind = _store_ride(db, friend_id, pull.rider_id, obj)
@@ -508,6 +524,9 @@ def _do_ride_sync(friend_id):
     gone_segs = set()
 
     if pull.manifest is not None and pull.complete and pull.rider_id:
+        from services import goals
+        goals.forget_missing(db, friend_id, pull.challenges)       # the whole feed arrived: a challenge it didn't list, they're no longer in
+        db.commit()
         prefix = f'f{friend_id}_'
         remote = {prefix + k: u for k, u in pull.manifest.items()}
         local = {r[0]: r[1] for r in db.execute('SELECT id, srcUpdatedAt FROM Activity WHERE riderId=?', [pull.rider_id])}

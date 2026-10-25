@@ -46,6 +46,8 @@ ALLOWED_WRITES = {
     'rides.save_notes', 'rides.set_commute', 'rides.scan_segments', 'rides.change_sport', 'rides.resolve_duplicate',
     'workouts_ui.workouts_new', 'workouts_ui.workouts_delete', 'workouts_ui.workouts_sport',
     'route_builder.save_route', 'route_builder.delete_route',
+    # goals (challenges stay off: they go out on the friends feed)
+    'goals.add_goal', 'goals.delete_goal',
 }
 # refused even for GET: third-party proxies, whole-database download, public peer/token endpoints, bulk or outbound work
 DENIED_ENDPOINTS = {

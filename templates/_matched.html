@@ -1,0 +1,39 @@
+{# The activity page's "Same route" card (routes/matched.py, services/matched.compare), fetched after the page and put in place of #matchedCard.
+   Nothing at all when nobody else has been this way. The chart's points are in data-series; ride.html draws them. #}
+{% from '_activity_row.html' import activity_row %}
+{% macro ordinal(n) %}{{ n }}{{ 'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th') }}{% endmacro %}
+{% macro gap(secs) %}{{ '+' if secs > 0 else '−' if secs < 0 else '±' }}{{ (secs | abs) | fmt_duration }}{% endmacro %}
+{% if m %}
+{% set t = m.this %}
+<div class="card" style="margin-top:1rem;" id="matchedCard">
+  <div class="chart-card-head">
+    <div>
+      <div class="card-title">Same route</div>
+      <div class="hint">{{ m.total }} times since {{ m.first | fmt_date }}: the same start, finish and roads, by moving time</div>
+    </div>
+  </div>
+  <div class="metric-row-sub">
+    <div class="metric-tile-sub"><span class="m-value">{{ ordinal(m.rank) }}</span><span class="m-label">quickest of {{ m.total }}</span></div>
+    {% if m.median is not none %}
+    <div class="metric-tile-sub" title="This one's moving time against the middle of your last {{ m.recent | length }} here">
+      <span class="m-value" style="color:{{ 'var(--success)' if m.delta < 0 else 'var(--danger)' if m.delta > 0 else 'var(--text)' }};">{{ gap(m.delta) }}</span>
+      <span class="m-label">vs your last {{ m.recent | length }} (typical {{ m.median | int | fmt_duration }})</span>
+    </div>
+    <div class="metric-tile-sub"><span class="m-value">{{ m.wins }} of {{ m.recent | length }}</span><span class="m-label">of them beaten</span></div>
+    {% else %}
+    <div class="metric-tile-sub"><span class="m-value">First</span><span class="m-label">time this way</span></div>
+    {% endif %}
+  </div>
+  <div style="height:200px; position:relative; margin-bottom:0.75rem;">
+    <canvas id="matchedChart" data-series='{{ m.series | tojson }}'></canvas>
+  </div>
+  <div class="hint" style="margin-bottom:0.25rem;">
+    Quickest: <a href="/rides/{{ m.best.id }}">{{ m.best.movingTime | fmt_duration }}</a> on {{ m.best.startDateLocal | fmt_date }}{% if m.best.movingTime > t.movingTime %} (this one beat it){% endif %}.
+  </div>
+  {% set rows = m.recent if m.recent else m.others[:20] %}
+  <details{% if m.recent | length <= 5 %} open{% endif %}>
+    <summary class="hint" style="cursor:pointer;">{{ 'Your last ' ~ (m.recent | length) ~ ' here, newest first' if m.recent else 'Since then, newest first' }}</summary>
+    <div>{% for a in rows %}{{ activity_row(a, more=[gap(a.movingTime - t.movingTime) ~ ' vs this', (a.weatherWindRel | lower) if a.weatherWindRel else None]) }}{% endfor %}</div>
+  </details>
+</div>
+{% endif %}
