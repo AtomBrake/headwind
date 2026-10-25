@@ -208,9 +208,11 @@ def _build_segment_context(activity_id):
 
 
 def _build_achievement_context(activity_id, activity_date):
+    # The Ride view, and this rider's own: BestEffort has rows for anything with a track, and a walk is neither a ride's best 5 miles nor the
+    # best another rider's ride has to beat
     achievements = query_db('''
-        SELECT e.distanceMi, e.elapsedSecs, e.avgSpeedMps
-        FROM BestEffort e
+        SELECT e.distanceMi, e.elapsedSecs, e.avgSpeedMps, a.riderId
+        FROM BestEffort e JOIN Ride a ON a.id = e.activityId
         WHERE e.activityId = ?
     ''', [activity_id])
 
@@ -227,11 +229,11 @@ def _build_achievement_context(activity_id, activity_date):
 
         # What was the previous best for this distance bracket?
         prev = query_db('''
-            SELECT elapsedSecs, activityDate
-            FROM BestEffort
-            WHERE distanceMi = ? AND activityId != ?
-            ORDER BY elapsedSecs ASC LIMIT 1
-        ''', [ach['distanceMi'], activity_id], one=True)
+            SELECT e.elapsedSecs, e.activityDate
+            FROM BestEffort e JOIN Ride a ON a.id = e.activityId
+            WHERE e.distanceMi = ? AND e.activityId != ? AND a.riderId IS ?
+            ORDER BY e.elapsedSecs ASC LIMIT 1
+        ''', [ach['distanceMi'], activity_id, ach['riderId']], one=True)
 
         if prev:
             improvement = prev['elapsedSecs'] - secs

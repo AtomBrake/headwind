@@ -180,10 +180,10 @@ def perform():
     for dist_mi in BRACKETS_MI:
         e = query_db('''
             SELECT e.elapsedSecs, e.avgSpeedMps, e.activityId, e.activityDate, a.name as rideName
-            FROM BestEffort e JOIN Activity a ON a.id = e.activityId
+            FROM BestEffort e JOIN Ride a ON a.id = e.activityId
             WHERE a.riderId=? AND e.distanceMi=?
             ORDER BY e.elapsedSecs ASC LIMIT 1
-        ''', [rid, dist_mi], one=True)
+        ''', [rid, dist_mi], one=True)      # the Ride view: BestEffort has rows for anything with a track, and a walk is not a ride's best 5 miles
         if e:
             best_efforts.append({
                 'distanceMi': dist_mi, 'secs': e['elapsedSecs'], 'avgSpeedMps': e['avgSpeedMps'] or 0,
