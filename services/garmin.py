@@ -754,7 +754,35 @@ def read_recording(api, a):
         err = None if parsed else 'no data in the file'
     except Exception as e:
         parsed, err = None, e
-    return (parsed, None) if parsed else (None, ('parse', f'{file_name}: {err}'))
+    return (garmin_window(parsed, a), None) if parsed else (None, ('parse', f'{file_name}: {err}'))
+
+
+def garmin_window(parsed, a):
+    """The file cut down to what Garmin keeps of it. Cropping an activity in Garmin Connect changes its summary, not its original upload, which
+    is what's downloaded (a walk cropped to 1.7 km in 53 minutes came in as 31 km in 94, the drive home included). The window is Garmin's start
+    for its elapsed time (services/parser.crop, as for a crop on Strava), and distance, moving time, climb and calories are then Garmin's. The
+    parsed file as it was when that's the whole recording, or when the file's clock was out and Garmin's start can't be trusted."""
+    from datetime import datetime, timezone
+    from services.parser import crop
+    gmt = (a.get('startTimeGMT') or '')[:19].replace(' ', 'T')
+    seconds = a.get('elapsedDuration') or a.get('duration')
+    if not gmt or not seconds or not parsed.get('streams') or parsed.get('clockShiftedFrom'):
+        return parsed
+    try:
+        start = datetime.fromisoformat(gmt).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return parsed
+    cut = crop(parsed, start, seconds, a.get('distance'))
+    if not cut.get('cropped'):
+        return parsed
+    if a.get('distance') is not None:
+        cut['distance'] = a['distance']
+    cut['movingTime'] = int(min(a.get('movingDuration') or a.get('duration') or cut.get('movingTime') or 0, cut['elapsedTime']))
+    if a.get('elevationGain') is not None:
+        cut['totalElevationGain'] = a['elevationGain']
+    cut['calories'] = a.get('calories')
+    cut['averageSpeed'] = a.get('averageSpeed') or (cut['distance'] / cut['movingTime'] if cut['movingTime'] else 0)
+    return cut
 
 
 def _list_times(a):

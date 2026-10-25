@@ -322,6 +322,76 @@ def test_crop_reads_the_file_again_and_offers_it_once(db):
     assert gc.check(db, api, 1, '2026-08-01', '2026-10-01')['recordings'] == 0 and reimport.pending(db) == []
 
 
+def walk_then_drive(b):
+    """A watch left running after a walk: 1.6 km on foot in 3,200 s, then 25 km in a car. Garmin's original upload keeps all of it."""
+    t = list(range(0, 4900, 10))
+    d = [x * 0.5 if x <= 3200 else 1600 + (x - 3200) * 15 for x in t]
+    streams = {'time': {'data': t}, 'distance': {'data': d}, 'latlng': {'data': [[50.5 + m / 111_000, -3.5] for m in d]},
+               'heartrate': {'data': [100 if x <= 3200 else 70 for x in t]}}
+    return {'distance': d[-1], 'movingTime': 4890, 'elapsedTime': 4890, 'startDateLocal': '2026-09-01T08:00:00', 'calories': 900,
+            'streams': json.dumps(streams), 'sportType': 'Walk'}
+
+
+def counted(api):
+    api.downloads = 0
+    download = api.download_activity
+
+    def count(aid, dl_fmt=None):
+        api.downloads += 1
+        return download(aid, dl_fmt)
+    api.download_activity = count
+    return api
+
+
+def test_a_crop_made_in_garmin_before_the_import_comes_in_cropped(db, monkeypatch):
+    monkeypatch.setattr('services.parser.parse_fit', walk_then_drive)
+    walk = {**act(1, '2026-09-01', key='walking', dist=1600, dur=3200), 'movingDuration': 3100, 'calories': 250, 'elevationGain': 12}
+    imported(db, walk)
+    r = db.execute("SELECT * FROM Activity WHERE id='garmin_1'").fetchone()
+    assert (r['distance'], r['movingTime'], r['elapsedTime'], r['totalElevationGain'], r['caloriesRaw']) == (1600, 3100, 3200, 12, 250)
+    assert json.loads(r['streams'])['time']['data'][-1] == 3200 and r['averageHeartrate'] == 100     # the drive's left out
+    api = counted(FakeAPI([walk]))
+    assert gc.check(db, api, 1, '2026-08-01', '2026-10-01')['recordings'] == 0 and api.downloads == 0
+    assert reimport.pending(db) == []
+
+
+def test_one_imported_whole_before_is_read_again_once_and_offered(db, monkeypatch):
+    monkeypatch.setattr('services.parser.parse_fit', walk_then_drive)
+    walk = act(1, '2026-09-01', key='walking', dist=1600, dur=3200)
+    imported(db, {**walk, 'distance': 26000, 'elapsedDuration': 4890})          # what an older Headwind saved: the whole file
+    db.execute('UPDATE GarminSeen SET summary=?, cropChecked=0', [json.dumps(gc.summary(walk))])   # and Garmin's summary as it kept it
+    db.commit()
+    api = counted(FakeAPI([walk]))
+    assert gc.check(db, api, 1, '2026-08-01', '2026-10-01')['recordings'] == 1
+    [c] = reimport.pending(db)
+    assert {d['label'] for d in c['diffs']} >= {'Distance', 'Elapsed time', 'Track'}
+    assert db.execute("SELECT distance FROM Activity WHERE id='garmin_1'").fetchone()[0] > 25000       # untouched until chosen
+    assert reimport.resolve(db, 'garmin_1', 'replace')
+    assert db.execute("SELECT distance, elapsedTime FROM Activity WHERE id='garmin_1'").fetchone()[:] == (1600, 3200)
+    assert gc.check(db, api, 1, '2026-08-01', '2026-10-01')['recordings'] == 0 and api.downloads == 1  # once only
+
+
+def test_only_one_longer_in_distance_and_time_is_read_again(db):
+    imported(db, act(1, '2026-09-01'), act(2, '2026-09-02'))                     # saved 15 km in 2,700 s (the faked file)
+    listing = [act(1, '2026-09-01', dist=15000, dur=1800),                      # an old upload: Garmin's time is the timer's
+               act(2, '2026-09-02', dist=12000, dur=3600)]                      # Garmin's distance recalculated
+    for a in listing:
+        db.execute('UPDATE GarminSeen SET summary=?, cropChecked=0 WHERE garminId=?', [json.dumps(gc.summary(a)), str(a['activityId'])])
+    db.commit()
+    api = counted(FakeAPI(listing))
+    gc.check(db, api, 1, '2026-08-01', '2026-10-01')
+    assert api.downloads == 0 and reimport.pending(db) == []
+    assert db.execute('SELECT COUNT(*) FROM GarminSeen WHERE cropChecked=1').fetchone()[0] == 2
+
+
+def test_garmin_seen_from_before_gets_the_crop_check_column(db):
+    db.execute('DROP TABLE IF EXISTS GarminSeen')
+    db.execute("CREATE TABLE GarminSeen (garminId TEXT PRIMARY KEY, summary TEXT NOT NULL, seenAt TEXT DEFAULT (datetime('now')))")
+    db.execute("INSERT INTO GarminSeen (garminId, summary) VALUES ('1', '{}')")
+    gc.ensure_schema(db)
+    assert db.execute("SELECT cropChecked FROM GarminSeen WHERE garminId='1'").fetchone()[0] == 0
+
+
 def test_a_parked_garmin_copy_and_the_one_kept_are_left_alone(db):
     db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,totalElevationGain,"
                "averageSpeed,maxSpeed,riderId,createdAt,updatedAt) VALUES ('phone_1','Phone','Ride','Ride','2026-09-01T08:00:30','2026-09-01T09:00:30',"
