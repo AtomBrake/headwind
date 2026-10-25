@@ -7,6 +7,8 @@ nothing flagged). A later check compares Garmin's list with that, not with Headw
 - missing from Garmin: deleted. Keep it here, or delete it (the usual delete, so a sync never brings it back).
 - another name or sport: use Garmin's or keep Headwind's. Only offered while Headwind's still matches Garmin's old value; one changed here wins.
 - another distance or length: cropped or recalculated, so the file is read again and handed to the re-import review (services/reimport.propose).
+- once for each activity imported before the sync cut a file to Garmin's crop (garmin.garmin_window): one longer here than Garmin's in both
+  distance and time was cropped in Garmin before it came in, so its file is read again and offered for review the same way (_missed_crop).
 Only a successful listing counts, and only for the days it reaches: an error raises, an empty listing judges nothing, and an activity older than
 the oldest one listed isn't judged. A Garmin copy set aside as a duplicate (ActivityDuplicate) isn't live, so it and the activity kept in its place
 are left alone.
@@ -30,8 +32,11 @@ def ensure_schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS GarminSeen (
         garminId  TEXT PRIMARY KEY,          -- Garmin's activity id
         summary   TEXT NOT NULL,             -- summary(): Garmin's name, type, distance, length and start, as last accepted
-        seenAt    TEXT DEFAULT (datetime('now'))
+        seenAt    TEXT DEFAULT (datetime('now')),
+        cropChecked INTEGER NOT NULL DEFAULT 0    -- 1: the saved activity was read with Garmin's crop, or checked for one missed (_missed_crop)
     )''')
+    if 'cropChecked' not in {r[1] for r in db.execute('PRAGMA table_info(GarminSeen)').fetchall()}:
+        db.execute('ALTER TABLE GarminSeen ADD COLUMN cropChecked INTEGER NOT NULL DEFAULT 0')
     db.execute('''CREATE TABLE IF NOT EXISTS GarminChange (
         rideId    TEXT PRIMARY KEY,
         garminId  TEXT NOT NULL,
@@ -63,11 +68,12 @@ def summary(a):
             'start': (a.get('startTimeGMT') or '')[:19]}
 
 
-def remember(db, a, replace=True):
-    """Keep Garmin's summary of an activity: at import (replace), or as a baseline when there's none yet. Does not commit."""
+def remember(db, a, replace=True, read=True):
+    """Keep Garmin's summary of an activity: at import (replace), or as a baseline when there's none yet. `read`: the file was just read, so
+    it's cut to Garmin's crop already. Does not commit."""
     ensure_schema(db)
-    db.execute(f"INSERT OR {'REPLACE' if replace else 'IGNORE'} INTO GarminSeen (garminId, summary, seenAt) VALUES (?,?,datetime('now'))",
-               [str(a.get('activityId')), json.dumps(summary(a))])
+    db.execute(f"INSERT OR {'REPLACE' if replace else 'IGNORE'} INTO GarminSeen (garminId, summary, seenAt, cropChecked) VALUES (?,?,datetime('now'),?)",
+               [str(a.get('activityId')), json.dumps(summary(a)), int(read and replace)])
 
 
 def _seen(db, gid):
@@ -82,7 +88,7 @@ def _accept(db, gid, now):
 def _garmin_rows(db, rider_id):
     """{Garmin id: row} for this rider's live activities that came from Garmin (under its id, or kept in originId by an older sport change)."""
     out = {}
-    for r in db.execute(r"""SELECT id, originId, name, sportType, startDateLocal FROM Activity
+    for r in db.execute(r"""SELECT id, originId, name, sportType, startDateLocal, distance, elapsedTime FROM Activity
                             WHERE riderId=? AND (id LIKE 'garmin\_%' ESCAPE '\' OR originId LIKE 'garmin\_%' ESCAPE '\')""", [rider_id]):
         src = r['id'] if str(r['id']).startswith('garmin_') else r['originId']
         out[str(src)[7:]] = r
@@ -120,21 +126,35 @@ def _starts(a, parsed):
 
 
 def _recording_changed(db, api, a, act_id):
-    """Read the activity's file again and offer the difference for review (services/reimport). True when it was read (whether or not anything
-    differs), False when it couldn't be: try again next time."""
+    """Read the activity's file again and offer the difference for review (services/reimport). True when something differs and is offered,
+    False when nothing does, None when it couldn't be read: try again next time."""
     from services import reimport
     from services.garmin import read_recording
     parsed, fail = read_recording(api, a)
     if not parsed:
         log.warning('Garmin activity %s changed in Garmin, but reading it again failed (%s): %s', a.get('activityId'), *fail)
-        return False
+        return None
+    db.execute('UPDATE GarminSeen SET cropChecked=1 WHERE garminId=?', [str(a.get('activityId'))])
     saved = db.execute('SELECT * FROM Activity WHERE id=?', [act_id]).fetchone()
     if not saved:
-        return True
+        return False
     act = dict(parsed)
     act['startDate'], act['startDateLocal'] = _starts(a, parsed)
-    reimport.propose(db, saved, act, 'Garmin')
-    return True
+    return reimport.propose(db, saved, act, 'Garmin')
+
+
+def _missed_crop(db, api, a, row, now):
+    """Once for an activity imported before the sync cut files to Garmin's crop (garmin.garmin_window), compared with Garmin's summary `now`:
+    longer here in both distance and time, it was cropped in Garmin before it came in, so the file is read again and the cut offered for review
+    (_recording_changed). True when something was offered. Does not commit."""
+    gid = str(a.get('activityId'))
+    if db.execute('SELECT cropChecked FROM GarminSeen WHERE garminId=?', [gid]).fetchone()[0]:
+        return False
+    here_m, here_s = float(row['distance'] or 0), float(row['elapsedTime'] or 0)
+    if here_m - float(now['distance'] or 0) > max(50, 0.01 * here_m) and here_s - float(now['duration'] or 0) > 60:
+        return bool(_recording_changed(db, api, a, row['id']))          # None, unread: tried again next time
+    db.execute('UPDATE GarminSeen SET cropChecked=1 WHERE garminId=?', [gid])
+    return False
 
 
 def _complete(api, listing):
@@ -177,8 +197,9 @@ def check(db, api, rider_id, start, end, whole=False):
             flag = None
         old, new = _seen(db, gid), summary(a)
         if old is None:
-            remember(db, a)
+            remember(db, a, read=False)
             res['baseline'] += 1
+            res['recordings'] += _missed_crop(db, api, a, row, new)
             continue
         diffs = _edits(row, old, new)
         if diffs and not (flag and json.loads(flag['diffs']) == diffs):
@@ -187,8 +208,11 @@ def check(db, api, rider_id, start, end, whole=False):
             res['edited'] += 1
         elif not diffs and flag:                                # put back in Garmin before it was reviewed
             db.execute('DELETE FROM GarminChange WHERE rideId=?', [flag['rideId']])
-        if _moved(old, new) and _recording_changed(db, api, a, row['id']):
-            _accept(db, gid, {**old, 'distance': new['distance'], 'duration': new['duration'], 'start': new['start']})
+        if _moved(old, new):
+            if _recording_changed(db, api, a, row['id']) is not None:
+                _accept(db, gid, {**old, 'distance': new['distance'], 'duration': new['duration'], 'start': new['start']})
+                res['recordings'] += 1
+        elif _missed_crop(db, api, a, row, new):
             res['recordings'] += 1
 
     covered = '' if res['whole'] else min((a.get('startTimeLocal') or '9999')[:10] for a in listing)
