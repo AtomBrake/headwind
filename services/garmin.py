@@ -9,6 +9,15 @@ import zipfile
 from datetime import date, timedelta
 from pathlib import Path
 
+# The types the sync left out until 2026-10-25 (no GPS, it thought them not worth having). Full re-sync brings in the ones it passed over: they were
+# never here, so none of them can have been deleted (services/garmin_changes._left_behind).
+ONCE_SKIPPED = {
+    'strength_training', 'yoga', 'fitness_equipment', 'elliptical',
+    'stair_climbing', 'indoor_rowing', 'pilates', 'barre', 'floor_climbing',
+    'breathwork', 'meditation',
+}
+
+
 def garmin_sport(type_key):
     """Garmin's activity type (`typeKey`, e.g. 'mountain_biking', 'lap_swimming', 'treadmill_running') -> our sport. Rides are Ride / VirtualRide /
     EBikeRide (an e-bike ride races other e-bike rides for segment PRs: services/sports.segment_class);
@@ -746,6 +755,141 @@ def read_recording(api, a):
     return (parsed, None) if parsed else (None, ('parse', f'{file_name}: {err}'))
 
 
+def _list_times(a):
+    """(local start, UTC start, zoneless) of an entry in Garmin's activity list, the way the sync saves them."""
+    start_local = (a.get('startTimeLocal') or '')[:19].replace(' ', 'T')
+    start_gmt   = (a.get('startTimeGMT') or '')[:19].replace(' ', 'T')
+    zoneless    = bool(start_gmt) and start_gmt == start_local      # Garmin had no zone for it: its "local" time is UTC
+    if zoneless:
+        start_local = _local_where(start_gmt, a.get('startLatitude'), a.get('startLongitude'), ((a.get('activityType') or {}).get('typeKey') or '').lower())
+    return start_local, start_gmt, zoneless
+
+
+def garmin_twin(db, a, rider_id):
+    """True when Garmin itself already gave us this session under another id. A phone or file copy doesn't count: the Garmin one is still
+    fetched (it has the sensors) and duplicates.resolve keeps the better recording afterwards."""
+    from services import duplicates
+    start_local, start_gmt, _ = _list_times(a)
+    probe = {'id': f"garmin_{a.get('activityId', '')}", 'startDateLocal': start_local, 'startDate': start_gmt or start_local,     # the real instant: start_local is wherever the ride was
+             'riderId': rider_id, 'distance': a.get('distance') or 0,
+             'elapsedTime': int(a.get('elapsedDuration') or a.get('duration') or 0), 'movingTime': int(a.get('movingDuration') or a.get('duration') or 0)}
+    return any(str(t['id']).startswith('garmin_') for t in duplicates.find_duplicates(db, probe, fragments=False))
+
+
+def save_activity(db, api, a, rider_id):
+    """Fetch an activity from Garmin's list and save it: a ride with its weather, anything else as a workout, then what follows any import (the
+    better of two recordings kept, default gear, Garmin's summary remembered for services/garmin_changes). Returns None, or (kind, error) when it
+    couldn't be read or saved, for services/garmin_failures. Does not commit."""
+    from services import duplicates, garmin_changes, garmin_failures
+    from services.parser import _map_sport
+    from services.sports import is_ride
+    from services.weather import fetch_weather, save_weather
+
+    activity_id = str(a.get('activityId', ''))
+    db_id       = f'garmin_{activity_id}'
+    type_key    = ((a.get('activityType') or {}).get('typeKey') or '').lower()
+    start_local, start_gmt, zoneless = _list_times(a)
+
+    parsed, fail = read_recording(api, a)
+    if not parsed:
+        return fail
+
+    # Prefer API summary for name and sport; FIT has accurate streams
+    sport_type  = garmin_sport(type_key) if type_key else _map_sport(parsed.get('sportType') or 'Ride')
+    name        = a.get('activityName') or parsed.get('name') or 'Garmin Activity'
+    start_utc   = start_gmt or start_local
+    if zoneless and a.get('startLatitude') is None and parsed.get('startLat') is not None:
+        start_local = _local_where(start_gmt, parsed.get('startLat'), parsed.get('startLng'), sport_type)     # where the file's track starts
+    if parsed.get('clockShiftedFrom'):          # a RunKeeper file whose clock was out (services/parser.runkeeper_shift): Garmin took its time
+        from services.duplicates import instant
+        from services.start_times import retime_copies
+        right, wrong = instant(parsed['startDateLocal']), instant(parsed['clockShiftedFrom'])
+        start_utc = right.strftime('%Y-%m-%dT%H:%M:%S')
+        start_local = _local_where(start_utc, parsed.get('startLat'), parsed.get('startLng'), sport_type)
+        try:
+            retime_copies(db, rider_id, wrong, right, parsed.get('distance'))      # its Strava copy took the same wrong time
+        except Exception:
+            log.warning('Re-timing the saved copies of Garmin activity %s failed', activity_id, exc_info=True)
+
+    # Sanity check: Garmin FIT files from very old devices may give distance in mm
+    dist = parsed.get('distance') or 0
+    if dist > 800_000:  # >800 km → probably mm
+        dist /= 1000
+        parsed['distance'] = dist
+
+    # The parser's max ignores impossible spikes (a raw max of the speed stream let one GPS jump make a 137 mph mountain-bike ride)
+    max_speed = parsed.get('maxSpeed') or 0.0
+
+    if not is_ride(sport_type):                             # a run, walk, swim, ...: a workout, not a ride
+        try:
+            _save_workout(db, db_id, rider_id, sport_type, a.get('activityName') or parsed.get('name'), start_utc, start_local, parsed, max_speed)
+        except Exception as e:
+            return 'insert', f'{sport_type}: {e}'
+        garmin_failures.clear(db, activity_id)
+        garmin_changes.remember(db, a)                      # what Garmin said, for services/garmin_changes to compare with later
+        return None
+
+    try:
+        from services.calorie_adjust import pair as _kcal_pair
+        cal_raw, cal_adj = _kcal_pair(parsed.get('calories'))     # global burn adjustment, applied as the figure is pulled in
+        db.execute('''
+            INSERT INTO Activity (
+                id, name, type, sportType,
+                startDate, startDateLocal,
+                distance, movingTime, elapsedTime, totalElevationGain,
+                averageSpeed, maxSpeed, averageHeartrate, averageWatts,
+                averageCadence, calories,
+                startLat, startLng, streams, rawData, riderId, caloriesRaw,
+                createdAt, updatedAt
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
+            ON CONFLICT(id) DO NOTHING
+        ''', [
+            db_id, name, sport_type, sport_type,
+            start_utc, start_local,
+            parsed.get('distance') or 0,
+            parsed.get('movingTime') or 0,
+            parsed.get('elapsedTime') or 0,
+            parsed.get('totalElevationGain') or 0,
+            parsed.get('averageSpeed') or 0,
+            max_speed,
+            parsed.get('averageHeartrate'),
+            parsed.get('averageWatts'),
+            parsed.get('averageCadence'),
+            cal_adj,
+            parsed.get('startLat'),
+            parsed.get('startLng'),
+            parsed.get('streams'),
+            '{}',
+            rider_id,
+            cal_raw,
+        ])
+    except Exception as e:
+        return 'insert', e
+    save_laps(db, db_id, parsed.get('laps'))
+    garmin_failures.clear(db, activity_id)
+    garmin_changes.remember(db, a)
+
+    if parsed.get('startLat') and parsed.get('startLng') and start_local:
+        try:
+            w = fetch_weather(parsed['startLat'], parsed['startLng'], start_local, parsed.get('streams'))
+            if w:
+                save_weather(db, db_id, w)
+        except Exception:
+            log.warning('Weather for a Garmin activity failed', exc_info=True)
+
+    try:
+        dup = duplicates.resolve(db, db_id)
+        if dup:
+            log.warning('Garmin activity %s matched an existing recording; kept the better one', activity_id)
+        from services import gear
+        gear.on_ride_added(db, (dup or {}).get('kept', db_id))
+        from services.ingest import after_ride_added
+        after_ride_added(db, (dup or {}).get('kept', db_id))
+    except Exception as e:
+        log.error('Duplicate resolution failed for %s: %s', db_id, e)
+    return None
+
+
 def sync_garmin_activities(rider_id, api=None):
     """
     Generator: pull activities from Garmin Connect, download FIT files, parse and insert.
@@ -755,12 +899,7 @@ def sync_garmin_activities(rider_id, api=None):
     late, after a newer one from another device moved the cursor on, still comes in; one already here is skipped without a download.
     Only imports rides that don't already exist (deduplicates by timestamp & distance). `api`: a client already logged in.
     """
-    import logging
     from database import get_db
-    from services.parser import _map_sport
-    from services.weather import fetch_weather, save_weather
-
-    log = logging.getLogger(__name__)
 
     api = api or _client()
     db  = get_db()
@@ -805,13 +944,7 @@ def sync_garmin_activities(rider_id, api=None):
 
         for a in activities:
             activity_id  = str(a.get('activityId', ''))
-            type_key     = ((a.get('activityType') or {}).get('typeKey') or '').lower()
-            start_local  = (a.get('startTimeLocal') or '')[:19].replace(' ', 'T')
-            start_date   = start_local[:10]
-            start_gmt    = (a.get('startTimeGMT') or '')[:19].replace(' ', 'T')
-            zoneless     = bool(start_gmt) and start_gmt == start_local      # Garmin had no zone for it: its "local" time is UTC
-            if zoneless:
-                start_local = _local_where(start_gmt, a.get('startLatitude'), a.get('startLongitude'), type_key)
+            start_date   = (a.get('startTimeLocal') or '')[:10]
 
             # A watch with an unset clock stamps rides with bogus dates (one landed in 1999) — never import those
             if start_date and start_date < '2005-01-01':
@@ -836,13 +969,7 @@ def sync_garmin_activities(rider_id, api=None):
                     newest = start_date
                 continue
 
-            # Same ride already here from another source? A phone/file copy is fine: we still fetch the Garmin one (it has the sensors) and
-            # resolve() keeps the better recording afterwards. Only skip when Garmin itself already gave us this ride under another id.
-            garmin_distance = a.get('distance') or 0
-            probe = {'id': db_id, 'startDateLocal': start_local, 'startDate': start_gmt or start_local,     # the real instant: start_local is wherever the ride was
-                     'riderId': rider_id, 'distance': garmin_distance,
-                     'elapsedTime': int(a.get('elapsedDuration') or a.get('duration') or 0), 'movingTime': int(a.get('movingDuration') or a.get('duration') or 0)}
-            if any(str(t['id']).startswith('garmin_') for t in duplicates.find_duplicates(db, probe, fragments=False)):
+            if garmin_twin(db, a, rider_id):
                 skipped += 1
                 if start_date and (newest is None or start_date > newest):
                     newest = start_date
@@ -858,112 +985,11 @@ def sync_garmin_activities(rider_id, api=None):
                 elif start_date and (first_failed is None or start_date < first_failed):
                     first_failed = start_date
                 continue
-            label = a.get('activityName')
 
-            parsed, fail = read_recording(api, a)
-            if not parsed:
-                failed(activity_id, *fail, start_date, label)
+            fail = save_activity(db, api, a, rider_id)
+            if fail:
+                failed(activity_id, *fail, start_date, a.get('activityName'))
                 continue
-
-            # Prefer API summary for name and sport; FIT has accurate streams
-            sport_type  = garmin_sport(type_key) if type_key else _map_sport(parsed.get('sportType') or 'Ride')
-            name        = a.get('activityName') or parsed.get('name') or 'Garmin Activity'
-            start_utc   = start_gmt or start_local
-            if zoneless and a.get('startLatitude') is None and parsed.get('startLat') is not None:
-                start_local = _local_where(start_gmt, parsed.get('startLat'), parsed.get('startLng'), sport_type)     # where the file's track starts
-            if parsed.get('clockShiftedFrom'):          # a RunKeeper file whose clock was out (services/parser.runkeeper_shift): Garmin took its time
-                from services.duplicates import instant
-                from services.start_times import retime_copies
-                right, wrong = instant(parsed['startDateLocal']), instant(parsed['clockShiftedFrom'])
-                start_utc = right.strftime('%Y-%m-%dT%H:%M:%S')
-                start_local = _local_where(start_utc, parsed.get('startLat'), parsed.get('startLng'), sport_type)
-                try:
-                    retime_copies(db, rider_id, wrong, right, parsed.get('distance'))      # its Strava copy took the same wrong time
-                except Exception:
-                    log.warning('Re-timing the saved copies of Garmin activity %s failed', activity_id, exc_info=True)
-
-            # Sanity check: Garmin FIT files from very old devices may give distance in mm
-            dist = parsed.get('distance') or 0
-            if dist > 800_000:  # >800 km → probably mm
-                dist /= 1000
-                parsed['distance'] = dist
-
-            # The parser's max ignores impossible spikes (a raw max of the speed stream let one GPS jump make a 137 mph mountain-bike ride)
-            max_speed = parsed.get('maxSpeed') or 0.0
-
-            from services.sports import is_ride
-            if not is_ride(sport_type):                             # a run, walk, swim, ...: a workout, not a ride
-                try:
-                    _save_workout(db, db_id, rider_id, sport_type, a.get('activityName') or parsed.get('name'), start_utc, start_local, parsed, max_speed)
-                except Exception as e:
-                    failed(activity_id, 'insert', f'{sport_type}: {e}', start_date, label)
-                    continue
-                garmin_failures.clear(db, activity_id)
-                garmin_changes.remember(db, a)                  # what Garmin said, for services/garmin_changes to compare with later
-                imported += 1
-                if start_date and (newest is None or start_date > newest):
-                    newest = start_date
-                continue
-
-            try:
-                from services.calorie_adjust import pair as _kcal_pair
-                cal_raw, cal_adj = _kcal_pair(parsed.get('calories'))     # global burn adjustment, applied as the figure is pulled in
-                db.execute('''
-                    INSERT INTO Activity (
-                        id, name, type, sportType,
-                        startDate, startDateLocal,
-                        distance, movingTime, elapsedTime, totalElevationGain,
-                        averageSpeed, maxSpeed, averageHeartrate, averageWatts,
-                        averageCadence, calories,
-                        startLat, startLng, streams, rawData, riderId, caloriesRaw,
-                        createdAt, updatedAt
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
-                    ON CONFLICT(id) DO NOTHING
-                ''', [
-                    db_id, name, sport_type, sport_type,
-                    start_utc, start_local,
-                    parsed.get('distance') or 0,
-                    parsed.get('movingTime') or 0,
-                    parsed.get('elapsedTime') or 0,
-                    parsed.get('totalElevationGain') or 0,
-                    parsed.get('averageSpeed') or 0,
-                    max_speed,
-                    parsed.get('averageHeartrate'),
-                    parsed.get('averageWatts'),
-                    parsed.get('averageCadence'),
-                    cal_adj,
-                    parsed.get('startLat'),
-                    parsed.get('startLng'),
-                    parsed.get('streams'),
-                    '{}',
-                    rider_id,
-                    cal_raw,
-                ])
-            except Exception as e:
-                failed(activity_id, 'insert', e, start_date, label)
-                continue
-            save_laps(db, db_id, parsed.get('laps'))
-            garmin_failures.clear(db, activity_id)
-            garmin_changes.remember(db, a)
-
-            if parsed.get('startLat') and parsed.get('startLng') and start_local:
-                try:
-                    w = fetch_weather(parsed['startLat'], parsed['startLng'], start_local, parsed.get('streams'))
-                    if w:
-                        save_weather(db, db_id, w)
-                except Exception:
-                    log.warning('Weather for a Garmin activity failed', exc_info=True)
-
-            try:
-                dup = duplicates.resolve(db, db_id)
-                if dup:
-                    log.warning('Garmin activity %s matched an existing recording; kept the better one', activity_id)
-                from services import gear
-                gear.on_ride_added(db, (dup or {}).get('kept', db_id))
-                from services.ingest import after_ride_added
-                after_ride_added(db, (dup or {}).get('kept', db_id))
-            except Exception as e:
-                log.error('Duplicate resolution failed for %s: %s', db_id, e)
             imported += 1
             if start_date and (newest is None or start_date > newest):
                 newest = start_date

@@ -337,7 +337,8 @@
       <div style="margin-top:0.75rem; display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap;">
         <button type="submit" class="btn btn-secondary btn-sm" formaction="{{ url_for('garmin.changes_check', whole=1) }}" formnovalidate>Full re-sync</button>
         <span class="hint" style="flex:1; min-width:14rem;">Checks every activity here against all of your Garmin Connect history, for ones deleted, renamed or
-          cropped there; the daily check only gets through a little at a time. They're listed on the Import page for you to keep or delete: nothing changes until you choose.</span>
+          cropped there; the daily check only gets through a little at a time. They're listed on the Import page for you to keep or delete: nothing changes until you choose.
+          It also brings in strength, yoga and other gym activities an older sync skipped, and lists any other activity in Garmin that isn't here, and the ones you deleted here, to bring back.</span>
       </div>
       {% endif %}
       {% endif %}

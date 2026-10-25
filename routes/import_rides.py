@@ -33,6 +33,7 @@ def index():
     riders = query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name ASC')
     return render_template('import.html', riders=riders, changes=reimport.pending(get_db()), problems=reimport.problems(get_db()),
                            garmin_changes=garmin_changes.pending(get_db()), garmin_check=tasks.last(get_db(), garmin_changes.TASK),
+                           garmin_missing=garmin_changes.not_here(get_db()), garmin_deleted=garmin_changes.not_here(get_db(), deleted=True),
                            garmin_full=bool(query_db("SELECT 1 FROM Settings WHERE id=1 AND garminSyncMode='full'", one=True)),
                            strava_pending=strava_gear.pending(get_db(), owner_rider_id()),
                            kept=strava_export.kept(get_db(), current_app.config['DATABASE']))
