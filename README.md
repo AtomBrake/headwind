@@ -2,16 +2,16 @@
 
 # Headwind
 
-**Your rides. Your food. Your hardware. Your friends.**
+**Your rides and runs. Your food. Your hardware. Your friends.**
 
-Self-hosted cycling analytics, nutrition and body tracking — no cloud, no subscription, no one else touching your data.
+Self-hosted training analytics for cycling, running, swimming and every other sport, plus nutrition and body tracking — no cloud, no subscription, no one else touching your data.
 
 ## 👉 [**TRY THE LIVE DEMO: headwindtest.smerchants.co.uk**](https://headwindtest.smerchants.co.uk)
 
 **Login: `test` / `test`**. A fictional rider, thousands of real routes (home area removed), made-up food diary. Play with anything; it resets every night.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Status: beta](https://img.shields.io/badge/status-0.1.0--beta-orange.svg)](CHANGELOG.md)
+[![Status: beta](https://img.shields.io/badge/status-beta-orange.svg)](CHANGELOG.md)
 [![Docker](https://img.shields.io/badge/docker-amd64%20%7C%20arm64-2496ED.svg?logo=docker&logoColor=white)](https://hub.docker.com/r/lordmerchant99/headwind)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-FFDD00?logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/lordmerchant)
 
@@ -50,13 +50,13 @@ Self-hosted cycling analytics, nutrition and body tracking — no cloud, no subs
 
 ## What is Headwind?
 
-Headwind is a single self-hosted web app that brings together the things most riders spread across four or five services:
+Headwind is a single self-hosted web app that brings together the things most athletes spread across four or five services. It started as a cycling app, and rides are still its deepest part, but runs, walks, hikes, swims, ski days, paddles, strength sessions and the rest are first-class activities too.
 
-- **Ride analytics** — import from Garmin Connect, FIT/GPX/TCX files or a Strava export; see maps, streams, weather, wind, personal bests, segments and a GPS heatmap of everywhere you've ridden.
-- **Gear and maintenance** — your bikes with photos, a default bike per rider (changeable per ride), a calendar to say which bike rode which rides, and mileage on the parts that wear out (chains, cassettes, tyres, bar tape, sealant...) with service log and "due" alerts.
-- **Nutrition and body tracking** — a fast food diary with barcode scanning, per-meal "recent foods", saved meals, hydration, weight trend and calorie goals that account for your riding.
-- **Coaching and automation** — optional AI ride analysis with your own key (or local Ollama), Home Assistant sensors over MQTT, and push notifications.
-- **A social layer without a central server** — link your instance to a friend's directly and share segment leaderboards.
+- **Activity analytics** — import from Garmin Connect, FIT/GPX/TCX files or a Strava export; see maps, streams, weather, wind, splits, laps, best times and records for each sport, segments, comparisons with the other times you've done the same route, goals, and a GPS heatmap of everywhere you've been.
+- **Gear and maintenance** — bikes, shoes and other kit with photos, a default for each kind of activity (changeable per activity), a calendar to say which bike rode which rides, and mileage on the parts that wear out (chains, cassettes, tyres, bar tape, sealant...) with service log and "due" alerts.
+- **Nutrition and body tracking** — a fast food diary with barcode scanning, per-meal "recent foods", saved meals, hydration, weight trend and calorie goals that account for your training.
+- **Coaching and automation** — optional AI analysis with your own key (or local Ollama), on demand or as each activity arrives; Home Assistant sensors over MQTT; push notifications.
+- **A social layer without a central server** — link your instance to a friend's directly to share activities, segment leaderboards, the heatmap and challenges.
 
 It runs on a Raspberry Pi, a NAS, a spare PC or a VPS. Your data lives in one SQLite file you can copy, back up and inspect. It only talks to services you explicitly configure (plus a few public data APIs listed [below](#privacy-and-telemetry)).
 
@@ -73,7 +73,7 @@ It runs on a Raspberry Pi, a NAS, a spare PC or a VPS. Your data lives in one SQ
 
 ## Beta status — read this first
 
-Headwind **0.1.0-beta** is the first public release. It is a real, working application used daily by its author, and it has been through a security and reliability review (restore safety, login hardening, injection fixes, Garmin sync reliability, resource limits). It is still a beta:
+Headwind is a real, working application used daily by its author. The first public release (0.1.0-beta) went through a security and reliability review (restore safety, login hardening, injection fixes, Garmin sync reliability, resource limits), and every release since is listed in the [CHANGELOG](CHANGELOG.md), with any migration it runs at the first start. It is still a beta:
 
 - **Expect rough edges.** Report them — [open an issue](../../issues).
 - **Shared admin login.** There is one login for the whole instance. It is not a multi-user system. Don't give the login to people you don't trust with your data.
@@ -86,22 +86,22 @@ Headwind **0.1.0-beta** is the first public release. It is a real, working appli
 
 ## A quick tour
 
-> All images: demo data — a fictional rider "Alex" riding real roads around Hathersage, Castleton, Edale and Bakewell.
+> All images: demo data — a fictional rider "Alex" riding real roads around Hathersage, Castleton, Edale and Bakewell. They were taken before the 0.7 releases, so some pages now look a little different (one shared style across the app, light mode, every sport) and newer pages such as Activities, Goals and Tasks aren't pictured yet.
 
 <img src="docs/promo/riding-analytics.jpg" alt="Built around the riding: every ride, and everywhere you've ridden" width="900">
 
 ### Dashboard
-Lifetime totals, a 12-week performance chart you can flip between distance, elevation, speed and calories, and your recent rides.
+Lifetime totals, a 12-week performance chart you can flip between distance, elevation, speed and calories, your goals, and your recent activities with a sport filter.
 
 <img src="docs/screenshots/dashboard.jpg" alt="Dashboard" width="900">
 
-### Ride detail
-Satellite map, elevation + heart-rate and cadence charts, weather at the start (temperature, wind speed/direction and a headwind / tailwind / crosswind call computed from your route bearing), and effort comparison.
+### Activity detail
+Satellite map, elevation + heart-rate and cadence charts, weather at the start (temperature, wind speed/direction and a headwind / tailwind / crosswind call computed from your route bearing), and effort comparison. Each page fits its sport: pace and splits for runs, sets and SWOLF for a pool swim, each run of a ski day, laps from your device. **Same route** ranks this activity against every other time you've done the same start, finish and roads, the same way round, and a Zwift ride is drawn over its Zwift world.
 
 <img src="docs/screenshots/ride-detail.jpg" alt="Ride detail" width="900">
 
 ### Heatmap
-Everywhere you've ridden, filterable by date range and sport, with HD export (3440×1440).
+Everywhere you've been, filterable by date range and sport, with HD export (3440×1440). Show your own activities, one friend's, or everyone's together, each in their own colour; Zwift rides are left out unless you include them, and drawn over their Zwift world's map.
 
 <img src="docs/screenshots/heatmap.jpg" alt="Heatmap" width="900">
 
@@ -111,7 +111,7 @@ Draw a segment on any ride; Headwind scans your whole history, ranks every effor
 <img src="docs/screenshots/segment-leaderboard.jpg" alt="Segment leaderboard" width="900">
 
 ### Analytics
-Speed over time, monthly distance, year-on-year, ride-length distribution, day-of-week, weather scatter charts — all filterable by sport.
+Speed (or pace) over time, monthly distance, year-on-year, length distribution, day-of-week, weather scatter charts, best times and records for each sport — all filterable by sport.
 
 <img src="docs/screenshots/analytics.jpg" alt="Analytics" width="900">
 
@@ -142,8 +142,11 @@ Plan a route on the map, see distance and the elevation profile, and export it a
 
 <img src="docs/screenshots/route-planner.jpg" alt="Route planner" width="900">
 
-### Gear: bikes, parts and service
-Add your bikes (with photos), pick a default, and every new ride lands on it. The calendar assigns older rides to a bike by date or range, and each bike tracks the mileage on its replaceable parts with a service log and alerts. Full guide: [docs/GEAR.md](docs/GEAR.md).
+### Goals and challenges
+Set a distance, climbing, time or activity-count goal for a sport, per week, month or year, and see whether you're ahead of an even pace on the Goals page and the dashboard. Challenge linked friends to a race over set dates; each instance works out the standings from the activities it syncs.
+
+### Gear: bikes, shoes, parts and service
+Add your bikes, shoes and other kit (with photos) and give each kind of activity a default — road, mountain bike, gravel, e-bike, indoor, commutes, runs — so every new activity lands on the right one. The calendar assigns older activities by date or range, and each bike tracks the mileage on its replaceable parts with a service log and alerts. Full guide: [docs/GEAR.md](docs/GEAR.md).
 
 <img src="docs/screenshots/gear-overview.jpg" alt="Gear: your bikes, with what needs attention" width="900">
 
@@ -220,13 +223,13 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 
 <img src="docs/screenshots/route-planner.jpg" alt="Route planner with a saved route loaded: distance, waypoints and GPX export." width="800">
 
-**Walks, runs and hikes are kept separate from rides so they never change your ride stats.**
+**Workouts: every activity that isn't a ride, with search and a sport filter. Distances only add up within a kind, so they never change your ride stats.**
 
-<img src="docs/screenshots/workouts.jpg" alt="Walks, runs and hikes are kept separate from rides so they never change your ride stats." width="800">
+<img src="docs/screenshots/workouts.jpg" alt="Workouts: every activity that isn't a ride, with search and a sport filter." width="800">
 
 **Import: drop in .fit / .gpx / .tcx files or a full Strava export zip.**
 
-<img src="docs/screenshots/import.jpg" alt="Import: drop in .fit / .gpx files or a full Strava export zip." width="800">
+<img src="docs/screenshots/import.jpg" alt="Import: drop in .fit / .gpx / .tcx files or a full Strava export zip." width="800">
 
 </details>
 
@@ -436,35 +439,44 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 
 ## Features
 
-### Ride tracking and import
-- **Garmin Connect sync** — activities *and* daily recovery data; MFA-capable connect flow in the browser (no command line); incremental sync that re-scans the last day so a second same-day ride is never missed and failed downloads are retried.
-- **File import** — `.fit`, `.gpx`, `.tcx` (and gzipped variants), or a **Strava data-export zip**, with a live progress bar. Duplicate detection is time-aware.
-- **GPX export** of any ride.
-- **Phone recording** — the Android app records rides and uploads them (work in progress; see [The Android app](#the-android-app)).
+### Activities and import
+- **Every sport** — road, mountain bike, gravel, e-bike and indoor (Zwift) rides; runs, trail runs, walks and hikes; pool and open-water swims; ski and snowboard days; paddles, surfs and sails; strength, yoga and anything else with no distance. Distances only ever add up within a kind, so a run never changes your ride stats.
+- **Garmin Connect sync** — activities of every type *and* daily recovery data; MFA-capable connect flow in the browser (no command line); incremental sync that re-scans the last day so a second same-day activity is never missed and failed downloads are retried. Activities deleted or changed in Garmin later are flagged for review (see [Garmin Connect](#garmin-connect)).
+- **File import** — `.fit`, `.gpx`, `.tcx` (and gzipped variants), or a **Strava data-export zip**, with a live progress bar. A file keeps its own sport. From a Strava export Headwind also takes Strava's own distance and moving time, your bikes and shoes, photos, commutes and segments, and keeps the export so you can **Import again** later without uploading it.
+- **Duplicates** — the same activity from Garmin, Strava, a file and the phone is kept once, however it arrived (including a watch's indoor ride and its Zwift copy, and a phone's partial recording of a ride). Importing an activity you already have again offers to repair it from the file.
+- **Start times where each activity happened** — the time zone comes from where it started, so a run abroad shows local time. Your home time zone is set in Settings.
+- **Activities page** — every activity in one list, with search, a sport filter and a **Select** bar to edit many at once (delete, change type, set the gear, mark as commutes, rename, download as GPX).
+- **Commutes** and **photos** on any activity.
+- **GPX export** of any activity.
+- **Phone recording** — the Android app records rides and workouts and uploads them (work in progress; see [The Android app](#the-android-app)).
 - **Upload endpoint** — `POST /import/api/upload-ride` with an `X-Upload-Token` header (set `RIDE_UPLOAD_TOKEN`) lets a script, a Pi attached to a bike computer, or an automation push GPX files in.
-- Walks, runs and hikes are supported as workouts alongside rides, with sensible calorie estimates.
 
-### Ride detail and analytics
+### Activity pages and analytics
 - Satellite map, speed/elevation/heart-rate/power/cadence streams, wind overlay, co-rider badges.
-- Weather at the start of every ride from Open-Meteo (free, no key), including a backfill for history.
-- Analytics: speed trend with rolling average, monthly distance, year-on-year, distribution, day-of-week, weather scatters; metric/imperial; sport filter.
-- **Best efforts** — fastest 5/10/20/30/50/100 miles per ride, with year/month filters.
-- **Trophy case** — badges across eight categories (counts, distance, elevation, epic rides, speed, climbing, weather, segments) that link back to the ride that earned them.
+- **Pages that fit the sport** — pace and splits per mile or km on foot; pace per 100 m, sets, strokes and SWOLF for swims; each run of a ski day with vertical descent; no climb on the water; laps from your device for any sport.
+- **Same route** — the other times you've done this activity's route (same start, finish and roads, same way round, same kind of activity), ranked by moving time, compared with the last 20 and charted. The AI coach gets the same comparison.
+- **Zwift rides** are matched to one of Zwift's worlds and drawn over its map.
+- Weather at the start of every activity from Open-Meteo (free, no key), including a backfill for history.
+- Analytics: speed or pace trend with rolling average, monthly distance, year-on-year, distribution, day-of-week, weather scatters; metric/imperial; sport filter.
+- **Best times** — fastest 5/10/20/30/50/100 miles on a ride, 1 km to the marathon on foot, 100 m to 3.8 km in the water, with year/month filters, plus **records by sport** (longest, longest time, most climbing, fastest).
+- **Trophy case** — badges for riding (counts, distance, elevation, epic rides, speed, climbing, weather, segments), running, walking and hiking, swimming, other sports and all sports together, each linking back to the activity that earned it.
+- **Goals** — distance, climbing, time or number of activities for a sport, every week, month or year, measured against an even pace, on the Goals page and the dashboard.
 - **Recovery** (Garmin) — resting HR, HRV, sleep score and body battery with 30/60/90-day charts.
+- Tables sort by clicking a column heading.
 
 ### Segments
-- Define a segment by clicking start and end on a ride map; Headwind **retroactively scans** every ride.
+- Define a segment by clicking start and end on an activity's map; Headwind **retroactively scans** every activity of that kind.
 - Per-effort history, PRs, trend chart, difficulty rating, rolling average.
-- If a segment's stored route shape is missing, Headwind rebuilds it from the ride it was drawn on (or a matching effort) — and says "route shape unavailable" instead of drawing a misleading straight line.
+- If a segment's stored route shape is missing, Headwind rebuilds it from the activity it was drawn on (or a matching effort) — and says "route shape unavailable" instead of drawing a misleading straight line.
 - Segments are shared both ways with linked friends.
-- **Ride segments and run segments.** Each segment is for rides or for runs: runs only match run segments, rides only ride segments. Create a run segment from a run's page (phone-recorded runs and walks open the same page as a ride, from **Workouts**); the Segments page has a tab for each and run segments show pace per mile.
+- **Ride segments and on-foot segments.** Rides (bike and e-bike) only match ride segments; runs, walks and hikes only match on-foot segments, which show pace. The Segments page has a tab for each, a segment can be switched between them from its own page, and ride leaderboards filter **All / Bike / E-bike** so e-bike efforts never take a pedal PR.
 
 ### Phone sensors and live rides (Android app 0.18+)
 - The Android app can record the phone's motion sensors (shake, tilt, barometer) once a second and upload them as a **sidecar** that Headwind attaches to the ride it overlaps in time, so you can ride with a Garmin Edge as the main recorder and still get roughness, tilt and a barometric climb on the ride page ("Sensors only" mode), or record them with a phone-recorded ride.
 - **Share live with Home Assistant** streams position, speed and sensor readings every few seconds to Headwind, which publishes them as Live Ride sensors and a device tracker, so the example dashboard's **Live** tab can show the ride as it happens.
 
-### Running
-- Best times for 1 km, 1 mile, 3 km, 5 km, 10 km, 15 km, half and full marathon, worked out from the GPS of your recorded runs (the fastest stretch of that distance inside any one run), plus pace, weekly/monthly/yearly totals, 12 weeks of distance, recent runs and the latest route. Runs come from the phone app or a Garmin. Shown in Home Assistant on a **Running** tab (see `docs/ha`).
+### Running in Home Assistant
+- Best times for 1 km, 1 mile, 3 km, 5 km, 10 km, 15 km, half and full marathon, worked out from the GPS of your recorded runs (the fastest stretch of that distance inside any one run), plus pace, weekly/monthly/yearly totals, 12 weeks of distance, recent runs and the latest route, are shown in Home Assistant on a **Running** tab (see `docs/ha`). Every other sport has its own totals sensors too.
 
 ### Nutrition and body
 - Barcode scanner (phone camera) and text search, backed by **Open Food Facts** — no API key.
@@ -474,14 +486,16 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - Edit any entry's weight and the macros rescale; scale a whole meal with one tap.
 - Calorie and macro goals, with an estimated daily burn that includes your rides; weekly view; "copy yesterday".
 - Hydration logging with a daily goal.
-- Weight tracking with a smoothed (EMA) trend, goal weight and projected finish.
+- Weight tracking with a smoothed (EMA) trend, goal weight and projected finish, on its own **Weight** page under Health with a table of weigh-ins (Garmin weigh-ins count as scale readings).
 - Optional **AI food-photo estimate** and **screenshot import** (e.g. from another food app) with your own key.
 - Installable as a PWA on iOS/Android.
 
 ### Gear and maintenance
-- **Bikes** with photos, type, brand/model/year and any mileage from before Headwind; a **default bike per rider**, stamped on every new ride (Garmin sync, file import, phone recording, typed-in activity).
-- **Assign by calendar** — click days or set a range ("everything from 1 March to today"), choose the bike and see exactly how many rides change before you apply. A **Bike picker** on every ride changes just that one.
-- **Per-bike stats** — odometer, rides, distance, time, climbing, average speed, longest ride and distance by year.
+- **Bikes** with photos, type, brand/model/year and any mileage from before Headwind.
+- **Shoes and other gear** — shoes, wetsuits, skis, boards, boats — with a photo, distance and time added up from their activities, and a replace-at distance (700 km to start with for shoes) with nudges at 90%, 100% and 125%. Shoes in a Strava export come in with their activities.
+- **Defaults for new activities** — a default bike for commutes, mountain bike, gravel, e-bike and indoor rides (and any other kind you've ridden) beside one for every other ride, and default shoes or kit for each sport. Every new activity lands on its default (Garmin sync, file import, phone recording, typed-in activity), and **Apply to past activities** brings older ones in line. Matching a Strava bike brings in the sports Strava had it as the default for.
+- **Assign by calendar** — click days or set a range ("everything from 1 March to today"), choose the bike and see exactly how many rides change before you apply. A gear picker on every activity changes just that one, and the Activities page lists the activities with no gear (only for sports you have gear for).
+- **One page for every piece of gear** — odometer, activities, distance, time, climbing, speed or pace, a breakdown by sport, first and last used, longest activity, distance by year and the 10 most recent activities. **Retire** keeps its history, and retired gear can still be picked for an old activity.
 - **Replaceable parts** — chain, cassette, chainrings, tyres, tubeless sealant, brake pads/rotors/fluid, cables, bar tape, headset and wheel bearings, bottom bracket, cleats, suspension service or your own, each with editable *check* and *replace* intervals by distance and/or days.
 - **Service log** — replaced, serviced, inspected, cleaned...; replacing a part retires it (keeping its lifetime) and fits a fresh one.
 - **Alerts** — soon / due / overdue, once each, via ntfy and Home Assistant push; a dashboard card shows what needs attention.
@@ -489,13 +503,21 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 
 ### Social (peer-to-peer)
 - Add a friend's Headwind by URL + feed token; their activities (rides, runs, walks, any sport), segments and shared foods sync directly into your database. No central server.
-- Auto-sync every 15 minutes by default (off / 15 / 30 / 60 / 120).
+- **One feed token per friend**, each with its own date range (all, past 6 months, past month, from today), so you can cut one person off without touching the others.
+- A friend's activities are shown, never changed, on your instance. The heatmap shows yours, one friend's or everyone's together.
+- **Challenges** — a race over set dates, sent to the friends you invite.
+- Auto-sync every 15 minutes by default (off / 15 / 30 / 60 / 120). Only new or changed activities are fetched, and edits and deletions reach your friends at their next sync.
 - Works over LAN, VPN or the public internet (use HTTPS).
 
 ### Automation and coaching
-- **AI coaching** (optional): GPT models, **Claude**, or a local **Ollama** model; the prompt includes ride stats, weather, similar past rides, segment comparisons and recovery. Ten personalities (including a refreshingly rude one) and your own coaching goals.
-- **Home Assistant / MQTT**: ride, recovery, nutrition, hydration and weight sensors with auto-discovery; notifications; dashboards.
-- **Notifications** — ride-synced alerts through Home Assistant's companion app (an ntfy hook exists in the code but has no settings screen yet).
+- **AI coaching** (optional): GPT models, **Claude**, or a local **Ollama** model; the prompt includes activity stats, weather, same-route comparisons, similar past activities, segment comparisons, other training and recovery. Ten personalities (including a refreshingly rude one) and your own coaching goals. **Analyse New Rides** writes the notes for each new activity as it arrives.
+- **Home Assistant / MQTT**: ride, every-sport, recovery, nutrition, hydration and weight sensors with auto-discovery; notifications; dashboards.
+- **Notifications** — activity-synced alerts through Home Assistant's companion app (an ntfy hook exists in the code but has no settings screen yet).
+
+### Running it
+- **Tasks page** — what Headwind is doing in the background: the Garmin sync, health history, friend sync, the MQTT link, imports in progress, the one-off repairs an update runs and what each changed, and the Garmin activities it gave up on, with Try again.
+- **Light, dark or auto** — follows each device's setting by default; charts and maps change with the page.
+- Works on a phone: the layout and each page's top-bar actions fit a small screen.
 
 ---
 
@@ -619,7 +641,7 @@ Windows-build only: `HEADWIND_HOST`, `HEADWIND_DATA`, `HEADWIND_NO_TRAY`.
 
 ### Settings inside the app
 
-Garmin credentials, the MQTT broker, Home Assistant URL/token and mappings, AI provider/key/model, coaching personality and goals, display units, your login details, backups and the **calorie burn adjustment** (a percentage taken off every burn estimate as it is pulled in, kept reversible; see the changelog) are all configured under **Settings** — not in `.env`. Calorie and macro goals live under **Nutrition → Goals**, and friend-sync is under **Friends → Auto-Sync**.
+The Garmin sign-in, the MQTT broker, Home Assistant URL/token and mappings, AI provider/key/model, coaching personality and goals, display units, home time zone, appearance (Auto, Light or Dark), your login details, backups and the **calorie burn adjustment** (a percentage taken off every burn estimate as it is pulled in, kept reversible; see the changelog) are all configured under **Settings** — not in `.env`. Calorie and macro goals live under **Nutrition → Goals**, and friend-sync is under **Friends → Auto-Sync**.
 
 ### Data and volumes
 
@@ -628,7 +650,10 @@ Garmin credentials, the MQTT broker, Home Assistant URL/token and mappings, AI p
 | `/data/bike.db` | The SQLite database (WAL mode) — rides, food, weight, settings. Keys, passwords and tokens you enter (AI, MQTT, Home Assistant, friends' feed tokens, the Garmin email) are stored encrypted. |
 | `/data/avatars/` | Profile photos. |
 | `/data/foodimg/` | Food photos fetched or uploaded. |
-| `/data/bikeimg/` | Bike photos (Gear). |
+| `/data/bikeimg/` | Bike, shoe and other gear photos. |
+| `/data/rideimg/` | Photos added to activities (or brought in from a Strava export). |
+| `/data/strava_exports/` | The latest Strava export imported, per rider, kept for **Import again**. Not in backups. |
+| `/data/logs/` | `headwind.log` and its rotated copies. |
 | `/data/.secret_key`, `/data/.admin_login` | The generated session key and login (mode 600). |
 | `/data/.secrets_key` | The key those saved secrets are encrypted with (mode 600). Not in backups: keep a copy to move to another server with them. |
 | `/app/.garmin_tokens/` | Garmin login tokens (so MFA isn't needed every sync). |
@@ -639,11 +664,13 @@ Garmin credentials, the MQTT broker, Home Assistant URL/token and mappings, AI p
 
 ### Garmin Connect
 - Connect in the wizard or **Settings → Garmin Connect**. MFA is handled in the browser.
-- Two things sync: **activities** (downloaded as FIT, deduplicated by Garmin activity id and start time) and **daily health** (resting HR, HRV, sleep, body battery, steps).
+- Two things sync: **activities** (downloaded as FIT, deduplicated by Garmin activity id and start time) and **daily health** (resting HR, HRV, sleep, body battery, steps, weigh-ins).
+- Every activity type comes in: mountain bike, gravel and e-bike rides keep their kind, and strength, yoga, pilates and the like are saved as Other workouts with no track. Activities typed into Garmin Connect come in from Garmin's activity list. **Settings → Garmin Connect → Check activity types with Garmin** puts right activities an older version saved with the wrong sport.
 - The activity cursor re-scans the most recent day and never advances past a failed download, so rides aren't silently skipped.
 - Your Garmin password isn't stored. Headwind keeps Garmin's sign-in tokens in `garmin_tokens` (readable only by Headwind's user) and they renew themselves. If Garmin ever stops accepting them (you changed your Garmin password, or signed out of all devices), syncing stops and Settings and the Tasks page ask you to **Sign in again**. **Sign out** deletes the tokens.
 - Signing in to a different Garmin account replaces the tokens of the old one.
 - An activity deleted, renamed, given another sport or cropped in Garmin Connect after it came in isn't changed here on its own. Once a day, with activity sync on, Headwind compares the last 90 days in Garmin (and a little further back each day) with what it imported, and lists what changed on the **Import** page and the activity's own page: keep it as it is here, or take Garmin's (delete it here too, use Garmin's name or sport). A cropped one is offered with the other re-imports. **Check now** on the Import page runs it straight away.
+- **Full re-sync** (Settings → Garmin Connect) checks everything against all of your Garmin history at once. It also lists any Garmin activity that isn't here under "In Garmin, not here", to bring in or leave out, and the ones you deleted here under "Deleted here, still in Garmin", with **Bring back**.
 - Upgrading from a version that stored the password: the next sync swaps it for tokens and deletes it from the database.
 
 ### Home Assistant / MQTT
@@ -656,14 +683,16 @@ Garmin credentials, the MQTT broker, Home Assistant URL/token and mappings, AI p
 
 ### AI coaching
 - In **Settings → AI Provider** choose OpenAI or Claude (paste your key, pick a model) **or** a local **Ollama** (URL + model). Nothing is sent anywhere until you do.
-- Pick a coaching personality and add your own goals; the model is also given recent history so it can say whether you're improving.
+- Pick a coaching personality and add your own goals; the model is also given recent history and the other times you've done the same route, so it can say whether you're improving.
+- **Analyse New Rides** (on the AI Coach page, off by default) writes the notes for each new activity from Garmin, the phone or an import as it arrives. Only activities from the last 3 days are analysed, so importing your history doesn't run up a bill.
 - Costs are whatever your provider charges; Headwind sends ride summaries, not raw GPS.
 - The same key powers the optional food-photo estimate and screenshot import in the nutrition tracker.
 
 ### Friends (peer-to-peer)
-1. On each instance open **Friends** and copy **Your Feed Token**.
+1. On each instance open **Friends** and make a feed token for the other person (one per friend, with the date range it shares).
 2. On your instance add a friend: enter their URL and **Their Feed Token**, then pick the rider to follow.
-3. Their rides and segments sync into your database; segments you both have appear on shared leaderboards.
+3. Their activities and segments sync into your database; segments you both have appear on shared leaderboards, and their activities can be shown on the heatmap.
+4. To race, start a **challenge** on the Goals page and invite them; it reaches them on the feed.
 
 Sync is pull-based, over HTTP(S). Peer URLs must be `http://` or `https://`; redirects to a different host are refused so a peer can't bounce your token elsewhere. Use HTTPS over the internet.
 
@@ -709,7 +738,7 @@ Behind a proxy Headwind trusts one `X-Forwarded-*` hop, but only from a loopback
 
 ## Backups, updates and your data
 
-- **Backup:** **Settings → Backup & Restore → Download** gives one zip: the database, rider avatars and food photos. It deliberately excludes the Garmin token files, your generated login/key files and `.env`. The keys and passwords saved in Settings (AI, MQTT, Home Assistant, friends' feed tokens, the Garmin email) stay encrypted in it, and the key to them (`.secrets_key`) is left out, so a backup shared by mistake doesn't give them away. The rest of your data (rides with GPS, health, food) is in it as it is, so store it accordingly.
+- **Backup:** **Settings → Backup & Restore → Download** gives one zip: the database, rider avatars, food photos, gear photos and activity photos. It deliberately excludes the Garmin token files, the kept Strava export, your generated login/key files and `.env`. The keys and passwords saved in Settings (AI, MQTT, Home Assistant, friends' feed tokens, the Garmin email) stay encrypted in it, and the key to them (`.secrets_key`) is left out, so a backup shared by mistake doesn't give them away. The rest of your data (rides with GPS, health, food) is in it as it is, so store it accordingly.
 - **Restore:** **Settings → Backup & Restore → Restore** (or from the setup wizard on a fresh install). The uploaded database is checked for integrity, migrated and smoke-tested **before** anything live is touched; your current database is kept as `bike.db.pre-restore`; the swap itself is atomic. A backup this version can't use is rejected with "Nothing was changed". Restored on another server, the backup's saved keys and passwords can't be read: Headwind lists which to enter again. To keep them, copy `.secrets_key` from beside the old database to beside the new one and restart.
 - **Updating (Docker):** `docker compose pull && docker compose up -d`. Migrations run automatically at start-up. Take a backup first on a beta.
 - **Upgrading from an older compose file that used the placeholder `changeme` login:** the placeholder is no longer accepted — a random login is generated; read it from `docker logs`.
@@ -726,11 +755,12 @@ Behind a proxy Headwind trusts one `X-Forwarded-*` hop, but only from a loopback
 | Garmin Connect | Activity/health sync | Your login (to Garmin), requests for your own data |
 | Open-Meteo | Weather, elevation | Ride start coordinates + time |
 | Open Food Facts | Food search/barcodes | The barcode or search text |
+| Zwift's CDN (`cdn.zwift.com`) | A Zwift world's map, fetched by the server the first time it's drawn | A request for the map image |
 | Esri / map tile hosts | Map tiles in your browser | Normal tile requests (your browser's IP) |
 | CDNs (unpkg, jsDelivr) | Chart/map libraries in your browser | Normal asset requests |
 | Your AI provider (if configured) | Coaching, photo estimates | Ride summaries / the image you submit |
 | Your MQTT broker / Home Assistant (if configured) | Automation | Sensor values / notifications |
-| Linked friends (if configured) | P2P sync | Activities and segments you've chosen to share |
+| Linked friends (if configured) | P2P sync | Activities and segments you've chosen to share, and challenges you send |
 
 **Telemetry (the one exception).** At the end of setup, Headwind can send **one single, one-time, anonymous ping** — a random install id and the version number, nothing else — so the author has a rough idea how many instances exist. No rides, food, weight, location or any personal data is ever sent. The collector does not store IP addresses. The wizard shows this text and a permanent opt-out; you can also set `TELEMETRY=off` in your `.env` to skip the question entirely. The code is [`services/telemetry.py`](services/telemetry.py) — read it rather than take our word for it.
 
@@ -738,7 +768,7 @@ Behind a proxy Headwind trusts one `X-Forwarded-*` hop, but only from a loopback
 
 ## Security notes
 
-Headwind 0.1.0-beta shipped after a dedicated review. In short:
+The first public release, 0.1.0-beta, shipped after a dedicated review. In short:
 
 - **No default credentials** — placeholder logins are rejected; a random key and password are generated per install.
 - **Login throttling** (8 failures / 5 minutes), **session revocation** when the password changes, **cross-site request blocking**, open-redirect fix.
@@ -746,7 +776,14 @@ Headwind 0.1.0-beta shipped after a dedicated review. In short:
 - **Stored-content injection** (ride/friend/segment names, friend-supplied route shapes) is escaped or validated; avatars that aren't decodable images are rejected.
 - **Resource limits** on imports, archives and peer feeds; peer redirects restricted to the same host.
 
-Known limits: one shared admin login; the password is stored in plaintext in your data folder / `.env`; in the advanced multi-rider mode phone devices aren't scoped per rider. See [Known limitations](#known-limitations-and-roadmap). To report a vulnerability, please open a private security advisory on GitHub rather than a public issue.
+Since then:
+
+- **Saved secrets are encrypted** — the AI keys, Home Assistant token, MQTT password, friends' feed tokens and the Garmin sign-in are encrypted in the database with a key kept beside it (`.secrets_key`), and never sent back to the Settings page.
+- **The Garmin password isn't kept** — only the sign-in tokens Garmin gives back.
+- **Feed tokens are per friend**, sent in a header only and compared in constant time; `X-Forwarded-*` headers are only believed from a trusted proxy.
+- **A friend's activities can't be changed** on your instance.
+
+Known limits: one shared admin login; the login password is stored in plaintext in your data folder / `.env`; in the advanced multi-rider mode phone devices aren't scoped per rider. See [Known limitations](#known-limitations-and-roadmap). To report a vulnerability, please open a private security advisory on GitHub rather than a public issue.
 
 ---
 
@@ -793,14 +830,14 @@ tests/              unit tests
 docs/               Home Assistant builders, screenshots, notes
 ```
 
-**Data model (SQLite)** — `Activity` (rides, with GPS/HR/power streams), `BestEffort`, `Segment` + `SegmentEffort`, `Workout`, `Bike` + `Part` + `ServiceLog` (Gear), `FoodLog`, `HydrationLog`, `WeightLog`, `SavedMeal(+Item)`, `FoodFavourite`, `CustomFood`/`FoodOverride`, `Friend` (+ imported riders/segments/shared foods), `Settings`, `Rider`. Schema changes are applied at start-up by `migrate_db()`; restoring an older backup migrates it first.
+**Data model (SQLite)** — `Activity` (every sport, with GPS/HR/power streams last; `Ride` and `Workout` are views of it), `ActivityTrack` (track summaries for the heatmap and segment matching), `ActivityPhoto`, `ActivityDuplicate`, `BestEffort` + `SportEffort` (best times), `Segment` + `SegmentEffort`, `Bike` + `Part` + `ServiceLog` + `BikeDefault` and `Kit` + `KitDefault` (Gear), `Goal`, `Challenge` (+ members, invites), `FoodLog`, `HydrationLog`, `WeightLog`, `SavedMeal(+Item)`, `FoodFavourite`, `CustomFood`/`FoodOverride`, `Friend` + `FeedToken` (+ imported riders/segments/shared foods), `GarminDaily`, `GarminChange`/`GarminMissing`/`GarminFailure` (Garmin review lists), `StravaExport` + `StravaBike`/`StravaKit` (Strava imports), `ImportChange`/`ImportProblem` (Import page review lists), `TaskLog`, `Settings`, `Rider`. Schema changes are applied at start-up by `migrate_db()`; restoring an older backup migrates it first.
 
 ---
 
 ## Known limitations and roadmap
 
-**Known limitations (0.1.0-beta)**
-- One shared admin login; the password is stored in plaintext in the data folder / `.env`.
+**Known limitations**
+- One shared admin login; the login password is stored in plaintext in the data folder / `.env`.
 - Phone-API tokens aren't scoped per rider (only matters in the advanced multi-rider mode).
 - The arm64 image and Windows build are new and lightly tested; the Windows build is unsigned.
 - Strava's live API is closed to new apps, so Strava is import-only (export zip).
