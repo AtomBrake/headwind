@@ -62,3 +62,17 @@ def test_day_view_marks_garmin_scale_weigh_ins_as_scale(client):
 
     first = client.get('/nutrition/api/weight/graph?period=ALL').get_json()['raw'][0]
     assert first['source'] == 'backfill' and first['changeKg'] is None and first['trendKg'] == pytest.approx(90.0)
+
+
+def test_milestone_lines_are_every_stone_or_every_5_kg_in_metric(client):
+    # the oldest reading (90 kg) is the heaviest and no diet start is set, so lines run down from 90 kg
+    stlb = client.get('/nutrition/api/weight/graph?period=M').get_json()['milestones']
+    assert stlb == []                                       # lowest is 88.5 kg: not a stone down yet
+    client.post('/nutrition/api/weight', json={'date': (date.today() - timedelta(days=2)).isoformat(), 'unit': 'kg', 'kg': 83.0})
+    stlb = client.get('/nutrition/api/weight/graph?period=M').get_json()['milestones']
+    assert [m['label'] for m in stlb] == ['-1st']
+    assert stlb[0]['kg'] == pytest.approx(90 - 6.35, abs=0.01)
+
+    client.post('/nutrition/api/weight/settings', json={'unit': 'kg'})
+    kg = client.get('/nutrition/api/weight/graph?period=M').get_json()['milestones']
+    assert kg == [{'kg': 85.0, 'label': '-5kg'}]

@@ -6,6 +6,7 @@ import re
 from datetime import date, timedelta
 
 KG_PER_STONE = 6.35029318
+KG_MILESTONE_STEP = 5   # metric users get a line every 5 kg lost, where imperial ones get one per stone
 LB_PER_KG = 2.2046226218488
 
 _STONE_LB_RE = re.compile(r'^(\d+(?:\.\d+)?)\s*st\.?\s*(\d+(?:\.\d+)?)\s*lb\.?$', re.IGNORECASE)
@@ -171,14 +172,14 @@ def compute_trend(entries, alpha=0.1, end_date=None):
     return trend
 
 
-def stone_milestones(start_kg, low_kg):
-    """kg values at each whole stone below start_kg, down to low_kg."""
+def weight_milestones(start_kg, low_kg, step_kg=KG_PER_STONE):
+    """kg values at each whole step below start_kg, down to low_kg."""
     if start_kg is None:
         return []
     milestones = []
     n = 1
     while True:
-        val = start_kg - n * KG_PER_STONE
+        val = start_kg - n * step_kg
         if val < low_kg - 1e-9:
             break
         milestones.append(val)

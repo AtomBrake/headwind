@@ -15,13 +15,15 @@ from database import get_db, query_db
 from services.food_lookup import name_key
 from services.food_quality import nutri_score_label, nutrient_tags
 from services.weight_trend import (
+    KG_MILESTONE_STEP,
+    KG_PER_STONE,
     MAX_SANE_KG,
     MIN_SANE_KG,
     compute_trend,
     is_scale_reading,
     parse_backfill_rows,
     stone_lb_to_kg,
-    stone_milestones,
+    weight_milestones,
 )
 
 log = logging.getLogger(__name__)
@@ -1887,7 +1889,7 @@ def weight_graph_data():
     if not entries:
         return jsonify({
             'raw': [], 'trend': [], 'unit': unit, 'dietStartDate': diet_start,
-            'periodStart': None, 'periodEnd': None, 'summary': None, 'stoneLines': [],
+            'periodStart': None, 'periodEnd': None, 'summary': None, 'milestones': [],
         })
 
     today = date.today()
@@ -1952,10 +1954,13 @@ def weight_graph_data():
             summary['changeSinceDietStartKg'] = round(change_diet, 2)
             summary['dietWeeklyRateKg']       = round(change_diet / diet_days * 7, 3)
 
+    # lines below the diet start (or the heaviest ever): every stone for stlb, every 5 kg for kg. The chart draws only those in view.
     all_weights = [w for _, w in entries]
-    stone_lines = [
-        round(k, 2) for k in
-        stone_milestones(diet_start_trend or max(all_weights), min(all_weights))
+    metric = unit == 'kg'
+    milestones = [
+        {'kg': round(k, 2), 'label': f'-{n * KG_MILESTONE_STEP}kg' if metric else f'-{n}st'}
+        for n, k in enumerate(weight_milestones(diet_start_trend or max(all_weights), min(all_weights),
+                                                KG_MILESTONE_STEP if metric else KG_PER_STONE), start=1)
     ]
 
     return jsonify({
@@ -1966,7 +1971,7 @@ def weight_graph_data():
         'periodStart':   start_date.isoformat(),
         'periodEnd':     end_date.isoformat(),
         'summary':       summary,
-        'stoneLines':    stone_lines,
+        'milestones':    milestones,
     })
 
 
