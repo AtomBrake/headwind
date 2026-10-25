@@ -982,6 +982,12 @@ function openPhoto(a) {
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
     maxZoom: 19, opacity: 1
   }).addTo(map);
+  {% if zwift_world %}
+  // A virtual ride: drawn over its Zwift world's map, which can be switched off to see the real place underneath
+  var zw = {{ zwift_world | tojson }}, zwLayers = {};
+  zwLayers[zw.name + ' (Zwift)'] = L.imageOverlay(zw.url, zw.bounds, { attribution: zw.credit, interactive: false }).addTo(map);
+  L.control.layers(null, zwLayers, { collapsed: false }).addTo(map);
+  {% endif %}
   if (coords.length) {
     var line = L.polyline(coords, { color: cssVar('--accent'), weight: 3 }).addTo(map);
     map.fitBounds(line.getBounds(), { padding: [20, 20] });

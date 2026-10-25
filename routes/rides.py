@@ -116,6 +116,12 @@ def detail(rid):
             coords = pl.decode(activity['summaryPolyline'])
         except Exception:
             log.warning('Activity summary polyline would not decode', exc_info=True)
+    zwift_world = None                                  # a virtual ride's track is in a Zwift world: drawn over that world's map
+    if coords and sports.is_virtual(activity['sportType']):
+        from services import zwift
+        pts = [p for p in coords if p and len(p) >= 2 and p[0] is not None and p[1] is not None]
+        w = pts and zwift.world_of(min(p[0] for p in pts), max(p[0] for p in pts), min(p[1] for p in pts), max(p[1] for p in pts))
+        zwift_world = dict(zwift.for_page(w), credit=zwift.CREDIT) if w else None
 
     from services import units, activity_detail
     detail = activity_detail.for_activity(activity, streams)      # splits, pool lengths, ski runs, laps: what fits the sport
@@ -270,7 +276,7 @@ def detail(rid):
         file_climb = raw.get('fileClimb') if raw.get('fileClimb') is not None and activity['totalElevationGain'] == raw.get('stravaClimb') else None
     except (ValueError, TypeError, AttributeError):
         file_climb = None
-    return render_template('ride.html', friend=friend, kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
+    return render_template('ride.html', friend=friend, kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, zwift_world=zwift_world, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
                            file_climb=file_climb, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
                            charts=charts, has_memory=memory_count > 0, ai_pending=_auto_analyse.is_pending(activity['id']),
                            seg_efforts=seg_efforts, alt_raw=alt_raw,

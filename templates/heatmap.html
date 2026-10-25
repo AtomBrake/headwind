@@ -56,6 +56,7 @@
     #whoKey { gap: 0.35rem 0.75rem; font-size: 0.8125rem; color: var(--text-muted); }
     #whoKey span { display: inline-flex; align-items: center; gap: 0.35rem; }
     #whoKey i { width: 0.65rem; height: 0.65rem; border-radius: 50%; flex-shrink: 0; }
+    #zwiftWorlds { gap: 0.3rem; width: 0; min-width: 100%; }      /* wraps within the panel instead of widening it */
   </style>
 {% endblock %}
 
@@ -105,6 +106,19 @@
         {% endfor %}
       </select>
     </div>
+    {% if has_virtual %}
+    <!-- Zwift and other virtual rides: left out by default, since Watopia and the other made-up worlds are out at sea -->
+    <div class="overlay-row" style="gap: 0.25rem;">
+      <label for="virtualFilter" class="overlay-label">Zwift rides</label>
+      <select id="virtualFilter" class="overlay-select" onchange="fitNext = true; reload()">
+        <option value="out">Leave out</option>
+        <option value="in">Include</option>
+        <option value="only">Only Zwift</option>
+      </select>
+    </div>
+    <!-- The Zwift worlds on the map, to jump between -->
+    <div class="overlay-row" id="zwiftWorlds" style="display:none;"></div>
+    {% endif %}
     <!-- Map layer -->
     <div class="overlay-row">
       <button class="preset-btn"        id="layer-dark"     onclick="setLayer('dark',     this)">Dark</button>
@@ -159,6 +173,12 @@ function setLayer(key, btn) {
 }
 
 var layerGroup = L.layerGroup();
+// Zwift worlds' maps sit above the base map and below the tracks
+map.createPane('zwift').style.zIndex = 350;
+var worldGroup = L.layerGroup().addTo(map);
+var ZWIFT_WORLDS = {{ zwift_worlds | tojson }};
+var ZWIFT_CREDIT = {{ zwift_credit | tojson }};
+var shownWorlds = [];                  // the worlds drawn now, for the HD export
 // Start on the grey map that matches the page, and follow the page when it flips between light and dark (unless on satellite)
 function schemeLayer() { var k = document.documentElement.dataset.scheme === 'light' ? 'light' : 'dark'; setLayer(k, document.getElementById('layer-' + k)); }
 schemeLayer();
@@ -185,7 +205,36 @@ function filterParams() {
   var sport = document.getElementById('sportFilter').value;
   if (sport) params.set('sport', sport);
   if (whoValue()) params.set('who', whoValue());
+  params.set('virtual', virtualValue());
   return params;
+}
+
+function virtualValue() { var v = document.getElementById('virtualFilter'); return v ? v.value : 'out'; }
+
+// Draw each Zwift world that has a track, under the tracks. With real rides on the map too, only the made-up worlds: Zwift's London
+// would cover the real London the other rides are on. Then a button per world (busiest first) to go to it.
+function showWorlds(d) {
+  worldGroup.clearLayers();
+  var counts = {};
+  (d.worlds || []).forEach(function (w) { if (w) counts[w] = (counts[w] || 0) + 1; });
+  var slugs = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; });
+  var realToo = virtualValue() !== 'only';
+  shownWorlds = slugs.map(function (s) { return ZWIFT_WORLDS[s]; }).filter(function (w) { return w && (w.madeUp || !realToo); });
+  shownWorlds.forEach(function (w) {
+    L.imageOverlay(w.url, w.bounds, { pane: 'zwift', attribution: ZWIFT_CREDIT, interactive: false }).addTo(worldGroup);
+  });
+  var row = document.getElementById('zwiftWorlds');
+  if (!row) return slugs;
+  row.innerHTML = '';
+  slugs.forEach(function (s) {
+    var w = ZWIFT_WORLDS[s], b = document.createElement('button');
+    b.className = 'preset-btn';
+    b.textContent = w.name + ' ' + counts[s];
+    b.onclick = function () { map.fitBounds(w.bounds, { padding: [20, 20] }); };
+    row.appendChild(b);
+  });
+  row.style.display = slugs.length ? '' : 'none';
+  return slugs;
 }
 
 // Everyone together: a key of who's who, with each person's count
@@ -224,17 +273,19 @@ function loadRange(from, to) {
     .then(function(d) {
       layerGroup.clearLayers();
       var opacity = opacityFor(d.count);
-      var bounds  = [];
+      var bounds  = [];                // where to zoom: the real rides, so Zwift's worlds don't pull the view out to sea
 
       d.tracks.forEach(function(pts, i) {
         if (!pts || pts.length < 2) return;
         L.polyline(pts, { color: cssVar(personVar(d.riders[i])), weight: 2, opacity: opacity, interactive: false })
          .addTo(layerGroup);
-        pts.forEach(function(p) { bounds.push(p); });
+        if (!d.worlds[i]) pts.forEach(function(p) { bounds.push(p); });
       });
+      var worlds = showWorlds(d);
 
-      if (fitNext && bounds.length) {
-        map.fitBounds(L.latLngBounds(bounds), { padding: [20, 20] });
+      if (fitNext && (bounds.length || worlds.length)) {
+        if (bounds.length) map.fitBounds(L.latLngBounds(bounds), { padding: [20, 20] });
+        else map.fitBounds(ZWIFT_WORLDS[worlds[0]].bounds, { padding: [20, 20] });      // Zwift only: the busiest world
         fitNext = false;
       }
       showKey(d);
@@ -340,10 +391,21 @@ function exportHD() {
   params.set('hd', '1');
   var trackPromise = fetch('/heatmap/data?' + params.toString()).then(r => r.json());
 
-  Promise.all([trackPromise, Promise.all(tileLayerPromises)])
+  // Zwift worlds' maps, through the server (Zwift's CDN sends no CORS headers, so the canvas couldn't be saved)
+  var worldPromise = Promise.all(shownWorlds.map(function(w) {
+    return new Promise(function(resolve) {
+      var img = new Image();
+      img.onload  = function() { resolve({ img: img, bounds: w.bounds }); };
+      img.onerror = function() { resolve(null); };
+      img.src = w.url;
+    });
+  }));
+
+  Promise.all([trackPromise, Promise.all(tileLayerPromises), worldPromise])
     .then(function(results) {
       var trackData      = results[0];
       var tileLayerSets  = results[1];
+      var worldImages    = results[2];
 
       btn.textContent = '⏳ Rendering…';
       setTimeout(function() {
@@ -366,12 +428,20 @@ function exportHD() {
           });
         });
 
+        function project(lat, lng) {
+          var pt = map.latLngToContainerPoint(L.latLng(lat, lng));
+          return [pt.x * scaleX, pt.y * scaleY];
+        }
+
+        // Zwift worlds over the tiles: [[south, west], [north, east]] -> the north-west and south-east corners
+        worldImages.forEach(function(w) {
+          if (!w) return;
+          var nw = project(w.bounds[1][0], w.bounds[0][1]), se = project(w.bounds[0][0], w.bounds[1][1]);
+          ctx.drawImage(w.img, nw[0], nw[1], se[0] - nw[0], se[1] - nw[1]);
+        });
+
         // Draw routes on top — alpha accumulates so busy segments glow
         if (trackData.tracks.length) {
-          function project(lat, lng) {
-            var pt = map.latLngToContainerPoint(L.latLng(lat, lng));
-            return [pt.x * scaleX, pt.y * scaleY];
-          }
 
           var alpha = Math.max(0.12, 4.0 / Math.max(trackData.tracks.length, 1));
           ctx.lineWidth   = 1.8;
