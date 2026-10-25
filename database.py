@@ -476,6 +476,7 @@ def migrate_db():
         ('nutritionWeightUnit',     "TEXT DEFAULT 'stlb'"),
         ('nutritionWeightEmaAlpha', 'REAL DEFAULT 0.1'),
         ('dietStartDate',           'TEXT'),
+        ('weightMilestoneLines',    'INTEGER DEFAULT 1'),    # 0 = the weight graph hides its every-stone / every-5-kg lines
         ('calorieAdjustPct',       'REAL DEFAULT 0'),
         ('claudeKey',              'TEXT'),
         ('claudeModel',            'TEXT'),

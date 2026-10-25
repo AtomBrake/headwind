@@ -133,7 +133,7 @@ Edit the weight of any logged item and calories, protein, carbs, fat and fibre s
 <img src="docs/screenshots/nutrition-weight-edit.jpg" alt="Editing a food's weight" width="900">
 
 ### Weight trend
-Daily weigh-ins with a smoothed trend line, rate of change, and progress against your goal.
+Daily weigh-ins with a smoothed trend line, rate of change, and progress against your goal. The chart stays readable from a week to years of daily readings, with a line at every stone (or 5 kg) lost that you can switch off.
 
 <img src="docs/screenshots/weight-trend.jpg" alt="Weight trend" width="900">
 
@@ -487,7 +487,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - Edit any entry's weight and the macros rescale; scale a whole meal with one tap.
 - Calorie and macro goals, with an estimated daily burn that includes your rides; weekly view; "copy yesterday".
 - Hydration logging with a daily goal.
-- Weight tracking with a smoothed (EMA) trend, goal weight and projected finish, on its own **Weight** page under Health with a table of weigh-ins (Garmin weigh-ins count as scale readings).
+- Weight tracking with a smoothed (EMA) trend, goal weight and projected finish, on its own **Weight** page under Health with a table of weigh-ins (Garmin weigh-ins count as scale readings). Lines at every stone or 5 kg lost can be switched off.
 - Optional **AI food-photo estimate** and **screenshot import** (e.g. from another food app) with your own key.
 - Installable as a PWA on iOS/Android.
 
