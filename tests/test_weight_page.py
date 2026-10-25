@@ -76,3 +76,14 @@ def test_milestone_lines_are_every_stone_or_every_5_kg_in_metric(client):
     client.post('/nutrition/api/weight/settings', json={'unit': 'kg'})
     kg = client.get('/nutrition/api/weight/graph?period=M').get_json()['milestones']
     assert kg == [{'kg': 85.0, 'label': '-5kg'}]
+
+
+def test_milestone_lines_can_be_switched_off_without_touching_the_other_settings(client):
+    assert client.get('/nutrition/api/weight/settings').get_json()['milestoneLines'] is True   # on by default
+    client.post('/nutrition/api/weight/settings', json={'unit': 'kg', 'dietStartDate': '2026-01-05'})
+    assert client.get('/nutrition/api/weight/settings').get_json()['milestoneLines'] is True   # a save without it leaves it alone
+
+    client.post('/nutrition/api/weight/settings', json={'unit': 'kg', 'dietStartDate': '2026-01-05', 'milestoneLines': False})
+    ws = client.get('/nutrition/api/weight/settings').get_json()
+    assert ws['milestoneLines'] is False and ws['unit'] == 'kg' and ws['dietStartDate'] == '2026-01-05'
+    assert 'id="wgMilestones"' in client.get('/nutrition/weight').get_data(as_text=True)

@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **The weight chart's milestone lines can be switched off.** A **milestone lines** box under the chart hides the line at every stone (or 5 kg) lost, and the choice is remembered.
+
+### Fixed
+- **The weight chart reads well over long spans.** Over years of daily weigh-ins the month letters ran into each other and the dots buried the trend line. Now the dates along the bottom are days, months or years to suit the span, the dots shrink and fade behind the trend line when they're packed in, and the weights up the side are round numbers (whole kilos, or stones and quarter stones).
+
 ## [0.7.24-beta] - 2026-10-25
 
 ### Fixed

@@ -133,13 +133,14 @@ def _goal_weight_settings():
 
 def _weight_settings():
     row = query_db(
-        'SELECT nutritionWeightUnit, nutritionWeightEmaAlpha, dietStartDate FROM Settings WHERE id=1',
+        'SELECT nutritionWeightUnit, nutritionWeightEmaAlpha, dietStartDate, weightMilestoneLines FROM Settings WHERE id=1',
         one=True,
     )
     return {
         'unit':          (row['nutritionWeightUnit'] if row else None) or 'stlb',
         'emaAlpha':      (row['nutritionWeightEmaAlpha'] if row else None) or 0.1,
         'dietStartDate': row['dietStartDate'] if row else None,
+        'milestoneLines': bool(row['weightMilestoneLines']) if row and row['weightMilestoneLines'] is not None else True,
         **_goal_weight_settings(),
     }
 
@@ -1788,6 +1789,8 @@ def save_weight_settings():
     ])
     if 'goalWeightKg' in d:
         db.execute('UPDATE Settings SET goalWeightKg=? WHERE id=1', [float(d['goalWeightKg']) if d.get('goalWeightKg') else None])
+    if 'milestoneLines' in d:
+        db.execute('UPDATE Settings SET weightMilestoneLines=? WHERE id=1', [1 if d['milestoneLines'] else 0])
     db.commit()
     _mqtt_nutrition()
     return jsonify({'ok': True})
