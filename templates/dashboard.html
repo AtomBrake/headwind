@@ -274,8 +274,8 @@
 
 {% if flagged %}
 <div class="card" id="flaggedCard" style="margin-bottom:1rem; border-color:var(--warning-line); background:var(--warning-soft);">
-  <div class="card-title">Rides that look wrong ({{ flagged|length }})</div>
-  <p class="hint" style="margin:0 0 0.5rem;">These broke a sanity limit (an impossible speed, a tiny blip, a climb that does not fit the distance). They are left out of the speed and weather analytics until you decide: keep one if it is genuinely right, or delete it.{% if garmin_full %} A swim or run listed here was probably saved as a ride by an older Garmin sync: <a href="{{ url_for('garmin.sports_page') }}" style="color:var(--accent);">check activity types with Garmin</a>.{% endif %}</p>
+  <div class="card-title">{{ 'Rides' if flagged | rejectattr('isRide') | list | length == 0 else 'Activities' }} that look wrong ({{ flagged|length }})</div>
+  <p class="hint" style="margin:0 0 0.5rem;">These broke a sanity limit (an impossible speed, a tiny blip, a climb that does not fit the distance, a heart rate no heart has). They are left out of the speed and weather analytics until you decide: keep one if it is genuinely right, or delete it.{% if garmin_full %} A swim or run listed here was probably saved as a ride by an older Garmin sync: <a href="{{ url_for('garmin.sports_page') }}" style="color:var(--accent);">check activity types with Garmin</a>.{% endif %}</p>
   {% set blips = flagged | selectattr('isBlip') | list %}
   {% if blips %}
   <form method="POST" action="{{ url_for('rides.delete_blips') }}" style="margin:0 0 0.5rem;"
@@ -286,7 +286,7 @@
   {% endif %}
   {% for f in flagged %}
   <div id="flag_{{ f.id }}" style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; padding:0.4rem 0; border-top:1px solid var(--divider); font-size:0.8125rem;">
-    <a href="/rides/{{ f.id }}" class="dash-link" style="flex:1 1 14rem;"><span style="color:var(--accent);">{{ f.startDateLocal | fmt_date }} · {{ f.name or 'Ride' }}</span><br><span style="color:var(--text-muted);">{{ f.flagReason }}</span></a>
+    <a href="/rides/{{ f.id }}" class="dash-link" style="flex:1 1 14rem;"><span style="color:var(--accent);">{{ f.startDateLocal | fmt_date }} · {{ f.name or f.sportLabel }}</span><br><span style="color:var(--text-muted);">{{ f.flagReason }}</span></a>
     {% if f.stravaClimb is not none %}<button class="btn btn-secondary btn-sm" onclick="useStravaClimb('{{ f.id }}')"
       title="Strava recalculated the climb; the altitude in the file can't be real">Use Strava's climb ({{ f.stravaClimb | fmt_elev }})</button>{% endif %}
     <button class="btn btn-secondary btn-sm" onclick="dismissFlagged('{{ f.id }}')">It's right</button>
