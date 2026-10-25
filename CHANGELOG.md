@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.24-beta] - 2026-10-25
+
+### Fixed
+- **Activities cropped in Garmin Connect come in cropped.** Garmin keeps the whole recording in the file it hands out, so an activity cropped there came in whole: a walk cropped to 1.7 km came in as 31 km, the drive home included. Now the track is cut to the part Garmin kept, and the distance, moving time, climb and calories are Garmin's. Activities that already came in whole are found once by the daily Garmin check (or straight away by **Full re-sync** in Settings → Garmin Connect) and offered on the Import page with the other re-imports.
+
 ## [0.7.23-beta] - 2026-10-25
 
 ### Added
