@@ -4,7 +4,10 @@ saved when the export is read again (photos, segments, Strava's own figures, fil
 One per rider, the latest (Strava's export is always the whole history): strava_exports/<riderId>.zip beside the database, like rideimg/
 (services/photos.py), so it lives in the Docker data volume. Uploads are saved into the same folder first (UPLOAD_PREFIX), so keeping one is a
 rename, not a copy. Not in the backup zip: the rider can download it from Strava again, and it would double the backup. A restored backup's
-StravaExport rows whose file isn't here are dropped when next read (kept())."""
+StravaExport rows whose file isn't here are dropped when next read (kept()).
+
+Also which riders should import their export again (advice()): REIMPORT_ADVISED, kept by hand, against StravaExportRead, which outlives the kept
+file (the rider can upload the export again)."""
 import logging
 import os
 import time
@@ -13,6 +16,14 @@ log = logging.getLogger(__name__)
 
 UPLOAD_PREFIX = '.upload-'
 _STALE_UPLOAD_SECS = 86400          # an upload's file left behind by a crash or restart mid-import
+
+# Releases whose fixes reach activities already saved only when the Strava export is imported again, each with the line the Import page shows.
+# Add one when a release makes that worth asking for: not for every change to how files are read (reimport.reader_version() already makes the
+# next import read every file again), only when a rider would want to know. Append only, never reorder or remove: a rider's place is the length
+# of this list when they last imported their export.
+REIMPORT_ADVISED = [
+    # ('0.7.23-beta', "Strava's own moving time for runs and walks"),
+]
 
 
 def ensure_schema(db):
@@ -26,6 +37,18 @@ def ensure_schema(db):
         segments      INTEGER DEFAULT 0,         -- the options it was last imported with
         photos        INTEGER DEFAULT 1
     )''')
+    new = not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='StravaExportRead'").fetchone()
+    db.execute('''CREATE TABLE IF NOT EXISTS StravaExportRead (
+        riderId   INTEGER PRIMARY KEY,
+        advised   INTEGER NOT NULL DEFAULT 0,    -- len(REIMPORT_ADVISED) when the rider's export was last imported
+        dismissed INTEGER NOT NULL DEFAULT 0,    -- len(REIMPORT_ADVISED) when the advice was put off: shown again for a newer line only
+        readAt    TEXT
+    )''')
+    # Riders who imported an export before it was recorded count as before every line. database.py makes StravaBike, StravaKit and ImportSeen first.
+    if new:
+        db.execute("""INSERT OR IGNORE INTO StravaExportRead (riderId)
+                      SELECT riderId FROM StravaExport UNION SELECT riderId FROM StravaBike UNION SELECT riderId FROM StravaKit
+                      UNION SELECT a.riderId FROM ImportSeen s JOIN Activity a ON a.id = s.activityId WHERE s.sourceKey LIKE 'strava:%'""")
 
 
 def export_dir(db_path):
@@ -97,3 +120,35 @@ def forget(db, db_path, rider_id):
     except FileNotFoundError:
         pass
     db.execute('DELETE FROM StravaExport WHERE riderId=?', [rider_id])
+
+
+def note_read(db, rider_id):
+    """A Strava export of the rider's was imported to the end (uploaded, kept or not, or imported again): nothing advised so far is left. Commits."""
+    db.execute('''INSERT INTO StravaExportRead (riderId, advised, readAt) VALUES (?, ?, datetime('now'))
+                  ON CONFLICT(riderId) DO UPDATE SET advised=excluded.advised, readAt=excluded.readAt''', [rider_id, len(REIMPORT_ADVISED)])
+    db.commit()
+
+
+def dismiss(db, rider_id):
+    """Put off the advice to import the export again until a newer release adds to it. Commits."""
+    db.execute('UPDATE StravaExportRead SET dismissed=? WHERE riderId=?', [len(REIMPORT_ADVISED), rider_id])
+    db.commit()
+
+
+def advice(db, db_path):
+    """[{riderId, riderName, readAt, kept, reasons: [(release, reason)]}]: riders whose export was last imported before a release in
+    REIMPORT_ADVISED, and who haven't put it off since. kept: the export is here to import again without uploading it."""
+    n = len(REIMPORT_ADVISED)
+    if not n:
+        return []
+    rows = db.execute('''SELECT a.riderId, r.name AS riderName, a.readAt, a.advised, e.riderId IS NOT NULL AS kept
+                          FROM StravaExportRead a JOIN Rider r ON r.id = a.riderId LEFT JOIN StravaExport e ON e.riderId = a.riderId
+                          WHERE a.advised < ? AND a.dismissed < ? ORDER BY r.isDefault DESC, r.name''', [n, n]).fetchall()
+    return [{'riderId': r['riderId'], 'riderName': r['riderName'], 'readAt': r['readAt'],
+             'kept': bool(r['kept']) and os.path.isfile(path_for(db_path, r['riderId'])),
+             'reasons': REIMPORT_ADVISED[r['advised']:]} for r in rows]
+
+
+def forget_read(db, rider_id):
+    """The rider is being deleted: what they last imported goes too (forget() takes the kept export). Does not commit."""
+    db.execute('DELETE FROM StravaExportRead WHERE riderId=?', [rider_id])
