@@ -99,20 +99,20 @@
   </div>
   {% if ach.rows %}
   <div style="overflow-x:auto;">
-  <table class="table rec-table flush">
+  <table class="table rec-table flush sortable" data-sort-name="{{ ach.key }}">
     <thead>
       <tr>
-        <th>Distance</th>
+        <th aria-sort="ascending">Distance</th>
         <th class="num">Best Time</th>
-        <th class="num">{{ ach.rate_label }}</th>
+        <th class="num" data-col="rate"{% if ach.style == 'speed' %} data-first="desc"{% endif %}>{{ ach.rate_label }}</th>
         <th>{{ ach.noun }}</th>
-        <th class="num">Date</th>
+        <th class="num" data-first="desc">Date</th>
       </tr>
     </thead>
     <tbody>
       {% for dkey, dlabel in ach.distances %}
       <tr data-dist="{{ dkey }}">
-        <td style="font-weight:600; color:var(--text); white-space:nowrap;">{{ dlabel }}</td>
+        <td data-sort="{{ loop.index }}" style="font-weight:600; color:var(--text); white-space:nowrap;">{{ dlabel }}</td>
         <td class="rec-time num"  style="color:var(--accent); font-weight:600;">—</td>
         <td class="rec-speed num" style="color:var(--text-muted); white-space:nowrap;">—</td>
         <td class="rec-ride" >—</td>
@@ -145,14 +145,14 @@
     </select>
   </div>
   <div style="overflow-x:auto;">
-  <table class="table flush" style="min-width:640px;">
+  <table class="table flush sortable" data-sort-name="records" style="min-width:640px;">
     <thead>
       <tr>
         <th>Sport</th>
-        <th>Longest</th>
-        <th>Longest time</th>
-        <th>Most climbing</th>
-        <th>Fastest</th>
+        <th data-first="desc">Longest</th>
+        <th data-first="desc">Longest time</th>
+        <th data-first="desc">Most climbing</th>
+        <th data-first="desc">Fastest</th>
       </tr>
     </thead>
     <tbody id="srBody"></tbody>
@@ -177,19 +177,19 @@
       </select>
     </div>
   </div>
-  <table class="table flush" id="climbTable">
+  <table class="table flush sortable" id="climbTable" data-sort-name="climbing">
     <thead>
       <tr>
-        <th>Threshold</th>
-        <th class="num">Best Elevation</th>
+        <th aria-sort="ascending">Threshold</th>
+        <th class="num" data-first="desc">Best Elevation</th>
         <th>Ride</th>
-        <th class="num">Date</th>
+        <th class="num" data-first="desc">Date</th>
       </tr>
     </thead>
     <tbody id="climbBody">
       {% for b in climbing_brackets %}
       <tr data-bracket="{{ b }}">
-        <td style="font-weight:600; color:var(--text);">{{ '{:,}'.format(b) }} {{ U.elev }}</td>
+        <td data-sort="{{ b }}" style="font-weight:600; color:var(--text);">{{ '{:,}'.format(b) }} {{ U.elev }}</td>
         <td class="climb-ft num"   style="color:var(--accent); font-weight:600;">—</td>
         <td class="climb-ride">—</td>
         <td class="climb-date num" style="color:var(--text-muted);">—</td>
@@ -347,6 +347,12 @@
 
 {% block scripts %}
 <script>
+// A cell that shows `text` and sorts on `value` (static/js/app.js, sortable tables)
+function sortCell(td, text, value) {
+  td.textContent = text;
+  td.dataset.sort = value == null ? '' : value;
+}
+
 // ── Best times (one table per sport: rides, runs, swims) ──────────
 (function() {
   const data = {{ achievements | tojson }};
@@ -367,15 +373,15 @@
         row.style.display = rec ? '' : 'none';
         if (!rec) return;
         anyData = true;
-        row.querySelector('.rec-time').textContent = rec.time;
-        row.querySelector('.rec-speed').textContent = rec.rate;
+        sortCell(row.querySelector('.rec-time'), rec.time, rec.secs);
+        sortCell(row.querySelector('.rec-speed'), rec.rate, rec.mps ? (ach.style === 'speed' ? rec.mps : 1 / rec.mps) : '');
         const a = document.createElement('a');
         a.href = '/rides/' + encodeURIComponent(rec.rideId);
-        a.style.cssText = 'color:var(--text);text-decoration:none;';
         a.textContent = rec.ride;
         row.querySelector('.rec-ride').replaceChildren(a);
-        row.querySelector('.rec-date').textContent = fmtDate(rec.date);
+        sortCell(row.querySelector('.rec-date'), fmtDate(rec.date), rec.date);
       });
+      sortTable(card.querySelector('.rec-table'));
       card.querySelector('.rec-empty').style.display = anyData ? 'none' : '';
       card.querySelector('.rec-table').style.display = anyData ? '' : 'none';
     }
@@ -395,12 +401,13 @@
     const td = document.createElement('td');
     td.style.verticalAlign = 'top';
     if (!rec) { td.textContent = '—'; td.style.color = 'var(--text-muted)'; return td; }
+    td.dataset.sort = rec.n;
     const v = document.createElement('div');
     v.style.cssText = 'font-weight:600; color:var(--accent); font-variant-numeric:tabular-nums; white-space:nowrap;';
     v.textContent = rec.v;
     const a = document.createElement('a');
     a.href = '/rides/' + encodeURIComponent(rec.id);
-    a.style.cssText = 'display:block; color:var(--text-muted); text-decoration:none; font-size:0.75rem; margin-top:0.15rem;';
+    a.style.cssText = 'display:block; color:var(--text-muted); font-size:0.75rem; margin-top:0.15rem;';
     a.textContent = rec.name + ' · ' + fmtDate(rec.date);
     td.append(v, a);
     return td;
@@ -411,9 +418,11 @@
       const name = document.createElement('td');
       name.style.cssText = 'font-weight:600; white-space:nowrap; vertical-align:top;';
       name.textContent = r.icon + ' ' + r.sport;
+      name.dataset.sort = r.sport;
       tr.append(name, cell(r.dist), cell(r.time), cell(r.climb), cell(r.fast));
       return tr;
     }));
+    sortTable(body.closest('table'));
   }
   sel.addEventListener('change', render);
   render();
@@ -446,15 +455,14 @@
       const rec = src[b];
       if (rec) {
         anyData = true;
-        row.querySelector('.climb-ft').textContent   = rec.ft.toLocaleString() + ' ' + UNITS.elev;      // rec.ft is in the rider's unit
+        sortCell(row.querySelector('.climb-ft'), rec.ft.toLocaleString() + ' ' + UNITS.elev, rec.ft);      // rec.ft is in the rider's unit
         {
           const a = document.createElement('a');
           a.href = '/rides/' + encodeURIComponent(rec.rideId);
-          a.style.cssText = 'color:var(--text);text-decoration:none;';
           a.textContent = rec.ride;
           row.querySelector('.climb-ride').replaceChildren(a);
         }
-        row.querySelector('.climb-date').textContent = fmtDate(rec.date);
+        sortCell(row.querySelector('.climb-date'), fmtDate(rec.date), rec.date);
         row.style.display = '';
       } else {
         row.style.display = 'none';
@@ -462,6 +470,7 @@
     });
     document.getElementById('climbEmpty').style.display = anyData ? 'none' : '';
     document.getElementById('climbTable') && (document.getElementById('climbTable').style.display = anyData ? '' : 'none');
+    sortTable(document.getElementById('climbTable'));
   };
 
   climbYear.addEventListener('change', function() { populateClimbMonths(); renderClimbing(); });

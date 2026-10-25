@@ -696,25 +696,23 @@ function openPhoto(a) {
 {% endif %}
 
 <!-- What fits the sport (services/activity_detail): splits on foot and in open water, a pool swim's sets, a ski day's runs, the device's laps -->
-{% set th = 'padding:0.45rem 0.5rem; font-size:0.75rem; color:var(--text-muted); font-weight:600; text-align:right; white-space:nowrap;' %}
-{% set td = 'padding:0.45rem 0.5rem; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap;' %}
 {% if detail.splits %}
 <div class="card" style="margin-top:1rem; overflow-x:auto;" id="splitsCard">
   <div class="card-title">Splits <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">per {{ '100 m' if view == 'swim' else U.dist }}, moving time</span></div>
   {% set fastest = detail.best_split.mps if detail.best_split else None %}
-  <table class="table">
+  <table class="table table-compact sortable" data-sort-name="splits">
     <thead><tr>
-      <th style="{{ th }} text-align:left;">{{ '100 m' if view == 'swim' else U.dist | capitalize }}</th><th style="{{ th }}">Time</th><th style="{{ th }}">Pace</th>
-      {% if has_climbing and view != 'swim' %}<th style="{{ th }}">Up</th><th style="{{ th }}">Down</th>{% endif %}<th style="{{ th }}">HR</th>
+      <th aria-sort="ascending" data-col="n">{{ '100 m' if view == 'swim' else U.dist | capitalize }}</th><th class="num">Time</th><th class="num">Pace</th>
+      {% if has_climbing and view != 'swim' %}<th class="num" data-first="desc">Up</th><th class="num" data-first="desc">Down</th>{% endif %}<th class="num">HR</th>
     </tr></thead>
     <tbody>
     {% for sp in detail.splits %}
-    <tr style="border-bottom:1px solid var(--divider);{% if fastest and sp.mps == fastest %} color:var(--accent);{% endif %}">
-      <td style="{{ td }} text-align:left;">{% if loop.last and sp.dist_m < detail.splits[0].dist_m %}{{ (sp.dist_m | int ~ ' m') if view == 'swim' else sp.dist_m | fmt_dist(2) }}{% else %}{{ sp.n }}{% endif %}</td>
-      <td style="{{ td }}">{{ sp.secs | fmt_duration }}</td>
-      <td style="{{ td }}">{{ sp.mps | fmt_swim_pace if view == 'swim' else sp.mps | fmt_pace }}</td>
-      {% if has_climbing and view != 'swim' %}<td style="{{ td }}">{{ sp.up_m | fmt_elev }}</td><td style="{{ td }}">{{ sp.down_m | fmt_elev }}</td>{% endif %}
-      <td style="{{ td }}">{{ sp.hr or '—' }}</td>
+    <tr{% if fastest and sp.mps == fastest %} style="color:var(--accent);"{% endif %}>
+      <td data-sort="{{ loop.index }}">{% if loop.last and sp.dist_m < detail.splits[0].dist_m %}{{ (sp.dist_m | int ~ ' m') if view == 'swim' else sp.dist_m | fmt_dist(2) }}{% else %}{{ sp.n }}{% endif %}</td>
+      <td class="num" data-sort="{{ sp.secs }}">{{ sp.secs | fmt_duration }}</td>
+      <td class="num" data-sort="{{ (1 / sp.mps) if sp.mps else '' }}">{{ sp.mps | fmt_swim_pace if view == 'swim' else sp.mps | fmt_pace }}</td>
+      {% if has_climbing and view != 'swim' %}<td class="num" data-sort="{{ sp.up_m }}">{{ sp.up_m | fmt_elev }}</td><td class="num" data-sort="{{ sp.down_m }}">{{ sp.down_m | fmt_elev }}</td>{% endif %}
+      <td class="num">{{ sp.hr or '—' }}</td>
     </tr>
     {% endfor %}
     </tbody>
@@ -725,22 +723,22 @@ function openPhoto(a) {
 {% if detail.pool %}{% set pl = detail.pool %}
 <div class="card" style="margin-top:1rem; overflow-x:auto;" id="poolCard">
   <div class="card-title">Sets <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">{{ pl.lengths }} lengths{% for k, n in pl.by_stroke %}{{ ':' if loop.first else ',' }} {{ n }} {{ k | lower }}{% endfor %}</span></div>
-  <table class="table">
+  <table class="table table-compact sortable" data-sort-name="sets">
     <thead><tr>
-      <th style="{{ th }} text-align:left;">Set</th><th style="{{ th }} text-align:left;">Stroke</th><th style="{{ th }}">Distance</th><th style="{{ th }}">Time</th>
-      <th style="{{ th }}">Pace</th><th style="{{ th }}" title="Strokes a length">Strokes</th><th style="{{ th }}" title="Seconds plus strokes a length: lower is better">SWOLF</th><th style="{{ th }}">Rest</th>
+      <th aria-sort="ascending">Set</th><th>Stroke</th><th class="num" data-first="desc">Distance</th><th class="num">Time</th>
+      <th class="num">Pace</th><th class="num" title="Strokes a length">Strokes</th><th class="num" title="Seconds plus strokes a length: lower is better">SWOLF</th><th class="num">Rest</th>
     </tr></thead>
     <tbody>
     {% for st in pl.sets %}
     <tr>
-      <td style="{{ td }} text-align:left;">{{ st.n }}</td>
-      <td style="{{ td }} text-align:left;">{{ st.stroke or '—' }}</td>
-      <td style="{{ td }}">{{ st.lengths }} &times; {{ pl.pool_m | round(2) | replace('.0', '') }} m</td>
-      <td style="{{ td }}">{{ st.secs | fmt_duration }}</td>
-      <td style="{{ td }}">{{ st.mps | fmt_swim_pace }}</td>
-      <td style="{{ td }}">{{ st.strokes_per_length or '—' }}</td>
-      <td style="{{ td }}">{{ st.swolf or '—' }}</td>
-      <td style="{{ td }}">{{ st.rest_after | fmt_duration if st.rest_after else '—' }}</td>
+      <td>{{ st.n }}</td>
+      <td>{{ st.stroke or '—' }}</td>
+      <td class="num" data-sort="{{ st.lengths }}">{{ st.lengths }} &times; {{ pl.pool_m | round(2) | replace('.0', '') }} m</td>
+      <td class="num" data-sort="{{ st.secs }}">{{ st.secs | fmt_duration }}</td>
+      <td class="num" data-sort="{{ (1 / st.mps) if st.mps else '' }}">{{ st.mps | fmt_swim_pace }}</td>
+      <td class="num">{{ st.strokes_per_length or '—' }}</td>
+      <td class="num">{{ st.swolf or '—' }}</td>
+      <td class="num" data-sort="{{ st.rest_after or '' }}">{{ st.rest_after | fmt_duration if st.rest_after else '—' }}</td>
     </tr>
     {% endfor %}
     </tbody>
@@ -751,21 +749,21 @@ function openPhoto(a) {
 {% if detail.ski %}{% set ski = detail.ski %}
 <div class="card" style="margin-top:1rem; overflow-x:auto;" id="skiCard">
   <div class="card-title">Runs <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">each descent of 30 m or more, read off the altitude; time is moving time</span></div>
-  <table class="table">
+  <table class="table table-compact sortable" data-sort-name="runs">
     <thead><tr>
-      <th style="{{ th }} text-align:left;">Run</th><th style="{{ th }} text-align:left;">Started</th><th style="{{ th }}">Vertical</th><th style="{{ th }}">Distance</th>
-      <th style="{{ th }}">Time</th><th style="{{ th }}">Avg</th><th style="{{ th }}">Top</th>
+      <th aria-sort="ascending">Run</th><th>Started</th><th class="num" data-first="desc">Vertical</th><th class="num" data-first="desc">Distance</th>
+      <th class="num">Time</th><th class="num" data-first="desc">Avg</th><th class="num" data-first="desc">Top</th>
     </tr></thead>
     <tbody>
     {% for r in ski.runs %}
     <tr>
-      <td style="{{ td }} text-align:left;">{{ r.n }}</td>
-      <td style="{{ td }} text-align:left;">+{{ r.t | fmt_duration }}</td>
-      <td style="{{ td }}">{{ r.drop_m | fmt_elev }}</td>
-      <td style="{{ td }}">{{ r.dist_m | fmt_dist(2) if r.dist_m else '—' }}</td>
-      <td style="{{ td }}">{{ r.secs | fmt_duration }}</td>
-      <td style="{{ td }}">{{ r.mps | fmt_speed if r.mps else '—' }}</td>
-      <td style="{{ td }}">{{ r.top_mps | fmt_speed if r.top_mps else '—' }}</td>
+      <td>{{ r.n }}</td>
+      <td data-sort="{{ r.t }}">+{{ r.t | fmt_duration }}</td>
+      <td class="num" data-sort="{{ r.drop_m }}">{{ r.drop_m | fmt_elev }}</td>
+      <td class="num" data-sort="{{ r.dist_m or '' }}">{{ r.dist_m | fmt_dist(2) if r.dist_m else '—' }}</td>
+      <td class="num" data-sort="{{ r.secs }}">{{ r.secs | fmt_duration }}</td>
+      <td class="num" data-sort="{{ r.mps or '' }}">{{ r.mps | fmt_speed if r.mps else '—' }}</td>
+      <td class="num" data-sort="{{ r.top_mps or '' }}">{{ r.top_mps | fmt_speed if r.top_mps else '—' }}</td>
     </tr>
     {% endfor %}
     </tbody>
@@ -777,23 +775,24 @@ function openPhoto(a) {
 <div class="card" style="margin-top:1rem; overflow-x:auto;" id="lapsCard">
   <div class="card-title">Laps <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">as the device recorded them</span></div>
   {% set any_hr = detail.laps | selectattr('hr') | list %}{% set any_watts = detail.laps | selectattr('watts') | list %}{% set any_cad = detail.laps | selectattr('cad') | list %}
-  <table class="table">
+  {% set lap_pace = view in ('foot', 'swim') %}
+  <table class="table table-compact sortable" data-sort-name="laps">
     <thead><tr>
-      <th style="{{ th }} text-align:left;">Lap</th><th style="{{ th }}">Distance</th><th style="{{ th }}">Time</th><th style="{{ th }}">{{ 'Speed' if view not in ('foot', 'swim') else 'Pace' }}</th>
-      {% if has_climbing and view not in ('swim',) %}<th style="{{ th }}">Up</th>{% endif %}
-      {% if any_hr %}<th style="{{ th }}">HR</th>{% endif %}{% if any_watts %}<th style="{{ th }}">Power</th>{% endif %}{% if any_cad %}<th style="{{ th }}">{{ 'Cadence' if view in ('ride', 'foot', 'other') else 'Strokes/min' }}</th>{% endif %}
+      <th aria-sort="ascending">Lap</th><th class="num" data-first="desc">Distance</th><th class="num">Time</th><th class="num" data-col="rate"{% if not lap_pace %} data-first="desc"{% endif %}>{{ 'Pace' if lap_pace else 'Speed' }}</th>
+      {% if has_climbing and view not in ('swim',) %}<th class="num" data-first="desc">Up</th>{% endif %}
+      {% if any_hr %}<th class="num">HR</th>{% endif %}{% if any_watts %}<th class="num" data-first="desc">Power</th>{% endif %}{% if any_cad %}<th class="num" data-col="cadence">{{ 'Cadence' if view in ('ride', 'foot', 'other') else 'Strokes/min' }}</th>{% endif %}
     </tr></thead>
     <tbody>
     {% for l in detail.laps %}
     <tr>
-      <td style="{{ td }} text-align:left;">{{ l.n }}</td>
-      <td style="{{ td }}">{% if view == 'swim' %}{{ (l.dist or 0) | int }} m{% else %}{{ l.dist | fmt_dist(2) if l.dist else '—' }}{% endif %}</td>
-      <td style="{{ td }}">{{ l.secs | fmt_duration if l.secs else '—' }}</td>
-      <td style="{{ td }}">{% if view == 'swim' %}{{ l.mps | fmt_swim_pace }}{% elif view == 'foot' %}{{ l.mps | fmt_pace }}{% else %}{{ l.mps | fmt_speed if l.mps else '—' }}{% endif %}</td>
-      {% if has_climbing and view not in ('swim',) %}<td style="{{ td }}">{{ l.up | fmt_elev if l.up is not none else '—' }}</td>{% endif %}
-      {% if any_hr %}<td style="{{ td }}">{{ l.hr | int if l.hr else '—' }}</td>{% endif %}
-      {% if any_watts %}<td style="{{ td }}">{{ (l.watts | int ~ ' W') if l.watts else '—' }}</td>{% endif %}
-      {% if any_cad %}<td style="{{ td }}">{{ ((l.cad * 2) if view == 'foot' else l.cad) | int if l.cad else '—' }}</td>{% endif %}
+      <td>{{ l.n }}</td>
+      <td class="num" data-sort="{{ l.dist or '' }}">{% if view == 'swim' %}{{ (l.dist or 0) | int }} m{% else %}{{ l.dist | fmt_dist(2) if l.dist else '—' }}{% endif %}</td>
+      <td class="num" data-sort="{{ l.secs or '' }}">{{ l.secs | fmt_duration if l.secs else '—' }}</td>
+      <td class="num" data-sort="{% if l.mps %}{{ (1 / l.mps) if lap_pace else l.mps }}{% endif %}">{% if view == 'swim' %}{{ l.mps | fmt_swim_pace }}{% elif view == 'foot' %}{{ l.mps | fmt_pace }}{% else %}{{ l.mps | fmt_speed if l.mps else '—' }}{% endif %}</td>
+      {% if has_climbing and view not in ('swim',) %}<td class="num" data-sort="{{ l.up if l.up is not none else '' }}">{{ l.up | fmt_elev if l.up is not none else '—' }}</td>{% endif %}
+      {% if any_hr %}<td class="num">{{ l.hr | int if l.hr else '—' }}</td>{% endif %}
+      {% if any_watts %}<td class="num" data-sort="{{ l.watts or '' }}">{{ (l.watts | int ~ ' W') if l.watts else '—' }}</td>{% endif %}
+      {% if any_cad %}<td class="num">{{ ((l.cad * 2) if view == 'foot' else l.cad) | int if l.cad else '—' }}</td>{% endif %}
     </tr>
     {% endfor %}
     </tbody>
@@ -817,24 +816,23 @@ function openPhoto(a) {
   </div>
 
   {% if seg_efforts %}
-  <table class="table" style="margin-bottom:0.5rem;">
+  <table class="table sortable" data-sort-name="segments" style="margin-bottom:0.5rem;">
     <thead>
       <tr>
         <th>Segment</th>
         <th class="num">Time</th>
-        <th class="num">{{ 'Pace' if seg_family == 'foot' else 'Speed' }}</th>
-        <th class="num">Trend</th>
-        <th class="num"></th>
+        <th class="num" data-col="rate"{% if seg_family != 'foot' %} data-first="desc"{% endif %}>{{ 'Pace' if seg_family == 'foot' else 'Speed' }}</th>
+        <th class="num" data-nosort>Trend</th>
       </tr>
     </thead>
     <tbody>
       {% for e in seg_efforts %}
       <tr>
-        <td>
-          <a href="{{ url_for('segments.detail', sid=e.seg_id) }}" style="color:var(--text); text-decoration:none; font-size:0.9375rem;">{{ e.seg_name }}</a>
+        <td data-sort="{{ e.seg_name }}">
+          <a href="{{ url_for('segments.detail', sid=e.seg_id) }}" style="font-size:0.9375rem;">{{ e.seg_name }}</a>
           {% if e.isPR %}<span style="margin-left:0.4rem; font-size:0.7rem; background:var(--accent); color:var(--on-accent); padding:0.1rem 0.35rem; border-radius:4px;">PR</span>{% endif %}
         </td>
-        <td class="num" style="vertical-align:middle;">
+        <td class="num" data-sort="{{ e.elapsedSecs }}" style="vertical-align:middle;">
           <div style="display:flex; align-items:center; justify-content:flex-end; gap:0.6rem; flex-wrap:wrap;">
             {# This rider's time #}
             <span style="display:inline-flex; align-items:center; gap:0.3rem;">
@@ -859,7 +857,7 @@ function openPhoto(a) {
             {% endfor %}
           </div>
         </td>
-        <td class="num" style="color:var(--text-muted); vertical-align:middle;">
+        <td class="num" data-sort="{% if e.avgSpeedMps %}{{ (1 / e.avgSpeedMps) if seg_family == 'foot' else e.avgSpeedMps }}{% endif %}" style="color:var(--text-muted); vertical-align:middle;">
           {% if e.avgSpeedMps %}{% if seg_family == 'foot' %}{{ e.avgSpeedMps | fmt_pace }}{% else %}{{ e.avgSpeedMps | fmt_speed }}{% endif %}{% else %}—{% endif %}
         </td>
         <td class="num" style="vertical-align:middle; white-space:nowrap;">
@@ -908,7 +906,6 @@ function openPhoto(a) {
             {% endfor %}
           </div>
         </td>
-        <td class="num" style="vertical-align:top;"><a href="{{ url_for('segments.detail', sid=e.seg_id) }}" style="font-size:0.8125rem; color:var(--text-muted);">→</a></td>
       </tr>
       {% endfor %}
     </tbody>

@@ -95,6 +95,28 @@ Inside a card that already exists, drop `card`.
 - `.num` is for numbers: right-aligned, in figures of equal width.
 - `<tr class="grp">` is a group heading inside the body.
 - Don't put padding, borders or font sizes on cells.
+- A name that opens its page (a segment, an activity) is a plain `<a>` in its cell: the text colour, underlined on hover (always on a touch screen). It is the way in: no "View" button or arrow beside it.
+
+### Sorting
+
+`<table class="sortable">` sorts on a click on a heading (`static/js/app.js`); each heading becomes a button with an arrow, and `aria-sort` says which column and which way.
+
+```html
+<table class="table sortable" data-sort-name="parts">
+  <thead><tr><th>Part</th><th data-first="desc">Used</th><th></th></tr></thead>
+  <tbody><tr><td>Chain</td><td data-sort="{{ st.meters }}">{{ st.meters | fmt_dist }}</td><td>…</td></tr></tbody>
+</table>
+```
+
+- Give a cell `data-sort` with the raw value (metres, seconds, m/s, an ISO date) whenever the text is worded or in the rider's units. Without it the cell's text is used (numbers as numbers, text ignoring case). An empty value or "—" goes last either way.
+- A pace sorts on seconds a metre (`1 / mps`), so ascending is fastest first, as its arrow shows.
+- The first click sorts ascending. `data-first="desc"` makes it descending where the biggest or newest is wanted first: distances, counts, climbing, speed, dates. Times and paces start fastest first.
+- `aria-sort="ascending"` (or `descending`) on a heading in the markup says the rows already come in that order.
+- A heading with no text, or with `data-nosort`, doesn't sort. `data-col` names a column whose heading changes (Pace or Speed).
+- The choice goes in the URL: `?sort=used`, `?sort=-used` for descending. A page with more than one sortable table names each with `data-sort-name`, which is the parameter instead of `sort`.
+- `tr.grp` rows stay put and the rows under each sort among themselves; a `<tr data-follows>` (an edit row) stays under the row before it. Totals go in a `<tfoot>`.
+- A page that fills a table with script sets `data-sort` as it fills the cells and calls `sortTable(table)` afterwards.
+- Leave a table alone when its order is the point (a duplicate's comparison, import results).
 
 ## Lists of activities
 
