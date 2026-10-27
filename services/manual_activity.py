@@ -1,6 +1,6 @@
 """Activities typed in by hand: a ride you forgot to record, a turbo session, a walk without GPS.
 
-Walk / Run / Hike and Ride / VirtualRide are Activity rows like everything recorded by a device; the ride ones get a bike. A manual ride has no
+Walk / Run / Hike / VirtualRun (an indoor run) and Ride / VirtualRide are Activity rows like everything recorded by a device; the ride ones get a bike. A manual ride has no
 GPS track, so it has no map or best efforts, but it counts in the totals. If a real recording of the same ride arrives later (Garmin sync, phone
 upload) the duplicate logic keeps the recording and parks the typed-in copy.
 """
@@ -11,9 +11,9 @@ from zoneinfo import ZoneInfo
 
 from services import duplicates
 from services import tz
-from services.sports import ON_FOOT, RIDES, is_ride
+from services.sports import INDOOR_RUN, ON_FOOT, RIDES, is_ride
 
-SPORTS = RIDES + ON_FOOT
+SPORTS = RIDES + ON_FOOT + (INDOOR_RUN,)
 MAX_DURATION_S, MAX_DISTANCE_M, MAX_ELEV_M = 48 * 3600, 1_500_000, 20_000
 
 

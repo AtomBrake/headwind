@@ -3,9 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- **Zwift runs and treadmill runs.** A run on a treadmill or in Zwift is an **Indoor run**, however it arrives: from Garmin (its virtual and treadmill runs), a FIT file, a GPX, a Strava export, or typed in by hand. Like a Zwift ride, it has no weather, stays on your home clock, is drawn over its Zwift world's map, is left off the heatmap unless you include it, and has no segments. It gets your running shoes unless you give indoor runs a default of their own.
+- **Indoor best times of their own.** Zwift rides, turbo sessions, Zwift runs and treadmill runs no longer count towards your best times: the Data page and your profile show them in **Indoor ride** and **Indoor run** tables beside the outdoor ones. They don't show on the phone's Perform tab either, and the AI coach compares an indoor ride only with your other indoor rides.
+- **Indoor rides and runs no longer earn badges for distance, climbing, speed or weather.** A Zwift century, Alpe du Zwift or a treadmill 10K still counts as a ride or run, and towards your hours and days of training, but not towards the miles, Everests, 5K times, top speeds or cold-weather rides, which are for the road. On the profile, a badge already earned with help from indoor miles moves to the outdoor activity that earns it now.
 - **The weight chart's milestone lines can be switched off.** A **milestone lines** box under the chart hides the line at every stone (or 5 kg) lost, and the choice is remembered.
 
 ### Fixed
+- **Zwift rides and runs saved as outdoor ones are put right.** A ride or run that starts in one of Zwift's made-up worlds (Watopia, Makuri Islands, France, Crit City) is a Zwift one, whatever its file called it. Those already saved as outdoor ones become indoor ones at start-up: they lose the weather of the open sea near the Solomon Islands, and a start time taken from the Solomon Islands' clock (11 hours ahead of London) goes back to yours. Segment efforts on indoor rides and runs are removed too, since Strava's Zwift runs were matched against your segments on foot.
 - **The weight chart reads well over long spans.** Over years of daily weigh-ins the month letters ran into each other and the dots buried the trend line. Now the dates along the bottom are days, months or years to suit the span, the dots shrink and fade behind the trend line when they're packed in, and the weights up the side are round numbers (whole kilos, or stones and quarter stones).
 
 ## [0.7.24-beta] - 2026-10-25

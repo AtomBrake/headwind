@@ -541,20 +541,20 @@ def sniff(data: bytes):
 def parse_activity_file(name, data: bytes, strava_export=False):
     """Parse an activity file (data already gunzipped) by its extension: .gpx / .fit / .tcx, optionally .gz. strava_export: a file named in a
     Strava export's activities.csv, which may also be a recording from Strava's own app (.json: parse_strava_app_json) or a FIT file under
-    another name (.bin), told by its contents (sniff). None when it's none of these."""
+    another name (.bin), told by its contents (sniff). None when it's none of these. A ride or run that starts in one of Zwift's made-up worlds
+    is a Zwift one, whatever the file calls it (services/zwift.indoor_sport)."""
     n = name.lower()
     if n.endswith('.gz'):
         n = n[:-3]
     if n.endswith('.json'):
-        return parse_strava_app_json(data) if strava_export else None
-    kind = next((k for k in ('gpx', 'fit', 'tcx') if n.endswith('.' + k)), None) or (sniff(data) if strava_export else None)
-    if kind == 'gpx':
-        return parse_gpx(data)
-    if kind == 'fit':
-        return parse_fit(data)
-    if kind == 'tcx':
-        return parse_tcx(data)
-    return None
+        act = parse_strava_app_json(data) if strava_export else None
+    else:
+        kind = next((k for k in ('gpx', 'fit', 'tcx') if n.endswith('.' + k)), None) or (sniff(data) if strava_export else None)
+        act = {'gpx': parse_gpx, 'fit': parse_fit, 'tcx': parse_tcx}[kind](data) if kind else None
+    if act:
+        from services.zwift import indoor_sport
+        act['sportType'] = indoor_sport(act.get('sportType'), act.get('startLat'), act.get('startLng'))
+    return act
 
 
 _RUBY_ESCAPES = {ord('e'): 0x1b, ord('f'): 0x0c, ord('n'): 0x0a, ord('t'): 0x09, ord('r'): 0x0d, ord('v'): 0x0b, ord('b'): 0x08, ord('a'): 0x07,

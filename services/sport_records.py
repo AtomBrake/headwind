@@ -5,10 +5,14 @@ read them.
 An activity is looked at once. Its rows carry the kind they were worked out for ('run' or 'swim'), and an activity that has none for its kind (new,
 or its sport changed) is worked out the next time anything reads them (ensure). A row with distance 0 means "looked: too short for any distance".
 Walks and hikes have no best times: a walk's quickest kilometre says little. Their records, and every other sport's, are the single-activity ones
-on the Data page (longest, longest time, most climbing, fastest)."""
+on the Data page (longest, longest time, most climbing, fastest).
+
+A run on a treadmill or in Zwift (services/sports.is_virtual) keeps its best times, but they are the indoor runs' own: never a run's best 5 km,
+which only counts what was run outside (efforts and bests, indoor=False). Ride best times are split the same way."""
 import json
 import logging
 
+from services import sports
 from services.best_efforts import CEILING_MPS, effort_series, fastest
 
 log = logging.getLogger(__name__)
@@ -19,6 +23,7 @@ SWIM_DISTANCES = [(100.0, '100 m'), (200.0, '200 m'), (400.0, '400 m'), (750.0, 
                   (1609.344, '1 mile'), (2000.0, '2 km'), (3800.0, '3.8 km')]
 DISTANCES = {'run': RUN_DISTANCES, 'swim': SWIM_DISTANCES}
 LABELS = {'run': 'Runs', 'swim': 'Swims'}
+INDOOR_LABELS = {'run': 'Indoor runs'}                  # the kinds with indoor best times of their own (no one swims in Zwift)
 _RUNS = ('run', 'trailrun', 'virtualrun')               # services/sports._squash of Run, Trail Run, Virtual Run
 
 
@@ -111,18 +116,18 @@ def ensure(db, rider_id=None):
     return len(todo)
 
 
-def efforts(db, rider_id, k, where='1=1', params=()):
-    """Every best time of kind k for the rider's activities of that kind, quickest first within each distance:
+def efforts(db, rider_id, k, where='1=1', params=(), indoor=False):
+    """Every best time of kind k for the rider's activities of that kind, outdoors or indoors, quickest first within each distance:
     [{distanceM, elapsedSecs, activityId, activityDate, name}]. `where` narrows the activities (on alias a)."""
     return db.execute(f'''SELECT e.distanceM, e.elapsedSecs, e.activityId, e.activityDate, a.name, a.sportType
                           FROM SportEffort e JOIN Activity a ON a.id = e.activityId
-                          WHERE a.riderId=? AND e.kind=? AND e.distanceM > 0 AND {kind_sql('a.sportType')} = ? AND {where}
+                          WHERE a.riderId=? AND e.kind=? AND e.distanceM > 0 AND {kind_sql('a.sportType')} = ? AND {sports.indoor_sql(indoor)} AND {where}
                           ORDER BY e.distanceM, e.elapsedSecs, e.activityDate''', [rider_id, k, k, *params]).fetchall()
 
 
-def bests(db, rider_id, k, where='1=1', params=()):
-    """{distanceM: the quickest effort's row} for kind k."""
+def bests(db, rider_id, k, where='1=1', params=(), indoor=False):
+    """{distanceM: the quickest effort's row} for kind k, outdoors or indoors."""
     out = {}
-    for r in efforts(db, rider_id, k, where, params):
+    for r in efforts(db, rider_id, k, where, params, indoor):
         out.setdefault(r['distanceM'], r)
     return out

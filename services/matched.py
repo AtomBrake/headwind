@@ -3,8 +3,8 @@ places and following the same roads in the same direction, whatever their names 
 no activity's streams are read except to make a missing summary.
 
 A route match is:
-  - the same kind: a pedal ride with pedal rides, an e-bike ride with e-bike rides, an indoor ride with indoor rides (a Zwift route), and anything
-    else with the same sport (a run with runs, never with walks);
+  - the same kind: a pedal ride with pedal rides, an e-bike ride with e-bike rides, an indoor ride with indoor rides (a Zwift route), an indoor run
+    with indoor runs, and anything else with the same sport (a run with runs, never with walks);
   - a distance within DIST_TOL of this one's, and a bounding box whose every edge is within BOX_M of this one's (cheap, in SQL);
   - a start and a finish within END_M of this one's, so the ride home is not the ride to work;
   - and SHARE of each track's sampled points within NEAR_M of the other's line, so a detour or a different road between the same two places is
@@ -72,6 +72,8 @@ def _kind_sql(db, act):
         cls = sports.class_of(db, act['id']) or 'bike'
         return f"{sports.RIDE_SQL.replace('sportType', 'a.sportType')} AND NOT {sports.virtual_sql('a.sportType')} AND " \
                f"{sports.class_sql(cls, 'a.sportType', 'b.kind')}", []
+    if sports.is_virtual(sport):                         # a Zwift run: Strava's "Virtual Run" and Garmin's VirtualRun alike, never a Zwift ride
+        return f"{sports.virtual_sql('a.sportType')} AND NOT {sports.RIDE_SQL.replace('sportType', 'a.sportType')}", []
     return 'a.sportType IS ?', [sport]
 
 

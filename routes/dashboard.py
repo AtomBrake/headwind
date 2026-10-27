@@ -310,7 +310,7 @@ def _activity_list(args, list_path):
         list_path=list_path,
         typed=args.get('typed', ''),
         back_url=list_path + '?' + urlencode([(k, v) for k, v in args.items(multi=True) if k != 'typed']),
-        sport_choices=[('Ride', 'Ride'), ('MountainBikeRide', 'Mountain bike ride'), ('GravelRide', 'Gravel ride'), ('VirtualRide', 'Indoor ride'), ('Walk', 'Walk'), ('Run', 'Run'), ('Hike', 'Hike')],
+        sport_choices=[('Ride', 'Ride'), ('MountainBikeRide', 'Mountain bike ride'), ('GravelRide', 'Gravel ride'), ('VirtualRide', 'Indoor ride'), ('Walk', 'Walk'), ('Run', 'Run'), ('VirtualRun', 'Indoor run'), ('Hike', 'Hike')],
         activities=activities,
         grouped=(_open_newest if gf['value'] else (lambda g: g))(_group_activities(activities)) if not is_filtered else [],
         search_results=activities if is_filtered else [],

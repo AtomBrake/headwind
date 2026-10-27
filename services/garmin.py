@@ -826,6 +826,8 @@ def save_activity(db, api, a, rider_id):
 
     # Prefer API summary for name and sport; FIT has accurate streams
     sport_type  = garmin_sport(type_key) if type_key else _map_sport(parsed.get('sportType') or 'Ride')
+    from services.zwift import indoor_sport
+    sport_type  = indoor_sport(sport_type, parsed.get('startLat'), parsed.get('startLng'))     # a Zwift ride or run Garmin called a ride or run
     name        = a.get('activityName') or parsed.get('name') or 'Garmin Activity'
     start_utc   = start_gmt or start_local
     if zoneless and a.get('startLatitude') is None and parsed.get('startLat') is not None:

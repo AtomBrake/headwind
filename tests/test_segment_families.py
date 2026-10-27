@@ -61,8 +61,8 @@ def on(db, sid):
     ('Ride', None, 'bike'), (None, None, 'bike'), ('Mountain Bike Ride', None, 'bike'), ('Gravel Ride', 'road', 'bike'),
     ('EBikeRide', None, 'ebike'), ('E-Bike Ride', None, 'ebike'), ('E-Mountain Bike Ride', None, 'ebike'), ('EMountainBikeRide', None, 'ebike'),
     ('Ride', 'ebike', 'ebike'),                                     # whatever the sport says, an e-bike makes it an e-bike effort
-    ('VirtualRide', None, None), ('Virtual Ride', None, None), ('VirtualRide', 'ebike', None),
-    ('Walk', None, 'foot'), ('Run', None, 'foot'), ('Hike', None, 'foot'), ('Trail Run', None, 'foot'), ('TrailRun', None, 'foot'), ('VirtualRun', None, 'foot'),
+    ('VirtualRide', None, None), ('Virtual Ride', None, None), ('VirtualRide', 'ebike', None), ('VirtualRun', None, None), ('Virtual Run', None, None),
+    ('Walk', None, 'foot'), ('Run', None, 'foot'), ('Hike', None, 'foot'), ('Trail Run', None, 'foot'), ('TrailRun', None, 'foot'),
     ('Swim', None, None), ('Paddle', None, None), ('Ski', None, None), ('Other', None, None),
 ])
 def test_every_sport_has_one_class_or_none(sport, kind, cls):

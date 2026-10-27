@@ -78,11 +78,11 @@
 {% if not sf.kept %}<div class="card" style="margin-bottom:1.5rem; color:var(--text-muted); font-size:0.875rem;">Every sport is left out. Tick one above to see its charts.</div>{% endif %}
 {% set rides_tag %}{% if rides_only_note %}<span style="font-size:0.75rem; font-weight:400; color:var(--text-muted); margin-left:0.4rem;">rides only</span>{% endif %}{% endset %}
 
-<!-- Best times: rides (services/best_efforts), runs and swims (services/sport_records); one table each -->
+<!-- Best times: rides (services/best_efforts), runs and swims (services/sport_records); one table each, and one each for indoor rides and runs -->
 {% for ach in achievements %}
 <div class="card" id="records-{{ ach.key }}" data-records="{{ ach.key }}" style="margin-bottom:1.5rem; padding:0; overflow:hidden;">
   <div style="padding:1rem 1.25rem; border-bottom:1px solid var(--border-strong); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.75rem;">
-    <div class="card-title" style="margin:0;">{{ ach.title }}{% if ach.key == 'ride' %}{{ rides_tag }}{% endif %}</div>
+    <div class="card-title" style="margin:0;">{{ ach.title }}{% if ach.key in ('ride', 'vride') %}{{ rides_tag }}{% endif %}</div>
     <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
       <select class="rec-year" style="background-color:var(--field-bg);color:var(--text);border:1px solid var(--border-strong);border-radius:6px;padding:0.3rem 0.6rem;font-size:0.875rem;cursor:pointer;">
         {% for yr in ach.by_year | sort(reverse=true) %}

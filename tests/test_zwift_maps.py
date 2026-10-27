@@ -1,5 +1,5 @@
 """Zwift maps: a virtual ride is drawn over its Zwift world's map (services/zwift), on its own page and on the heatmap, and the heatmap leaves
-virtual rides out unless asked (the Zwift rides switch: out, in or only). Full app, throwaway DB."""
+virtual rides and runs out unless asked (the Zwift switch: out, in or only). Full app, throwaway DB."""
 import json
 import re
 

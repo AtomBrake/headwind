@@ -107,9 +107,9 @@
       </select>
     </div>
     {% if has_virtual %}
-    <!-- Zwift and other virtual rides: left out by default, since Watopia and the other made-up worlds are out at sea -->
+    <!-- Zwift and other virtual rides and runs: left out by default, since Watopia and the other made-up worlds are out at sea -->
     <div class="overlay-row" style="gap: 0.25rem;">
-      <label for="virtualFilter" class="overlay-label">Zwift rides</label>
+      <label for="virtualFilter" class="overlay-label">Zwift</label>
       <select id="virtualFilter" class="overlay-select" onchange="fitNext = true; reload()">
         <option value="out">Leave out</option>
         <option value="in">Include</option>

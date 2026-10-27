@@ -7,7 +7,7 @@
 <details class="gcard" {% if error %}open{% endif %}>
   <summary>+ Add an activity by hand</summary>
   <form method="POST" action="{{ url_for('workouts_ui.workouts_new') }}" class="form-grid">
-    <label>Type<select name="sport"><option>Ride</option><option value="MountainBikeRide">Mountain bike ride</option><option value="GravelRide">Gravel ride</option><option value="VirtualRide">Indoor ride</option><option>Walk</option><option>Run</option><option>Hike</option></select></label>
+    <label>Type<select name="sport"><option>Ride</option><option value="MountainBikeRide">Mountain bike ride</option><option value="GravelRide">Gravel ride</option><option value="VirtualRide">Indoor ride</option><option>Walk</option><option>Run</option><option value="VirtualRun">Indoor run</option><option>Hike</option></select></label>
     <label>Date<input type="date" name="date" value="{{ today }}" max="{{ today }}" required></label>
     <label>Start time<input type="time" name="time" value="{{ now }}" required></label>
     <label>Hours<input type="number" name="hours" min="0" max="47" value="0"></label>
@@ -27,8 +27,8 @@
 {% macro wo_row(w) %}
   {% call activity_row(w, date=is_filtered, more=[(w.calories | round | int ~ ' kcal') if w.calories, ('{:,}'.format(w.steps) ~ ' steps') if w.steps, w.weatherSummary]) %}
       <form method="POST" action="{{ url_for('workouts_ui.workouts_sport', wid=w.id) }}" title="Recorded as the wrong type?">
-        <select name="sport" aria-label="Activity type" onchange="if (this.value !== '{{ w.sport }}' && confirm('Change this to a ' + this.value.replace('VirtualRide','indoor ride').toLowerCase() + '?')) this.form.submit(); else this.value='{{ w.sport }}';" style="font-size:.78rem;padding:.2rem .3rem;">
-          {% for sp in (['Walk','Run','Hike','Ride','VirtualRide'] if w.sport in ['Walk','Run','Hike'] else [w.sport,'Walk','Run','Hike','Ride','VirtualRide']) %}<option value="{{ sp }}" {{ 'selected' if w.sport == sp }}>{{ 'Indoor ride' if sp == 'VirtualRide' else sp }}</option>{% endfor %}
+        <select name="sport" aria-label="Activity type" onchange="if (this.value !== '{{ w.sport }}' && confirm('Change this to a ' + this.value.replace('VirtualRide','indoor ride').replace('VirtualRun','indoor run').toLowerCase() + '?')) this.form.submit(); else this.value='{{ w.sport }}';" style="font-size:.78rem;padding:.2rem .3rem;">
+          {% for sp in (['Walk','Run','VirtualRun','Hike','Ride','VirtualRide'] if w.sport in ['Walk','Run','VirtualRun','Hike'] else [w.sport,'Walk','Run','VirtualRun','Hike','Ride','VirtualRide']) %}<option value="{{ sp }}" {{ 'selected' if w.sport == sp }}>{{ {'VirtualRide': 'Indoor ride', 'VirtualRun': 'Indoor run'}.get(sp, sp) }}</option>{% endfor %}
         </select>
       </form>
       <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=w.id) }}" onsubmit="return confirm('Delete this activity? Its photos and notes go with it. This cannot be undone.')"><button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button></form>

@@ -12,25 +12,25 @@ from zoneinfo import ZoneInfo
 
 from database import get_db, query_db
 from services import tz
-from services.sports import ON_FOOT as SPORTS, RIDE_SQL
+from services.sports import INDOOR_RUN, ON_FOOT as SPORTS, RIDE_SQL
 
 log = logging.getLogger(__name__)
 # A workout as the phone API and the Workouts page have always seen it (before 0.7 it had a table of its own, with `sport` for sportType)
 COLS = ('id, riderId, sportType AS sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, averageSpeed, maxSpeed, '
         'averageHeartrate, calories, steps, startLat, startLng, streams, weatherSummary, source, createdAt, caloriesRaw, originId')
-_ICON = {'Walk': '🚶', 'Run': '🏃', 'Hike': '🥾', 'Swim': '🏊', 'Surf': '🏄', 'Paddle': '🛶', 'Row': '🚣', 'Ski': '⛷️', 'Skate': '⛸️', 'Golf': '⛳', 'Climb': '🧗'}
+_ICON = {'Walk': '🚶', 'Run': '🏃', 'VirtualRun': '🏃', 'Hike': '🥾', 'Swim': '🏊', 'Surf': '🏄', 'Paddle': '🛶', 'Row': '🚣', 'Ski': '⛷️', 'Skate': '⛸️', 'Golf': '⛳', 'Climb': '🧗'}
 MI = 1609.344
 
 
 def estimate_calories(sport, distance_m, moving_s, gain_m, kg):
     """Gross kcal from the ACSM walking / running equations (the same "gross" meaning as a watch's activity calories, i.e. it
     includes resting burn; day_burn subtracts that). Returns None when there isn't enough to go on."""
-    if sport not in SPORTS or not (distance_m and moving_s and kg and moving_s > 60):     # the equations are for walking / running only (not a swim)
+    if sport not in SPORTS + (INDOOR_RUN,) or not (distance_m and moving_s and kg and moving_s > 60):     # walking / running only (not a swim)
         return None
     minutes = moving_s / 60.0
     speed = distance_m / minutes                       # metres per minute
     grade = min(0.15, max(0.0, (gain_m or 0) / distance_m))
-    if sport == 'Run' and speed >= 134:                # running equation from ~5 mph
+    if sport in ('Run', INDOOR_RUN) and speed >= 134:  # running equation from ~5 mph
         vo2 = 0.2 * speed + 0.9 * speed * grade + 3.5
     else:                                              # walking (also slow jogging / hiking)
         vo2 = 0.1 * speed + 1.8 * speed * grade + 3.5
@@ -113,7 +113,8 @@ def _kept_instead(wid):
 def label(w):
     """'Morning walk' style label for a workout without a name of its own."""
     hour = int(str(w.get('startDateLocal') or 'T12')[11:13] or 12)
-    return (w.get('name') or '').strip() or f"{'Morning' if hour < 12 else 'Afternoon' if hour < 17 else 'Evening'} {w['sport'].lower()}"
+    from services.sports import label as sport_label
+    return (w.get('name') or '').strip() or f"{'Morning' if hour < 12 else 'Afternoon' if hour < 17 else 'Evening'} {sport_label(w['sport']).lower()}"
 
 
 def summary(w, rider_name):

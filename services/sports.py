@@ -5,7 +5,7 @@ A sport is a ride when it contains "ride" or "cycl", ignoring case: Headwind's o
 "Gravel Ride" and "Mountain Bike Ride", Garmin's cycling types. A row with no sport counts as a ride, as the import treats it (routes/import_rides._insert).
 
 Segments come in two families, and an activity is only matched against segments of its own (segment_family): rides, e-bike rides included, and
-anything on foot. Indoor rides, swims, paddles, skis and the rest have no family and no segments. On a ride segment, pedal and e-bike efforts are told
+anything on foot. Indoor rides and runs, swims, paddles, skis and the rest have no family and no segments. On a ride segment, pedal and e-bike efforts are told
 apart by segment_class: each keeps its own PRs and badges, and the leaderboards can show either or both.
 
 Totals and charts add distances up by stat_group, which is wider: every ride (indoor and e-bike too), everything on foot, swims, and any other sport on
@@ -17,10 +17,12 @@ KIND_SQL = f"(CASE WHEN {RIDE_SQL} THEN 'ride' ELSE 'workout' END)"     # the ph
 # The sports Headwind itself writes: typed in by hand, recorded by the phone, picked in "change the type", saved by the Garmin sync.
 RIDES = ('Ride', 'VirtualRide', 'EBikeRide', 'MountainBikeRide', 'GravelRide')     # Strava's names for the last two, squashed: a default bike can follow them
 ON_FOOT = ('Walk', 'Run', 'Hike')                     # what the phone records, and what calories can be estimated for (workouts.estimate_calories)
+INDOOR_RUN = 'VirtualRun'                              # a treadmill, or Zwift's running: Garmin's, a FIT file's and Strava's name for it
 OTHER = ('Swim', 'Surf', 'Paddle', 'Row', 'Ski', 'Skate', 'Golf', 'Climb', 'Other')   # Garmin activities that are neither rides nor on foot
-WORKOUTS = ON_FOOT + OTHER
+WORKOUTS = ON_FOOT + (INDOOR_RUN,) + OTHER
 SPORTS = RIDES + WORKOUTS
-LABELS = {'VirtualRide': 'Indoor ride', 'EBikeRide': 'E-bike ride', 'MountainBikeRide': 'Mountain bike ride', 'GravelRide': 'Gravel ride'}
+LABELS = {'VirtualRide': 'Indoor ride', 'EBikeRide': 'E-bike ride', 'MountainBikeRide': 'Mountain bike ride', 'GravelRide': 'Gravel ride',
+          'VirtualRun': 'Indoor run', 'Virtual Ride': 'Indoor ride', 'Virtual Run': 'Indoor run'}     # Strava's spellings read the same
 
 FAMILIES = ('ride', 'foot')
 FAMILY_LABELS = {'ride': 'Ride', 'foot': 'On foot'}
@@ -86,8 +88,9 @@ def climb_sql(col='totalElevationGain', sport='sportType'):
 
 
 def is_virtual(sport):
-    """Zwift and the like: VirtualRide, Strava's "Virtual Ride" and "Virtual Run", "Indoor Cycling". Its track, if any, is in a game world
-    (services/zwift), not where the rider was."""
+    """Indoors: Zwift and the like, a turbo trainer, a treadmill. VirtualRide, VirtualRun, Strava's "Virtual Ride" and "Virtual Run", "Indoor
+    Cycling". Its track, if any, is in a game world (services/zwift), not where the rider was; its best times are its own, never an outdoor
+    one's (services/sport_records, services/best_efforts); it has no weather and no segments."""
     s = (sport or '').lower()
     return 'virtual' in s or 'indoor' in s
 
@@ -95,6 +98,12 @@ def is_virtual(sport):
 def virtual_sql(sport='sportType'):
     """is_virtual as SQL."""
     return f"(lower(COALESCE({sport}, '')) LIKE '%virtual%' OR lower(COALESCE({sport}, '')) LIKE '%indoor%')"
+
+
+def indoor_sql(indoor, sport='a.sportType'):
+    """SQL keeping the indoor activities (indoor=True) or the outdoor ones, for best times: an indoor ride's or run's never count as an outdoor
+    one's, and each has its own table."""
+    return virtual_sql(sport) if indoor else f'NOT {virtual_sql(sport)}'
 
 
 def label(sport):
@@ -116,12 +125,14 @@ _TYPE_NEEDLES = (('run', 'Run'), ('walk', 'Walk'), ('hik', 'Hike'), ('mountainee
                  ('paddl', 'Paddle'), ('kayak', 'Paddle'), ('canoe', 'Paddle'), ('raft', 'Paddle'), ('row', 'Row'),
                  ('ski', 'Ski'), ('snowboard', 'Ski'), ('skat', 'Skate'), ('golf', 'Golf'), ('climb', 'Climb'))
 _INDOOR_SUBS = ('indoor_cycling', 'virtual_activity')
+_INDOOR_RUN_SUBS = ('treadmill', 'indoor_running', 'virtual_activity')
 
 
 def from_type(type_key, sub=None):
     """A device's or service's name for a sport -> one of SPORTS. Garmin Connect's activity type ('mountain_biking', 'lap_swimming'), a FIT
     file's sport with its sub-sport ('cycling' + 'e_bike_mountain', 'alpine_skiing'), a GPX <type> ('EMountainBikeRide', 'trail_running',
-    'StandUpPaddling') or a TCX Sport. Rides are Ride / VirtualRide / EBikeRide / MountainBikeRide / GravelRide; anything not recognised is
+    'StandUpPaddling') or a TCX Sport. Rides are Ride / VirtualRide / EBikeRide / MountainBikeRide / GravelRide, and a run on a treadmill or in
+    Zwift (Garmin's virtual_run and treadmill_running, a FIT file's running + treadmill, a GPX's VirtualRun) is VirtualRun; anything not recognised is
     'Other', never a ride: a ski day saved as a ride breaks the ride totals, the segments and the bike's mileage. Mountain and gravel rides keep
     their kind, so the rider's default bike for them can be picked (services/gear.pick_bike)."""
     k = str(type_key if type_key is not None else '').lower()
@@ -139,6 +150,8 @@ def from_type(type_key, sub=None):
         return 'GravelRide'
     if bike:
         return 'Ride'
+    if 'run' in k and ('virtual' in k or 'treadmill' in k or 'indoor' in k or s in _INDOOR_RUN_SUBS):
+        return INDOOR_RUN
     for needle, sport in _TYPE_NEEDLES:
         if needle in k:
             return sport
@@ -146,11 +159,14 @@ def from_type(type_key, sub=None):
 
 
 def segment_family(sport):
-    """'ride', 'foot' or None (no segments). Pedal and e-bike rides share the ride segments; an indoor ride has none."""
+    """'ride', 'foot' or None (no segments). Pedal and e-bike rides share the ride segments; an indoor ride or run has none: Zwift's London
+    and New York sit roughly on the real ones, and a treadmill has no track."""
     s = _squash(sport)
+    if is_virtual(sport):
+        return None
     if s in _FOOT:
         return 'foot'
-    if not is_ride(sport) or 'virtual' in s or 'indoor' in s:
+    if not is_ride(sport):
         return None
     return 'ride'
 

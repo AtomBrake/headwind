@@ -294,8 +294,8 @@ def _app_beats_watch(existing, new):
         s = span(app)
         if (_virtual(app) and _virtual(watch) and _gps_points(app) > 0 and _gps_points(watch) == 0
                 and float(app['distance'] or 0) > 0 and s and _secs(s) > 0):
-            return app, watch, ('Kept the Zwift (or other app) recording: it has the route, and the distance the app rode; a watch counts an '
-                                'indoor ride\'s distance its own way.')
+            return app, watch, ('Kept the Zwift (or other app) recording: it has the route, and the distance the app rode or ran; a watch '
+                                'counts an indoor ride\'s or treadmill run\'s distance its own way.')
     return None
 
 

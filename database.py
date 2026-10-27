@@ -922,15 +922,31 @@ def migrate_db():
                          + '; '.join(b[1] or b[0] for b in back[:5]) + ('…' if len(back) > 5 else '') if back else '') + '.')
         db.commit()
 
+    # ── Rides and runs in Zwift's made-up worlds saved as outdoor ones: indoor ones now; indoor activities' segment efforts gone ──
+    from services import sport_fix as _sport_fix
+    res = _sport_fix.fix_misfiled(db)
+    if res['moved'] or res['efforts']:
+        from services.sports import label as _sport_label
+        moved = res['moved']
+        _tasks.record(db, 'startup:zwift_misfiled', 'Zwift activities saved as outdoor ones',
+                      (f"{len(moved)} activit{'y' if len(moved) == 1 else 'ies'} starting in one of Zwift's made-up worlds (out at sea near the Solomon "
+                       "Islands) had been saved as outdoor ones, and now count as indoor: their best times are the indoor ones', their start time "
+                       "is on your clock, and they have no weather or segments: "
+                       + '; '.join(f"{m[1] or m[0]} ({_sport_label(m[2])} → {_sport_label(m[3])})" for m in moved[:5])
+                       + ('…' if len(moved) > 5 else '') + '. ' if moved else '')
+                      + (f"{res['efforts']} segment effort{'s' if res['efforts'] != 1 else ''} on indoor rides and runs removed: Zwift's roads "
+                         "aren't the segments' roads." if res['efforts'] else ''))
+        db.commit()
+
     # ── Weather on virtual rides: looked up at the Zwift world's spot (Watopia is open sea near the Solomon Islands), never where the rider was ──
     from services.sports import virtual_sql as _virtual_sql
     n_wx = db.execute(f"""UPDATE Activity SET weatherTempC=NULL, weatherWindKph=NULL, weatherGustKph=NULL, weatherWindDir=NULL, weatherHumidity=NULL,
                                   weatherRainMm=NULL, weatherCode=NULL, weatherSummary=NULL, weatherWindRel=NULL, weatherSource=NULL
                           WHERE {_virtual_sql()} AND (weatherSummary IS NOT NULL OR weatherTempC IS NOT NULL)""").rowcount
     if n_wx:
-        _tasks.record(db, 'startup:virtual_weather', 'Weather taken off Zwift rides',
-                      f"{n_wx} virtual ride{'s' if n_wx != 1 else ''} had the weather of the Zwift world's spot on the globe (Watopia is out at sea "
-                      "near the Solomon Islands), not yours; it's gone, and virtual rides stay out of the weather analytics")
+        _tasks.record(db, 'startup:virtual_weather', 'Weather taken off Zwift activities',
+                      f"{n_wx} indoor ride{'s' if n_wx != 1 else ''} or run{'s' if n_wx != 1 else ''} had the weather of the Zwift world's spot on the "
+                      "globe (Watopia is out at sea near the Solomon Islands), not yours; it's gone, and indoor activities stay out of the weather analytics")
         db.commit()
 
     # ── Top speeds that are one GPS spike (old Garmin syncs): recomputed from the ride's streams, then re-checked ──
