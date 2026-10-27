@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from urllib.parse import urlencode
 
-from flask import Blueprint, redirect, render_template, request
+from flask import Blueprint, redirect, render_template, request, session
 
 from database import get_db, query_db
 from services import sports
@@ -329,10 +329,18 @@ def _activity_list(args, list_path):
     return ctx, where, params, link
 
 
+def remember_list(label):
+    """Note this list page and its filters as the way back from an activity (the crumb on templates/ride.html), so going back from an activity
+    (after any Prev and Next) lands on the list as it was left. One-off notices (typed=, error=) aren't kept."""
+    args = [(k, v) for k, v in request.args.items(multi=True) if k not in ('typed', 'error')]
+    session['list_back'] = {'label': label, 'url': request.path + ('?' + urlencode(args) if args else '')}
+
+
 @bp.route('/activities')
 def activities_page():
     """Every activity, rides and the rest together, newest first: the dashboard's history and search on a page of their own."""
     ctx, where, params, _ = _activity_list(request.args, '/activities')
+    remember_list('Activities')
     totals = query_db(f"SELECT COUNT(*) AS n, SUM(a.movingTime) AS secs FROM Activity a WHERE {' AND '.join(where)}", params, one=True)
     return render_template('activities.html', totals=totals, **ctx)
 

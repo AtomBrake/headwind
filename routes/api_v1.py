@@ -671,7 +671,8 @@ def workouts_page():
     from services import workouts
     from routes.dashboard import _group_activities, climb
     rider = _rider()
-    from routes.dashboard import dist_filters
+    from routes.dashboard import dist_filters, remember_list
+    remember_list('Workouts')
     f = {k: request.args.get(k, '').strip() for k in ('q', 'from', 'to', 'sport')}
     f['min_dist'], f['max_dist'], min_m, max_m = dist_filters(request.args)
     is_filtered = any(f.values())
