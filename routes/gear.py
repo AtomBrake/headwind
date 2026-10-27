@@ -152,13 +152,14 @@ def index():
     bikes = [_item(db, 'bike', b, gear.bike_stats(db, b['id'])) for b in gear.list_bikes(db, rid, include_archived=request.args.get('archived') == '1')]
     from services import strava_gear
     strava = {'pending': strava_gear.pending(db, rid), 'any': bool(query_db('SELECT 1 FROM StravaBike WHERE riderId=?', [rid], one=True))}
+    from services import merged_gear
     used = kit.all_stats(db, rid)
     items = [_item(db, 'kit', k, used.get(k['id'], {})) for k in kit.list_kit(db, rid, include_retired=request.args.get('retired') == '1')]
     return render_template('gear.html', bikes=bikes, kit_items=items, no_gear=_no_gear(db, rid), kit_due=kit.due_items(db, rid), show_retired=request.args.get('retired') == '1',
                            has_retired=bool(query_db('SELECT 1 FROM Kit WHERE riderId=? AND retiredOn IS NOT NULL', [rid], one=True)), strava=strava, due=gear.due_items(db, rid), span=gear.ride_span(db, rid), rid=rid,
                            riders=query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name') if multi_rider() else [], error=request.args.get('error'), units=units,
                            show_archived=request.args.get('archived') == '1', has_archived=bool(query_db('SELECT 1 FROM Bike WHERE riderId=? AND archived=1', [rid], one=True)),
-                           defaults=_defaults_card(db, rid), done=request.args.get('done'))
+                           defaults=_defaults_card(db, rid), done=request.args.get('done'), merged=merged_gear.count(db, rid))
 
 
 def _defaults_card(db, rid):
@@ -367,6 +368,38 @@ def strava_save():
     n, m = len(res['created']), res['moved']
     done = (f"Added {n} bike{'s' if n != 1 else ''}; " if n else '') + (f"{m:,} rides put on their Strava bikes." if m != 1 else "1 ride put on its Strava bike.")
     return redirect(url_for('gear.strava_page', rider=rid, done=done))
+
+
+@bp.route('/merged')
+def merged_page():
+    """Activities recorded twice whose two recordings are on different gear (services/merged_gear.py)."""
+    from services import merged_gear
+    db = get_db()
+    rid = _rider_id()
+    return render_template('gear_merged.html', rows=merged_gear.conflicts(db, rid), rid=rid, done=request.args.get('done'), error=request.args.get('error'),
+                           riders=query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name') if multi_rider() else [])
+
+
+@bp.route('/merged/<dup_id>/<choice>', methods=['POST'])
+def merged_save(dup_id, choice):
+    """choice 'other': put the activity on its other recording's gear; 'kept': its own gear is right. dup_id 'all' settles every one listed."""
+    from services import merged_gear
+    if choice not in ('other', 'kept'):
+        abort(400)
+    db = get_db()
+    rid = _rider_id()
+    found = merged_gear.conflicts(db, rid) if dup_id == 'all' else merged_gear.conflicts(db, dup_ids=[dup_id])
+    back = _back(url_for('gear.merged_page', rider=rid))
+    try:
+        n = merged_gear.use_other(db, found) if choice == 'other' else merged_gear.keep(db, found)
+        db.commit()
+    except ValueError as e:
+        db.rollback()
+        return _flash_redirect(back, e)
+    if dup_id != 'all':
+        return redirect(back)
+    done = f"{n:,} activit{'y' if n == 1 else 'ies'} " + ('put on the gear of the other recording.' if choice == 'other' else 'left on the gear they have.')
+    return redirect(url_for('gear.merged_page', rider=rid, done=done))
 
 
 @bp.route('/bike/<int:bike_id>/default', methods=['POST'])

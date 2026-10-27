@@ -20,6 +20,12 @@ defaults card lists how many would move and **Apply to past activities** moves t
 them, and, if you tick it, rides on another bike too (rides from before Headwind kept track can't be told apart from ones you picked by hand).
 Rides whose Strava bike you haven't matched yet wait for the match.
 
+When an activity is recorded twice (a Garmin and its Strava copy, say), the recording set aside hands its bike or shoes to the one kept only when
+that one has none. When both have gear and it differs, the activity is listed under **Gear to check** (linked from the Gear page and the
+dashboard, and shown on the activity itself): **Use** the other recording's gear, or say the one it has is right, for each or for all at once.
+The other recording's gear counts when it was chosen on it (by hand, the phone, a file upload) or named by its Strava export once that bike or
+pair of shoes is matched; a default it was given doesn't.
+
 Photos are resized to a JPEG and stored beside your database (`bikeimg/`), so they are included in backups and survive upgrades.
 
 ## 2. Say which bike rode the older rides

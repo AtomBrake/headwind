@@ -182,6 +182,16 @@ function typeChanged(sel) {
     <strong style="color:var(--text);">{{ d.source }}</strong> &middot; {{ d.start | fmt_date }} &middot; {{ d.distance | fmt_dist }} &middot; {{ d.moving | fmt_duration }}{% if d.hr %} &middot; avg HR {{ d.hr | round | int }}{% endif %}{% if d.watts %} &middot; {{ d.watts | round | int }} W{% endif %}
     <div>{{ d.reason }} The other recording is saved, not deleted.</div>
   </div>
+  {% if d.gear %}{% set g = d.gear %}
+  <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:-.25rem 0 .75rem;padding:.5rem .75rem;border:1px solid var(--warning-line);background:var(--warning-soft);border-radius:8px;font-size:.9rem;">
+    <span style="flex:1 1 16rem;"><strong>Different {{ 'bike' if g.ride else 'gear' }}:</strong> this {{ 'ride' if g.ride else 'activity' }} is on <strong>{{ g.kept.name }}</strong>,
+      the other recording on <strong>{{ g.other.name }}</strong>{% if g.fromStrava %} (its Strava export says){% endif %}. Check which is right.</span>
+    {% for choice, label in (('other', 'Use ' ~ g.other.name), ('kept', g.kept.name ~ ' is right')) %}
+    <form method="POST" action="{{ url_for('gear.merged_save', dup_id=d.id, choice=choice) }}" style="margin:0;">
+      <input type="hidden" name="back" value="{{ url_for('rides.detail', rid=activity.id) }}"><button class="btn btn-secondary btn-sm" type="submit">{{ label }}</button></form>
+    {% endfor %}
+  </div>
+  {% endif %}
   <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem;">
     <a class="btn btn-secondary" href="{{ url_for('rides.view_duplicate', rid=activity.id, dup_id=d.id) }}">View</a>
     <a class="btn btn-secondary" href="{{ url_for('rides.view_duplicate', rid=activity.id, dup_id=d.id, compare=1) }}">Compare side by side</a>
