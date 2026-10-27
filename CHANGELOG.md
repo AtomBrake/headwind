@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.27-beta] - 2026-10-27
+
+### Added
+- **Gear to check: activities recorded twice on different gear.** When the same activity came in twice (a Garmin ride and its Strava copy, say) and both recordings had a bike or shoes, the one kept stayed on its own without a word, often the default bike while the Strava copy named the bike you rode. Now the activity says so, the dashboard shows how many there are, and **Gear → Gear to check** lists them: use the other recording's gear or keep the one it has, one at a time or all at once. A default the other recording was only given doesn't count; the bike or shoes its Strava export names do, once matched to yours.
+
+### Fixed
+- **"Use that recording instead" keeps the activity's bike.** Swapping in the other recording lost the bike, kit, commute tick, notes and photos the activity had. They now stay with it.
+
 ## [0.7.26-beta] - 2026-10-27
 
 ### Fixed
