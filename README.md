@@ -859,7 +859,7 @@ docs/               Home Assistant builders, screenshots, notes
 
 ```bash
 pip install -r requirements-dev.txt
-python3 -m pytest tests -q                    # unit tests
+python3 -m pytest tests -q -n auto            # unit tests, spread across every core
 
 # End-to-end smoke tests — throwaway instance only (they write data):
 d=$(mktemp -d); printf "DATABASE_URL=$d/t.db\nSECRET_KEY=x\nAPP_USERNAME=t\nAPP_PASSWORD=t\n" > $d/env

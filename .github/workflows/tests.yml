@@ -27,4 +27,4 @@ jobs:
       - name: Install
         run: pip install -r requirements-dev.txt
       - name: Tests
-        run: python -m pytest tests -q
+        run: python -m pytest tests -q -n auto
