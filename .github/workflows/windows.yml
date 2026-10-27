@@ -20,7 +20,7 @@ jobs:
       - name: Install
         run: pip install -r requirements-dev.txt waitress pyinstaller
       - name: Tests
-        run: python -m pytest tests -q
+        run: python -m pytest tests -q -n auto
       - name: Build Headwind.exe
         run: python scripts/build_windows.py dist
       - name: Smoke test the packaged app

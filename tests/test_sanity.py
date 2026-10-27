@@ -42,8 +42,23 @@ def test_a_normal_hard_ride_is_not_flagged(db):
     (dict(dist=5000, gain=3000), 'climb'),
     (dict(elapsed=80 * 3600), 'hours'),
     (dict(kcal=30000), 'kcal'),
+    # other sports
+    (dict(sport='Run', dist=11800, moving=9, elapsed=3600, avg=1311.0, top=5.0), 'moving time of 9 s'),          # a lap timer that lost the run
+    (dict(sport='Run', dist=10000, moving=1000, elapsed=1000, avg=10.0), 'not possible running'),
+    (dict(sport='Walk', dist=8000, moving=1440, elapsed=1500, avg=5.6, top=30.0), 'not possible walking'),      # 20 km/h, 108 km/h top
+    (dict(sport='Walk', dist=8000, moving=1440, elapsed=1500, avg=5.6, top=30.0), 'not possible on foot'),
+    (dict(sport='Hike', dist=10000, moving=1500, elapsed=1600, avg=None, top=None), 'not possible walking'),    # worked out from the distance
+    (dict(sport='Swim', dist=0, moving=0, elapsed=0, avg=0, top=0, gain=0), 'nothing was recorded'),
+    (dict(sport='Swim', dist=2000, moving=300, elapsed=300, avg=6.7), 'not possible swimming'),
+    (dict(sport='Swim', dist=400000, moving=300000, elapsed=300000, avg=1.3, gain=0), 'beyond any swim'),
+    (dict(sport='Run', dist=900000, moving=200000, elapsed=200000, avg=4.5), 'beyond anything on foot'),
+    (dict(sport='Run', dist=3000, gain=4000, avg=2.0), 'climb'),
+    (dict(sport='VirtualRide', hr=21, hr_max=60), 'average heart rate of 21 bpm'),                       # Zwift with a strap that slipped
+    (dict(sport='Yoga', dist=0, avg=0, top=0, hr=90, hr_max=250), 'top heart rate of 250 bpm'),
+    (dict(sport='Paddle', dist=12000, moving=40, elapsed=4000, avg=300.0), 'moving time of 40 s'),
+    (dict(sport='Row', elapsed=100 * 3600), 'hours'),
 ])
-def test_impossible_rides_are_flagged_with_a_reason(db, kw, word):
+def test_impossible_activities_are_flagged_with_a_reason(db, kw, word):
     ride(db, 'bad', **kw)
     assert word in sanity.flag(db, 'bad')
 
@@ -80,27 +95,6 @@ def test_scan_all_flags_old_data_but_leaves_dismissed_alone(db):
 def test_hard_but_real_activities_of_other_sports_pass(db, kw):
     ride(db, 'ok', **kw)
     assert sanity.flag(db, 'ok') is None
-
-
-@pytest.mark.parametrize('kw,word', [
-    (dict(sport='Run', dist=11800, moving=9, elapsed=3600, avg=1311.0, top=5.0), 'moving time of 9 s'),          # a lap timer that lost the run
-    (dict(sport='Run', dist=10000, moving=1000, elapsed=1000, avg=10.0), 'not possible running'),
-    (dict(sport='Walk', dist=8000, moving=1440, elapsed=1500, avg=5.6, top=30.0), 'not possible walking'),      # 20 km/h, 108 km/h top
-    (dict(sport='Walk', dist=8000, moving=1440, elapsed=1500, avg=5.6, top=30.0), 'not possible on foot'),
-    (dict(sport='Hike', dist=10000, moving=1500, elapsed=1600, avg=None, top=None), 'not possible walking'),    # worked out from the distance
-    (dict(sport='Swim', dist=0, moving=0, elapsed=0, avg=0, top=0, gain=0), 'nothing was recorded'),
-    (dict(sport='Swim', dist=2000, moving=300, elapsed=300, avg=6.7), 'not possible swimming'),
-    (dict(sport='Swim', dist=400000, moving=300000, elapsed=300000, avg=1.3, gain=0), 'beyond any swim'),
-    (dict(sport='Run', dist=900000, moving=200000, elapsed=200000, avg=4.5), 'beyond anything on foot'),
-    (dict(sport='Run', dist=3000, gain=4000, avg=2.0), 'climb'),
-    (dict(sport='VirtualRide', hr=21, hr_max=60), 'average heart rate of 21 bpm'),                       # Zwift with a strap that slipped
-    (dict(sport='Yoga', dist=0, avg=0, top=0, hr=90, hr_max=250), 'top heart rate of 250 bpm'),
-    (dict(sport='Paddle', dist=12000, moving=40, elapsed=4000, avg=300.0), 'moving time of 40 s'),
-    (dict(sport='Row', elapsed=100 * 3600), 'hours'),
-])
-def test_impossible_activities_of_other_sports_are_flagged(db, kw, word):
-    ride(db, 'bad', **kw)
-    assert word in sanity.flag(db, 'bad')
 
 
 def test_flagged_activities_of_every_sport_are_listed_and_left_out_of_the_charts(db):
