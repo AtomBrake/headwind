@@ -14,7 +14,7 @@ from database import get_db, query_db
 from services.segments import scan_activity_against_segments, scan_all_activities, _refresh_prs, seg_sport
 from services.limits import bounded_lines
 from services.peer_http import open_peer
-from services import feed_tokens, vault
+from services import feed_tokens, sports, vault
 
 bp = Blueprint('friends', __name__)
 
@@ -476,7 +476,8 @@ def _store_ride(db, friend_id, rider_id, obj):
     so one stored by a sync that never got that far is asked for again. Returns its local id, and 'new', 'changed' or None (the same as here)."""
     remote_id = f"f{friend_id}_{obj['id']}"
     vals = [obj.get(c) or 0 if c in _ZERO_IF_MISSING else obj.get(c) for c in _SHARED_COLS]
-    vals[_SHARED_COLS.index('type')] = obj.get('sportType')       # the NDJSON routing key took 'type'
+    sport = sports.canonical(obj.get('sportType'))                 # a friend on an older Headwind still sends Strava's "Virtual Ride"
+    vals[_SHARED_COLS.index('sportType')] = vals[_SHARED_COLS.index('type')] = sport     # the NDJSON routing key took 'type'
     was = db.execute(f"SELECT {', '.join(_SHARED_COLS)} FROM Activity WHERE id=?", [remote_id]).fetchone()
     kind = 'new' if was is None else 'changed' if list(was) != vals else None
     db.execute(f'''
