@@ -561,9 +561,9 @@ def swap(db, dup_id):
     if not row:
         return None
     db.execute('DELETE FROM ActivityDuplicate WHERE id=?', [dup_id])
+    _insert_row(db, row)                                # live first: park() hands the bike, kit, commute, notes and photos to the one kept
     if db.execute('SELECT 1 FROM Activity WHERE id=?', [old_primary]).fetchone():
         park(db, old_primary, dup_id, CHOSEN)
-    _insert_row(db, row)
     others = db.execute("SELECT id FROM ActivityDuplicate WHERE primaryId=? AND id<>?", [old_primary, old_primary]).fetchall()
     for o in others:                                    # anything else parked under the old main now hangs off the new one
         db.execute('UPDATE ActivityDuplicate SET primaryId=? WHERE id=?', [dup_id, o['id']])

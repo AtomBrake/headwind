@@ -182,6 +182,17 @@ def test_swap_restores_the_other_recording_and_is_reversible(db):
     assert _live(db) == ['garmin_1']
 
 
+def test_swap_keeps_the_bike_and_notes_chosen_on_the_ride(db):
+    """Using the other recording parked the old one before the new one was live again, so its bike, notes and commute went with it."""
+    _add(db, 'imp_phone', '2026-10-05T10:29:38+00:00')
+    _add(db, 'garmin_1', '2026-10-05T11:30:53', hr=140)
+    dup.resolve(db, 'garmin_1'); db.commit()
+    db.execute("INSERT INTO Bike (id, name, riderId) VALUES (7, 'Turbo', 1)")
+    db.execute("UPDATE Activity SET bikeId=7, notes='legs heavy', commute=1 WHERE id='garmin_1'"); db.commit()
+    assert dup.swap(db, 'imp_phone') == 'imp_phone'; db.commit()
+    assert tuple(db.execute("SELECT bikeId, notes, commute FROM Activity WHERE id='imp_phone'").fetchone()) == (7, 'legs heavy', 1)
+
+
 def test_keep_both_restores_it_and_is_never_merged_again(db):
     _add(db, 'imp_phone', '2026-10-05T10:29:38+00:00')
     _add(db, 'garmin_1', '2026-10-05T11:30:53', hr=140)
