@@ -27,6 +27,15 @@
   </div>
 </div>
 {% endif %}
+{% if gear_merged %}
+<div class="card" style="margin-bottom:1.25rem;border-color:var(--warning-line);">
+  <div style="display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;">
+    <strong>Gear to check</strong>
+    <span style="color:var(--text-muted);font-size:.9rem;flex:1;min-width:200px;">{{ '{:,}'.format(gear_merged) }} activit{{ 'y was' if gear_merged == 1 else 'ies were' }} recorded twice on different gear, and only one can be right.</span>
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('gear.merged_page', rider=active_rider.id if active_rider else None) }}">Check them</a>
+  </div>
+</div>
+{% endif %}
 {% if all_riders | length > 1 %}
 <div style="display:flex; gap:0.5rem; margin-bottom:1.25rem; flex-wrap:wrap;">
   {% for r in all_riders %}

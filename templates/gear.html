@@ -34,6 +34,13 @@
 </div>
 {% endif %}
 
+{% if merged %}
+<div class="gear-note">
+  <div><strong>{{ '{:,}'.format(merged) }}</strong> activit{{ 'y was' if merged == 1 else 'ies were' }} recorded twice on different gear: the one kept and the other recording disagree about the bike or shoes. Check which is right.</div>
+  <a class="btn btn-secondary btn-sm" href="{{ url_for('gear.merged_page', rider=rid) }}">Check them</a>
+</div>
+{% endif %}
+
 {% if no_gear %}
 <div class="gear-note">
   <div><a href="{{ no_gear.href }}"><strong>{{ '{:,}'.format(no_gear.n) }}</strong> activit{{ 'y has' if no_gear.n == 1 else 'ies have' }} no gear</a> yet:

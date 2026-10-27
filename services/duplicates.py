@@ -34,6 +34,16 @@ def ensure_schema(db):
             parkedAt  TEXT DEFAULT (datetime('now'))
         )''')
     db.execute('CREATE INDEX IF NOT EXISTS idx_actdup_primary ON ActivityDuplicate(primaryId)')
+    cols = {r[1] for r in db.execute('PRAGMA table_info(ActivityDuplicate)').fetchall()}
+    if 'bikeId' not in cols:                            # the gear chosen on the copy (chosen_gear), checked against the one kept (services/merged_gear.py)
+        db.execute('ALTER TABLE ActivityDuplicate ADD COLUMN bikeId INTEGER')
+        db.execute('ALTER TABLE ActivityDuplicate ADD COLUMN kitId INTEGER')
+        db.execute('ALTER TABLE ActivityDuplicate ADD COLUMN gearChecked INTEGER')     # 1: the rider said the kept activity's gear is right
+        chosen = lambda col: f"""CASE WHEN json_extract(rowJson, '$.{col}Auto') IS NOT NULL
+                                          AND COALESCE(json_extract(rowJson, '$.{col}Id'), 0) = json_extract(rowJson, '$.{col}Auto') THEN NULL
+                                     ELSE NULLIF(json_extract(rowJson, '$.{col}Id'), 0) END"""
+        # chosen_gear for the copies already set aside, in SQL: a whole row each (streams and all) is too much to load into Python at start-up
+        db.execute(f"UPDATE ActivityDuplicate SET bikeId = {chosen('bike')}, kitId = {chosen('kit')} WHERE status='parked' AND json_valid(rowJson)")
 
 
 # ---------- time + matching (pure) ----------
@@ -223,6 +233,15 @@ def _take_better_name(db, primary_id, kept_name, other_name):
     return True
 
 
+def chosen_gear(row):
+    """(bikeId, kitId) an activity was put on by the rider, the phone, a file upload or a Strava export: not the default it was given (gear._auto),
+    which says nothing about what was used. What a copy set aside is checked by against the activity kept (services/merged_gear.py)."""
+    from services.gear import _auto
+    keys = row.keys()
+    pick = lambda col: row[col + 'Id'] if col + 'Id' in keys and row[col + 'Id'] and not _auto(row[col + 'Id'], _get(row, col + 'Auto')) else None
+    return pick('bike'), pick('kit')
+
+
 def source_label(row):
     return 'Garmin' if str(row['id']).startswith('garmin_') else ('Manual entry' if is_manual(row) else 'Phone or file')
 
@@ -402,8 +421,8 @@ def park(db, loser_id, primary_id, reason):
         _take_better_name(db, primary_id, winner['name'], row['name'])
         from services import photos
         photos.move(db, loser_id, primary_id)
-    db.execute('INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson) VALUES (?,?,?,?,?,?,?)',
-               [loser_id, primary_id, row['riderId'], source_label(row), reason, 'parked', json.dumps(dict(row))])
+    db.execute('INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson, bikeId, kitId) VALUES (?,?,?,?,?,?,?,?,?)',
+               [loser_id, primary_id, row['riderId'], source_label(row), reason, 'parked', json.dumps(dict(row)), *chosen_gear(row)])
     # Copies set aside under this one now hang off the one kept: a copy set aside under a copy that is itself set aside was lost to everything
     # that follows primaryId to a live activity (the Strava bike or shoes of the copy, services/strava_gear._rides)
     db.execute("UPDATE ActivityDuplicate SET primaryId=? WHERE primaryId=? AND status='parked' AND id<>?", [primary_id, loser_id, primary_id])

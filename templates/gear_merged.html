@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% block title %}Gear to check{% endblock %}
+{% block page_title %}Gear to check{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">{% endblock %}
+{% block parent %}<a href="{{ url_for('gear.index', rider=rid) }}">Gear</a>{% endblock %}
+{% block topbar_actions %}
+  {% if riders %}<form method="GET" style="display:inline;"><select name="rider" onchange="this.form.submit()">{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>{% endif %}
+{% endblock %}
+{# A gear name, marked when retired #}
+{% macro gear_name(g) %}<strong>{{ g.name }}</strong>{% if g.retired %} <span class="hint">(retired)</span>{% endif %}{% endmacro %}
+{% block content %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+{% if done %}<div class="flash flash-success">{{ done }}</div>{% endif %}
+
+{% if not rows %}
+<div class="card" style="text-align:center;padding:2rem 1rem;">
+  <p class="hint" style="max-width:520px;margin:0 auto;">Nothing to check. When the same activity is recorded twice (a Garmin and Strava, say) and the two recordings are on different gear, it is listed here.</p>
+</div>
+{% else %}
+<p class="hint" style="margin-top:0;max-width:760px;">These activities were recorded twice, and the two recordings are on different gear. Headwind kept one recording and set the other aside,
+  and the activity stayed on the gear of the one kept, which may be the wrong one: a ride given your default bike, say, while its Strava copy names the bike you rode.
+  Pick the right gear for each, or settle them all at once.</p>
+<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem;">
+  <form method="POST" action="{{ url_for('gear.merged_save', dup_id='all', choice='other') }}" onsubmit="return confirm('Put all {{ rows | length }} on the gear of their other recording?')">
+    <input type="hidden" name="rider" value="{{ rid }}"><button class="btn btn-primary" type="submit">Use the other recording's gear for all {{ rows | length }}</button></form>
+  <form method="POST" action="{{ url_for('gear.merged_save', dup_id='all', choice='kept') }}" onsubmit="return confirm('Leave all {{ rows | length }} on the gear they have?')">
+    <input type="hidden" name="rider" value="{{ rid }}"><button class="btn btn-secondary" type="submit">Leave them all as they are</button></form>
+</div>
+<div class="card" style="overflow-x:auto;">
+  <table class="table">
+    <thead><tr><th>Activity</th><th>On</th><th>Other recording</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+    <tr>
+      <td><a href="{{ url_for('rides.detail', rid=r.id) }}">{{ r.name or (r.sportType | sport_label) }}</a>
+        <div class="hint">{{ r.startDateLocal | fmt_date }} · {{ r.sportType | sport_label }}</div></td>
+      <td>{{ gear_name(r.kept) }}</td>
+      <td>{{ gear_name(r.other) }}<div class="hint">{{ 'its Strava export says' if r.fromStrava else r.source }}</div></td>
+      <td style="white-space:nowrap;">
+        <form method="POST" action="{{ url_for('gear.merged_save', dup_id=r.dupId, choice='other') }}" style="display:inline;">
+          <input type="hidden" name="rider" value="{{ rid }}"><button class="btn btn-secondary btn-sm" type="submit">Use {{ r.other.name }}</button></form>
+        <form method="POST" action="{{ url_for('gear.merged_save', dup_id=r.dupId, choice='kept') }}" style="display:inline;">
+          <input type="hidden" name="rider" value="{{ rid }}"><button class="btn btn-secondary btn-sm" type="submit">{{ r.kept.name }} is right</button></form>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

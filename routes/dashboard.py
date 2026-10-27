@@ -405,6 +405,8 @@ def dashboard():
         gear_due = (kit.due_items(get_db(), rid, include_soon=False) + gear.due_items(get_db(), rid, include_soon=False))[:4]   # shoes and the like, then bike parts
     except Exception:
         gear_due = []
+    from services import merged_gear
+    gear_merged = merged_gear.count(get_db(), rid)      # merged activities whose two recordings are on different gear
 
     try:
         from services import sanity
@@ -422,6 +424,7 @@ def dashboard():
         'dashboard.html',
         gear_due=gear_due,
         flagged=flagged,
+        gear_merged=gear_merged,
         rider_goals=rider_goals,
         live_challenges=live_challenges,
         invitations=invitations,
