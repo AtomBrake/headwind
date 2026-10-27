@@ -290,6 +290,7 @@ def detail(rid):
                            is_ride=is_ride, seg_family=seg_family, seg_family_label=(sports.CLASS_LABELS['ebike'] if seg_class == 'ebike' else sports.FAMILY_LABELS.get(seg_family)), is_workout=is_workout,
                            wx_categories=list(_wx.CATEGORIES), wx_condition=_wx.bucket(activity['weatherCode'] if not is_workout else None),
                            wx_manual=(not is_workout and activity['weatherSource'] == 'manual'), wx_storm=(not is_workout and activity['weatherSource'] == 'storm'),
+                           is_virtual=sports.is_virtual(activity['sportType']),
                            ride_badges=ride_badges,
                            personalities=PERSONALITIES,
                            current_personality=query_db('SELECT coachPersonality FROM Settings WHERE id=1', one=True) or {},
@@ -327,9 +328,9 @@ def set_weather(rid):
         return jsonify(error='not found'), 404
     if label == 'notstorm':           # it was not a storm ride after all: back to the lookup's own condition, and never claimed again
         weather.set_condition(db, rid, None)
-        row = db.execute('SELECT startLat, startLng, startDateLocal, streams FROM Activity WHERE id=?', [rid]).fetchone()
+        row = db.execute('SELECT sportType, startLat, startLng, startDateLocal, streams FROM Activity WHERE id=?', [rid]).fetchone()
         lat, lng = weather.origin(row)
-        w = weather.fetch_weather(lat, lng, row['startDateLocal'], row['streams']) if lat is not None else None
+        w = weather.fetch_weather(lat, lng, row['startDateLocal'], row['streams'], row['sportType']) if lat is not None else None
         if w:
             weather.save_weather(db, rid, w, claim=False)
         weather.set_condition(db, rid, 'keep')
@@ -337,9 +338,9 @@ def set_weather(rid):
         weather.set_condition(db, rid, 'keep')
     elif label == 'auto':
         weather.set_condition(db, rid, None)
-        row = db.execute('SELECT startLat, startLng, startDateLocal, streams FROM Activity WHERE id=?', [rid]).fetchone()
+        row = db.execute('SELECT sportType, startLat, startLng, startDateLocal, streams FROM Activity WHERE id=?', [rid]).fetchone()
         lat, lng = weather.origin(row)
-        w = weather.fetch_weather(lat, lng, row['startDateLocal'], row['streams']) if lat is not None else None
+        w = weather.fetch_weather(lat, lng, row['startDateLocal'], row['streams'], row['sportType']) if lat is not None else None
         if w:
             weather.save_weather(db, rid, w, claim=False)
         elif db.execute('SELECT weatherTempC FROM Activity WHERE id=?', [rid]).fetchone()[0] is None:      # nothing automatic to fall back on: forget the hand-picked word

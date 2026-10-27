@@ -73,7 +73,7 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
     if act.get('startLat') is not None:
         try:
             from services.weather import fetch_weather
-            w = fetch_weather(act['startLat'], act['startLng'], local, act.get('streams'))
+            w = fetch_weather(act['startLat'], act['startLng'], local, act.get('streams'), sport)
             weather = (w or {}).get('summary') or (w or {}).get('weatherSummary')
         except Exception:
             log.warning('Weather for a workout failed', exc_info=True)

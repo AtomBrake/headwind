@@ -96,7 +96,7 @@ Lifetime totals, a 12-week performance chart you can flip between distance, elev
 <img src="docs/screenshots/dashboard.jpg" alt="Dashboard" width="900">
 
 ### Activity detail
-Satellite map, elevation + heart-rate and cadence charts, weather at the start (temperature, wind speed/direction and a headwind / tailwind / crosswind call computed from your route bearing), and effort comparison. Each page fits its sport: pace and splits for runs, sets and SWOLF for a pool swim, each run of a ski day, laps from your device. **Same route** ranks this activity against every other time you've done the same start, finish and roads, the same way round, and a Zwift ride is drawn over its Zwift world.
+Satellite map, elevation + heart-rate and cadence charts, weather at the start (temperature, wind speed/direction and a headwind / tailwind / crosswind call computed from your route bearing), and effort comparison. Each page fits its sport: pace and splits for runs, sets and SWOLF for a pool swim, each run of a ski day, laps from your device. **Same route** ranks this activity against every other time you've done the same start, finish and roads, the same way round, and a Zwift ride is drawn over its Zwift world's map alone, with no weather (it wasn't ridden outside).
 
 <img src="docs/screenshots/ride-detail.jpg" alt="Ride detail" width="900">
 
@@ -455,8 +455,8 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - Satellite map, speed/elevation/heart-rate/power/cadence streams, wind overlay, co-rider badges.
 - **Pages that fit the sport** — pace and splits per mile or km on foot; pace per 100 m, sets, strokes and SWOLF for swims; each run of a ski day with vertical descent; no climb on the water; laps from your device for any sport.
 - **Same route** — the other times you've done this activity's route (same start, finish and roads, same way round, same kind of activity), ranked by moving time, compared with the last 20 and charted. The AI coach gets the same comparison.
-- **Zwift rides** are matched to one of Zwift's worlds and drawn over its map.
-- Weather at the start of every activity from Open-Meteo (free, no key), including a backfill for history.
+- **Zwift rides** are matched to one of Zwift's worlds and drawn over its map alone, with no satellite map around it.
+- Weather at the start of every activity from Open-Meteo (free, no key), including a backfill for history. Virtual rides get none: a Zwift world's spot on the globe isn't where you were.
 - Analytics: speed or pace trend with rolling average, monthly distance, year-on-year, distribution, day-of-week, weather scatters; metric/imperial; sport filter.
 - **Best times** — fastest 5/10/20/30/50/100 miles on a ride, 1 km to the marathon on foot, 100 m to 3.8 km in the water, with year/month filters, plus **records by sport** (longest, longest time, most climbing, fastest).
 - **Trophy case** — badges for riding (counts, distance, elevation, epic rides, speed, climbing, weather, segments), running, walking and hiking, swimming, other sports and all sports together, each linking back to the activity that earned it.

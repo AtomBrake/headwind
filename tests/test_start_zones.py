@@ -283,7 +283,7 @@ def test_weather_backfill_covers_every_sport_with_a_position(db, monkeypatch):
     _add(db, 'w1', '2016-08-01T22:10:00', '2016-08-01T15:10:00', sport='Walk', startLat=49.28, startLng=-123.1)
     _add(db, 'w2', '2016-08-02T22:10:00', '2016-08-02T15:10:00', sport='Run')                     # no position: nothing to look up
     asked = []
-    monkeypatch.setattr(weather, 'fetch_weather', lambda lat, lng, local, streams=None: asked.append((lat, local)) or None)
+    monkeypatch.setattr(weather, 'fetch_weather', lambda lat, lng, local, streams=None, sport=None: asked.append((lat, local)) or None)
     weather._FAILED.clear()
     weather.backfill_missing(db, pause=0)
     assert asked == [(49.28, '2016-08-01T15:10:00')]
