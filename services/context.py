@@ -209,9 +209,10 @@ def _build_segment_context(activity_id):
 
 def _build_achievement_context(activity_id, activity_date):
     # The Ride view, and this rider's own: BestEffort has rows for anything with a track, and a walk is neither a ride's best 5 miles nor the
-    # best another rider's ride has to beat
+    # best another rider's ride has to beat. An indoor ride (Zwift, a turbo) is held against the indoor rides only, an outdoor one the outdoor ones.
+    from services.sports import indoor_sql, is_virtual
     achievements = query_db('''
-        SELECT e.distanceMi, e.elapsedSecs, e.avgSpeedMps, a.riderId
+        SELECT e.distanceMi, e.elapsedSecs, e.avgSpeedMps, a.riderId, a.sportType
         FROM BestEffort e JOIN Ride a ON a.id = e.activityId
         WHERE e.activityId = ?
     ''', [activity_id])
@@ -228,10 +229,10 @@ def _build_achievement_context(activity_id, activity_date):
         mph    = units.fmt_speed(ach['avgSpeedMps'])
 
         # What was the previous best for this distance bracket?
-        prev = query_db('''
+        prev = query_db(f'''
             SELECT e.elapsedSecs, e.activityDate
             FROM BestEffort e JOIN Ride a ON a.id = e.activityId
-            WHERE e.distanceMi = ? AND e.activityId != ? AND a.riderId IS ?
+            WHERE e.distanceMi = ? AND e.activityId != ? AND a.riderId IS ? AND {indoor_sql(is_virtual(ach['sportType']))}
             ORDER BY e.elapsedSecs ASC LIMIT 1
         ''', [ach['distanceMi'], activity_id, ach['riderId']], one=True)
 

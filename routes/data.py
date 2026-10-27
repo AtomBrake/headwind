@@ -143,26 +143,33 @@ def index():
 
     # ── Best efforts: rides (services/best_efforts), runs and swims (services/sport_records) ──
     # BestEffort holds a row for anything with a track (skis, walks, ...), so the ride table reads the Ride view: a ski run is not a ride's best 5 miles.
+    # Indoor rides and runs (Zwift, a turbo, a treadmill: services/sports.is_virtual) have tables of their own, shown when there's something in them.
+    from services.sports import indoor_sql
     achievements = []
     if sf.has_rides:
-        ride_rows = query_db(f'''SELECT e.distanceMi AS dist, e.activityDate, e.elapsedSecs, e.avgSpeedMps, e.activityId, a.name
-                                FROM BestEffort e JOIN Ride a ON a.id = e.activityId
-                                WHERE a.riderId=? AND {sf.sql('a.sportType')[0]} ORDER BY e.distanceMi, e.elapsedSecs''', [rid] + fparams)
-        achievements.append(_achievements('ride', 'Achievements', 'Ride', 'Avg Speed', 'speed',
-                                          [(str(d), units.fmt_dist(d * units.MI, places=0 if system != 'metric' else 1)) for d in BRACKETS_MI],
-                                          [dict(r, key=str(int(r['dist']))) for r in ride_rows], scan=True))
+        brackets = [(str(d), units.fmt_dist(d * units.MI, places=0 if system != 'metric' else 1)) for d in BRACKETS_MI]
+        ride_rows = {indoor: query_db(f'''SELECT e.distanceMi AS dist, e.activityDate, e.elapsedSecs, e.avgSpeedMps, e.activityId, a.name
+                                         FROM BestEffort e JOIN Ride a ON a.id = e.activityId
+                                         WHERE a.riderId=? AND {indoor_sql(indoor)} AND {sf.sql('a.sportType')[0]}
+                                         ORDER BY e.distanceMi, e.elapsedSecs''', [rid] + fparams) for indoor in (False, True)}
+        for indoor, key, title, noun in ((False, 'ride', 'Achievements', 'Ride'), (True, 'vride', 'Indoor ride best times', 'Indoor ride')):
+            if ride_rows[indoor] or not (indoor or ride_rows[True]):        # the empty outdoor table offers the scan, unless the rides are all indoors
+                achievements.append(_achievements(key, title, noun, 'Avg Speed', 'speed', brackets,
+                                                  [dict(r, key=str(int(r['dist']))) for r in ride_rows[indoor]], scan=not indoor))
     from services import sport_records
-    for k, group, title, noun in (('run', 'foot', 'Run best times', 'Run'), ('swim', 'swim', 'Swim best times', 'Swim')):
+    for k, indoor, key, group, title, noun in (('run', False, 'run', 'foot', 'Run best times', 'Run'),
+                                               ('run', True, 'vrun', 'foot', 'Indoor run best times', 'Indoor run'),
+                                               ('swim', False, 'swim', 'swim', 'Swim best times', 'Swim')):
         if group not in sf.groups:
             continue
         sport_records.ensure(get_db(), rid)
-        rows = sport_records.efforts(get_db(), rid, k, sf.sql('a.sportType')[0], fparams)
+        rows = sport_records.efforts(get_db(), rid, k, sf.sql('a.sportType')[0], fparams, indoor=indoor)
         if not rows:
             continue
         style = 'pace' if k == 'run' else 'swim'
-        achievements.append(_achievements(k, title, noun, 'Pace', style, [(f'{d:g}', label) for d, label in sport_records.DISTANCES[k]],
+        achievements.append(_achievements(key, title, noun, 'Pace', style, [(f'{d:g}', label) for d, label in sport_records.DISTANCES[k]],
                                           [dict(r, key=f"{r['distanceM']:g}", avgSpeedMps=r['distanceM'] / r['elapsedSecs']) for r in rows]))
-    has_efforts = any(a['rows'] for a in achievements if a['key'] == 'ride')
+    has_efforts = any(a['rows'] for a in achievements if a['key'] in ('ride', 'vride'))
 
     # ── Records: each sport's biggest single activities ───────────
     sport_records_by = _sport_records(query_db(

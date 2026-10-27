@@ -27,7 +27,7 @@ REPLACE_DEFAULT_M = {'shoes': 700_000}       # running shoes are usually done so
 SOON, DUE, OVERDUE = 0.9, 1.0, 1.25
 LEVEL_ORDER = {'ok': 0, 'soon': 1, 'due': 2, 'overdue': 3}
 # The sports a default can be set for: what Headwind records, Strava's names for the same, then the rest
-DEFAULT_SPORTS = ['Run', 'TrailRun', 'Walk', 'Hike', 'Swim', 'Ski', 'AlpineSki', 'NordicSki', 'Snowboard', 'Surf', 'Paddle', 'Row', 'Skate', 'Other']
+DEFAULT_SPORTS = ['Run', 'TrailRun', 'VirtualRun', 'Walk', 'Hike', 'Swim', 'Ski', 'AlpineSki', 'NordicSki', 'Snowboard', 'Surf', 'Paddle', 'Row', 'Skate', 'Other']
 COMMUTE = 'Commute'          # a default for commutes (Activity.commute), kept beside the sports' (KitDefault, gear's BikeDefault)
 
 
@@ -180,9 +180,9 @@ def set_defaults(db, kit_id, sports_):
 
 
 def default_for(db, rider_id, sport, commute=False):
-    """The item a new activity of this sport gets: the rider's one for commutes when it is one, else the sport's. Retired items are never
-    picked. None for none."""
-    keys = ([COMMUTE] if commute else []) + [sport_key(sport)]
+    """The item a new activity of this sport gets: the rider's one for commutes when it is one, else the sport's, and for an indoor run
+    (a treadmill, Zwift) with no default of its own, the runs'. Retired items are never picked. None for none."""
+    keys = ([COMMUTE] if commute else []) + [sport_key(sport)] + (['Run'] if sport_key(sport) == 'VirtualRun' else [])
     for key in keys:
         r = db.execute('SELECT d.kitId FROM KitDefault d JOIN Kit k ON k.id = d.kitId WHERE d.riderId=? AND d.sport=? AND k.retiredOn IS NULL',
                        [rider_id, key]).fetchone()

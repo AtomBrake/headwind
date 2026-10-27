@@ -96,12 +96,12 @@ Lifetime totals, a 12-week performance chart you can flip between distance, elev
 <img src="docs/screenshots/dashboard.jpg" alt="Dashboard" width="900">
 
 ### Activity detail
-Satellite map, elevation + heart-rate and cadence charts, weather at the start (temperature, wind speed/direction and a headwind / tailwind / crosswind call computed from your route bearing), and effort comparison. Each page fits its sport: pace and splits for runs, sets and SWOLF for a pool swim, each run of a ski day, laps from your device. **Same route** ranks this activity against every other time you've done the same start, finish and roads, the same way round, and a Zwift ride is drawn over its Zwift world's map alone, with no weather (it wasn't ridden outside).
+Satellite map, elevation + heart-rate and cadence charts, weather at the start (temperature, wind speed/direction and a headwind / tailwind / crosswind call computed from your route bearing), and effort comparison. Each page fits its sport: pace and splits for runs, sets and SWOLF for a pool swim, each run of a ski day, laps from your device. **Same route** ranks this activity against every other time you've done the same start, finish and roads, the same way round, and a Zwift ride or run is drawn over its Zwift world's map alone, with no weather (it wasn't done outside).
 
 <img src="docs/screenshots/ride-detail.jpg" alt="Ride detail" width="900">
 
 ### Heatmap
-Everywhere you've been, filterable by date range and sport, with HD export (3440×1440). Show your own activities, one friend's, or everyone's together, each in their own colour; Zwift rides are left out unless you include them, and drawn over their Zwift world's map.
+Everywhere you've been, filterable by date range and sport, with HD export (3440×1440). Show your own activities, one friend's, or everyone's together, each in their own colour; Zwift rides and runs are left out unless you include them, and drawn over their Zwift world's map.
 
 <img src="docs/screenshots/heatmap.jpg" alt="Heatmap" width="900">
 
@@ -440,7 +440,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 ## Features
 
 ### Activities and import
-- **Every sport** — road, mountain bike, gravel, e-bike and indoor (Zwift) rides; runs, trail runs, walks and hikes; pool and open-water swims; ski and snowboard days; paddles, surfs and sails; strength, yoga and anything else with no distance. Distances only ever add up within a kind, so a run never changes your ride stats.
+- **Every sport** — road, mountain bike, gravel, e-bike and indoor (Zwift) rides; runs, trail runs, indoor (treadmill and Zwift) runs, walks and hikes; pool and open-water swims; ski and snowboard days; paddles, surfs and sails; strength, yoga and anything else with no distance. Distances only ever add up within a kind, so a run never changes your ride stats.
 - **Garmin Connect sync** — activities of every type *and* daily recovery data; MFA-capable connect flow in the browser (no command line); incremental sync that re-scans the last day so a second same-day activity is never missed and failed downloads are retried. Activities deleted or changed in Garmin later are flagged for review (see [Garmin Connect](#garmin-connect)).
 - **File import** — `.fit`, `.gpx`, `.tcx` (and gzipped variants), or a **Strava data-export zip**, with a live progress bar. A file keeps its own sport. From a Strava export Headwind also takes Strava's own distance and moving time, your bikes and shoes, photos, commutes and segments, and keeps the export so you can **Import again** later without uploading it. When an update brings fixes that only reach activities already here through a re-import, the Import page says what they are and asks you to import the export again (or upload it, if it wasn't kept).
 - **Duplicates** — the same activity from Garmin, Strava, a file and the phone is kept once, however it arrived (including a watch's indoor ride and its Zwift copy, and a phone's partial recording of a ride). Importing an activity you already have again offers to repair it from the file. Deleting an activity moves the recordings set aside behind it to another recording of the same session if there is one; otherwise one deleted in Garmin brings its other recording back as its own, and one you delete takes them with it.
@@ -455,11 +455,11 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - Satellite map, speed/elevation/heart-rate/power/cadence streams, wind overlay, co-rider badges.
 - **Pages that fit the sport** — pace and splits per mile or km on foot; pace per 100 m, sets, strokes and SWOLF for swims; each run of a ski day with vertical descent; no climb on the water; laps from your device for any sport.
 - **Same route** — the other times you've done this activity's route (same start, finish and roads, same way round, same kind of activity), ranked by moving time, compared with the last 20 and charted. The AI coach gets the same comparison.
-- **Zwift rides** are matched to one of Zwift's worlds and drawn over its map alone, with no satellite map around it.
-- Weather at the start of every activity from Open-Meteo (free, no key), including a backfill for history. Virtual rides get none: a Zwift world's spot on the globe isn't where you were.
+- **Zwift rides and runs** are matched to one of Zwift's worlds and drawn over its map alone, with no satellite map around it. A ride or run that starts in one of Zwift's made-up worlds (Watopia, Makuri Islands, France, Crit City) counts as a Zwift one whatever its file called it, and Garmin's virtual and treadmill runs come in as indoor runs. Indoor rides and runs have no segments.
+- Weather at the start of every activity from Open-Meteo (free, no key), including a backfill for history. Zwift rides and runs get none: a Zwift world's spot on the globe isn't where you were.
 - Analytics: speed or pace trend with rolling average, monthly distance, year-on-year, distribution, day-of-week, weather scatters; metric/imperial; sport filter.
-- **Best times** — fastest 5/10/20/30/50/100 miles on a ride, 1 km to the marathon on foot, 100 m to 3.8 km in the water, with year/month filters, plus **records by sport** (longest, longest time, most climbing, fastest).
-- **Trophy case** — badges for riding (counts, distance, elevation, epic rides, speed, climbing, weather, segments), running, walking and hiking, swimming, other sports and all sports together, each linking back to the activity that earned it.
+- **Best times** — fastest 5/10/20/30/50/100 miles on a ride, 1 km to the marathon on foot, 100 m to 3.8 km in the water, with year/month filters, plus **records by sport** (longest, longest time, most climbing, fastest). Indoor rides and runs (Zwift, a turbo trainer, a treadmill) have best-time tables of their own and never count towards your outdoor ones.
+- **Trophy case** — badges for riding (counts, distance, elevation, epic rides, speed, climbing, weather, segments), running, walking and hiking, swimming, other sports and all sports together, each linking back to the activity that earned it. Indoor rides and runs count for the badges that count activities or time, not for distance, climbing, speed, weather or segments.
 - **Goals** — distance, climbing, time or number of activities for a sport, every week, month or year, measured against an even pace, on the Goals page and the dashboard.
 - **Activities that look wrong** — anything that can't be real is flagged on the dashboard and its own page, and left out of the speed and weather charts until you keep it or delete it: a ride at 2,500 mph, a walk at 20 km/h, a run faster than any record, a swim with nothing recorded, a moving time of seconds against a real distance, or a heart rate below 30 or above 230 bpm (every sport). The limits are loose: hard but real days pass. Where it can, the flag offers a fix: Strava's climb in place of a file's impossible one, or the elapsed time when a file's broken timestamps made the moving time seconds.
 - **Recovery** (Garmin) — resting HR, HRV, sleep score and body battery with 30/60/90-day charts.
@@ -477,7 +477,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - **Share live with Home Assistant** streams position, speed and sensor readings every few seconds to Headwind, which publishes them as Live Ride sensors and a device tracker, so the example dashboard's **Live** tab can show the ride as it happens.
 
 ### Running in Home Assistant
-- Best times for 1 km, 1 mile, 3 km, 5 km, 10 km, 15 km, half and full marathon, worked out from the GPS of your recorded runs (the fastest stretch of that distance inside any one run), plus pace, weekly/monthly/yearly totals, 12 weeks of distance, recent runs and the latest route, are shown in Home Assistant on a **Running** tab (see `docs/ha`). Every other sport has its own totals sensors too.
+- Best times for 1 km, 1 mile, 3 km, 5 km, 10 km, 15 km, half and full marathon, worked out from the GPS of your recorded runs (the fastest stretch of that distance inside any one run; indoor runs count in the totals but not the best times), plus pace, weekly/monthly/yearly totals, 12 weeks of distance, recent runs and the latest route, are shown in Home Assistant on a **Running** tab (see `docs/ha`). Every other sport has its own totals sensors too.
 
 ### Nutrition and body
 - Barcode scanner (phone camera) and text search, backed by **Open Food Facts** — no API key.

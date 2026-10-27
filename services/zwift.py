@@ -2,6 +2,9 @@
 Makuri Islands, France and Crit City sit on open sea near the Solomon Islands and New Caledonia; the others copy a real place (London,
 New York, Richmond, ...) and land roughly where it is.
 
+A run or ride that starts in a made-up world is a Zwift one whatever its file says (indoor_sport; services/sport_fix.fix_misfiled for those
+saved before): nobody rides out there.
+
 Each world is a fixed box of latitude and longitude, and Zwift's own minimap of it fits that box exactly (it's what ZwiftMap draws with
 Leaflet's imageOverlay). The boxes and image names are from zwift-data (https://github.com/andipaetzold/zwift-data, MIT, Andi Pätzold).
 The images are Zwift's and are not kept here: map_image fetches one from Zwift's CDN when a page first asks for it, and keeps it in memory.
@@ -45,6 +48,33 @@ def world_of(min_lat, max_lat, min_lng, max_lng):
         if min_lat >= s - SLACK and max_lat <= n + SLACK and min_lng >= west - SLACK and max_lng <= east + SLACK:
             return w
     return None
+
+
+def _in_box(lat, lng, box):
+    s, n, west, east = box
+    return s - SLACK <= lat <= n + SLACK and west - SLACK <= lng <= east + SLACK
+
+
+def in_made_up_world(lat, lng):
+    """True for a point in Watopia, Makuri Islands, France or Crit City: out at sea, so no real ride or run starts there."""
+    try:
+        lat, lng = float(lat), float(lng)
+    except (TypeError, ValueError):
+        return False
+    return any(w['madeUp'] and _in_box(lat, lng, w['box']) for w in WORLDS)
+
+
+def indoor_sport(sport, lat, lng):
+    """The sport to save an activity under, given where it starts: a ride or run in a made-up world is Zwift's (VirtualRide, VirtualRun) though
+    its file called it a ride or a run (a FIT or GPX with no sub-sport, a third party's export). Any other sport, or place, stays as it is."""
+    from services import sports
+    if sports.is_virtual(sport) or not in_made_up_world(lat, lng):
+        return sport
+    if sports.is_ride(sport):
+        return 'VirtualRide'
+    if 'run' in sport.lower():                           # Run, Trail Run: Zwift has no trails
+        return sports.INDOOR_RUN
+    return sport
 
 
 def for_page(w):

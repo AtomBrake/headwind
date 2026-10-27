@@ -53,7 +53,8 @@ def ensure_schema(db):
 # zone an activity's local time is taken in (tz).
 # tests/test_import_seen.py checks every module the parser imports is here.
 READER_MODULES = ('services.parser', 'services.best_efforts', 'services.sports', 'services.reimport', 'services.duplicates', 'services.tz',
-                  'services.sanity', 'routes.import_rides')       # sanity: its limits decide when a Strava export's climb replaces the file's
+                  'services.sanity', 'services.zwift', 'routes.import_rides')     # sanity: its limits decide when a Strava export's climb replaces the
+                                                                                   # file's; zwift: a ride or run in a made-up world is Zwift's
 READER_LIBRARIES = ('fitparse', 'gpxpy', 'tzfpy')        # a FIT library that replaces fitparse goes here too; tzfpy: the local time where it happened
 _reader_version = None
 

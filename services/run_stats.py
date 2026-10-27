@@ -2,7 +2,8 @@
 volume, recent runs and the latest route.
 
 A run is an Activity row whose sport is a run (Run, Trail Run, Virtual Run: services/sport_records.kind), from the phone app, a Garmin or a Strava
-export. Its best times are the ones services/sport_records keeps for every run and swim, so publishing to Home Assistant only reads them.
+export. Its best times are the ones services/sport_records keeps for every run and swim, so publishing to Home Assistant only reads them: the
+outdoor ones (a treadmill's or Zwift's 5 km is no run's best), though indoor runs count in the totals.
 """
 import json
 from datetime import timedelta

@@ -171,6 +171,7 @@ def perform():
     Deliberately all-time-only (not the web /data page's year/month grid, which doesn't suit a phone screen) —
     reuses the same BestEffort/Segment/SegmentEffort tables the web page reads, no separate computation."""
     from services.best_efforts import BRACKETS_MI
+    from services.sports import indoor_sql
     rider = _rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
@@ -181,9 +182,10 @@ def perform():
         e = query_db('''
             SELECT e.elapsedSecs, e.avgSpeedMps, e.activityId, e.activityDate, a.name as rideName
             FROM BestEffort e JOIN Ride a ON a.id = e.activityId
-            WHERE a.riderId=? AND e.distanceMi=?
+            WHERE a.riderId=? AND e.distanceMi=? AND {outdoor}
             ORDER BY e.elapsedSecs ASC LIMIT 1
-        ''', [rid, dist_mi], one=True)      # the Ride view: BestEffort has rows for anything with a track, and a walk is not a ride's best 5 miles
+        '''.format(outdoor=indoor_sql(False)), [rid, dist_mi], one=True)
+        # the Ride view: BestEffort has rows for anything with a track, and a walk is not a ride's best 5 miles; nor is a Zwift ride
         if e:
             best_efforts.append({
                 'distanceMi': dist_mi, 'secs': e['elapsedSecs'], 'avgSpeedMps': e['avgSpeedMps'] or 0,

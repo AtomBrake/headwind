@@ -2,7 +2,9 @@
 sessions, trail and treadmill runs were saved as rides, count in the ride totals and get flagged by the ride sanity checks; and runs, walks and hikes it did
 know were still kept with the rides rather than the workouts. The original Garmin type was never stored, so it is fetched again (the activity list gives 100 per
 call), each wrong one is written down as a proposal, and nothing moves until the rider has looked at the list and applied it. Mountain bike and gravel
-rides the sync saved as a plain Ride are offered their own kind too, so they can follow the rider's default bike for them (services/gear.pick_bike)."""
+rides the sync saved as a plain Ride are offered their own kind too, so they can follow the rider's default bike for them (services/gear.pick_bike).
+
+Also here, with no review: rides and runs from Zwift's made-up worlds saved as outdoor ones (fix_misfiled), since nobody rides out at sea."""
 import logging
 
 log = logging.getLogger(__name__)
@@ -91,3 +93,53 @@ def apply(db, rider_id, ride_ids):
             failed += 1
     db.commit()
     return {'changed': changed, 'failed': failed, 'kept': kept}
+
+
+def _made_up_sql():
+    from services.zwift import SLACK, WORLDS
+    boxes = [w['box'] for w in WORLDS if w['madeUp']]
+    return '(' + ' OR '.join('(startLat BETWEEN ? AND ? AND startLng BETWEEN ? AND ?)' for _ in boxes) + ')', \
+        [v for s, n, west, east in boxes for v in (s - SLACK, n + SLACK, west - SLACK, east + SLACK)]
+
+
+def fix_misfiled(db):
+    """Every start, cheap when there is nothing to do. 1. A ride or run of the rider's own saved as an outdoor one though it starts in a made-up
+    world (services/zwift.indoor_sport: a file that didn't say, a Garmin sync from before VirtualRun) becomes an indoor one: its bike or shoes
+    are picked again for that, and a local time taken at the world's spot on the globe (Watopia keeps the Solomon Islands' clock, 11 hours
+    ahead of London) goes back to the home clock. Its weather is cleared by the startup step after this one. Its best times stay: they are now
+    the indoor ones'. 2. Every indoor activity's segment efforts go (Strava's "Virtual Run"s were matched against the foot segments, and a ride
+    just made indoor has its ride segments' efforts), and those segments' PRs are picked again.
+    Does not commit. Returns {'moved': [(id, name, old sport, new sport)], 'efforts': segment efforts removed}."""
+    from services import duplicates, gear, sports, tz
+    from services.segments import _refresh_prs
+    from services.start_times import move_local
+    from services.zwift import indoor_sport
+    where, params = _made_up_sql()
+    rows = db.execute(f"""SELECT id, name, sportType, startDate, startDateLocal, startLat, startLng FROM Activity
+                          WHERE {where} AND NOT {sports.virtual_sql()}
+                          AND riderId NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)""", params).fetchall()
+    moved = []
+    for r in rows:
+        new = indoor_sport(r['sportType'], r['startLat'], r['startLng'])
+        if new == r['sportType']:
+            continue
+        db.execute('UPDATE Activity SET sportType=?, type=? WHERE id=?', [new, new, r['id']])
+        gear.regear(db, r['id'])                        # the indoor bike, or the treadmill shoes
+        at = duplicates.start_instant(r)
+        if at:
+            there = tz.local_at(at, r['startLat'], r['startLng'], r['sportType'])
+            home = tz.local_at(at, r['startLat'], r['startLng'], new)
+            if str(r['startDateLocal'] or '')[:19] == there and home != there:      # not a time the device gave from its own clock
+                move_local(db, r['id'], r['startDateLocal'], home)
+        moved.append((r['id'], r['name'], r['sportType'], new))
+    segs = [x[0] for x in db.execute(f"""SELECT DISTINCT e.segmentId FROM SegmentEffort e JOIN Activity a ON a.id = e.activityId
+                                         WHERE {sports.virtual_sql('a.sportType')}""")]
+    n = 0
+    if segs:
+        n = db.execute(f"DELETE FROM SegmentEffort WHERE activityId IN (SELECT id FROM Activity WHERE {sports.virtual_sql()})").rowcount
+        for sid in segs:
+            _refresh_prs(db, sid)
+    if moved or n:
+        log.warning('Sport fix: %d activit%s from a made-up world made indoor ones; %d segment effort(s) on indoor activities removed',
+                    len(moved), 'y' if len(moved) == 1 else 'ies', n)
+    return {'moved': moved, 'efforts': n}
