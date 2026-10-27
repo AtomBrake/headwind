@@ -922,6 +922,17 @@ def migrate_db():
                          + '; '.join(b[1] or b[0] for b in back[:5]) + ('…' if len(back) > 5 else '') if back else '') + '.')
         db.commit()
 
+    # ── Weather on virtual rides: looked up at the Zwift world's spot (Watopia is open sea near the Solomon Islands), never where the rider was ──
+    from services.sports import virtual_sql as _virtual_sql
+    n_wx = db.execute(f"""UPDATE Activity SET weatherTempC=NULL, weatherWindKph=NULL, weatherGustKph=NULL, weatherWindDir=NULL, weatherHumidity=NULL,
+                                  weatherRainMm=NULL, weatherCode=NULL, weatherSummary=NULL, weatherWindRel=NULL, weatherSource=NULL
+                          WHERE {_virtual_sql()} AND (weatherSummary IS NOT NULL OR weatherTempC IS NOT NULL)""").rowcount
+    if n_wx:
+        _tasks.record(db, 'startup:virtual_weather', 'Weather taken off Zwift rides',
+                      f"{n_wx} virtual ride{'s' if n_wx != 1 else ''} had the weather of the Zwift world's spot on the globe (Watopia is out at sea "
+                      "near the Solomon Islands), not yours; it's gone, and virtual rides stay out of the weather analytics")
+        db.commit()
+
     # ── Top speeds that are one GPS spike (old Garmin syncs): recomputed from the ride's streams, then re-checked ──
     from services.max_stats import fix_spiky_max_speed
     n_spiky = fix_spiky_max_speed(db)

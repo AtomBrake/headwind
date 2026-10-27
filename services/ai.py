@@ -491,6 +491,7 @@ def ensure_weather(db, activity):
             activity['startLng'],
             activity['startDateLocal'],
             activity['streams'],
+            activity['sportType'],
         )
         if w:
             save_weather(db, activity['id'], w)

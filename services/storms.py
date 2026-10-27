@@ -89,11 +89,11 @@ def reassess(db, rider_id):
     """Take back rides an earlier, looser rule claimed (gusts under MIN_GUST_KPH): back to the lookup's own condition. Needs the weather service for each (a few calls). Commits."""
     from services import weather
     n = 0
-    for r in db.execute("SELECT id, startLat, startLng, startDateLocal, streams, weatherGustKph FROM Ride WHERE riderId=? AND weatherSource='storm' AND COALESCE(weatherGustKph,0) < ?",
+    for r in db.execute("SELECT id, sportType, startLat, startLng, startDateLocal, streams, weatherGustKph FROM Ride WHERE riderId=? AND weatherSource='storm' AND COALESCE(weatherGustKph,0) < ?",
                         [rider_id, MIN_GUST_KPH]).fetchall():
         weather.set_condition(db, r['id'], None)
         lat, lng = weather.origin(r)
-        w = weather.fetch_weather(lat, lng, r['startDateLocal'], r['streams']) if lat is not None else None
+        w = weather.fetch_weather(lat, lng, r['startDateLocal'], r['streams'], r['sportType']) if lat is not None else None
         if w:
             weather.save_weather(db, r['id'], w, claim=False)
         n += 1

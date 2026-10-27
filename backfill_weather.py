@@ -12,7 +12,7 @@ with app.app_context():
     db = get_db()
 
     rows = db.execute('''
-        SELECT id, startLat, startLng, startDateLocal, streams
+        SELECT id, sportType, startLat, startLng, startDateLocal, streams
         FROM Ride
         WHERE startLat IS NOT NULL AND startLng IS NOT NULL
           AND weatherSummary IS NULL
@@ -25,7 +25,7 @@ with app.app_context():
     done = failed = 0
     for i, r in enumerate(rows):
         try:
-            w = fetch_weather(r['startLat'], r['startLng'], r['startDateLocal'], r['streams'])
+            w = fetch_weather(r['startLat'], r['startLng'], r['startDateLocal'], r['streams'], r['sportType'])
             if w:
                 save_weather(db, r['id'], w)
                 db.commit()

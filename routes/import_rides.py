@@ -1036,7 +1036,7 @@ def _insert(db, act, rider_id=None):
         try:
             from services.weather import fetch_weather, save_weather
             w = fetch_weather(act['startLat'], act['startLng'],
-                              start_local, act.get('streams'))
+                              start_local, act.get('streams'), sport)
             if w:
                 save_weather(db, act['id'], w)
         except Exception:

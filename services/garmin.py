@@ -901,7 +901,7 @@ def save_activity(db, api, a, rider_id):
 
     if parsed.get('startLat') and parsed.get('startLng') and start_local:
         try:
-            w = fetch_weather(parsed['startLat'], parsed['startLng'], start_local, parsed.get('streams'))
+            w = fetch_weather(parsed['startLat'], parsed['startLng'], start_local, parsed.get('streams'), sport_type)
             if w:
                 save_weather(db, db_id, w)
         except Exception:

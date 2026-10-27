@@ -372,7 +372,7 @@ function typeChanged(sel) {
 </div>
 
 <!-- Weather -->
-{% if activity.weatherSummary or not is_workout %}
+{% if (activity.weatherSummary or not is_workout) and not is_virtual %}{# a virtual ride had no weather: its track is in a Zwift world #}
 <div class="card" style="margin-bottom:1.5rem; padding:1rem 1.25rem;" id="weatherCard">
   <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); font-weight:600; margin-bottom:0.75rem;">Weather at the start</div>
   {% if not activity.weatherSummary %}<div class="hint" style="margin-bottom:0.5rem;">No weather was recorded for this {{ 'ride' if is_ride else 'activity' }}{% if not is_workout and not friend %}; pick the conditions below and it will count in your analytics.{% endif %}</div>{% endif %}
@@ -1011,17 +1011,22 @@ function openPhoto(a) {
   window._rideAlt    = {{ alt_raw | tojson }};
   var map = L.map('map');
   window._rideMap = map;
+  {% if zwift_world %}
+  // A virtual ride: drawn over its Zwift world's map alone, with no real place around or under it, and the view kept to that world
+  var zw = {{ zwift_world | tojson }};
+  L.imageOverlay(zw.url, zw.bounds, { attribution: zw.credit, interactive: false }).addTo(map);
+  map.setMaxBounds(zw.bounds);
+  map.options.maxBoundsViscosity = 1;
+  map.setMinZoom(map.getBoundsZoom(zw.bounds));
+  map.setMaxZoom(18);                                   // no tiles to take it from
+  map.getContainer().style.background = cssVar('--card-bg');
+  {% else %}
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics', maxZoom: 19
   }).addTo(map);
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
     maxZoom: 19, opacity: 1
   }).addTo(map);
-  {% if zwift_world %}
-  // A virtual ride: drawn over its Zwift world's map, which can be switched off to see the real place underneath
-  var zw = {{ zwift_world | tojson }}, zwLayers = {};
-  zwLayers[zw.name + ' (Zwift)'] = L.imageOverlay(zw.url, zw.bounds, { attribution: zw.credit, interactive: false }).addTo(map);
-  L.control.layers(null, zwLayers, { collapsed: false }).addTo(map);
   {% endif %}
   if (coords.length) {
     var line = L.polyline(coords, { color: cssVar('--accent'), weight: 3 }).addTo(map);
