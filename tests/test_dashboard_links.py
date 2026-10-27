@@ -173,3 +173,14 @@ def test_activities_page_lists_every_sport_and_keeps_its_links(client):
     assert 'href="/activities?from=' in days
     days = client.get(f"/dashboard/history?from={date.today().replace(day=1)}&list=https://evil.example").get_data(as_text=True)
     assert 'evil' not in days and 'href="/dashboard?from=' in days
+
+
+def test_an_activity_goes_back_to_the_list_with_its_filters(client):
+    crumb = lambda: re.search(r'<span class="crumb"><a href="([^"]*)">(\w+)</a>', client.get('/rides/good').get_data(as_text=True)).groups()
+    assert crumb() == ('/activities', 'Activities'), 'no list seen yet: the plain list'
+
+    client.get('/activities?q=goo&skip=Run&typed=1|0|Ride')
+    assert crumb() == ('/activities?q=goo&amp;skip=Run', 'Activities'), 'the filters kept, the one-off notice not'
+
+    client.get('/workouts?sport=Run')
+    assert crumb() == ('/workouts?sport=Run', 'Workouts'), 'whichever list was looked at last'

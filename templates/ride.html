@@ -3,7 +3,8 @@
 {% block title %}{{ activity.name }}{% endblock %}
 {% block page_title %}{{ activity.sportType | sport_icon }} {{ activity.name }}<span style="font-size:0.875rem;font-weight:400;color:var(--text-muted);margin-left:0.6rem;">{{ activity.startDateLocal | fmt_date }}</span>{% endblock %}
 
-{% block parent %}{% if is_workout %}<a href="{{ url_for('workouts_ui.workouts_page') }}">Workouts</a>{% else %}<a href="{{ url_for('dashboard.activities_page') }}">Activities</a>{% endif %}{% endblock %}
+{# Back to the list this was opened from, filters and all (routes/dashboard.remember_list); the plain list for the sport when there's none yet. #}
+{% block parent %}{% set back = session.get('list_back') %}{% if back %}<a href="{{ back.url }}">{{ back.label }}</a>{% elif is_workout %}<a href="{{ url_for('workouts_ui.workouts_page') }}">Workouts</a>{% else %}<a href="{{ url_for('dashboard.activities_page') }}">Activities</a>{% endif %}{% endblock %}
 {% block topbar_actions %}
   {% if activity.riderName %}
     <a href="{{ url_for('riders.detail', rid=activity.riderId) }}" title="{{ activity.riderName }}" style="display:inline-flex;align-items:center;text-decoration:none;">
