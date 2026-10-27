@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.26-beta] - 2026-10-27
+
+### Fixed
+- **An activity's link back to the list keeps your filters.** The Activities (or Workouts) link at the top of an activity went to the bare list, dropping the search, dates, distances, sports and gear. It now goes back to the list as you left it, even after stepping through with Prev and Next.
+- **"Indoor ride" no longer shows twice in the sport filter.** Strava's export and the Garmin sync spell some sports differently (Strava's "Virtual Ride" against Garmin's), so a rider with both saw each spelling listed. Strava's names are now saved as Headwind's, by the Strava export import and by a friend's sync, and activities already saved under Strava's names are renamed at start-up, as the Tasks page says.
+- **Comparing a Zwift ride's recordings draws them over its world's map.** The compare page drew satellite tiles, so the two tracks sat out at sea near the Solomon Islands. It now draws them over the Zwift world's map alone, as the ride page does.
+
 ## [0.7.25-beta] - 2026-10-27
 
 ### Added
