@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.25-beta] - 2026-10-27
 
 ### Added
 - **Zwift runs and treadmill runs.** A run on a treadmill or in Zwift is an **Indoor run**, however it arrives: from Garmin (its virtual and treadmill runs), a FIT file, a GPX, a Strava export, or typed in by hand. Like a Zwift ride, it has no weather, stays on your home clock, is drawn over its Zwift world's map, is left off the heatmap unless you include it, and has no segments. It gets your running shoes unless you give indoor runs a default of their own.
@@ -9,6 +9,7 @@
 - **The weight chart's milestone lines can be switched off.** A **milestone lines** box under the chart hides the line at every stone (or 5 kg) lost, and the choice is remembered.
 
 ### Fixed
+- **Zwift rides have no weather.** Watopia and Zwift's other made-up worlds sit on open sea near the Solomon Islands, so a Zwift ride got that spot's tropical weather (a Watopia ride on a cold evening came out at 25°C). Zwift rides now get none, the weather already on them is cleared at start-up, and they stay out of the weather analytics. A Zwift ride's map is its world's map alone, with no satellite map under it.
 - **Zwift rides and runs saved as outdoor ones are put right.** A ride or run that starts in one of Zwift's made-up worlds (Watopia, Makuri Islands, France, Crit City) is a Zwift one, whatever its file called it. Those already saved as outdoor ones become indoor ones at start-up: they lose the weather of the open sea near the Solomon Islands, and a start time taken from the Solomon Islands' clock (11 hours ahead of London) goes back to yours. Segment efforts on indoor rides and runs are removed too, since Strava's Zwift runs were matched against your segments on foot.
 - **The weight chart reads well over long spans.** Over years of daily weigh-ins the month letters ran into each other and the dots buried the trend line. Now the dates along the bottom are days, months or years to suit the span, the dots shrink and fade behind the trend line when they're packed in, and the weights up the side are round numbers (whole kilos, or stones and quarter stones).
 
