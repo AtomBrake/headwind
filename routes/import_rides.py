@@ -16,7 +16,7 @@ from flask import Blueprint, Response, current_app, render_template, request, st
 from database import get_db, query_db
 from services.parser import ACTIVITY_EXTENSIONS, parse_activity_file
 from services.limits import safe_gunzip, safe_zip_read, check_zip
-from services.sports import RIDES
+from services.sports import RIDES, canonical
 
 log = logging.getLogger(__name__)
 
@@ -605,7 +605,7 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
 
         act['id'] = act_id
         act['name'] = row.get('Activity Name', 'Imported Activity').strip() or 'Imported Activity'
-        act['sportType'] = row.get('Activity Type', 'Ride').strip() or 'Ride'
+        act['sportType'] = canonical(row.get('Activity Type', 'Ride').strip() or 'Ride')     # Headwind's VirtualRide, not Strava's "Virtual Ride"
         if not filename:
             act['source'] = 'manual'
         if read_ok:

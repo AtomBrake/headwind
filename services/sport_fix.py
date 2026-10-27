@@ -4,7 +4,8 @@ know were still kept with the rides rather than the workouts. The original Garmi
 call), each wrong one is written down as a proposal, and nothing moves until the rider has looked at the list and applied it. Mountain bike and gravel
 rides the sync saved as a plain Ride are offered their own kind too, so they can follow the rider's default bike for them (services/gear.pick_bike).
 
-Also here, with no review: rides and runs from Zwift's made-up worlds saved as outdoor ones (fix_misfiled), since nobody rides out at sea."""
+Also here, with no review: rides and runs from Zwift's made-up worlds saved as outdoor ones (fix_misfiled), since nobody rides out at sea, and
+Strava's spellings of sports Headwind has its own name for (fix_spellings)."""
 import logging
 
 log = logging.getLogger(__name__)
@@ -143,3 +144,20 @@ def fix_misfiled(db):
         log.warning('Sport fix: %d activit%s from a made-up world made indoor ones; %d segment effort(s) on indoor activities removed',
                     len(moved), 'y' if len(moved) == 1 else 'ies', n)
     return {'moved': moved, 'efforts': n}
+
+
+def fix_spellings(db):
+    """Every start, cheap when there is nothing to do: activities saved under Strava's name for a sport Headwind has a name of its own for
+    (sports.STRAVA_NAMES: an older Strava import's "Virtual Ride" beside the Garmin sync's VirtualRide) take Headwind's, so the sport filter
+    shows the sport once. Nothing else needs doing: every sport test reads both spellings alike, and gear defaults are kept under a key that does.
+    Does not commit. Returns {Strava's name: activities renamed}."""
+    from services.sports import STRAVA_NAMES
+    out = {}
+    for strava, ours in STRAVA_NAMES.items():
+        n = db.execute('UPDATE Activity SET sportType=? WHERE sportType=?', [ours, strava]).rowcount
+        db.execute('UPDATE Activity SET type=? WHERE type=?', [ours, strava])
+        if n:
+            out[strava] = n
+    if out:
+        log.warning('Sport fix: Strava spellings renamed: %s', ', '.join(f'{s} ({n})' for s, n in out.items()))
+    return out

@@ -922,8 +922,19 @@ def migrate_db():
                          + '; '.join(b[1] or b[0] for b in back[:5]) + ('…' if len(back) > 5 else '') if back else '') + '.')
         db.commit()
 
-    # ── Rides and runs in Zwift's made-up worlds saved as outdoor ones: indoor ones now; indoor activities' segment efforts gone ──
+    # ── Strava's "Virtual Ride", "E-Bike Ride", ... saved as Headwind's VirtualRide, EBikeRide, ...: one sport, not two, in the sport filter ──
     from services import sport_fix as _sport_fix
+    res = _sport_fix.fix_spellings(db)
+    if res:
+        from services.sports import label as _sport_label, canonical as _canonical
+        n = sum(res.values())
+        _tasks.record(db, 'startup:strava_spellings', "Strava's names for sports",
+                      f"{n:,} activit{'y' if n == 1 else 'ies'} saved under Strava's name for a sport now {'has' if n == 1 else 'have'} Headwind's, "
+                      "so the sport filter lists each sport once: "
+                      + '; '.join(f"{c:,} {s} → {_canonical(s)} ({_sport_label(_canonical(s))})" for s, c in res.items()) + '.')
+        db.commit()
+
+    # ── Rides and runs in Zwift's made-up worlds saved as outdoor ones: indoor ones now; indoor activities' segment efforts gone ──
     res = _sport_fix.fix_misfiled(db)
     if res['moved'] or res['efforts']:
         from services.sports import label as _sport_label

@@ -23,6 +23,9 @@ WORKOUTS = ON_FOOT + (INDOOR_RUN,) + OTHER
 SPORTS = RIDES + WORKOUTS
 LABELS = {'VirtualRide': 'Indoor ride', 'EBikeRide': 'E-bike ride', 'MountainBikeRide': 'Mountain bike ride', 'GravelRide': 'Gravel ride',
           'VirtualRun': 'Indoor run', 'Virtual Ride': 'Indoor ride', 'Virtual Run': 'Indoor run'}     # Strava's spellings read the same
+# Strava's names for sports Headwind has a name of its own for: saved under Headwind's (canonical), so one sport is never two in the sport filter
+STRAVA_NAMES = {'Virtual Ride': 'VirtualRide', 'Virtual Run': 'VirtualRun', 'E-Bike Ride': 'EBikeRide', 'Mountain Bike Ride': 'MountainBikeRide',
+                'Gravel Ride': 'GravelRide'}
 
 FAMILIES = ('ride', 'foot')
 FAMILY_LABELS = {'ride': 'Ride', 'foot': 'On foot'}
@@ -109,6 +112,11 @@ def indoor_sql(indoor, sport='a.sportType'):
 def label(sport):
     """What a person reads for a sport: 'Indoor ride' for VirtualRide, 'E-bike ride' for EBikeRide, else the sport itself."""
     return LABELS.get(sport, sport or 'Ride')
+
+
+def canonical(sport):
+    """The name a sport is saved under: Headwind's for Strava's "Virtual Ride", "E-Bike Ride", ... (STRAVA_NAMES), else the sport itself."""
+    return STRAVA_NAMES.get(sport, sport)
 
 
 def _squash(sport):
