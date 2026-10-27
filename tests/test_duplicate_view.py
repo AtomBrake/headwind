@@ -65,3 +65,22 @@ def test_compare_shows_both_side_by_side(client):
 def test_unknown_or_unrelated_recording_is_not_found(client):
     assert client.get('/rides/garmin_1/duplicate/nope').status_code == 404
     assert client.get('/rides/imp_2/duplicate').status_code == 404
+
+
+def test_a_zwift_ride_is_drawn_over_its_world(client):
+    """The kept recording is a Zwift ride and the set-aside one (a watch's copy) a plain Ride: both are drawn over Watopia, not satellite tiles."""
+    with app_module.create_app().app_context():
+        db = database.get_db()
+        db.execute("UPDATE Activity SET sportType='VirtualRide' WHERE id='garmin_1'")
+        row = json.loads(db.execute("SELECT rowJson FROM ActivityDuplicate WHERE id='imp_2'").fetchone()[0])
+        row['streams'] = json.dumps({'time': {'data': [0, 60]}, 'latlng': {'data': [[-11.65, 166.95], [-11.66, 166.96]]}})
+        db.execute("UPDATE ActivityDuplicate SET rowJson=? WHERE id='imp_2'", [json.dumps(row)])
+        db.commit()
+    for url in ('/rides/garmin_1/duplicate/imp_2', '/rides/garmin_1/duplicate/imp_2?compare=1'):
+        html = client.get(url).get_data(as_text=True)
+        assert '/heatmap/zwift/watopia.png' in html and 'arcgisonline' not in html
+
+
+def test_a_real_ride_keeps_the_satellite_map(client):
+    html = client.get('/rides/garmin_1/duplicate/imp_2?compare=1').get_data(as_text=True)
+    assert 'arcgisonline' in html and 'imageOverlay' not in html

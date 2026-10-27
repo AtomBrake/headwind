@@ -116,12 +116,7 @@ def detail(rid):
             coords = pl.decode(activity['summaryPolyline'])
         except Exception:
             log.warning('Activity summary polyline would not decode', exc_info=True)
-    zwift_world = None                                  # a virtual ride's track is in a Zwift world: drawn over that world's map
-    if coords and sports.is_virtual(activity['sportType']):
-        from services import zwift
-        pts = [p for p in coords if p and len(p) >= 2 and p[0] is not None and p[1] is not None]
-        w = pts and zwift.world_of(min(p[0] for p in pts), max(p[0] for p in pts), min(p[1] for p in pts), max(p[1] for p in pts))
-        zwift_world = dict(zwift.for_page(w), credit=zwift.CREDIT) if w else None
+    zwift_world = _zwift_world(activity['sportType'], coords)
 
     from services import units, activity_detail
     detail = activity_detail.for_activity(activity, streams)      # splits, pool lengths, ski runs, laps: what fits the sport
@@ -690,6 +685,16 @@ _DUP_SERIES = (('heartrate', 'Heart rate', 'bpm'), ('watts', 'Power', 'W'), ('ca
                ('velocity_smooth', 'Speed', None), ('altitude', 'Elevation', None))
 
 
+def _zwift_world(sport, *tracks):
+    """The Zwift world a virtual ride's tracks are in, as the page draws it (services/zwift.for_page plus its credit), or None for a real ride."""
+    if not sports.is_virtual(sport):
+        return None
+    from services import zwift
+    pts = [p for c in tracks for p in c if p and len(p) >= 2 and p[0] is not None and p[1] is not None]
+    w = pts and zwift.world_of(min(p[0] for p in pts), max(p[0] for p in pts), min(p[1] for p in pts), max(p[1] for p in pts))
+    return dict(zwift.for_page(w), credit=zwift.CREDIT) if w else None
+
+
 def _recording(row, label, t0):
     """One recording (a live ride or a set-aside one) for the duplicate view: its numbers, GPS track and streams against minutes since `t0`."""
     from services import units
@@ -741,7 +746,11 @@ def view_duplicate(rid, dup_id=None):
     recs = [_recording(other, 'Set aside', t0)]
     if compare:
         recs.insert(0, _recording(main, 'Kept', t0))
-    return render_template('ride_duplicate.html', activity=main, dup=d, others=[p['id'] for p in parked], recs=recs, compare=compare,
+    # a virtual ride's tracks are in a Zwift world: drawn over that world's map, as the ride page does. Either recording's sport will do
+    # (a Zwift ride's Garmin copy can be filed as a plain Ride), and the kept one's counts even when the set-aside one is shown alone.
+    sport = next((s for s in (main['sportType'], other.get('sportType')) if sports.is_virtual(s)), None)
+    zwift_world = _zwift_world(sport, *(r['coords'] for r in recs))
+    return render_template('ride_duplicate.html', activity=main, dup=d, others=[p['id'] for p in parked], recs=recs, compare=compare, zwift_world=zwift_world,
                            colours=['--accent', '--info'][-len(recs):], series_meta=_DUP_SERIES)
 
 

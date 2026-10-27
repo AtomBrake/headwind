@@ -121,9 +121,20 @@
   var mapEl = document.getElementById('dupMap');
   if (mapEl) {
     var map = L.map(mapEl), bounds = null;
+    {% if zwift_world %}
+    // A virtual ride: drawn over its Zwift world's map alone, as the ride page does
+    var zw = {{ zwift_world | tojson }};
+    L.imageOverlay(zw.url, zw.bounds, { attribution: zw.credit, interactive: false }).addTo(map);
+    map.setMaxBounds(zw.bounds);
+    map.options.maxBoundsViscosity = 1;
+    map.setMinZoom(map.getBoundsZoom(zw.bounds));
+    map.setMaxZoom(18);
+    mapEl.style.background = cssVar('--card-bg');
+    {% else %}
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
       attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics', maxZoom: 19
     }).addTo(map);
+    {% endif %}
     coords.forEach(function(c, i) {
       if (!c.length) return;
       var line = L.polyline(c, { color: colours[i], weight: 3, opacity: 0.9 }).addTo(map).bindTooltip(recs[i].label);
