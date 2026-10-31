@@ -1,12 +1,14 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.29-beta] - 2026-10-31
 
 ### Added
 - **Allow all for Apple Health.** One switch at the top of the app's Apple Health settings turns every kind of data on, asked for in one Health sheet; the separate switches stay for choosing some. A server too old for Apple Health now says so, instead of "HTTP 404".
 
 ### Fixed
 - **The iPhone app draws a Zwift ride over its Zwift world.** The activity page put the track on Apple's map, so a Watopia ride sat out at sea near the Solomon Islands. It's now drawn over the world's own map alone, as on the web, opened on the track: pinch to zoom, drag to look around, double-tap to fit the track again.
+- **The Recovery page shows Apple Health's days.** It read Garmin alone, so a rider whose iPhone sends Apple Health saw "No Garmin data yet". It now takes Garmin's figure for a day that has one and Apple Health's otherwise, says where the figures came from, hides the Body Battery and Stress cards when there are none, and marks Apple's HRV as SDNN (not comparable with Garmin's overnight figure).
+- **Steps lists Apple Health as a source.** A day's steps from Apple Health showed no source in the breakdown; it's now listed beside Manual, Phone, Watch and Garmin.
 
 ## [0.7.28-beta] - 2026-10-31
 
