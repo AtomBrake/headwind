@@ -609,10 +609,10 @@ def _do_ride_sync(friend_id):
         db.commit()
 
     old_friend = pull.manifest is None and not pull.complete      # a version before 0.7.6 sends no 'end': all it can tell us is no error
+    # Friend.name is the label you typed when adding them: the feed's own name never replaces it,
+    # so a friend's server can't put whatever it likes in the friends page
     if not err and (pull.complete or old_friend):
-        db.execute("UPDATE Friend SET lastSynced=datetime('now'), name=? WHERE id=?", [pull.name, friend_id])
-    else:
-        db.execute('UPDATE Friend SET name=? WHERE id=?', [pull.name, friend_id])
+        db.execute("UPDATE Friend SET lastSynced=datetime('now') WHERE id=?", [friend_id])
     db.commit()
     log.info('Friends sync: %s — received %d rides (%d new, %d changed), %d segments for "%s"',
              'done' if not err else 'stopped early', len(pull.rides), pull.new, pull.changed, pull.segments, pull.name)
