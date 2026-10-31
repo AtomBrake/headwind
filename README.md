@@ -462,7 +462,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - **Trophy case** — badges for riding (counts, distance, elevation, epic rides, speed, climbing, weather, segments), running, walking and hiking, swimming, other sports and all sports together, each linking back to the activity that earned it. Indoor rides and runs count for the badges that count activities or time, not for distance, climbing, speed, weather or segments.
 - **Goals** — distance, climbing, time or number of activities for a sport, every week, month or year, measured against an even pace, on the Goals page and the dashboard.
 - **Activities that look wrong** — anything that can't be real is flagged on the dashboard and its own page, and left out of the speed and weather charts until you keep it or delete it: a ride at 2,500 mph, a walk at 20 km/h, a run faster than any record, a swim with nothing recorded, a moving time of seconds against a real distance, or a heart rate below 30 or above 230 bpm (every sport). The limits are loose: hard but real days pass. Where it can, the flag offers a fix: Strava's climb in place of a file's impossible one, or the elapsed time when a file's broken timestamps made the moving time seconds.
-- **Recovery** (Garmin) — resting HR, HRV, sleep score and body battery with 30/60/90-day charts.
+- **Recovery** — resting HR, HRV, sleep, steps, stress and body battery with 30/60/90-day charts: from Garmin, or from Apple Health through the iPhone app on days Garmin has none (Apple Health has no body battery, sleep score or stress).
 - Tables sort by clicking a column heading.
 
 ### Segments

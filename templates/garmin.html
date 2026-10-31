@@ -24,8 +24,8 @@
 
 {% if not table_rows %}
 <div class="card" style="color:var(--text-muted);">
-  No Garmin data yet for this period. Hit <strong>Sync</strong> above, or configure credentials in
-  <a href="/settings" style="color:var(--accent);">Settings</a>.
+  No recovery data yet for this period. Hit <strong>Sync</strong> above for Garmin (credentials are in
+  <a href="/settings" style="color:var(--accent);">Settings</a>), or turn on Apple Health in the Headwind iPhone app's Settings.
 </div>
 {% else %}
 
@@ -55,11 +55,14 @@
 </div>
 {% endif %}
 
-<div style="text-align:right; margin-bottom:0.4rem; font-size:0.75rem; color:var(--text-muted);">
-  <span style="color:var(--accent);">&#9650;</span> Rode
+{% set has_battery = battery | select | list %}
+{% set has_stress = stress | select | list %}
+<div style="display:flex; justify-content:space-between; margin-bottom:0.4rem; font-size:0.75rem; color:var(--text-muted);">
+  <span>{% if source_label %}From {{ source_label }}{% endif %}</span>
+  <span><span style="color:var(--accent);">&#9650;</span> Rode</span>
 </div>
 
-<div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem; margin-bottom:1rem;">
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap:1rem; margin-bottom:1rem;">
 
   <div class="card" style="margin:0;">
     <div class="card-title">Resting Heart Rate</div>
@@ -68,12 +71,14 @@
     </div>
   </div>
 
+  {% if has_battery %}
   <div class="card" style="margin:0;">
     <div class="card-title">Body Battery</div>
     <div style="height:180px; position:relative;">
       <canvas id="batteryChart"></canvas>
     </div>
   </div>
+  {% endif %}
 
   <div class="card" style="margin:0;">
     <div class="card-title">Sleep</div>
@@ -84,7 +89,7 @@
 
 </div>
 
-<div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap:1rem; margin-bottom:1.5rem;">
 
   <div class="card" style="margin:0;">
     <div class="card-title">Daily Steps</div>
@@ -93,12 +98,14 @@
     </div>
   </div>
 
+  {% if has_stress %}
   <div class="card" style="margin:0;">
     <div class="card-title">Stress Score</div>
     <div style="height:180px; position:relative;">
       <canvas id="stressChart"></canvas>
     </div>
   </div>
+  {% endif %}
 
 </div>
 
@@ -130,7 +137,8 @@
             {% else %}—{% endif %}
           </td>
           <td class="num" style="color:var(--text);">
-            {% if r.hrv %}{{ r.hrv }}{% else %}—{% endif %}
+            {# Apple's HRV is SDNN through the day, Garmin's overnight RMSSD: not comparable, so say which #}
+            {% if r.hrv %}{{ r.hrv }}{% if r.hrv_kind == 'sdnn' %} <span style="color:var(--text-muted); font-size:0.75rem;" title="Apple Health's SDNN, not comparable with Garmin's overnight HRV">SDNN</span>{% endif %}{% else %}—{% endif %}
           </td>
           <td class="num" style="color:var(--text);">
             {% if r.sleepHours %}{{ r.sleepHours }}h{% else %}—{% endif %}
