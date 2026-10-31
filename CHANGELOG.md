@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.30-beta] - 2026-10-31
+
+### Added
+- **Connect a friend with a code or a QR code.** On the Friends page, enter a friend's name, choose what they see (activities, segments, foods, and which dates) and press **Create Code**: you get a QR code and a code starting `hwfc_`, holding your address and a token of their own, shown once. They scan the QR with the Headwind iPhone app, or paste the code into **Friends → Add a Friend**, then pick the rider to follow, with no address and token to copy by hand. The page says which address the code holds and warns when it's one only your home network can reach (set `APP_URL` to your https address). A Headwind that doesn't read codes yet can still be sent the address and token.
+- **Friends in the iPhone app.** Settings → **Share with a friend** makes a code and QR code from the phone, with the same choices, for the address the phone is paired with. Settings → **Add a friend** adds one from their code: scanned, pasted, or opened from the Camera app.
+
 ## [0.7.29-beta] - 2026-10-31
 
 ### Added
