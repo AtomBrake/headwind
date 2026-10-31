@@ -3,8 +3,8 @@ import Foundation
 import HealthKit
 import Observation
 
-/// What Headwind can read from Apple Health, each turned on by itself: HealthKit asks for each permission only when it's turned on, and the
-/// user can refuse some and keep the rest. (HealthKit never says whether read access was granted; a refused type simply has no data.)
+/// What Headwind can read from Apple Health, each turned on by itself or all at once: HealthKit asks for each permission only when it's
+/// turned on, and the user can refuse some and keep the rest. (HealthKit never says whether read access was granted; a refused type simply has no data.)
 enum HealthMetric: String, CaseIterable, Identifiable, Codable, Sendable {
     case steps, restingHeartRate, hrv, sleep, weight, bodyFat, activeEnergy, restingEnergy, workouts
 
@@ -135,19 +135,20 @@ final class HealthSync {
         workoutsSent = defaults.integer(forKey: Keys.sent)
     }
 
-    /// Turn a metric on (asking HealthKit for it, then sending it) or off. Off stops sending; what the server has stays until "Remove".
-    func set(_ metric: HealthMetric, on: Bool, using session: Session) async {
+    /// Turn metrics on (asking HealthKit for them in one sheet, then sending them) or off. Off stops sending; what the server has stays
+    /// until "Remove".
+    func set(_ metrics: Set<HealthMetric>, on: Bool, using session: Session) async {
         guard Self.isAvailable else { return }
         if on {
             do {
-                try await store.requestAuthorization(toShare: [], read: metric.objectTypes)
+                try await store.requestAuthorization(toShare: [], read: metrics.reduce(into: []) { $0.formUnion($1.objectTypes) })
             } catch {
                 lastError = error.localizedDescription
                 return
             }
-            enabled.insert(metric)
+            enabled.formUnion(metrics)
         } else {
-            enabled.remove(metric)
+            enabled.subtract(metrics)
         }
         defaults.set(enabled.map(\.rawValue), forKey: Keys.enabled)
         observe(using: session)
@@ -206,7 +207,9 @@ final class HealthSync {
                 defaults.set(lastSync, forKey: Keys.lastSync)
                 lastError = nil
             } catch {
-                lastError = error.localizedDescription
+                // A server older than the phone's Apple Health has no /health/days.
+                lastError = error.isNotFound ? "Your Headwind server doesn't take Apple Health data yet. Update it, then Send now."
+                                             : error.localizedDescription
                 return
             }
         } while syncAgain

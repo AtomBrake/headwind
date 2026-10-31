@@ -80,7 +80,8 @@ minute to be kept.
 
 ## Apple Health
 
-Settings → Apple Health on the phone. Each kind of data is switched on by itself, and HealthKit asks for that one when it is:
+Settings → Apple Health on the phone. Each kind of data is switched on by itself, and HealthKit asks for that one when it is
+(or **Allow all** switches every one on, asking for them in one Health sheet):
 steps, resting heart rate, HRV, sleep, weight, body fat, active and resting calories, and workouts from other apps. Headwind
 only reads, and sends what it reads to your own server (`POST /api/v1/health/days`, one figure per day and metric, safe to
 send twice). Observer queries with background delivery wake the app when there's something new; it also sends whenever it
