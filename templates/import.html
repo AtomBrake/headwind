@@ -276,7 +276,7 @@
   {% for m in garmin_missing %}
   <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;">
     <span style="flex:1; min-width:12rem;">
-      {{ m.startDateLocal | fmt_date }} · {{ m.name or 'Activity' }}
+      {{ m.startDateLocal | fmt_date }} · <a href="{{ m.url }}" target="_blank" rel="noopener" title="Open on Garmin Connect">{{ m.name or 'Activity' }} ↗</a>
       <span style="color:var(--text-muted);"> · {{ m.sportType | sport_label }}{% if m.distance %} · {{ m.distance | fmt_dist }}{% endif %}</span>
     </span>
     <form method="POST" action="{{ url_for('garmin.missing_resolve', gid=m.garminId, choice='import') }}" style="margin:0;">
@@ -302,7 +302,7 @@
     {% for m in garmin_deleted %}
     <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;">
       <span style="flex:1; min-width:12rem;">
-        {{ m.startDateLocal | fmt_date }} · {{ m.name or 'Activity' }}
+        {{ m.startDateLocal | fmt_date }} · <a href="{{ m.url }}" target="_blank" rel="noopener" title="Open on Garmin Connect">{{ m.name or 'Activity' }} ↗</a>
         <span style="color:var(--text-muted);"> · {{ m.sportType | sport_label }}{% if m.distance %} · {{ m.distance | fmt_dist }}{% endif %}</span>
       </span>
       <form method="POST" action="{{ url_for('garmin.missing_resolve', gid=m.garminId, choice='restore') }}" style="margin:0;">

@@ -529,6 +529,7 @@ def test_import_page_lists_the_missing_and_its_buttons_work(tmp_path, monkeypatc
         assert missing_ids(database.get_db()) == ['3'] and duplicates.is_deleted(database.get_db(), 'garmin_4')
     page = c.get('/import').get_data(as_text=True)
     assert 'Deleted here, still in Garmin (1)' in page and 'Other lost ride' in page
+    assert 'href="https://connect.garmin.com/modern/activity/4"' in page and 'href="https://connect.garmin.com/modern/activity/3"' in page
     c.post('/garmin/missing/all/import')
     assert started and started[0][1] == ['3']
     garmin_routes._changes_lock.release()

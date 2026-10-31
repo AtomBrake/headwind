@@ -287,10 +287,12 @@ def _left_behind(db, api, rider_id, listing, rows, res):
 
 
 def not_here(db, rider_id=None, deleted=False):
-    """The activities in Garmin that Full re-sync found and didn't bring in, newest first: never here, or (deleted) deleted here."""
+    """The activities in Garmin that Full re-sync found and didn't bring in, newest first: never here, or (deleted) deleted here. Each with its link on
+    Garmin Connect, to look at it before deciding."""
+    from services import origin
     from services.garmin import garmin_sport
     ensure_schema(db)
-    return [dict(r, sportType=garmin_sport(r['typeKey'])) for r in db.execute(f"""SELECT garminId, name, typeKey, startDateLocal, distance FROM GarminMissing
+    return [dict(r, sportType=garmin_sport(r['typeKey']), url=origin.link(f"garmin_{r['garminId']}")['url']) for r in db.execute(f"""SELECT garminId, name, typeKey, startDateLocal, distance FROM GarminMissing
                                             WHERE deleted=? {'AND riderId=?' if rider_id else ''} ORDER BY startDateLocal DESC""",
                                                                               [int(deleted)] + ([rider_id] if rider_id else []))]
 
