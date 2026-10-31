@@ -53,8 +53,7 @@
 {% block head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   {% if coords %}
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  {% include '_maps.html' %}
   {% endif %}
 {% endblock %}
 
@@ -1031,33 +1030,95 @@ function openPhoto(a) {
   map.setMinZoom(map.getBoundsZoom(zw.bounds));
   map.setMaxZoom(18);                                   // no tiles to take it from
   map.getContainer().style.background = cssVar('--card-bg');
-  {% else %}
-  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics', maxZoom: 19
-  }).addTo(map);
-  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-    maxZoom: 19, opacity: 1
-  }).addTo(map);
   {% endif %}
-  if (coords.length) {
-    var line = L.polyline(coords, { color: cssVar('--accent'), weight: 3 }).addTo(map);
-    map.fitBounds(line.getBounds(), { padding: [20, 20] });
-    L.circleMarker(coords[0], {
-      color: cssVar('--success'), fillColor: cssVar('--success'), fillOpacity: 1, radius: 7, weight: 2
-    }).addTo(map).bindPopup('Start');
-    L.marker(coords[coords.length - 1], {
-      icon: L.divIcon({ html: '<div style="font-size:20px;line-height:1;">🏁</div>', className: '', iconAnchor: [10, 20] })
-    }).addTo(map).bindPopup('Finish');
-  }
-})();
-{% endif %}
+  if (!coords.length) return;
+  var line = L.polyline(coords, { color: cssVar('--accent'), weight: 3 }).addTo(map);
+  map.fitBounds(line.getBounds(), { padding: [20, 20] });
+  L.circleMarker(coords[0], {
+    color: cssVar('--success'), fillColor: cssVar('--success'), fillOpacity: 1, radius: 7, weight: 2
+  }).addTo(map).bindPopup('Start');
+  L.marker(coords[coords.length - 1], {
+    icon: L.divIcon({ html: '<div style="font-size:20px;line-height:1;">🏁</div>', className: '', iconAnchor: [10, 20] })
+  }).addTo(map).bindPopup('Finish');
 
-{% if coords %}
-{% if activity.weatherWindDir is not none and activity.weatherWindKph %}
-(function() {
-  var map = window._rideMap;
-  var coords = window._rideCoords;
-  if (!map || !coords || !coords.length) return;
+  // Distance along the track at each point, in metres: the distance stream where it matches the points, otherwise worked out from them,
+  // and for a summary polyline (which cuts corners) stretched to the activity's own distance
+  var dist = {{ dist_raw | tojson }};
+  if (!dist) {
+    dist = [0];
+    for (var i = 1; i < coords.length; i++) dist.push(dist[i - 1] + L.latLng(coords[i - 1]).distanceTo(coords[i]));
+    var total = {{ (activity.distance or 0) | tojson }}, last = dist[dist.length - 1];
+    {% if not coords_from_stream %}if (total > 0 && last > 0) dist = dist.map(function (d) { return d * total / last; });{% endif %}
+  }
+  for (var k = 1; k < dist.length; k++) if (dist[k] == null || dist[k] < dist[k - 1]) dist[k] = dist[k - 1];   // gaps, and GPS going back
+  window._rideDist = dist;
+
+  // The track in pixels at the current zoom (map.project: the same wherever the map is panned), worked out again on each zoom. The
+  // direction arrows and distance markers are spaced on it, and the map's cursor is matched to it.
+  var proj = null;
+  window._rideProj = function () {
+    var z = map.getZoom();
+    if (!proj || proj.zoom !== z) {
+      var pts = coords.map(function (c) { return map.project(c, z); }), len = 0;
+      for (var i = 1; i < pts.length; i++) len += pts[i].distanceTo(pts[i - 1]);
+      proj = { zoom: z, pts: pts, len: len };
+    }
+    return proj;
+  };
+  function view() { return map.getPixelBounds().pad(0.25); }
+
+  // Direction arrows: a chevron every ARROW_PX of track on screen, pointing the way it went, so they stay evenly spread at any zoom.
+  // Counted from the start, so they don't move when the map is dragged; only the ones in view are drawn.
+  var ARROW_PX = 90, arrowLayer = L.layerGroup();
+  var chevron = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke-linecap="round" stroke-linejoin="round">'
+              + '<path d="M4 2.5 L10 7 L4 11.5" style="stroke:var(--accent)" stroke-width="5"/>'           // the track's colour round a light centre,
+              + '<path d="M4 2.5 L10 7 L4 11.5" style="stroke:var(--on-accent)" stroke-width="2"/></svg>';  // to show on any map type
+  function drawArrows() {
+    arrowLayer.clearLayers();
+    if (!map.hasLayer(arrowLayer)) return;
+    var pr = window._rideProj(), p = pr.pts, box = view(), next = ARROW_PX / 2, run = 0, n = 0;
+    for (var i = 1; i < p.length && n < 400; i++) {
+      var seg = p[i].distanceTo(p[i - 1]);
+      while (seg > 0 && run + seg >= next) {
+        var f = (next - run) / seg, at = L.point(p[i - 1].x + (p[i].x - p[i - 1].x) * f, p[i - 1].y + (p[i].y - p[i - 1].y) * f);
+        if (box.contains(at)) {
+          var deg = Math.atan2(p[i].y - p[i - 1].y, p[i].x - p[i - 1].x) * 180 / Math.PI;
+          L.marker(map.unproject(at, pr.zoom), { interactive: false, keyboard: false, icon: L.divIcon({ className: '', iconSize: [14, 14], iconAnchor: [7, 7],
+            html: '<div class="map-chevron" style="transform:rotate(' + deg.toFixed(0) + 'deg)">' + chevron + '</div>' }) }).addTo(arrowLayer);
+          n++;
+        }
+        next += ARROW_PX;
+      }
+      run += seg;
+    }
+  }
+
+  // Distance markers: every mile or km in the rider's unit, or every 2, 5, 10, ... when they'd be closer than DIST_PX on screen
+  var DIST_PX = 70, distLayer = L.layerGroup();
+  function drawDistances() {
+    distLayer.clearLayers();
+    var total = dist[dist.length - 1];
+    if (!map.hasLayer(distLayer) || !(total > 0)) return;
+    var pr = window._rideProj(), unitPx = pr.len / total * UNITS.distM;
+    var every = [1, 2, 5, 10, 20, 50, 100, 200].filter(function (n) { return n * unitPx >= DIST_PX; })[0] || 500;
+    var box = view(), i = 1;
+    for (var n = every; n * UNITS.distM < total; n += every) {
+      var m = n * UNITS.distM;
+      while (i < dist.length - 1 && dist[i] < m) i++;
+      var span = dist[i] - dist[i - 1], f = span > 0 ? (m - dist[i - 1]) / span : 0;
+      var at = L.point(pr.pts[i - 1].x + (pr.pts[i].x - pr.pts[i - 1].x) * f, pr.pts[i - 1].y + (pr.pts[i].y - pr.pts[i - 1].y) * f);
+      if (!box.contains(at)) continue;
+      L.marker(map.unproject(at, pr.zoom), { interactive: false, keyboard: false, zIndexOffset: 500,
+        icon: L.divIcon({ className: '', iconSize: [0, 0], html: '<div class="map-dist">' + n + '</div>' }) }).addTo(distLayer);
+    }
+  }
+  arrowLayer.on('add', drawArrows);
+  distLayer.on('add', drawDistances);
+  map.on('moveend', function () { drawArrows(); drawDistances(); });          // after a zoom too
+
+  {% if activity.weatherWindDir is not none and activity.weatherWindKph %}
+  // Wind arrows: ten along the track, all pointing the way the wind blew
+  var windLayer = L.layerGroup();
   var windDir = {{ activity.weatherWindDir }};
   var windKph = {{ activity.weatherWindKph }};
   var arrowDeg = (windDir + 180) % 360;
@@ -1067,8 +1128,8 @@ function openPhoto(a) {
   var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + sw + '" height="' + sh + '" viewBox="0 0 10 14">'
           + '<polygon points="5,0 10,14 5,10 0,14" style="fill:' + color + ';stroke:var(--card-bg)" stroke-width="1" stroke-linejoin="round"/></svg>';
   var step = Math.max(1, Math.floor(coords.length / 10));
-  for (var i = step; i < coords.length - 1; i += step) {
-    L.marker(coords[i], {
+  for (var w = step; w < coords.length - 1; w += step) {
+    L.marker(coords[w], {
       icon: L.divIcon({
         html: '<div style="transform:rotate(' + arrowDeg + 'deg);transform-origin:center;opacity:1;line-height:0;pointer-events:none;filter:drop-shadow(0 0 2px var(--shadow));">' + svg + '</div>',
         className: '',
@@ -1076,10 +1137,17 @@ function openPhoto(a) {
         iconAnchor: [sw / 2, sh / 2]
       }),
       interactive: false, zIndexOffset: 1000
-    }).addTo(map);
+    }).addTo(windLayer);
   }
+  {% endif %}
+
+  // The picker: map types (none for a Zwift ride, whose world's map is all there is) and what's drawn on the track, remembered per viewer
+  HWMap.attach(map, { page: 'activity', base: 'satlabel', types: {{ 'false' if zwift_world else 'true' }}, extras: [
+    {% if activity.weatherWindDir is not none and activity.weatherWindKph %}{ id: 'wind', name: 'Wind arrows', layer: windLayer, on: true },{% endif %}
+    { id: 'direction', name: 'Direction arrows', layer: arrowLayer, on: true },
+    { id: 'distance', name: 'Distance markers', layer: distLayer, on: false },
+  ] });
 })();
-{% endif %}
 {% endif %}
 
 function useElapsedTime() {
@@ -1349,9 +1417,94 @@ function segSnapIdx(latlng, which) {
 })();
 {% endif %}
 
+// ── Charts and the map ───────────────────────────────────────────
+// Hovering a chart puts a dot on the map where that point is, and the map's cursor on the track shows on every chart. A chart point's idx is
+// its place in the streams, the same as the map's points when they're the latlng stream; on a track drawn from the summary polyline the
+// spot is matched by how far along it is instead.
+var _linkedCharts = [], _hoverDot = null, COORDS_FROM_STREAM = {{ coords_from_stream | default(false) | tojson }};
+
+function chartToCoord(data, j) {
+  var coords = window._rideCoords, dist = window._rideDist;
+  if (COORDS_FROM_STREAM && data.idx) return Math.min(data.idx[j], coords.length - 1);
+  var last = data.labels[data.labels.length - 1], m = last > 0 ? data.labels[j] / last * dist[dist.length - 1] : 0, lo = 0, hi = dist.length - 1;
+  while (lo < hi) { var mid = (lo + hi) >> 1; if (dist[mid] < m) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+
+function coordToChart(data, ci) {
+  var dist = window._rideDist, last = data.labels[data.labels.length - 1], best = 0, gap = Infinity;
+  var byIdx = COORDS_FROM_STREAM && data.idx, at = byIdx ? ci : dist[ci] / (dist[dist.length - 1] || 1) * last;
+  for (var j = 0; j < data.labels.length; j++) {
+    var g = Math.abs((byIdx ? data.idx[j] : data.labels[j]) - at);
+    if (g < gap) { gap = g; best = j; }
+  }
+  return best;
+}
+
+function showOnMap(ci) {                  // a point of the track, or null to take the dot away
+  var map = window._rideMap;
+  if (!map) return;
+  if (ci == null) { if (_hoverDot) { map.removeLayer(_hoverDot); _hoverDot = null; } return; }
+  var c = window._rideCoords[ci];
+  if (_hoverDot) _hoverDot.setLatLng(c);
+  else _hoverDot = L.circleMarker(c, { radius: 7, weight: 2, color: cssVar('--card-bg'), fillColor: cssVar('--c-yellow'), fillOpacity: 1, interactive: false }).addTo(map);
+}
+
+function linkChart(chart, data) {
+  if (!window._rideMap || !window._rideCoords || !window._rideCoords.length) return;
+  _linkedCharts.push({ chart: chart, data: data });
+  chart.options.interaction = { mode: 'index', intersect: false };
+  chart.options.onHover = function (e, active) { showOnMap(active.length ? chartToCoord(data, active[0].index) : null); };
+  chart.update('none');
+  chart.canvas.addEventListener('mouseleave', function () { showOnMap(null); });
+}
+
+{% if coords %}
+(function () {
+  var map = window._rideMap, shown = false, pending = null;
+  if (!map) return;
+  function clearCharts() {
+    if (!shown) return;
+    shown = false;
+    showOnMap(null);
+    _linkedCharts.forEach(function (l) { l.chart.setActiveElements([]); l.chart.tooltip.setActiveElements([], { x: 0, y: 0 }); l.chart.update('none'); });
+  }
+  // The point of the track under the cursor (within 15 px of the line), or -1. Not while a segment is being made: that has the map's cursor.
+  function under(latlng) {
+    var pr = window._rideProj(), p = pr.pts, m = map.project(latlng, pr.zoom), best = -1, gap = 15 * 15;
+    if (p.length === 1) return m.distanceTo(p[0]) <= 15 ? 0 : -1;
+    for (var i = 1; i < p.length; i++) {
+      var ax = p[i - 1].x, ay = p[i - 1].y, dx = p[i].x - ax, dy = p[i].y - ay, l2 = dx * dx + dy * dy;
+      var t = l2 ? Math.max(0, Math.min(1, ((m.x - ax) * dx + (m.y - ay) * dy) / l2)) : 0;
+      var ex = ax + t * dx - m.x, ey = ay + t * dy - m.y, d = ex * ex + ey * ey;
+      if (d < gap) { gap = d; best = t < 0.5 ? i - 1 : i; }
+    }
+    return best;
+  }
+  function at(latlng) {
+    var ci = _segState.active || !_linkedCharts.length ? -1 : under(latlng);
+    if (ci < 0) return clearCharts();
+    shown = true;
+    showOnMap(ci);
+    _linkedCharts.forEach(function (l) {
+      var j = coordToChart(l.data, ci), pt = l.chart.getDatasetMeta(0).data[j];
+      var active = l.chart.data.datasets.map(function (d, k) { return { datasetIndex: k, index: j }; });
+      l.chart.setActiveElements(active);
+      l.chart.tooltip.setActiveElements(active, { x: pt ? pt.x : 0, y: pt && isFinite(pt.y) ? pt.y : l.chart.chartArea.top });
+      l.chart.update('none');
+    });
+  }
+  map.on('mousemove', function (e) {            // once a frame at most
+    if (pending === null) requestAnimationFrame(function () { var ll = pending; pending = null; at(ll); });
+    pending = e.latlng;
+  });
+  map.on('mouseout', clearCharts);
+})();
+{% endif %}
+
 function makeChart(id, data, colour) {     // colour: a variable from style.css, e.g. '--success'
   var color = cssVar(colour);
-  new Chart(document.getElementById(id), {
+  linkChart(new Chart(document.getElementById(id), {
     type: 'line',
     data: {
       labels: data.labels,
@@ -1371,7 +1524,7 @@ function makeChart(id, data, colour) {     // colour: a variable from style.css,
         y: { ticks: { color: cssVar('--text-muted'), font: { size: 10 } }, grid: { color: cssVar('--border') } }
       }
     }
-  });
+  }), data);
 }
 
 // Pace in seconds per mile / km / 100 m: faster at the top, minutes and seconds on the axis. A gap is a stop.
@@ -1380,7 +1533,7 @@ function makePaceChart(id, data, colour) {
   var mmss = function (v) { v = Math.round(v); return Math.floor(v / 60) + ':' + String(v % 60).padStart(2, '0'); };
   var vals = data.values.filter(function (v) { return v; }).sort(function (a, b) { return a - b; });
   var cap = vals.length ? vals[Math.floor(vals.length * 0.95)] * 1.15 : null;      // a slow shuffle at a junction shouldn't squash the rest
-  new Chart(document.getElementById(id), {
+  linkChart(new Chart(document.getElementById(id), {
     type: 'line',
     data: { labels: data.labels, datasets: [{ data: data.values.map(function (v) { return v && cap && v > cap ? cap : v; }), borderColor: color,
             borderWidth: 1.5, pointRadius: 0, fill: false, spanGaps: false }] },
@@ -1394,11 +1547,11 @@ function makePaceChart(id, data, colour) {
         y: { reverse: true, ticks: { color: cssVar('--text-muted'), font: { size: 10 }, callback: mmss }, grid: { color: cssVar('--border') } }
       }
     }
-  });
+  }), data);
 }
 
 function makeElevHrChart(id, elevData, hrData) {
-  new Chart(document.getElementById(id), {
+  linkChart(new Chart(document.getElementById(id), {
     type: 'line',
     data: {
       labels: elevData.labels,
@@ -1423,7 +1576,7 @@ function makeElevHrChart(id, elevData, hrData) {
         yHr:   { position: 'right', ticks: { color: cssVar('--danger'),  font: { size: 10 } }, grid: { drawOnChartArea: false } }
       }
     }
-  });
+  }), elevData);
 }
 
 {% if charts.elevation and charts.heartrate %}

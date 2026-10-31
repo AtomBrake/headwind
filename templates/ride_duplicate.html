@@ -6,8 +6,7 @@
 
 {% block head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  {% include '_maps.html' %}
   <style>
     .dup-table { width:100%; border-collapse:collapse; font-size:.875rem; }
     .dup-table th, .dup-table td { text-align:left; padding:.45rem .6rem; border-top:1px solid var(--border); vertical-align:top; }
@@ -131,9 +130,7 @@
     map.setMaxZoom(18);
     mapEl.style.background = cssVar('--card-bg');
     {% else %}
-    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics', maxZoom: 19
-    }).addTo(map);
+    HWMap.attach(map, { page: 'duplicate', base: 'sat' });
     {% endif %}
     coords.forEach(function(c, i) {
       if (!c.length) return;

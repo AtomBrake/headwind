@@ -21,8 +21,7 @@
 
 {% block head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  {% include '_maps.html' %}
 {% endblock %}
 
 {% block content %}
@@ -260,12 +259,7 @@ function filterEfforts() {
   }
 
   const map = L.map('segMap');
-  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics', maxZoom: 19
-  }).addTo(map);
-  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-    maxZoom: 19, opacity: 1
-  }).addTo(map);
+  HWMap.attach(map, { page: 'segment', base: 'satlabel' });
 
   L.circleMarker(mapData.start, { color:cssVar('--success'), fillColor:cssVar('--success'), fillOpacity:1, radius:7 })
    .addTo(map).bindPopup('Start');

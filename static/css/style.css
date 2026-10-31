@@ -378,6 +378,10 @@ body {
 }
 .map-card { padding: 0; overflow: hidden; }
 .map-card .leaflet-container { height: 520px; }
+/* On the activity map's track (templates/ride.html): direction chevrons and distance markers, centred on their spot */
+.map-chevron { width: 14px; height: 14px; line-height: 0; pointer-events: none; }
+.map-dist { position: absolute; transform: translate(-50%, -50%); padding: 0 0.3rem; border: 1px solid var(--accent); border-radius: 999px;
+            background: var(--card-bg); color: var(--text); font-size: 10px; font-weight: 600; line-height: 1.5; white-space: nowrap; pointer-events: none; }
 .charts-col {
   display: flex;
   flex-direction: column;

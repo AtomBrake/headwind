@@ -197,6 +197,30 @@
     </div>
   </form>
 
+  <!-- Optional map keys (services/map_tiles.py): each adds map types to every map's picker -->
+  <form method="POST" action="/settings/maps" class="card" id="maps">
+    <div class="card-title">Maps</div>
+    <p class="hint" style="margin:0 0 1rem;">Every map has a picker for its map type: satellite, grey, Esri Topo, OpenTopoMap and CyclOSM, with Waymarked Trails' mountain bike and cycling routes over any of them. These two need a free key of your own, and join the picker once one is saved.</p>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="thunderforestKey">Thunderforest API key</label>
+        <input type="password" id="thunderforestKey" name="thunderforestKey" value="" autocomplete="off"
+               placeholder="{{ 'Saved: leave blank to keep it' if s and s.thunderforestKey else 'For OpenCycleMap and Outdoors' }}">
+        <span class="hint">From <a href="https://manage.thunderforest.com/" target="_blank" rel="noopener">thunderforest.com</a>. The free Hobby plan has 150,000 tiles a month.</span>
+        {% if s and s.thunderforestKey %}<label class="check" style="margin-top:0.4rem;"><input type="checkbox" name="clear_thunderforest"> Remove the saved key</label>{% endif %}
+      </div>
+      <div class="form-group">
+        <label for="osMapsKey">OS Maps API key</label>
+        <input type="password" id="osMapsKey" name="osMapsKey" value="" autocomplete="off"
+               placeholder="{{ 'Saved: leave blank to keep it' if s and s.osMapsKey else 'For Ordnance Survey maps of Great Britain' }}">
+        <span class="hint">From the <a href="https://osdatahub.os.uk/" target="_blank" rel="noopener">OS Data Hub</a>, with the OS Maps API added to a project. Only the free OpenData zoom levels are used; closer in, they're enlarged.</span>
+        {% if s and s.osMapsKey %}<label class="check" style="margin-top:0.4rem;"><input type="checkbox" name="clear_os"> Remove the saved key</label>{% endif %}
+      </div>
+    </div>
+    <p class="hint" style="margin:0 0 1rem;">Your browser loads these tiles with the key in the address, as each provider's own examples do, so anyone who can open your maps could read it.</p>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Save</button></div>
+  </form>
+
   <!-- Home Assistant import (scale / health entities) -->
   <div class="card" style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
     <div style="flex:1; min-width:200px;">

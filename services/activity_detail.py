@@ -94,8 +94,9 @@ def _split_row(n, dist_m, cur):
 
 
 def pace_series(streams, view_, system=None, window_s=30, points=300):
-    """{'values': seconds per mile / km (per 100 m swimming), 'labels': distance along it} for the pace chart, from a speed averaged over about
-    window_s seconds. None for a gap (standing still). None when the streams have no distance and time."""
+    """{'values': seconds per mile / km (per 100 m swimming), 'labels': distance along it, 'idx': each point's place in the streams} for the
+    pace chart, from a speed averaged over about window_s seconds. None for a gap (standing still). None when the streams have no distance
+    and time."""
     dist, time = _data(streams, 'distance'), _data(streams, 'time')
     n = min(len(dist), len(time))
     if n < 2:
@@ -103,7 +104,7 @@ def pace_series(streams, view_, system=None, window_s=30, points=300):
     unit = SWIM_SPLIT_M if view_ == 'swim' else units.spec(system)['distM']
     slow = _MIN_PACE_MPS.get(view_, 0.5)
     step = max(1, n // points)
-    values, labels, j = [], [], 0
+    values, labels, idx, j = [], [], [], 0
     for i in range(0, n, step):
         if dist[i] is None or time[i] is None:
             continue
@@ -113,18 +114,19 @@ def pace_series(streams, view_, system=None, window_s=30, points=300):
         mps = (dist[i] - dist[j]) / dt if dt > 0 else None
         values.append(round(unit / mps) if mps and mps >= slow else None)
         labels.append(round(units.dist(dist[i], system), 2))
-    return {'values': values, 'labels': labels} if any(v for v in values) else None
+        idx.append(i)
+    return {'values': values, 'labels': labels, 'idx': idx} if any(v for v in values) else None
 
 
 def speed_series(streams, system=None, window_s=10, points=300):
-    """{'values': speed in mph or km/h, 'labels': distance along it} from the distance and time streams, for an activity with no speed stream
-    (a GPX from Strava has none). None without distance and time."""
+    """{'values': speed in mph or km/h, 'labels': distance along it, 'idx': each point's place in the streams} from the distance and time
+    streams, for an activity with no speed stream (a GPX from Strava has none). None without distance and time."""
     dist, time = _data(streams, 'distance'), _data(streams, 'time')
     n = min(len(dist), len(time))
     if n < 2:
         return None
     step = max(1, n // points)
-    values, labels, j = [], [], 0
+    values, labels, idx, j = [], [], [], 0
     for i in range(0, n, step):
         if dist[i] is None or time[i] is None:
             continue
@@ -133,7 +135,8 @@ def speed_series(streams, system=None, window_s=10, points=300):
         dt = time[i] - time[j] if j < i else 0
         values.append(round(units.speed((dist[i] - dist[j]) / dt, system), 1) if dt > 0 else 0)
         labels.append(round(units.dist(dist[i], system), 2))
-    return {'values': values, 'labels': labels} if any(values) else None
+        idx.append(i)
+    return {'values': values, 'labels': labels, 'idx': idx} if any(values) else None
 
 
 def load_laps(laps_json):

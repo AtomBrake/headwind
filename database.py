@@ -504,6 +504,8 @@ def migrate_db():
         ('timeZone',               'TEXT'),     # IANA name; blank = the server's zone (services/tz.py)
         ('birthDate',              'TEXT'),     # YYYY-MM-DD; replaces birthYear for the age (services/goal_model.profile)
         ('birthDateGuessed',       'INTEGER DEFAULT 0'),    # 1 = filled in as 1 January from birthYear; the profile forms ask for the real date
+        ('thunderforestKey',       'TEXT'),     # optional map keys (services/map_tiles.py), sealed by services/vault.py
+        ('osMapsKey',              'TEXT'),
     ]:
         if col not in settings_cols:
             db.execute(f'ALTER TABLE Settings ADD COLUMN {col} {defn}')

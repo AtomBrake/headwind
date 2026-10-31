@@ -4,8 +4,7 @@
 {% block page_title %}Ride Heatmap{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  {% include '_maps.html' %}
   <style>
     #heatMap { height: calc(100vh - 130px); width: 100%; border-radius: 10px; }
     #mapOverlay {
@@ -119,13 +118,6 @@
     <!-- The Zwift worlds on the map, to jump between -->
     <div class="overlay-row" id="zwiftWorlds" style="display:none;"></div>
     {% endif %}
-    <!-- Map layer -->
-    <div class="overlay-row">
-      <button class="preset-btn"        id="layer-dark"     onclick="setLayer('dark',     this)">Dark</button>
-      <button class="preset-btn"        id="layer-light"    onclick="setLayer('light',    this)">Light</button>
-      <button class="preset-btn"        id="layer-sat"      onclick="setLayer('sat',      this)">Satellite</button>
-      <button class="preset-btn"        id="layer-satlabel" onclick="setLayer('satlabel', this)">Sat + Labels</button>
-    </div>
     <!-- Status + export -->
     <div class="overlay-row">
       <span id="loadingMsg">Loading…</span>
@@ -141,37 +133,6 @@
 <script>
 var map = L.map('heatMap', { zoomControl: true });
 
-var TILE_DEFS = {
-  // CARTO's free basemaps now need an API key, so dark/light use Esri's keyless gray canvases (base + place-name overlay).
-  // Their tiles stop at zoom 16; Leaflet scales them beyond that.
-  dark:     [{ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',      opts: { attribution: '© Esri, HERE, Garmin, FAO, NOAA, USGS', maxNativeZoom: 16, maxZoom: 19 } },
-             { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', opts: { maxNativeZoom: 16, maxZoom: 19 } }],
-  light:    [{ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',     opts: { attribution: '© Esri, HERE, Garmin, FAO, NOAA, USGS', maxNativeZoom: 16, maxZoom: 19 } },
-             { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', opts: { maxNativeZoom: 16, maxZoom: 19 } }],
-  sat:      [{ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', opts: { attribution: '© Esri', maxZoom: 19 } }],
-  satlabel: [
-    { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',                  opts: { maxZoom: 19 } },
-    { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', opts: { maxZoom: 19 } },
-  ],
-};
-var EXPORT_LAYERS = { dark: ['dark', 'dark_ref'], light: ['light', 'light_ref'], sat: ['satellite'], satlabel: ['satellite', 'labels'] };
-
-var activeTileLayers = [];
-var currentLayerKey  = 'dark';
-
-function setLayer(key, btn) {
-  activeTileLayers.forEach(function(l) { map.removeLayer(l); });
-  activeTileLayers = [];
-  (TILE_DEFS[key] || TILE_DEFS.dark).forEach(function(def) {
-    activeTileLayers.push(L.tileLayer(def.url, def.opts).addTo(map));
-  });
-  // Re-add layerGroup so tracks stay on top of base tiles
-  if (typeof layerGroup !== 'undefined') layerGroup.addTo(map);
-  currentLayerKey = key;
-  document.querySelectorAll('[id^="layer-"]').forEach(function(b) { b.classList.remove('active'); });
-  if (btn) btn.classList.add('active');
-}
-
 var layerGroup = L.layerGroup();
 // Zwift worlds' maps sit above the base map and below the tracks
 map.createPane('zwift').style.zIndex = 350;
@@ -179,10 +140,8 @@ var worldGroup = L.layerGroup().addTo(map);
 var ZWIFT_WORLDS = {{ zwift_worlds | tojson }};
 var ZWIFT_CREDIT = {{ zwift_credit | tojson }};
 var shownWorlds = [];                  // the worlds drawn now, for the HD export
-// Start on the grey map that matches the page, and follow the page when it flips between light and dark (unless on satellite)
-function schemeLayer() { var k = document.documentElement.dataset.scheme === 'light' ? 'light' : 'dark'; setLayer(k, document.getElementById('layer-' + k)); }
-schemeLayer();
-addEventListener('schemechange', function () { if (currentLayerKey === 'dark' || currentLayerKey === 'light') schemeLayer(); });
+// Starts on the grey map that matches the page, and follows the page when it flips between light and dark (unless on another type)
+var mapTypes = HWMap.attach(map, { page: 'heatmap', base: 'scheme', position: 'topleft' });
 layerGroup.addTo(map);
 var fitNext = true;                    // zoom to the tracks on the next load: the first, and after switching whose rides are shown
 var currentFrom = '', currentTo = '';
@@ -372,16 +331,16 @@ function exportHD() {
     }
   }
 
-  // Fetch tile images via server proxy (bypasses CORS) — one set per layer
-  var exportLayerNames = EXPORT_LAYERS[currentLayerKey] || ['dark'];
-  var tileLayerPromises = exportLayerNames.map(function(layerName) {
+  // Tile images, one set per layer of the map type shown and any trail overlays on it: through the server (services/map_tiles.py) so the
+  // canvas can be saved, or for Thunderforest, whose terms forbid that, from the provider with CORS
+  var tileLayerPromises = mapTypes.exportTiles().map(function(tileUrl) {
     return Promise.all(tileList.map(function(t) {
       return new Promise(function(resolve) {
         var img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload  = function() { resolve({ img: img, tx: t.tx, ty: t.ty }); };
         img.onerror = function() { resolve(null); };
-        img.src = '/heatmap/tile/' + zoom + '/' + t.tx + '/' + t.ty + '?layer=' + layerName;
+        img.src = tileUrl(zoom, t.tx, t.ty);
       });
     }));
   });

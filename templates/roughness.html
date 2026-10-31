@@ -4,8 +4,7 @@
 {% block page_title %}Road Roughness{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  {% include '_maps.html' %}
   <style>
     #roughMap { height: calc(100vh - 210px); min-height: 420px; width: 100%; border-radius: 10px; }
     .rg-bar { display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; margin-bottom:0.75rem; }
@@ -49,8 +48,7 @@
 {% block scripts %}
 <script>
 var map = L.map('roughMap', { zoomControl: true });
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics' }).addTo(map);
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, opacity: 1 }).addTo(map);
+HWMap.attach(map, { page: 'roughness', base: 'satlabel' });
 var layer = L.layerGroup().addTo(map), fitted = false, since = '';
 var BANDS = ['--c-green', '--c-lime', '--c-amber', '--c-orange', '--danger'], COLOURS = BANDS.map(function(v) { return cssVar(v); }), NAMES = ['smooth', 'good', 'ok', 'rough', 'roughest'];
 

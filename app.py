@@ -525,6 +525,12 @@ def create_app():
         except Exception:
             return {'reimport_advised': 0}
 
+    @app.template_global()
+    def map_keys():
+        """The optional map keys for static/js/maps.js (templates/_maps.html), only on pages with a map."""
+        from services import map_tiles
+        return map_tiles.keys(get_db())
+
     @app.context_processor
     def inject_demo():
         return {'demo_mode': DEMO}

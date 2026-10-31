@@ -1,10 +1,9 @@
 
 import json
 import logging
-import requests as _requests
 from flask import Blueprint, Response, abort, render_template, request
 from database import get_db, query_db
-from services import sports, tracks as _tracks, zwift
+from services import map_tiles, sports, tracks as _tracks, zwift
 from services.rider_mode import owner_rider_id
 
 log = logging.getLogger(__name__)
@@ -58,49 +57,13 @@ def index():
                            people=[dict(p) for p in _people()])
 
 
-_ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/'
-# layer name -> (Esri service path, native max zoom or None). CARTO's basemaps needed an API key from 2026, so dark/light are now
-# Esri's keyless gray canvases (each is a base + a transparent place-name overlay, exported as two layers).
-_TILE_LAYERS = {
-    'satellite': ('World_Imagery', None),
-    'labels':    ('Reference/World_Boundaries_and_Places', None),
-    'dark':      ('Canvas/World_Dark_Gray_Base', 16),
-    'dark_ref':  ('Canvas/World_Dark_Gray_Reference', 16),
-    'light':     ('Canvas/World_Light_Gray_Base', 16),
-    'light_ref': ('Canvas/World_Light_Gray_Reference', 16),
-}
-
-
 @bp.route('/heatmap/tile/<int:z>/<int:x>/<int:y>')
 def tile_proxy(z, x, y):
-    """Proxy map tiles for HD canvas export (bypasses CORS)."""
-    path, native = _TILE_LAYERS.get(request.args.get('layer', 'dark'), _TILE_LAYERS['dark'])
-    try:
-        if native and z > native:
-            # Past the layer's native zoom: take the parent tile and enlarge the right quarter/sixteenth of it — what Leaflet
-            # does on screen — instead of Esri's "map data not available" placeholder.
-            import io
-            from PIL import Image
-            dz = z - native
-            r = _requests.get(f'{_ESRI}{path}/MapServer/tile/{native}/{y >> dz}/{x >> dz}', timeout=8,
-                              headers={'User-Agent': 'Headwind/1.0 (self-hosted bike app)'})
-            if r.status_code == 200:
-                img = Image.open(io.BytesIO(r.content)).convert('RGBA')
-                size = img.width >> dz
-                left, top = (x & ((1 << dz) - 1)) * size, (y & ((1 << dz) - 1)) * size
-                out = io.BytesIO()
-                img.crop((left, top, left + size, top + size)).resize((256, 256), Image.LANCZOS).save(out, 'PNG')
-                return Response(out.getvalue(), mimetype='image/png', headers={
-                    'Cache-Control': 'public, max-age=86400', 'Access-Control-Allow-Origin': '*'})
-        else:
-            r = _requests.get(f'{_ESRI}{path}/MapServer/tile/{z}/{y}/{x}', timeout=8,
-                              headers={'User-Agent': 'Headwind/1.0 (self-hosted bike app)'})
-            if r.status_code == 200:
-                return Response(r.content, mimetype=r.headers.get('Content-Type', 'image/png'), headers={
-                    'Cache-Control': 'public, max-age=86400', 'Access-Control-Allow-Origin': '*'})
-    except Exception:
-        log.debug('Satellite tile fetch failed', exc_info=True)
-    abort(502)
+    """One map tile for the HD export's canvas, same-origin (services/map_tiles.py has the layers and each provider's terms)."""
+    tile = map_tiles.fetch(get_db(), request.args.get('layer', 'dark'), z, x, y)
+    if tile is None:
+        abort(502)
+    return Response(tile[0], mimetype=tile[1], headers={'Cache-Control': 'private, max-age=86400'})
 
 
 @bp.route('/heatmap/zwift/<slug>.png')

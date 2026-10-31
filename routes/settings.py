@@ -353,6 +353,22 @@ def change_password():
     return redirect('/settings')
 
 
+@bp.route('/maps', methods=['POST'])
+def save_map_keys():
+    """The optional map keys (services/map_tiles.py). A key left blank keeps the saved one; a ticked "Remove" clears it."""
+    from services import map_tiles
+    db = get_db()
+    for name, col in map_tiles.KEYS.items():
+        typed = request.form.get(col, '').strip()
+        if request.form.get(f'clear_{name}'):
+            db.execute(f'UPDATE Settings SET {col}=NULL WHERE id=1')
+        elif typed:
+            db.execute(f'UPDATE Settings SET {col}=? WHERE id=1', [vault.seal(typed)])
+    db.commit()
+    flash('Map keys saved.', 'success')
+    return redirect('/settings#maps')
+
+
 def _db_path():
     p = current_app.config.get('DATABASE') or os.environ.get('DATABASE_URL', '')
     return p.replace('sqlite:///', '')

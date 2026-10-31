@@ -1,0 +1,5 @@
+{# Leaflet and the shared map types (static/js/maps.js), for a page's head block. #}
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>window.MAP_KEYS = {{ map_keys() | tojson }};</script>
+  <script src="{{ url_for('static', filename='js/maps.js') }}"></script>
