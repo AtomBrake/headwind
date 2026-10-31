@@ -280,6 +280,39 @@ def test_photos_from_the_app(phone):
     assert gone.status_code == 200 and gone.get_json()['photos'] == []
 
 
+def test_photos_are_put_in_order_and_captioned_from_the_app(phone):
+    add(phone, 'r1', 'Ride', tz.today().isoformat(), dist=20000)
+    add(phone, 'sams', 'Ride', tz.today().isoformat(), dist=20000, rider=2)
+    with phone.app_.app_context():
+        from services import photos
+        db = database.get_db()
+        for rid in ('r1', 'r1', 'r1', 'sams'):
+            photos.save(db, rid, jpeg(), phone.app_.config['DATABASE'], position=photos.next_position(db, rid))
+        db.commit()
+        sams = db.execute("SELECT id FROM ActivityPhoto WHERE activityId='sams'").fetchone()[0]
+    ids = lambda: [p['id'] for p in phone.get('/api/v1/rides/ride/r1', headers=phone.H).get_json()['photos']]
+    a, b, c = ids()
+    order = lambda new, rid='r1': phone.post(f'/api/v1/rides/ride/{rid}/photos/order', headers=phone.H, json={'ids': new})
+    r = order([c, a, b])
+    assert r.status_code == 200 and [p['id'] for p in r.get_json()['photos']] == [c, a, b] == ids()
+    assert order([c, a]).status_code == 400                                              # every photo, exactly once
+    assert order([c, a, a]).status_code == 400
+    assert order([c, a, b, sams]).status_code == 400                           # not another activity's
+    assert order(['c', 'a', 'b']).status_code == 400
+    assert phone.post('/api/v1/rides/ride/r1/photos/order', headers=phone.H, json={}).status_code == 400
+    assert order([sams], rid='sams').status_code == 404                              # not this rider's
+    assert ids() == [c, a, b]
+
+    cap = lambda pid, body, rid='r1': phone.patch(f'/api/v1/rides/ride/{rid}/photos/{pid}', headers=phone.H, json=body)
+    r = cap(a, {'caption': '  Top of the climb  '})
+    assert r.status_code == 200 and [p['caption'] for p in r.get_json()['photos']] == [None, 'Top of the climb', None]
+    assert cap(a, {'caption': 'x' * 500}).get_json()['photos'][1]['caption'] == 'x' * 200
+    assert cap(a, {'caption': ''}).get_json()['photos'][1]['caption'] is None             # empty clears it
+    assert cap(a, {}).status_code == 400 and cap(a, {'caption': 5}).status_code == 400
+    assert cap(sams, {'caption': 'mine'}).status_code == 404                  # another activity's photo
+    assert cap(sams, {'caption': 'mine'}, rid='sams').status_code == 404
+
+
 def test_an_open_water_swim_from_the_watch_is_a_swim_with_its_calories(phone):
     from tests.test_phone_sport_bike import gpx
     r = phone.post('/api/v1/workouts', headers=phone.H, content_type='multipart/form-data',

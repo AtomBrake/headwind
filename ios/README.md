@@ -6,8 +6,8 @@ A native SwiftUI companion for a Headwind server. It uses the same phone API and
 | Tab | Shows | Endpoint |
 |---|---|---|
 | Today | Calories ring (eaten / goal / burned), macros, water, steps, weight trend, food diary by meal, today's other activities with their own icons | `GET /api/v1/today` |
-| Record | Map (or a clock for a timed sport), live stats, start / pause / finish any sport the phone records, on a chosen bike; list of recordings, their upload status, bike and waiting photos | `POST /api/v1/rides`, `/workouts`, `/activities`, `/rides/ride/<id>/bike`, `/rides/<kind>/<id>/photos`, `/live` |
-| Activities | Every activity of every sport, paged, searchable and filtered by sport; each with its map, stats, charts and photos (add, delete), and delete | `GET /api/v1/rides`, `/rides/<kind>/<id>`, `/photos/<name>` |
+| Record | Map (or a clock for a timed sport), live stats, start / pause / finish any sport the phone records, on a chosen bike; list of recordings, their upload status, bike and waiting photos (add, remove, reorder) | `POST /api/v1/rides`, `/workouts`, `/activities`, `/rides/ride/<id>/bike`, `/rides/<kind>/<id>/photos`, `/live` |
+| Activities | Every activity of every sport, paged, searchable and filtered by sport; each with its map, stats, charts and photos (add, delete, reorder, caption), and delete | `GET /api/v1/rides`, `/rides/<kind>/<id>`, `/photos/<name>`, `/rides/<kind>/<id>/photos…` |
 | Overview | A card per sport group for week / month / year / all time, a 12-week chart of one sport by distance or every sport by time, latest recovery (Garmin's or Apple Health's) | `GET /api/v1/overview` |
 | Settings | Paired server, rider, units, Bluetooth sensors (pair, forget, battery, wheel size), Apple Health (what to send, how far back), unpair | `GET /api/v1/ping`, `POST /api/v1/health/days`, `GET`/`DELETE /api/v1/health` |
 
@@ -66,10 +66,14 @@ minute to be kept.
 - **Uploads:** every ride is saved on the phone first, then uploaded as GPX through the server's normal import
   (best efforts, segment matching, weather); a timed session as its summary. Failed uploads, e.g. when offline, retry
   when the app is next opened. The server ignores duplicates, so a retry can't create a second copy.
-- **Photos:** add them to a recording (its menu under Recordings) before or after it's uploaded, or to any activity under
-  Activities. They're redrawn as a JPEG of at most 1600 px on the phone (iPhone pictures are HEIC, which the server can't
-  read), wait with the recording until it's on the server, and never hold it up. PhotosPicker needs no photo-library
-  permission: only the pictures picked are shared.
+- **Photos:** add them from the library or the camera to a recording (Photos in its menu under Recordings) before or after
+  it's uploaded, or to any activity under Activities. They're redrawn as a JPEG of at most 1600 px on the phone (iPhone
+  pictures are HEIC, which the server can't read), wait with the recording until it's on the server, and never hold it up.
+  PhotosPicker needs no photo-library permission: only the pictures picked are shared; the camera asks for the camera
+  permission the QR scanner already uses. On an activity each photo has its own tile while it uploads (tap a failed one to
+  try again); Select deletes several at once and drags them into a new order (the first is the cover); the full-size photo
+  has its caption, Edit caption and Delete. Deleting asks first. A recording's waiting photos can be removed and reordered,
+  and go up in that order. `Headwind/Activities/ActivityPhotos.swift`, `Headwind/Record/PendingPhotosView.swift`.
 - **Crash safety:** every GPS point is written to a journal file as it arrives (a timed session notes its progress every
   30 s). If the app is killed mid-ride, it offers to save the unfinished ride the next time it opens.
 - **Pauses** start a new GPX track segment, so the gap isn't counted as distance or drawn as a straight line.

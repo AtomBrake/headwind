@@ -15,6 +15,7 @@ FULL = 1600
 THUMB = 360
 PHOTO_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.webp', '.gif')
 MAX_UPLOAD = 20                                         # pictures in one upload from the activity page
+MAX_CAPTION = 200
 
 
 def ensure_schema(db):
@@ -82,6 +83,22 @@ def next_position(db, activity_id):
 
 def for_activity(db, activity_id):
     return db.execute('SELECT id, filename, caption FROM ActivityPhoto WHERE activityId=? ORDER BY position, id', [str(activity_id)]).fetchall()
+
+
+def reorder(db, activity_id, ids):
+    """Put an activity's photos in this order (their ids, every one exactly once): position 0, 1, 2… The first is the activity's cover. Raises
+    ValueError for a list that isn't every photo once (one added or deleted meanwhile, or another activity's). Does not commit."""
+    have = [r[0] for r in db.execute('SELECT id FROM ActivityPhoto WHERE activityId=?', [str(activity_id)])]
+    if not isinstance(ids, list) or not all(type(i) is int for i in ids) or sorted(ids) != sorted(have):
+        raise ValueError("ids must list every photo of the activity exactly once")
+    db.executemany('UPDATE ActivityPhoto SET position=? WHERE id=?', list(enumerate(ids)))
+
+
+def set_caption(db, photo_id, activity_id, caption):
+    """A photo's caption (up to MAX_CAPTION; empty clears it). Returns True if the photo is on this activity. Does not commit."""
+    cur = db.execute('UPDATE ActivityPhoto SET caption=? WHERE id=? AND activityId=?',
+                     [(caption or '').strip()[:MAX_CAPTION] or None, photo_id, str(activity_id)])
+    return cur.rowcount > 0
 
 
 def _remove_files(db_path, names):

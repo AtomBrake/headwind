@@ -308,6 +308,25 @@ struct WatchRecordingTests {
         #expect(store.gpxURL(for: first) == nil && !first.hasTrack && first.kind == "workout")
         #expect(RideStore.destination(first).fields["client_id"] == id.uuidString)
     }
+
+    @Test func waitingPhotosCanBeRemovedAndReorderedAndKeepThatOrder() async throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "store-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = RideStore(directory: dir)
+        let session = Session(store: MemoryPairingStore(), defaults: tempDefaults())
+        let ride = try store.addSession(summary: .session(start: start, elapsed: 1200, sport: .strength), source: .phone)
+        for byte in [UInt8(1), 2, 3] { try await store.addPhoto(Data([byte]), to: ride, using: session) }   // not uploaded: they wait
+        let names = try #require(store.rides.first?.pendingPhotos)
+        #expect(names.count == 3)
+
+        store.movePendingPhotos(of: ride, from: IndexSet(integer: 2), to: 0)
+        #expect(store.rides.first?.pendingPhotos == [names[2], names[0], names[1]])
+        store.removePendingPhoto(names[0], from: ride)
+        #expect(store.rides.first?.pendingPhotos == [names[2], names[1]])
+        #expect(!FileManager.default.fileExists(atPath: store.pendingPhotoURL(names[0], of: ride).path))
+        #expect(try Data(contentsOf: store.pendingPhotoURL(names[2], of: ride)) == Data([3]))
+        #expect(RideStore(directory: dir).rides.first?.pendingPhotos == [names[2], names[1]])      // and after a relaunch
+    }
 }
 
 struct HealthSleepTests {

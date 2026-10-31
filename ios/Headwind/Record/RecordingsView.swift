@@ -1,15 +1,13 @@
-import PhotosUI
 import SwiftUI
 
 /// Everything recorded on this phone or the Watch, with its upload status. Swipe to delete; failed uploads retry.
-/// A ride's bike can be changed from its menu, before or after it's uploaded, and photos added: they wait on the phone with the ride
-/// and go up once it's on the server, never holding the ride up.
+/// A ride's bike can be changed from its menu, before or after it's uploaded, and photos added, removed and put in order (PendingPhotosView):
+/// they wait on the phone with the ride and go up once it's on the server, never holding the ride up.
 struct RecordingsView: View {
     @Environment(Session.self) private var session
     @Environment(RideStore.self) private var store
     @State private var error: AppError?
     @State private var photosFor: SavedRide?
-    @State private var picked: [PhotosPickerItem] = []
 
     var body: some View {
         List {
@@ -66,8 +64,11 @@ struct RecordingsView: View {
                             Label("Try uploading again", systemImage: "arrow.clockwise")
                         }
                     }
-                    Button { photosFor = ride } label: { Label("Add photos", systemImage: "photo.badge.plus") }
-                        .disabled(ride.status == .rejected)
+                    Button { photosFor = ride } label: {
+                        let waiting = ride.pendingPhotos?.count ?? 0
+                        Label(waiting == 0 ? "Add photos" : "Photos (\(waiting) waiting)", systemImage: "photo.badge.plus")
+                    }
+                    .disabled(ride.status == .rejected && (ride.pendingPhotos ?? []).isEmpty)
                     if let gpx = store.gpxURL(for: ride) {
                         ShareLink(item: gpx) { Label("Share GPX", systemImage: "square.and.arrow.up") }
                     }
@@ -81,34 +82,12 @@ struct RecordingsView: View {
             }
         }
         .refreshable { await store.uploadPending(using: session) }
-        .photosPicker(isPresented: Binding(get: { photosFor != nil }, set: { if !$0 && picked.isEmpty { photosFor = nil } }),
-                      selection: $picked, maxSelectionCount: 10, matching: .images, photoLibrary: .shared())
-        .onChange(of: picked) { _, items in
-            guard !items.isEmpty, let ride = photosFor else { return }
-            picked = []
-            photosFor = nil
-            Task { await addPhotos(items, to: ride) }
-        }
+        .sheet(item: $photosFor) { ride in PendingPhotosView(rideID: ride.id) }
         .alert("Something went wrong", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } }),
                presenting: error) { _ in
             Button("OK", role: .cancel) {}
         } message: { error in
             Text(error.localizedDescription)
-        }
-    }
-
-    /// Each picture shrunk to a JPEG and kept with the ride (RideStore.addPhoto), which sends it once the ride is on the server.
-    private func addPhotos(_ items: [PhotosPickerItem], to ride: SavedRide) async {
-        for item in items {
-            guard let raw = try? await item.loadTransferable(type: Data.self), let jpeg = PhotoPrep.jpeg(from: raw) else {
-                error = .validationError(message: "That picture couldn't be read.")
-                continue
-            }
-            do throws(AppError) {
-                try await store.addPhoto(jpeg, to: ride, using: session)
-            } catch {
-                self.error = error
-            }
         }
     }
 

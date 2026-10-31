@@ -33,6 +33,18 @@ struct APIClient: Sendable {
         try await send(request(path, method: "DELETE"), as: type)
     }
 
+    /// PATCH a JSON body (e.g. a photo's caption).
+    func patch<T: Decodable & Sendable>(_ path: String, json body: some Encodable, as type: T.Type = T.self) async throws(AppError) -> T {
+        var req = request(path, method: "PATCH")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        do {
+            req.httpBody = try JSONEncoder().encode(body)
+        } catch {
+            throw .validationError(message: "Couldn't encode the request: \(error.localizedDescription)")
+        }
+        return try await send(req, as: type)
+    }
+
     /// The bytes at a path, e.g. a photo (GET /api/v1/photos/<name>): the request needs the token, so an AsyncImage can't fetch it.
     func data(_ path: String) async throws(AppError) -> Data {
         var req = request(path)

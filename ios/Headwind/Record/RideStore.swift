@@ -50,6 +50,8 @@ final class RideStore {
     /// Set when uploadPending is called mid-upload, so the running pass goes round again for new rides.
     private var uploadAgain = false
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
+    /// Per ride, the waiting photo being sent now, which can't be removed: it may already be on the server. One pass per ride at a time.
+    private(set) var sendingPhoto: [UUID: String] = [:]
 
     init(directory: URL? = nil) {
         let base = (try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
@@ -151,12 +153,15 @@ final class RideStore {
         }
     }
 
-    /// Each waiting photo of an uploaded ride, one request each. One that fails stays for the next pass; one the server refuses is dropped.
+    /// Each waiting photo of an uploaded ride, one request each, in the ride's order: the list is read again for each, so one removed or moved
+    /// meanwhile is followed. One that fails stays for the next pass (with the rest behind it, keeping the order); one the server refuses is dropped.
     private func uploadPhotos(of ride: SavedRide, using session: Session) async {
-        guard let serverId = ride.serverId, let names = ride.pendingPhotos, !names.isEmpty else { return }
+        guard let serverId = ride.serverId, sendingPhoto[ride.id] == nil else { return }   // the running pass picks up what's added
+        defer { sendingPhoto[ride.id] = nil }
         let folder = photoFolder(ride.id)
-        for name in names {
+        while let name = rides.first(where: { $0.id == ride.id })?.pendingPhotos?.first {
             guard !Task.isCancelled else { return }
+            sendingPhoto[ride.id] = name
             let file = folder.appending(path: name)
             guard let data = try? Data(contentsOf: file) else {
                 update(ride.id) { $0.pendingPhotos?.removeAll { $0 == name } }
@@ -178,6 +183,20 @@ final class RideStore {
 
     func pendingPhotoURLs(for ride: SavedRide) -> [URL] {
         (ride.pendingPhotos ?? []).map { photoFolder(ride.id).appending(path: $0) }
+    }
+
+    func pendingPhotoURL(_ name: String, of ride: SavedRide) -> URL { photoFolder(ride.id).appending(path: name) }
+
+    /// A waiting photo taken off the ride before it goes up. Not the one being sent right now (`sendingPhoto`): that one is on its way.
+    func removePendingPhoto(_ name: String, from ride: SavedRide) {
+        guard name != sendingPhoto[ride.id] else { return }
+        try? FileManager.default.removeItem(at: photoFolder(ride.id).appending(path: name))
+        update(ride.id) { $0.pendingPhotos?.removeAll { $0 == name } }
+    }
+
+    /// The waiting photos in a new order, which is the order they go up in (and so their order on the server).
+    func movePendingPhotos(of ride: SavedRide, from source: IndexSet, to destination: Int) {
+        update(ride.id) { $0.pendingPhotos?.move(fromOffsets: source, toOffset: destination) }
     }
 
     private func photoFolder(_ id: UUID) -> URL { directory.appending(path: "Photos", directoryHint: .isDirectory).appending(path: id.uuidString) }
