@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.32-beta] - 2026-10-31
+
+### Added
+- **Garmin activities that aren't here link to Garmin Connect.** On the import page, each name under "In Garmin, not here" and "Deleted here, still in Garmin" opens that activity on Garmin Connect, to check it before bringing it in or back.
+
 ## [0.7.31-beta] - 2026-10-31
 
 ### Added
