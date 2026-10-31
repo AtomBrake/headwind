@@ -5,6 +5,9 @@
 ### Added
 - **Allow all for Apple Health.** One switch at the top of the app's Apple Health settings turns every kind of data on, asked for in one Health sheet; the separate switches stay for choosing some. A server too old for Apple Health now says so, instead of "HTTP 404".
 
+### Fixed
+- **The iPhone app draws a Zwift ride over its Zwift world.** The activity page put the track on Apple's map, so a Watopia ride sat out at sea near the Solomon Islands. It's now drawn over the world's own map alone, as on the web, opened on the track: pinch to zoom, drag to look around, double-tap to fit the track again.
+
 ## [0.7.28-beta] - 2026-10-31
 
 ### Added

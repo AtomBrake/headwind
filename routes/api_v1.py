@@ -11,6 +11,7 @@
   POST /api/v1/activities  a session with no track (JSON), timed on the phone or the Watch or typed in: strength, a pool swim, an indoor ride
   POST /api/v1/rides/<kind>/<id>/photos   add one photo (multipart: file); DELETE .../photos/<pid>; GET /api/v1/photos/<name> serves one;
                             POST .../photos/order puts them in order (JSON {ids}); PATCH .../photos/<pid> sets a caption (JSON {caption})
+  GET  /api/v1/zwift/<slug>.png   a Zwift world's map, for a virtual ride's zwift_world in GET /api/v1/rides/<kind>/<id>
   POST /api/v1/health/days  Apple Health's daily figures from the iPhone (JSON {days: [{date, metric, value}]}), GET /api/v1/health what's stored,
                             DELETE /api/v1/health forgets it all (services/health.py)
   POST /api/v1/devices/watch   a token of its own for the phone's Apple Watch (services/device_auth.create_child)
@@ -510,11 +511,32 @@ def ride_detail(kind, rid):
         'weather': {'summary': r.get('weatherSummary'), 'temp_c': num('weatherTempC', 1), 'wind_kph': num('weatherWindKph', 0), 'rain_mm': num('weatherRainMm', 1)},
         'description': r.get('description'), 'notes': r.get('notes'), 'kudos': r.get('aiKudos'),
         'track': [[round(c[0], 6), round(c[1], 6)] for c in _downsample(coords, 700)],
+        'zwift_world': _zwift_world(r.get('sportType'), coords),
         'series': {'elevation': series('altitude'), 'speed': series('velocity_smooth'), 'heartrate': series('heartrate'), 'watts': series('watts')},
         'sensors': __import__('services.sensors', fromlist=['for_ride']).for_ride(get_db(), str(r['id'])),
         'label': __import__('services.sports', fromlist=['label']).label(r.get('sportType')),
         'photos': _photo_list(r['id']),
     })
+
+
+def _zwift_world(sport, coords):
+    """The Zwift world a virtual ride's track is in, as the ride page draws it (routes/rides._zwift_world) but with its map at /api/v1/zwift,
+    which takes the device token; None for a real ride."""
+    from routes.rides import _zwift_world as world
+    w = world(sport, coords)
+    return w and dict(w, url=f"/api/v1/zwift/{w['slug']}.png")
+
+
+@bp.route('/zwift/<slug>.png')
+def zwift_map(slug):
+    """A Zwift world's map for the app, as the web's /heatmap/zwift/<slug>.png serves it (which wants a login, not a token)."""
+    from flask import Response
+    from services import zwift
+    png = zwift.map_image(slug)
+    if png is None:
+        known = slug in zwift.BY_SLUG
+        return jsonify({'error': 'Zwift map unavailable' if known else 'not found'}), 502 if known else 404
+    return Response(png, mimetype='image/png', headers={'Cache-Control': 'public, max-age=604800'})
 
 
 def _photo_list(activity_id):

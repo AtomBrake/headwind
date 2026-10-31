@@ -1,3 +1,4 @@
+import ImageIO
 import SwiftUI
 import UIKit
 
@@ -60,15 +61,20 @@ struct CameraPicker: UIViewControllerRepresentable {
 struct AuthedImage: View {
     /// The server's path for it, e.g. "/api/v1/photos/act_1a2b.jpg".
     var path: String
-    var contentMode: ContentMode = .fill
+    /// nil stretches it to the frame it's given (a Zwift world's map, which must cover its box exactly).
+    var contentMode: ContentMode? = .fill
+    /// Decode it no bigger than this on its longer side: a Zwift world's map is 8192 px across, about 200 MB once decoded whole.
+    var maxPixels: Int?
     @Environment(Session.self) private var session
     @State private var image: UIImage?
     @State private var failed = false
 
     var body: some View {
         Group {
-            if let image {
+            if let image, let contentMode {
                 Image(uiImage: image).resizable().aspectRatio(contentMode: contentMode)
+            } else if let image {
+                Image(uiImage: image).resizable()
             } else if failed {
                 Image(systemName: "photo").foregroundStyle(.secondary)
             } else {
@@ -86,12 +92,20 @@ struct AuthedImage: View {
         let relative = path.hasPrefix("/api/v1/") ? String(path.dropFirst("/api/v1/".count)) : path
         do throws(AppError) {
             let data = try await session.call { client async throws(AppError) in try await client.data(relative) }
-            guard let loaded = UIImage(data: data) else { failed = true; return }
+            guard let loaded = maxPixels.map({ Self.downsampled(data, maxPixels: $0) }) ?? UIImage(data: data) else { failed = true; return }
             ImageCache.shared.setObject(loaded, forKey: path as NSString)
             image = loaded
         } catch {
             failed = true
         }
+    }
+
+    /// The image decoded straight to at most `maxPixels` on its longer side (ImageIO's thumbnail), never whole first.
+    private static func downsampled(_ data: Data, maxPixels: Int) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceShouldCacheImmediately: true,
+                                        kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: maxPixels]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map { UIImage(cgImage: $0) }
     }
 }
 

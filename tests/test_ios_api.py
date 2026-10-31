@@ -384,3 +384,26 @@ def test_nan_is_not_a_number_here(phone):
     h = phone.post('/api/v1/health/days', headers={**phone.H, 'Content-Type': 'application/json'},
                    data='{"days": [{"date": "2026-10-20", "metric": "steps", "value": NaN}, {"date": "2026-10-20", "metric": "weight_kg", "value": Infinity}]}')
     assert h.get_json()['saved'] == 0
+
+
+# ── Zwift maps ─────────────────────────────────────────────────────────────────────────
+
+def test_a_zwift_ride_comes_with_its_world_and_the_map_takes_the_token(phone, monkeypatch):
+    import json
+    track = json.dumps({'latlng': {'data': [[-11.70 + i * 0.0002, 166.95 + i * 0.0002] for i in range(60)]}})
+    with phone.app_.app_context():
+        d = database.get_db()
+        for aid, sport in (('zw', 'VirtualRide'), ('real', 'Ride')):      # the same spot: only the virtual one is in Watopia
+            d.execute("INSERT INTO Activity (id, riderId, sportType, name, startDateLocal, distance, movingTime, rawData, streams) "
+                      "VALUES (?, 1, ?, ?, '2026-10-01T08:00:00', 20000, 3600, '{}', ?)", [aid, sport, aid, track])
+        d.commit()
+    w = phone.get('/api/v1/rides/ride/zw', headers=phone.H).get_json()['zwift_world']
+    assert w['slug'] == 'watopia' and w['url'] == '/api/v1/zwift/watopia.png' and w['credit']
+    assert w['bounds'] == [[-11.74087, 166.87747], [-11.62597, 167.03255]]
+    assert phone.get('/api/v1/rides/ride/real', headers=phone.H).get_json()['zwift_world'] is None
+
+    monkeypatch.setattr('services.zwift.map_image', lambda slug: b'\x89PNG...' if slug == 'watopia' else None)
+    r = phone.get('/api/v1/zwift/watopia.png', headers=phone.H)
+    assert r.status_code == 200 and r.mimetype == 'image/png' and r.data == b'\x89PNG...'
+    assert phone.get('/api/v1/zwift/atlantis.png', headers=phone.H).status_code == 404
+    assert phone.get('/api/v1/zwift/watopia.png').status_code == 401                    # no token

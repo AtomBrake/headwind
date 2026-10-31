@@ -254,6 +254,8 @@ struct ActivityDetail: Decodable {
     var description: String?
     var notes: String?
     var track: [[Double]]?
+    /// The Zwift world a virtual ride's track is in (services/zwift), to draw it over that world's map; nil for a real ride.
+    var zwiftWorld: ZwiftWorld?
     var series: Series?
     var photos: [Photo]?
 
@@ -282,6 +284,15 @@ struct ActivityDetail: Decodable {
         var caption: String?
         var url: String
         var thumbUrl: String
+    }
+
+    /// A Zwift world: its map (GET /api/v1/zwift/<slug>.png) covers `bounds` exactly, [[south, west], [north, east]].
+    struct ZwiftWorld: Decodable {
+        var slug: String
+        var name: String
+        var bounds: [[Double]]
+        var url: String
+        var credit: String?
     }
 }
 

@@ -2,7 +2,7 @@ import Charts
 import MapKit
 import SwiftUI
 
-/// One activity from the server (GET /api/v1/rides/<kind>/<id>): its map, the numbers that suit its sport, its charts and its photos
+/// One activity from the server (GET /api/v1/rides/<kind>/<id>): its map (a Zwift world's for a virtual ride), the numbers that suit its sport, its charts and its photos
 /// (PhotosCard, which adds, deletes, orders and captions them).
 struct ActivityDetailView: View {
     var item: ActivityItem
@@ -18,7 +18,9 @@ struct ActivityDetailView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     if let track = d.track, track.count > 1 {
-                        TrackMap(track: track)
+                        Group {
+                            if let world = d.zwiftWorld { ZwiftTrackMap(track: track, world: world) } else { TrackMap(track: track) }
+                        }
                             .frame(height: 260)
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
@@ -180,6 +182,95 @@ private struct TrackMap: View {
                 .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
         }
         .mapStyle(.standard(elevation: .flat, pointsOfInterest: .excludingAll))
+    }
+}
+
+/// A virtual ride over its Zwift world's map alone, as the web's ride page draws it: no real place around it (Watopia is open sea), the map
+/// covering the world's box exactly in Web Mercator (Leaflet's imageOverlay), opened fitted to the track and kept to the world. Pinch to zoom,
+/// drag to pan, double-tap to fit the track again. A world with no usable box falls back to the plain map.
+private struct ZwiftTrackMap: View {
+    var track: [[Double]]
+    var world: ActivityDetail.ZwiftWorld
+    @State private var zoom: CGFloat = 1
+    @State private var center: CGPoint?          // in projected degrees; nil is the track's middle
+    @GestureState private var pinch: CGFloat = 1
+    @GestureState private var drag: CGSize = .zero
+
+    private static let inset: CGFloat = 20
+    private static let maxZoom: CGFloat = 8
+
+    /// Web Mercator in degrees, y growing southwards as the screen's does.
+    private static func project(_ lat: Double, _ lng: Double) -> CGPoint {
+        CGPoint(x: lng, y: -log(tan(.pi / 4 + lat * .pi / 360)) * 180 / .pi)
+    }
+
+    private var worldRect: CGRect? {
+        guard world.bounds.count == 2, world.bounds.allSatisfy({ $0.count == 2 }) else { return nil }
+        let sw = Self.project(world.bounds[0][0], world.bounds[0][1]), ne = Self.project(world.bounds[1][0], world.bounds[1][1])
+        let rect = CGRect(x: sw.x, y: ne.y, width: ne.x - sw.x, height: sw.y - ne.y)
+        return rect.width > 0 && rect.height > 0 ? rect : nil
+    }
+
+    var body: some View {
+        if let worldRect {
+            GeometryReader { geo in map(size: geo.size, worldRect: worldRect) }
+        } else {
+            TrackMap(track: track)
+        }
+    }
+
+    private func map(size: CGSize, worldRect: CGRect) -> some View {
+        let points = track.compactMap { $0.count >= 2 ? Self.project($0[0], $0[1]) : nil }
+        let xs = points.map(\.x), ys = points.map(\.y)
+        let trackRect = CGRect(x: xs.min() ?? worldRect.minX, y: ys.min() ?? worldRect.minY,
+                               width: max((xs.max() ?? worldRect.maxX) - (xs.min() ?? worldRect.minX), 0.002),
+                               height: max((ys.max() ?? worldRect.maxY) - (ys.min() ?? worldRect.minY), 0.002))
+        let fitTrack = min((size.width - 2 * Self.inset) / trackRect.width, (size.height - 2 * Self.inset) / trackRect.height)
+        let fitWorld = min(size.width / worldRect.width, size.height / worldRect.height)
+        let minZoom = min(1, fitWorld / fitTrack)
+        func clampZoom(_ z: CGFloat) -> CGFloat { min(max(z, minZoom), Self.maxZoom) }
+        func clampCenter(_ c: CGPoint) -> CGPoint {
+            CGPoint(x: min(max(c.x, worldRect.minX), worldRect.maxX), y: min(max(c.y, worldRect.minY), worldRect.maxY))
+        }
+        let scale = fitTrack * clampZoom(zoom * pinch)
+        let start = center ?? CGPoint(x: trackRect.midX, y: trackRect.midY)
+        func dragged(_ by: CGSize) -> CGPoint { clampCenter(CGPoint(x: start.x - by.width / scale, y: start.y - by.height / scale)) }
+        let middle = dragged(drag)
+        func screen(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: size.width / 2 + (p.x - middle.x) * scale, y: size.height / 2 + (p.y - middle.y) * scale)
+        }
+
+        return ZStack {
+            Color(.secondarySystemBackground)
+            AuthedImage(path: world.url, contentMode: nil, maxPixels: 3072)
+                .frame(width: worldRect.width * scale, height: worldRect.height * scale)
+                .position(screen(CGPoint(x: worldRect.midX, y: worldRect.midY)))
+            Path { $0.addLines(points.map(screen)) }
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+        }
+        .frame(width: size.width, height: size.height)
+        .clipped()
+        .contentShape(Rectangle())
+        .gesture(SimultaneousGesture(
+            MagnifyGesture()
+                .updating($pinch) { value, state, _ in state = value.magnification }
+                .onEnded { value in zoom = clampZoom(zoom * value.magnification) },
+            DragGesture()
+                .updating($drag) { value, state, _ in state = value.translation }
+                .onEnded { value in center = dragged(value.translation) }
+        ))
+        .onTapGesture(count: 2) {
+            zoom = 1
+            center = nil
+        }
+        .overlay(alignment: .bottomTrailing) {
+            Text([world.name, world.credit].compactMap { $0 }.joined(separator: " · "))
+                .font(.caption2)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(.thinMaterial, in: Capsule())
+                .padding(6)
+        }
     }
 }
 
