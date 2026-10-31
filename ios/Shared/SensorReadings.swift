@@ -138,8 +138,12 @@ struct RevolutionRate: Sendable {
         // After a long stop the event time has wrapped (every 64 s) and the gap can't be told: wait for the next revolution.
         let sinceChange = lastChange.map { now.timeIntervalSince($0) } ?? 0
         lastChange = now
+        guard sinceChange < 60 else {
+            rate = 0
+            return
+        }
         let ticks = Double((Int(r.eventTime) - Int(lastTime) + 65536) % 65536)
-        guard ticks > 0, sinceChange < 60 else { return }
+        guard ticks > 0 else { return }
         let perSecond = Double(counted) * ticksPerSecond / ticks
         if perSecond <= maxPerSecond { rate = perSecond }
     }
@@ -151,7 +155,8 @@ struct RevolutionRate: Sendable {
     }
 }
 
-/// The mean of the readings in the last few seconds (power's 3 s average).
+/// The mean of the readings in the last few seconds (power's 3 s average). A sensor sending less often than that gives its latest reading,
+/// until it's `SensorChannel.staleAfter` old.
 struct RollingAverage: Sendable {
     var window: TimeInterval = 3
     private var samples: [(at: Date, value: Int)] = []
@@ -164,8 +169,9 @@ struct RollingAverage: Sendable {
     }
 
     func average(at now: Date) -> Int? {
+        guard let latest = samples.last, now.timeIntervalSince(latest.at) < SensorChannel.staleAfter else { return nil }
         let recent = samples.filter { now.timeIntervalSince($0.at) <= window }
-        guard !recent.isEmpty else { return nil }
+        guard !recent.isEmpty else { return latest.value }
         return Int((Double(recent.reduce(0) { $0 + $1.value }) / Double(recent.count)).rounded())
     }
 }

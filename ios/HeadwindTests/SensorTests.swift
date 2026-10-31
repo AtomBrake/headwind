@@ -154,7 +154,9 @@ struct SensorChannelTests {
         }
         // The readings at 1, 2 and 3 s.
         #expect(channel.readings(at: t0.addingTimeInterval(3.5), wheelCircumference: 2.105).power == 300)
-        #expect(channel.readings(at: t0.addingTimeInterval(7), wheelCircumference: 2.105).power == nil)
+        // Then the latest alone, until the meter has been quiet for 5 s.
+        #expect(channel.readings(at: t0.addingTimeInterval(7), wheelCircumference: 2.105).power == 400)
+        #expect(channel.readings(at: t0.addingTimeInterval(8), wheelCircumference: 2.105).power == nil)
     }
 
     @Test func aTrainersDistanceCarriesOnWhenItRestarts() {
