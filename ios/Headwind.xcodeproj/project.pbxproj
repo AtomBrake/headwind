@@ -618,6 +618,7 @@
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Headwind;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Headwind uses the camera to scan the pairing QR code from your server's Phones page.";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Headwind connects to your heart rate strap, power meter, speed and cadence sensor or smart trainer to record their readings with your rides, including with the screen locked.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Headwind reads the Apple Health data you switch on in its Settings (steps, sleep, heart rate, weight, calories, workouts) and sends it to your own Headwind server.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Headwind records your route with GPS while you ride, run or walk, including with the screen locked.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -651,6 +652,7 @@
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Headwind;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Headwind uses the camera to scan the pairing QR code from your server's Phones page.";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Headwind connects to your heart rate strap, power meter, speed and cadence sensor or smart trainer to record their readings with your rides, including with the screen locked.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Headwind reads the Apple Health data you switch on in its Settings (steps, sleep, heart rate, weight, calories, workouts) and sends it to your own Headwind server.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Headwind records your route with GPS while you ride, run or walk, including with the screen locked.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
