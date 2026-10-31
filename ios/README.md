@@ -114,33 +114,16 @@ All recording state lives in objects made at launch (`PhoneRideRecorder`, `RideS
 fold or rotation mid-ride loses nothing. The fold-specific APIs Apple has shown (reserved regions, ArrangementView) are in the
 iOS 27.1 SDK only; the app uses only what Xcode 16 and iOS 17 have, and the system's own containers keep clear of the fold.
 
-Planned next:
-
-1. Food logging with barcode scan
-2. Widgets
-3. Smart trainers on the iPhone: an indoor ride uploaded as a file with its power, cadence and distance, then ERG, resistance and
-   gradient simulation through Fitness Machine control
-
-Later:
-
-- **Example docker-compose file for running the server behind HTTPS.** The phone apps only pair over https://. The
-  current `docker-compose.yml` serves plain http on port 5001, so an example with a reverse proxy that handles
-  certificates (e.g. Caddy) would make the server ready to pair out of the box.
-
-- **Trailforks integration.** Search and import trails. Trailforks' API needs an approved app key from Trailforks.
-- **Route planner.** Import Trailforks trails and build a route that links them. The server already has a planner
-  at `/planner` (`routes/route_builder.py`) that saves routes and exports GPX, so the phone would extend that
-  rather than start from scratch.
-- **Segments from Trailforks trails.** Turn an imported trail into a Headwind segment, so rides are matched against it
-  and appear on its leaderboard like any other segment (`services/segments.py`).
-- **Follow a route on the watch,** with a map, the route line, your position and off-route alerts. This builds on
-  the watch recording app in step 2.
+What's planned for the apps (food logging, widgets, smart-trainer control, following a route on the Watch) is in
+[TODO.md](../TODO.md) under **iOS and watchOS app**.
 
 ## Requirements
 
 - Xcode 16 or newer (the project uses folder-synchronised groups)
 - iOS 17 or newer on the phone; watchOS 10 or newer on the Watch
-- A Headwind server reachable over **https://**, the same requirement as the Android app
+- A Headwind server reachable over **https://**, the same requirement as the Android app (the main README's
+  [Putting it on the internet safely](../README.md#putting-it-on-the-internet-safely) has a Cloudflare Tunnel compose file
+  and a Caddyfile)
 
 ## Run it
 
