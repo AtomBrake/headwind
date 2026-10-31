@@ -40,6 +40,7 @@ Self-hosted training analytics for cycling, running, swimming and every other sp
 - [Privacy and telemetry](#privacy-and-telemetry)
 - [Security notes](#security-notes)
 - [The Android app](#the-android-app)
+- [The iPhone and Apple Watch app](#the-iphone-and-apple-watch-app)
 - [Troubleshooting](#troubleshooting)
 - [How it works](#how-it-works) — stack, layout, data model
 - [Known limitations and roadmap](#known-limitations-and-roadmap)
@@ -79,6 +80,7 @@ Headwind is a real, working application used daily by its author. The first publ
 - **Shared admin login.** There is one login for the whole instance. It is not a multi-user system. Don't give the login to people you don't trust with your data.
 - **Back up before you upgrade** and before you import years of history.
 - **The Android companion app is a work in progress** and not publicly released yet.
+- **The iPhone and Apple Watch app isn't on the App Store** — build it yourself with Xcode (see [ios/README.md](ios/README.md)). It hasn't yet been tried on every device it supports.
 - **The arm64 (Raspberry Pi) image and the Windows build are new** and have had little real-world testing.
 - **Don't expose it to the internet without HTTPS** — see [Putting it on the internet safely](#putting-it-on-the-internet-safely).
 
@@ -448,7 +450,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - **Activities page** — every activity in one list, with search, a sport filter and a **Select** bar to edit many at once (delete, change type, set the gear, mark as commutes, rename, download as GPX). The **Activities** link at the top of an activity goes back to the list as you left it, with its search and filters, even after paging through with Prev and Next.
 - **Commutes** and **photos** on any activity.
 - **GPX export** of any activity.
-- **Phone recording** — the Android app records rides and workouts and uploads them (work in progress; see [The Android app](#the-android-app)).
+- **Phone and watch recording** — the iPhone and Apple Watch app records every sport and uploads it (see [The iPhone and Apple Watch app](#the-iphone-and-apple-watch-app)); the Android app records rides and workouts (work in progress; see [The Android app](#the-android-app)).
 - **Upload endpoint** — `POST /import/api/upload-ride` with an `X-Upload-Token` header (set `RIDE_UPLOAD_TOKEN`) lets a script, a Pi attached to a bike computer, or an automation push GPX files in.
 
 ### Activity pages and analytics
@@ -878,6 +880,20 @@ Known limits: one shared admin login; the login password is stored in plaintext 
 ## The Android app
 
 A native Kotlin/Jetpack Compose companion — nutrition logging with barcode scan, ride recording, widgets and Health Connect — exists but is **a work in progress and not publicly released**. It pairs with your server via a QR code (**Phones** page) and a per-device token, and **requires HTTPS**. Until it's released, everything works from the browser, and the nutrition tracker installs as a PWA.
+
+---
+
+## The iPhone and Apple Watch app
+
+A native SwiftUI app in [`ios/`](ios/README.md), using the same phone API and pairing as the Android app. It isn't on the App Store: build it onto your own iPhone with Xcode (a free Apple ID works, though its builds expire after 7 days). [ios/README.md](ios/README.md) has the steps.
+
+- **Record any sport** on the iPhone or the Watch: rides on the bike you pick, runs, walks and hikes, swims on the Watch, and timed sessions (indoor rides, treadmill runs, strength, HIIT, yoga). The phone reads Bluetooth heart rate straps, power meters, speed and cadence sensors and smart trainers; the Watch uses the sensors paired in its own settings. Recordings go through the normal import (best times, segments, weather), and the phone shares its position with Home Assistant while recording.
+- **The Watch on its own:** with the phone out of range it uploads over Wi-Fi or cellular, with a token of its own listed under the phone on **Phones** and revoked with it. On Apple Watch Ultra the Action button starts and pauses a workout.
+- **Today, Activities and Overview:** the food diary and calories, every activity with its map, charts and photos (add, caption, reorder, delete), and totals for each sport.
+- **Apple Health:** steps, resting heart rate, HRV, sleep, weight, body fat, calories and other apps' workouts, each switched on by itself. Garmin's figure wins on a day it has one, a weigh-in never replaces a manual or Garmin one, and Apple's HRV (SDNN through the day) is kept apart from Garmin's (RMSSD overnight). **Remove Apple Health data from Headwind** deletes it from the server.
+- **Friends:** make a share code as a QR code, or add a friend by scanning theirs.
+
+Like the Android app it **requires HTTPS**. Pair it from **Phones**: name the phone, press **Create token**, then scan the QR code in the app or with the iPhone's Camera.
 
 ---
 
