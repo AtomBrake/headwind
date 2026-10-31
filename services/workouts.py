@@ -18,7 +18,8 @@ log = logging.getLogger(__name__)
 # A workout as the phone API and the Workouts page have always seen it (before 0.7 it had a table of its own, with `sport` for sportType)
 COLS = ('id, riderId, sportType AS sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, averageSpeed, maxSpeed, '
         'averageHeartrate, calories, steps, startLat, startLng, streams, weatherSummary, source, createdAt, caloriesRaw, originId')
-_ICON = {'Walk': '🚶', 'Run': '🏃', 'VirtualRun': '🏃', 'Hike': '🥾', 'Swim': '🏊', 'Surf': '🏄', 'Paddle': '🛶', 'Row': '🚣', 'Ski': '⛷️', 'Skate': '⛸️', 'Golf': '⛳', 'Climb': '🧗'}
+_ICON = {'Walk': '🚶', 'Run': '🏃', 'VirtualRun': '🏃', 'Hike': '🥾', 'Swim': '🏊', 'Surf': '🏄', 'Paddle': '🛶', 'Row': '🚣', 'Ski': '⛷️', 'Skate': '⛸️', 'Golf': '⛳', 'Climb': '🧗',
+         'Strength': '🏋️', 'HIIT': '🔥', 'Yoga': '🧘'}
 MI = 1609.344
 
 
@@ -35,6 +36,19 @@ def estimate_calories(sport, distance_m, moving_s, gain_m, kg):
     else:                                              # walking (also slow jogging / hiking)
         vo2 = 0.1 * speed + 1.8 * speed * grade + 3.5
     return round(vo2 * kg / 1000.0 * 5.0 * minutes)
+
+
+# Metabolic equivalents for the sports estimate_calories can't work out from a distance: roughly the Compendium of Physical Activities'
+# moderate figure for each. Used when the device gave no calories (typed in by hand, a phone timer with no heart rate).
+METS = {'Strength': 3.5, 'HIIT': 8.0, 'Yoga': 2.5, 'Swim': 7.0, 'VirtualRun': 9.0}
+
+
+def estimate_met_calories(sport, moving_s, kg):
+    """Gross kcal from a MET figure (METS) times weight and time, or None for a sport without one."""
+    met = METS.get(sport)
+    if not met or not moving_s or not kg or moving_s < 60:
+        return None
+    return round(met * kg * moving_s / 3600)
 
 
 def _local(iso, lat=None, lng=None, sport=None):

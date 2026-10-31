@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 from flask import Blueprint, redirect, render_template, request, session
 
 from database import get_db, query_db
-from services import sports
+from services import sports, tz
 from services.dates import day_month
 from services.sport_filter import SportFilter, chart_groups, speed_sql
 
@@ -16,7 +16,7 @@ bp = Blueprint('dashboard', __name__)
 def _weekly_data(rider_id, sf=None):
     """The last 12 weeks of the sports the filter leaves in: totals, and the same per stat group ('by') for the stacked bars. Without a filter, rides
     only (the phone app's weekly bars). The week's own distance is None when the sports don't share one: a swim's doesn't add to a ride's."""
-    today  = date.today()
+    today  = tz.today()                                  # the server's home zone, as every other date here
     monday = today - timedelta(days=today.weekday())
     first  = monday - timedelta(weeks=11)
     clause, cparams = sf.sql() if sf else (sports.RIDE_SQL, [])
@@ -378,11 +378,8 @@ def dashboard():
 
     recovery = None
     if active_rider and active_rider['isDefault']:
-        recovery = query_db(
-            'SELECT date, restingHR, hrv, hrvBalanced, sleepHours, sleepScore, bodyBattery, steps, stressScore '
-            'FROM GarminDaily ORDER BY date DESC LIMIT 1',
-            one=True,
-        )
+        from services import health
+        recovery = health.latest_recovery(active_rider['id'])      # Garmin's, or Apple Health's for a rider without one
 
     # Live-ish current conditions from Home Assistant (services/homeassistant.sync_weather, refreshed
     # every ~5 min by the background heartbeat) — stale beyond a few hours means HA/the entity is

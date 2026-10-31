@@ -802,6 +802,9 @@ def migrate_db():
             revokedAt  TEXT
         )
     ''')
+    # A token a phone made for its Apple Watch (services/device_auth.create_child) names the phone's; revoking the phone revokes it too
+    if 'parentId' not in {r[1] for r in db.execute('PRAGMA table_info(DeviceToken)').fetchall()}:
+        db.execute('ALTER TABLE DeviceToken ADD COLUMN parentId INTEGER')
 
     # Phone-generated ids for queued offline writes, so a retried food/water log is applied once (see routes/nutrition.py log_food / add_water)
     db.execute('''

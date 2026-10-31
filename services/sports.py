@@ -18,7 +18,8 @@ KIND_SQL = f"(CASE WHEN {RIDE_SQL} THEN 'ride' ELSE 'workout' END)"     # the ph
 RIDES = ('Ride', 'VirtualRide', 'EBikeRide', 'MountainBikeRide', 'GravelRide')     # Strava's names for the last two, squashed: a default bike can follow them
 ON_FOOT = ('Walk', 'Run', 'Hike')                     # what the phone records, and what calories can be estimated for (workouts.estimate_calories)
 INDOOR_RUN = 'VirtualRun'                              # a treadmill, or Zwift's running: Garmin's, a FIT file's and Strava's name for it
-OTHER = ('Swim', 'Surf', 'Paddle', 'Row', 'Ski', 'Skate', 'Golf', 'Climb', 'Other')   # Garmin activities that are neither rides nor on foot
+OTHER = ('Swim', 'Surf', 'Paddle', 'Row', 'Ski', 'Skate', 'Golf', 'Climb', 'Strength', 'HIIT', 'Yoga', 'Other')   # neither rides nor on foot
+NO_DISTANCE = ('Strength', 'HIIT', 'Yoga')            # timed only: no distance, pace or climb (a pool swim has a distance, so it isn't here)
 WORKOUTS = ON_FOOT + (INDOOR_RUN,) + OTHER
 SPORTS = RIDES + WORKOUTS
 LABELS = {'VirtualRide': 'Indoor ride', 'EBikeRide': 'E-bike ride', 'MountainBikeRide': 'Mountain bike ride', 'GravelRide': 'Gravel ride',
@@ -66,7 +67,8 @@ def icon(sport):
     if 'walk' in t or 'hike' in t or 'snowshoe' in t: return '🥾'
     if 'sail' in t: return '⛵'
     if 'yoga' in t: return '🧘'
-    if 'weight' in t: return '🏋️'
+    if 'weight' in t or 'strength' in t: return '🏋️'
+    if 'hiit' in t: return '🔥'
     return '🏅'
 
 
@@ -131,7 +133,12 @@ def is_ebike(sport):
 
 _TYPE_NEEDLES = (('run', 'Run'), ('walk', 'Walk'), ('hik', 'Hike'), ('mountaineer', 'Hike'), ('swim', 'Swim'), ('surf', 'Surf'),
                  ('paddl', 'Paddle'), ('kayak', 'Paddle'), ('canoe', 'Paddle'), ('raft', 'Paddle'), ('row', 'Row'),
-                 ('ski', 'Ski'), ('snowboard', 'Ski'), ('skat', 'Skate'), ('golf', 'Golf'), ('climb', 'Climb'))
+                 ('ski', 'Ski'), ('snowboard', 'Ski'), ('skat', 'Skate'), ('golf', 'Golf'), ('climb', 'Climb'),
+                 # last, so they only ever take what would have been Other: Garmin's strength_training, Strava's "Weight Training" and "Crossfit",
+                 # Apple's TraditionalStrengthTraining / FunctionalStrengthTraining / CoreTraining / HighIntensityIntervalTraining / Yoga.
+                 # Pilates and Apple's MindAndBody stay Other: neither is quite yoga.
+                 ('strength', 'Strength'), ('weight', 'Strength'), ('crossfit', 'Strength'), ('coretraining', 'Strength'), ('core_training', 'Strength'),
+                 ('hiit', 'HIIT'), ('highintensity', 'HIIT'), ('high_intensity', 'HIIT'), ('yoga', 'Yoga'))
 _INDOOR_SUBS = ('indoor_cycling', 'virtual_activity')
 _INDOOR_RUN_SUBS = ('treadmill', 'indoor_running', 'virtual_activity')
 
