@@ -22,7 +22,7 @@
   <div class="card">
     {{ goal_progress(g) }}
     <form method="POST" action="{{ url_for('goals.delete_goal', gid=g.id) }}" style="margin-top:0.6rem;"
-          onsubmit="return confirm('Delete the goal {{ g.title | replace("'", "’") }}? Your activities stay. This cannot be undone.')">
+          data-confirm="Delete the goal {{ g.title }}? Your activities stay. This cannot be undone." onsubmit="return confirm(this.dataset.confirm)">
       {{ rider_field() }}<button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button>
     </form>
   </div>
@@ -73,11 +73,11 @@
       <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='leave') }}">{{ rider_field() }}<button class="btn btn-secondary btn-sm" type="submit">Not this time</button></form>
       {% elif c.mine %}
       <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='delete') }}"
-            onsubmit="return confirm('Delete the challenge {{ c.name | replace("'", "’") }}? Friends who joined keep it without you; the rest stop seeing it on their next sync. This cannot be undone.')">
+            data-confirm="Delete the challenge {{ c.name }}? Friends who joined keep it without you; the rest stop seeing it on their next sync. This cannot be undone." onsubmit="return confirm(this.dataset.confirm)">
         {{ rider_field() }}<button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button></form>
       {% else %}
       <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='leave') }}"
-            onsubmit="return confirm('Leave {{ c.name | replace("'", "’") }}? Your friends stop seeing you in it on their next sync.')">
+            data-confirm="Leave {{ c.name }}? Your friends stop seeing you in it on their next sync." onsubmit="return confirm(this.dataset.confirm)">
         {{ rider_field() }}<button class="btn btn-danger-quiet btn-sm" type="submit">Leave</button></form>
       {% endif %}
     </div>
@@ -128,7 +128,7 @@
     </div>
     {{ standings(c) }}
     {% if c.mine %}
-    <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='delete') }}" onsubmit="return confirm('Delete the challenge {{ c.name | replace("'", "’") }}? This cannot be undone.')">
+    <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='delete') }}" data-confirm="Delete the challenge {{ c.name }}? This cannot be undone." onsubmit="return confirm(this.dataset.confirm)">
       {{ rider_field() }}<button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button></form>
     {% endif %}
   </div>
