@@ -80,9 +80,16 @@ struct SettingsView: View {
 
     private var healthSection: some View {
         Section {
+            Toggle(isOn: Binding(get: { health.enabled.count == HealthMetric.allCases.count },
+                                 set: { on in Task { await health.set(Set(HealthMetric.allCases), on: on, using: session) } })) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Allow all").bold()
+                    Text("Everything below, asked for in one go.").font(.caption).foregroundStyle(.secondary)
+                }
+            }
             ForEach(HealthMetric.allCases) { metric in
                 Toggle(isOn: Binding(get: { health.enabled.contains(metric) },
-                                     set: { on in Task { await health.set(metric, on: on, using: session) } })) {
+                                     set: { on in Task { await health.set([metric], on: on, using: session) } })) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(metric.title)
                         Text(metric.detail).font(.caption).foregroundStyle(.secondary)

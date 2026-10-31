@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Allow all for Apple Health.** One switch at the top of the app's Apple Health settings turns every kind of data on, asked for in one Health sheet; the separate switches stay for choosing some. A server too old for Apple Health now says so, instead of "HTTP 404".
+
 ## [0.7.28-beta] - 2026-10-31
 
 ### Added
