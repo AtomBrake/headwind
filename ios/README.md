@@ -144,11 +144,20 @@ Later:
 
 1. Open `ios/Headwind.xcodeproj` in Xcode.
 2. **Simulator:** choose an iPhone simulator and press Run.
-3. **Your own iPhone:** plug it in, select the **Headwind** target → *Signing & Capabilities*, choose your Team
-   (a free Apple ID works) and, if Xcode complains, change the bundle identifier to something unique to you.
-   Turn on Developer Mode on the phone when iOS asks. Builds signed with a free Apple ID expire after 7 days;
-   a paid developer account lasts a year and allows TestFlight.
-4. **Apple Watch:** also choose your Team for the **HeadwindWatch** target. The Watch app is embedded in the iPhone
+3. **Your own iPhone:** add your Apple ID in Xcode → *Settings* → *Accounts* (a free Apple ID works), then create
+   `ios/Config/Signing.local.xcconfig` containing your Team ID, which that Accounts pane and developer.apple.com
+   show:
+
+   ```
+   DEVELOPMENT_TEAM = ABCDE12345
+   ```
+
+   `Config/Signing.xcconfig` reads it for every target, and git ignores it. Don't pick the Team in
+   *Signing & Capabilities* instead: Xcode writes it into `project.pbxproj`, which would put your team in a commit.
+   If Xcode complains about the bundle identifier, change it to something unique to you. Plug the phone in and turn on
+   Developer Mode when iOS asks. Builds signed with a free Apple ID expire after 7 days; a paid developer account
+   lasts a year and allows TestFlight.
+4. **Apple Watch:** the same team signs the **HeadwindWatch** target. The Watch app is embedded in the iPhone
    app, so installing on the phone offers it on the paired Watch (Watch app → *Available Apps*), or run the
    **HeadwindWatch** scheme with the Watch selected. It needs the HealthKit capability, which Xcode adds from
    `Config/HeadwindWatch.entitlements`. The iPhone target needs it too, with background delivery, for Apple Health
