@@ -278,3 +278,43 @@ def test_photos_from_the_app(phone):
     assert phone.get('/api/v1/photos/../app.db', headers=phone.H).status_code == 404
     gone = phone.delete(f"/api/v1/rides/ride/r1/photos/{photos[0]['id']}", headers=phone.H)
     assert gone.status_code == 200 and gone.get_json()['photos'] == []
+
+
+def test_an_open_water_swim_from_the_watch_is_a_swim_with_its_calories(phone):
+    from tests.test_phone_sport_bike import gpx
+    r = phone.post('/api/v1/workouts', headers=phone.H, content_type='multipart/form-data',
+                   data={'file': (BytesIO(gpx('swimming', step=0.00001)), 'Morning Swim.gpx'), 'sport': 'Swim', 'client_id': 'w1', 'source': 'ios',
+                         'calories': '210.4'})
+    assert r.status_code == 201, r.get_json()
+    w = r.get_json()['workout']
+    assert (w['sport'], w['calories'], w['source']) == ('Swim', 210, 'ios')
+    walk = phone.post('/api/v1/workouts', headers=phone.H, content_type='multipart/form-data',
+                      data={'file': (BytesIO(gpx('walking')), 'Walk.gpx'), 'sport': 'Strength', 'client_id': 'w2'})
+    assert walk.get_json()['workout']['sport'] == 'Walk'          # a timed-only sport can't have a track: the file's own sport
+
+
+def test_a_sessions_start_keeps_the_phones_own_clock(phone):
+    r = phone.post('/api/v1/activities', headers=phone.H, json={
+        'sport': 'Yoga', 'start': '2026-10-20T18:30:00-04:00', 'duration_s': 1800, 'client_id': 'ny', 'source': 'ios'})
+    assert r.status_code == 201, r.get_json()
+    with phone.app_.app_context():
+        a = database.get_db().execute('SELECT startDateLocal, startDate FROM Activity WHERE id=?', [r.get_json()['id']]).fetchone()
+    assert (a['startDateLocal'], a['startDate']) == ('2026-10-20T18:30:00', '2026-10-20T22:30:00')   # 6.30pm in New York
+    typed = phone.post('/api/v1/activities', headers=phone.H, json={'sport': 'Yoga', 'date': '2026-01-10', 'time': '09:00', 'duration_s': 1800})
+    with phone.app_.app_context():
+        a = database.get_db().execute('SELECT startDateLocal, startDate FROM Activity WHERE id=?', [typed.get_json()['id']]).fetchone()
+    assert (a['startDateLocal'], a['startDate']) == ('2026-01-10T09:00:00', '2026-01-10T09:00:00')   # the home zone, London in winter
+
+
+def test_an_indoor_ride_from_the_phone_goes_on_the_chosen_bike(phone):
+    with phone.app_.app_context():
+        x = database.get_db()
+        x.executemany("INSERT INTO Bike (id, riderId, name, kind, archived) VALUES (?,?,?,?,0)", [(1, 1, 'Roadie', 'road'), (2, 1, 'Turbo', 'road'), (3, 2, "Sam's", 'road')])
+        x.execute('UPDATE Rider SET defaultBikeId=1 WHERE id=1')
+        x.commit()
+    body = {'sport': 'VirtualRide', 'start': '2026-10-20T18:30:00+01:00', 'duration_s': 3600, 'distance_m': 30000, 'source': 'ios'}
+    turbo = phone.post('/api/v1/activities', headers=phone.H, json={**body, 'client_id': 'a', 'bike_id': 2}).get_json()['id']
+    other = phone.post('/api/v1/activities', headers=phone.H, json={**body, 'client_id': 'b', 'bike_id': 3, 'start': '2026-10-21T18:30:00+01:00'}).get_json()['id']
+    with phone.app_.app_context():
+        bikes = {r['id']: r['bikeId'] for r in database.get_db().execute('SELECT id, bikeId FROM Activity')}
+    assert bikes[turbo] == 2 and bikes[other] == 1           # Sam's bike isn't the rider's: the default

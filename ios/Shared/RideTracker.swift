@@ -26,12 +26,20 @@ struct RideTracker: Sendable {
     private var elevationRef: Double?
     private var heartRateSum = 0
     private var heartRateCount = 0
+    private var powerSum = 0
+    private var powerCount = 0
+    private var cadenceSum = 0
+    private var cadenceCount = 0
 
     var points: [RidePoint] { segments.flatMap { $0 } }
     var pointCount: Int { segments.reduce(0) { $0 + $1.count } }
     var lastPoint: RidePoint? { segments.last(where: { !$0.isEmpty })?.last }
     var averageSpeed: Double { movingTime > 0 ? distance / movingTime : 0 }
     var averageHeartRate: Int? { heartRateCount > 0 ? heartRateSum / heartRateCount : nil }
+    /// Over the fixes that had a reading, zeros included (coasting is part of a ride's average power, as on a head unit).
+    var averagePower: Int? { powerCount > 0 ? powerSum / powerCount : nil }
+    /// Over the fixes where the cranks turned: coasting would drag it down, as Garmin leaves it out.
+    var averageCadence: Int? { cadenceCount > 0 ? cadenceSum / cadenceCount : nil }
 
     init() {}
 
@@ -90,6 +98,14 @@ struct RideTracker: Sendable {
         if let hr = point.hr, hr > 0 {
             heartRateSum += hr
             heartRateCount += 1
+        }
+        if let power = point.power, power >= 0 {
+            powerSum += power
+            powerCount += 1
+        }
+        if let cadence = point.cadence, cadence > 0 {
+            cadenceSum += cadence
+            cadenceCount += 1
         }
         segments[segments.count - 1].append(point)
         return true

@@ -2,7 +2,7 @@
 
   GET  /api/v1/ping        who this instance is (the app calls it right after pairing), and the rider's bikes for the app's bike picker
   GET  /api/v1/today       everything the app's home screen needs in ONE request (fast start)
-  POST /api/v1/workouts    upload a recorded walk/run (multipart: file=GPX, optional sport, name, client_id, steps, source=android|ios) — idempotent
+  POST /api/v1/workouts    upload a recorded walk/run/swim (multipart: file=GPX, optional sport, name, client_id, steps, calories, source=android|ios) — idempotent
   GET  /api/v1/workouts    recent workouts
   DELETE /api/v1/workouts/<id>
   POST /api/v1/rides       upload a recorded cycling ride (multipart: file=GPX, optional bike_id) — saved as a ride, not a workout, via the
@@ -628,9 +628,13 @@ def post_workout():
     steps = request.form.get('steps')
     source = request.form.get('source') if request.form.get('source') in ('android', 'ios') else 'android'   # older Android apps send none
     try:
-        w, created = workouts.save_from_gpx(rider['id'], data, sport=request.form.get('sport'), name=request.form.get('name'),
-                                            client_id=(request.form.get('client_id') or '').strip() or None,
-                                            steps=int(steps) if steps and steps.isdigit() else None, source=source)
+        kcal = float(request.form['calories']) if request.form.get('calories') else None
+    except ValueError:
+        kcal = None
+    try:
+        w, created = workouts.save_from_gpx(rider['id'], data, sport=request.form.get('sport'), name=(request.form.get('name') or '')[:80] or None,
+                                            client_id=(request.form.get('client_id') or '').strip()[:80] or None,
+                                            steps=int(steps) if steps and steps.isdigit() else None, source=source, calories=kcal)
     except ValueError as e:
         return jsonify({'error': str(e)}), 422
     if created:
@@ -674,7 +678,7 @@ def delete_workout(wid):
 def post_activity():
     """Add an activity with no track (JSON): {sport, date 'YYYY-MM-DD', time 'HH:MM' (the server's local time) or start (ISO 8601 with its offset, as
     the iPhone sends it), duration_s, distance_m (not for Strength, HIIT or Yoga), elev_m?, calories?, avg_hr?, name?, notes?, client_id?,
-    source? (manual, ios or android)}. The sports are services/manual_activity.SPORTS. Idempotent per client_id."""
+    source? (manual, ios or android), bike_id? (a ride's: one of the rider's, else the default)}. The sports are services/manual_activity.SPORTS. Idempotent per client_id."""
     from services import manual_activity
     rider = _rider()
     if not rider:
@@ -687,6 +691,12 @@ def post_activity():
                                      source=b.get('source') or 'manual', avg_hr=b.get('avg_hr'))
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
+    bike = _own_bike(rider['id'], b.get('bike_id')) if b.get('bike_id') is not None else None
+    if bike and res['created'] and res['kind'] == 'ride':        # an indoor ride on the bike chosen on the phone, as /rides does
+        from services import gear
+        db = get_db()
+        gear.set_ride_bike(db, res['id'], bike)
+        db.commit()
     _refresh_after_change(res['kind'])
     return jsonify({'status': 'created' if res['created'] else 'exists', **res}), (201 if res['created'] else 200)
 

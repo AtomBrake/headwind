@@ -7,6 +7,8 @@ struct HeadwindApp: App {
     @State private var recorder: PhoneRideRecorder
     /// Made at launch, not lazily: iOS may start the app in the background just to deliver a Watch ride.
     @State private var watch: WatchBridge
+    /// Made at launch too: HealthKit's background delivery only keeps waking the app if its observer queries are set up every launch.
+    @State private var health: HealthSync
     @State private var recordRouter = Router()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -15,6 +17,8 @@ struct HeadwindApp: App {
         let store = RideStore()
         let recorder = PhoneRideRecorder()
         let watch = WatchBridge(store: store)
+        let health = HealthSync()
+        health.observe(using: session)
         watch.onRideReceived = { Task { await store.uploadPending(using: session) } }
         recorder.postLive = { update in
             // Best effort: Home Assistant missing one position doesn't matter; the ride itself is journalled.
@@ -26,6 +30,7 @@ struct HeadwindApp: App {
         _store = State(initialValue: store)
         _recorder = State(initialValue: recorder)
         _watch = State(initialValue: watch)
+        _health = State(initialValue: health)
     }
 
     var body: some Scene {
@@ -35,24 +40,26 @@ struct HeadwindApp: App {
                 .environment(store)
                 .environment(recorder)
                 .environment(watch)
+                .environment(health)
                 .environment(recordRouter)
                 .onOpenURL { session.handle(url: $0) }
                 .onChange(of: session.info, initial: true) { syncWatch() }
                 .onChange(of: session.pairing) { syncWatch() }
         }
         .onChange(of: scenePhase) { _, phase in
-            // Retry anything that failed to upload while offline.
-            if phase == .active { Task { await store.uploadPending(using: session) } }
+            // Retry anything that failed to upload while offline, and send what Apple Health has new.
+            if phase == .active {
+                Task { await store.uploadPending(using: session) }
+                Task { await health.sync(using: session) }
+            }
         }
     }
 
     private func syncWatch() {
         watch.updateWatch(units: session.info?.units, paired: session.pairing != nil, bikes: session.bikes)
+        Task { await watch.provisionWatch(using: session) }
     }
 }
-
-/// For replies whose content the app doesn't need.
-struct Ignored: Decodable, Sendable {}
 
 struct RootView: View {
     @Environment(Session.self) private var session
@@ -125,19 +132,37 @@ struct RootView: View {
     }
 }
 
+/// The tabs. On iOS 18 they're the adaptable kind, which becomes a sidebar where there's room for one; on a phone, the iPhone Duo's inner
+/// screen included, it stays a tab bar the system can move to the side. Each tab keeps its own state across a fold or rotation, since the
+/// TabView itself never changes.
 struct MainTabs: View {
     @Environment(Session.self) private var session
 
     var body: some View {
-        TabView {
-            TodayView()
-                .tabItem { Label("Today", systemImage: "fork.knife") }
-            RecordView()
-                .tabItem { Label("Record", systemImage: "record.circle") }
-            OverviewView()
-                .tabItem { Label("Overview", systemImage: "chart.bar") }
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gearshape") }
+        Group {
+            if #available(iOS 18.0, *) {
+                TabView {
+                    Tab("Today", systemImage: "fork.knife") { TodayView() }
+                    Tab("Record", systemImage: "record.circle") { RecordView() }
+                    Tab("Activities", systemImage: "list.bullet.rectangle") { ActivitiesView() }
+                    Tab("Overview", systemImage: "chart.bar") { OverviewView() }
+                    Tab("Settings", systemImage: "gearshape") { SettingsView() }
+                }
+                .tabViewStyle(.sidebarAdaptable)
+            } else {
+                TabView {
+                    TodayView()
+                        .tabItem { Label("Today", systemImage: "fork.knife") }
+                    RecordView()
+                        .tabItem { Label("Record", systemImage: "record.circle") }
+                    ActivitiesView()
+                        .tabItem { Label("Activities", systemImage: "list.bullet.rectangle") }
+                    OverviewView()
+                        .tabItem { Label("Overview", systemImage: "chart.bar") }
+                    SettingsView()
+                        .tabItem { Label("Settings", systemImage: "gearshape") }
+                }
+            }
         }
         .task { await session.refreshInfo() }
     }

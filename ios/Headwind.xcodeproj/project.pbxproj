@@ -462,9 +462,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/Watch-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Headwind;
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Headwind reads your heart rate during a ride to add it to the ride it records.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Headwind saves your rides to Apple Health as cycling workouts with their route.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Headwind records your route with GPS while you ride.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Headwind reads your heart rate, calories, distance and any paired power or cadence sensor during a workout to add them to what it records.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Headwind saves your rides, runs, swims and sessions to Apple Health as workouts, with their route.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Headwind records your route with GPS while you ride, run, walk or swim outdoors.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = io.github.atombrake.headwind;
 				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = NO;
@@ -497,9 +497,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Config/Watch-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Headwind;
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Headwind reads your heart rate during a ride to add it to the ride it records.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Headwind saves your rides to Apple Health as cycling workouts with their route.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Headwind records your route with GPS while you ride.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Headwind reads your heart rate, calories, distance and any paired power or cadence sensor during a workout to add them to what it records.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Headwind saves your rides, runs, swims and sessions to Apple Health as workouts, with their route.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Headwind records your route with GPS while you ride, run, walk or swim outdoors.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = io.github.atombrake.headwind;
 				INFOPLIST_KEY_WKRunsIndependentlyOfCompanionApp = NO;
@@ -609,6 +609,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/Headwind.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -617,11 +618,12 @@
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Headwind;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Headwind uses the camera to scan the pairing QR code from your server's Phones page.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Headwind records your route with GPS while you ride, including with the screen locked.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Headwind reads the Apple Health data you switch on in its Settings (steps, sleep, heart rate, weight, calories, workouts) and sends it to your own Headwind server.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Headwind records your route with GPS while you ride, run or walk, including with the screen locked.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -640,6 +642,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Config/Headwind.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -648,11 +651,12 @@
 				INFOPLIST_FILE = Config/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Headwind;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Headwind uses the camera to scan the pairing QR code from your server's Phones page.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Headwind records your route with GPS while you ride, including with the screen locked.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Headwind reads the Apple Health data you switch on in its Settings (steps, sleep, heart rate, weight, calories, workouts) and sends it to your own Headwind server.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Headwind records your route with GPS while you ride, run or walk, including with the screen locked.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
