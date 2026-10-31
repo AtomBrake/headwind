@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.33-beta] - 2026-10-31
+
+### Added
+- **More map types, on every map.** The activity, segment, heatmap, route planner, road roughness and duplicate-check maps share one picker (the layers button in the map's corner): Esri satellite, satellite + labels, dark, light and topographic, OpenTopoMap (contours, paths and tracks) and CyclOSM (surfaces, mountain bike trail grades), with Waymarked Trails' mountain bike and cycle routes over any of them. Each kind of map remembers your choice in the browser. The heatmap's HD export draws whichever you've picked.
+- **Thunderforest and Ordnance Survey maps with your own key.** Save a free key under **Settings → Maps** and OpenCycleMap and Thunderforest Outdoors, or OS Outdoor (Great Britain), join the picker. Keys are encrypted like the other saved keys. Only OS's free zoom levels are used; closer in, they're enlarged.
+- **Direction arrows and distance markers on an activity's map.** Chevrons along the track show which way it went, and a marker every mile or km (every 2, 5 or 10 when zoomed out) shows how far along it is. Each has a switch in the picker, and so do the wind arrows.
+- **Charts and the map follow each other.** Hovering the elevation, speed, pace, heart rate, power or cadence chart marks the spot on the map, and moving along the track on the map shows that spot on every chart.
+
 ## [0.7.32-beta] - 2026-10-31
 
 ### Added
