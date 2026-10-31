@@ -21,6 +21,26 @@ enum GATT {
 
     /// The characteristics that stream readings, subscribed to on every sensor that has them.
     static let measurements: [UInt16] = [heartRateMeasurement, cscMeasurement, cyclingPowerMeasurement, indoorBikeData]
+
+    /// The four-digit hex form CoreBluetooth takes: `CBUUID(string: GATT.uuidString(...))`.
+    static func uuidString(_ number: UInt16) -> String {
+        let hex = String(number, radix: 16, uppercase: true)
+        return String(repeating: "0", count: 4 - hex.count) + hex
+    }
+
+    /// The characteristics to read on a service the sensor offers, or nil for one Headwind doesn't use. On a trainer, Indoor Bike Data gives
+    /// power, cadence and speed, so the Cycling Power and Speed and Cadence services many trainers offer as well are left alone rather than
+    /// read twice.
+    static func characteristics(toRead service: UInt16, onTrainer: Bool) -> [UInt16]? {
+        switch service {
+        case heartRateService: [heartRateMeasurement]
+        case cyclingSpeedCadenceService: onTrainer ? nil : [cscMeasurement]
+        case cyclingPowerService: onTrainer ? nil : [cyclingPowerMeasurement]
+        case fitnessMachineService: [indoorBikeData]
+        case batteryService: [batteryLevel]
+        default: nil
+        }
+    }
 }
 
 /// What a sensor is, from the services it offers. A device that offers several (a smart trainer is usually a power meter and a speed sensor too)
@@ -29,6 +49,11 @@ enum SensorKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case trainer, power, speedCadence, heartRate
 
     var id: Self { self }
+
+    init?(service: UInt16) {
+        guard let kind = Self.allCases.first(where: { $0.service == service }) else { return nil }
+        self = kind
+    }
 
     var service: UInt16 {
         switch self {
@@ -65,6 +90,10 @@ enum SensorKind: String, Codable, CaseIterable, Identifiable, Sendable {
         let offered = Set(services)
         return allCases.first { offered.contains($0.service) }
     }
+
+    /// Every kind a device offering these services is: one sensor can be several (a power meter that gives cadence, a trainer that is also a
+    /// power meter).
+    static func kinds(of services: some Sequence<UInt16>) -> Set<SensorKind> { Set(services.compactMap(SensorKind.init(service:))) }
 }
 
 /// Reads a GATT value field by field, failing (nil) rather than reading past the end of a short packet.
@@ -73,6 +102,7 @@ struct ByteReader {
     private var index = 0
 
     init(_ data: Data) { bytes = [UInt8](data) }
+    init(_ bytes: [UInt8]) { self.bytes = bytes }
 
     var remaining: Int { bytes.count - index }
 
@@ -116,15 +146,21 @@ struct Revolutions: Equatable, Sendable {
     var eventTime: UInt16
 }
 
-/// Heart Rate Measurement (0x2A37): a flags byte, then the rate as 8 or 16 bits. Energy expended and RR intervals may follow; they're not used.
+/// Heart Rate Measurement (0x2A37): a flags byte, then the rate as 8 or 16 bits, then energy expended and RR intervals when their bits say.
 struct HeartRateMeasurement: Equatable, Sendable {
     var bpm: Int
     /// Whether the strap is touching skin, for straps that can tell (nil for those that can't).
     var contactDetected: Bool?
+    /// Kilojoules since the strap was reset, when it counts them.
+    var energyExpended: Int?
+    /// Beat-to-beat intervals in seconds, oldest first (sent in 1/1024 s). Not recorded yet.
+    var rrIntervals: [Double]
 
-    init(bpm: Int, contactDetected: Bool? = nil) {
+    init(bpm: Int, contactDetected: Bool? = nil, energyExpended: Int? = nil, rrIntervals: [Double] = []) {
         self.bpm = bpm
         self.contactDetected = contactDetected
+        self.energyExpended = energyExpended
+        self.rrIntervals = rrIntervals
     }
 
     init?(_ data: Data) {
@@ -133,7 +169,19 @@ struct HeartRateMeasurement: Equatable, Sendable {
         let rate: Int? = flags & 0x01 != 0 ? r.u16().map(Int.init) : r.u8().map(Int.init)
         guard let rate else { return nil }
         bpm = rate
+        // Bits 1-2: 0b10 contact supported but not detected, 0b11 detected; 0b0x not supported.
         contactDetected = flags & 0x04 != 0 ? flags & 0x02 != 0 : nil
+        if flags & 0x08 != 0 {
+            guard let v = r.u16() else { return nil }
+            energyExpended = Int(v)
+        } else {
+            energyExpended = nil
+        }
+        var rr: [Double] = []
+        if flags & 0x10 != 0 {
+            while let v = r.u16() { rr.append(Double(v) / 1024) }
+        }
+        rrIntervals = rr
     }
 
     /// A reading worth recording: a strap lying on the table sends 0, or says it has no contact.
@@ -165,26 +213,37 @@ struct CSCMeasurement: Equatable, Sendable {
     }
 }
 
-/// Cycling Power Measurement (0x2A63): 16 bits of flags, instantaneous power as signed 16-bit watts, then optional fields in a fixed order.
-/// Only those up to the crank revolution data are read (for cadence, which most power meters send), skipping the ones before it.
+/// Cycling Power Measurement (0x2A63): 16 bits of flags, instantaneous power as signed 16-bit watts, then optional fields in a fixed order:
+/// pedal balance, accumulated torque, wheel and crank revolution data (cadence, which most power meters send), then force, torque and angle
+/// fields that are skipped, then accumulated energy.
 struct CyclingPowerMeasurement: Equatable, Sendable {
+    /// Watts, signed: some meters report a little below zero when back-pedalling.
     var power: Int
     /// Wheel revolutions, with the event time in 1/2048 s (not 1/1024 s as in CSC).
     var wheel: Revolutions?
     /// Crank revolutions, the event time in 1/1024 s.
     var crank: Revolutions?
+    /// The share of the power from one pedal, in percent (sent in 1/2 %). Which pedal is a flag Headwind ignores.
+    var pedalBalance: Double?
+    /// Kilojoules since the meter was reset.
+    var accumulatedEnergy: Int?
 
-    init(power: Int, wheel: Revolutions? = nil, crank: Revolutions? = nil) {
+    init(power: Int, wheel: Revolutions? = nil, crank: Revolutions? = nil, pedalBalance: Double? = nil, accumulatedEnergy: Int? = nil) {
         self.power = power
         self.wheel = wheel
         self.crank = crank
+        self.pedalBalance = pedalBalance
+        self.accumulatedEnergy = accumulatedEnergy
     }
 
     init?(_ data: Data) {
         var r = ByteReader(data)
         guard let flags = r.u16(), let watts = r.s16() else { return nil }
         power = Int(watts)
-        if flags & 0x0001 != 0, !r.skip(1) { return nil }        // pedal power balance
+        if flags & 0x0001 != 0 {
+            guard let v = r.u8() else { return nil }
+            pedalBalance = Double(v) / 2
+        }
         if flags & 0x0004 != 0, !r.skip(2) { return nil }        // accumulated torque
         if flags & 0x0010 != 0 {
             guard let count = r.u32(), let time = r.u16() else { return nil }
@@ -193,6 +252,15 @@ struct CyclingPowerMeasurement: Equatable, Sendable {
         if flags & 0x0020 != 0 {
             guard let count = r.u16(), let time = r.u16() else { return nil }
             crank = Revolutions(count: UInt32(count), eventTime: time)
+        }
+        if flags & 0x0040 != 0, !r.skip(4) { return nil }        // extreme force magnitudes
+        if flags & 0x0080 != 0, !r.skip(4) { return nil }        // extreme torque magnitudes
+        if flags & 0x0100 != 0, !r.skip(3) { return nil }        // extreme angles (two 12-bit values)
+        if flags & 0x0200 != 0, !r.skip(2) { return nil }        // top dead spot angle
+        if flags & 0x0400 != 0, !r.skip(2) { return nil }        // bottom dead spot angle
+        if flags & 0x0800 != 0 {
+            guard let v = r.u16() else { return nil }
+            accumulatedEnergy = Int(v)
         }
     }
 }
@@ -210,10 +278,20 @@ struct IndoorBikeData: Equatable, Sendable {
     var power: Int?
     /// From a strap the trainer is paired with, if any.
     var heartRate: Int?
+    /// Seconds.
     var elapsed: Int?
+    /// m/s, rpm and watts, as the trainer averages them over its own session.
+    var averageSpeed: Double?
+    var averageCadence: Double?
+    var averagePower: Int?
+    /// Kilocalories; nil when the trainer says it doesn't know (0xFFFF).
+    var totalEnergy: Int?
+    /// Seconds.
+    var remaining: Int?
 
     init(speed: Double? = nil, cadence: Double? = nil, distance: Double? = nil, resistance: Int? = nil, power: Int? = nil,
-         heartRate: Int? = nil, elapsed: Int? = nil) {
+         heartRate: Int? = nil, elapsed: Int? = nil, averageSpeed: Double? = nil, averageCadence: Double? = nil, averagePower: Int? = nil,
+         totalEnergy: Int? = nil, remaining: Int? = nil) {
         self.speed = speed
         self.cadence = cadence
         self.distance = distance
@@ -221,6 +299,11 @@ struct IndoorBikeData: Equatable, Sendable {
         self.power = power
         self.heartRate = heartRate
         self.elapsed = elapsed
+        self.averageSpeed = averageSpeed
+        self.averageCadence = averageCadence
+        self.averagePower = averagePower
+        self.totalEnergy = totalEnergy
+        self.remaining = remaining
     }
 
     init?(_ data: Data) {
@@ -231,12 +314,18 @@ struct IndoorBikeData: Equatable, Sendable {
             guard let v = r.u16() else { return nil }
             speed = Double(v) / 100 / 3.6
         }
-        if has(1), !r.skip(2) { return nil }                       // average speed
+        if has(1) {
+            guard let v = r.u16() else { return nil }
+            averageSpeed = Double(v) / 100 / 3.6
+        }
         if has(2) {
             guard let v = r.u16() else { return nil }
             cadence = Double(v) / 2
         }
-        if has(3), !r.skip(2) { return nil }                       // average cadence
+        if has(3) {
+            guard let v = r.u16() else { return nil }
+            averageCadence = Double(v) / 2
+        }
         if has(4) {
             guard let v = r.u24() else { return nil }
             distance = Double(v)
@@ -249,8 +338,15 @@ struct IndoorBikeData: Equatable, Sendable {
             guard let v = r.s16() else { return nil }
             power = Int(v)
         }
-        if has(7), !r.skip(2) { return nil }                       // average power
-        if has(8), !r.skip(5) { return nil }                       // energy: total, per hour, per minute
+        if has(7) {
+            guard let v = r.s16() else { return nil }
+            averagePower = Int(v)
+        }
+        if has(8) {
+            // Total energy, then energy per hour (16 bits) and per minute (8), which aren't used.
+            guard let total = r.u16(), r.skip(3) else { return nil }
+            totalEnergy = total == 0xFFFF ? nil : Int(total)
+        }
         if has(9) {
             guard let v = r.u8() else { return nil }
             heartRate = Int(v)
@@ -259,6 +355,10 @@ struct IndoorBikeData: Equatable, Sendable {
         if has(11) {
             guard let v = r.u16() else { return nil }
             elapsed = Int(v)
+        }
+        if has(12) {
+            guard let v = r.u16() else { return nil }
+            remaining = Int(v)
         }
     }
 }

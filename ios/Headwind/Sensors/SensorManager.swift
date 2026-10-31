@@ -24,9 +24,11 @@ protocol SensorFeed: AnyObject {
 }
 
 /// Bluetooth LE sensors on the iPhone: heart rate straps (0x180D), speed and cadence sensors (0x1816), power meters (0x1818) and smart trainers
-/// (Fitness Machine, 0x1826). Scans for those four services only, on the Sensors screen; connects to the paired ones by identifier
-/// (`retrievePeripherals`), and reconnects by itself when one drops mid-ride: a pending connection never times out, so iOS completes it when
-/// the sensor is back in range. The parsing and arithmetic are `SensorChannel` and `SensorReadings`, in `Shared/`.
+/// (Fitness Machine, 0x1826). Scans for those four services only: on the Sensors screen, and quietly while a paired one can't be found by
+/// identifier. Connects to the paired ones by identifier (`retrievePeripherals`, or `retrieveConnectedPeripherals` for one another app has
+/// connected), and reconnects by itself when one drops mid-ride: a pending connection never times out, so iOS completes it when the sensor is
+/// back in range. On a trainer only Indoor Bike Data is read, not the Cycling Power and Speed and Cadence services it may offer too, so
+/// nothing is counted twice. The parsing and arithmetic are `SensorChannel` and `SensorReadings`, in `Shared/`.
 ///
 /// The central is made only when it's needed (the Sensors screen opens, or there are paired sensors and Bluetooth was allowed), because
 /// making one is what asks for permission. Its restore identifier lets iOS hand back the connections if it ends the app mid-ride.
@@ -85,6 +87,9 @@ final class SensorManager: NSObject, SensorFeed {
     @ObservationIgnored private var foundPeripherals: [UUID: CBPeripheral] = [:]
     @ObservationIgnored private var uses: Set<SensorUse> = []
     @ObservationIgnored private var release: Task<Void, Never>?
+    /// What the central is scanning with now: nil when it isn't, true when it reports every advertisement (signal strength on the Sensors
+    /// screen), false when only the first (looking for a paired sensor iOS has forgotten).
+    @ObservationIgnored private var scanMode: Bool?
     private let defaults: UserDefaults
     private let wheel: WheelSize
 
@@ -95,7 +100,6 @@ final class SensorManager: NSObject, SensorFeed {
     private static let restoreID = "io.github.atombrake.headwind.sensors"
     private static let scanServices = SensorKind.services.map(\.cbuuid)
     private static let services = (SensorKind.services + [GATT.batteryService]).map(\.cbuuid)
-    private static let characteristics = (GATT.measurements + [GATT.batteryLevel]).map(\.cbuuid)
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -174,21 +178,9 @@ final class SensorManager: NSObject, SensorFeed {
         ])
     }
 
-    /// Scan while the Sensors screen is open; connect the paired sensors while anything needs them, and let them go when nothing does.
+    /// Connect the paired sensors while anything needs them, and let them go when nothing does; scan as `updateScan` says.
     private func refresh() {
         guard let central, central.state == .poweredOn else { return }
-        if uses.contains(.sensorsScreen) {
-            if !central.isScanning {
-                central.scanForPeripherals(withServices: Self.scanServices, options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
-            }
-        } else if central.isScanning {
-            central.stopScan()
-        }
-        isScanning = central.isScanning
-        if !isScanning {
-            found = []
-            foundPeripherals = [:]
-        }
         release?.cancel()
         release = nil
         if uses.isEmpty {
@@ -199,6 +191,33 @@ final class SensorManager: NSObject, SensorFeed {
             }
         } else {
             for sensor in paired { connect(sensor.id) }
+        }
+        updateScan()
+    }
+
+    /// Scans with every advertisement while the Sensors screen is open, for new sensors and their signal; otherwise, while the sensors are
+    /// wanted and a paired one couldn't be found by identifier (iOS forgets a peripheral it hasn't seen for a while), scans for its first
+    /// advertisement only. Only for the four services: that's also what lets it scan in the background.
+    private func updateScan() {
+        guard let central, central.state == .poweredOn else {
+            scanMode = nil
+            isScanning = false
+            return
+        }
+        let screen = uses.contains(.sensorsScreen)
+        let missing = !uses.isEmpty && paired.contains { peripherals[$0.id] == nil }
+        let wanted: Bool? = screen ? true : missing ? false : nil
+        if wanted != scanMode {
+            if central.isScanning { central.stopScan() }
+            if let wanted {
+                central.scanForPeripherals(withServices: Self.scanServices, options: [CBCentralManagerScanOptionAllowDuplicatesKey: wanted])
+            }
+            scanMode = wanted
+        }
+        if isScanning != screen { isScanning = screen }
+        if !screen, !found.isEmpty || !foundPeripherals.isEmpty {
+            found = []
+            foundPeripherals = [:]
         }
     }
 
@@ -212,8 +231,9 @@ final class SensorManager: NSObject, SensorFeed {
 
     private func connect(_ id: UUID) {
         guard let central, central.state == .poweredOn else { return }
-        guard let peripheral = peripherals[id] ?? central.retrievePeripherals(withIdentifiers: [id]).first else {
-            links[id] = .idle    // iOS has forgotten it: the scan finds it again on the Sensors screen
+        guard let peripheral = peripherals[id] ?? central.retrievePeripherals(withIdentifiers: [id]).first
+                ?? central.retrieveConnectedPeripherals(withServices: Self.scanServices).first(where: { $0.identifier == id }) else {
+            links[id] = .idle    // iOS has forgotten it: `updateScan` looks for it
             return
         }
         peripherals[id] = peripheral
@@ -271,6 +291,7 @@ extension SensorManager: @preconcurrency CBCentralManagerDelegate {
             refresh()
         } else {
             for id in links.keys { links[id] = .idle }
+            scanMode = nil
             isScanning = false
             found = []
             foundPeripherals = [:]
@@ -294,9 +315,11 @@ extension SensorManager: @preconcurrency CBCentralManagerDelegate {
             if peripherals[id] == nil {
                 peripherals[id] = peripheral
                 if !uses.isEmpty { connect(id) }
+                updateScan()
             }
             return
         }
+        guard uses.contains(.sensorsScreen) else { return }
         let advertised = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? [])
             + (advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID] ?? [])
         guard let kind = SensorKind.main(of: advertised.compactMap(\.short)) else { return }
@@ -335,9 +358,15 @@ extension SensorManager: @preconcurrency CBCentralManagerDelegate {
 extension SensorManager: @preconcurrency CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: (any Error)?) {
         let services = peripheral.services ?? []
-        for service in services { peripheral.discoverCharacteristics(Self.characteristics, for: service) }
+        let offered = services.compactMap { $0.uuid.short }
+        // A trainer's Indoor Bike Data has its power, cadence and speed: its Cycling Power and Speed and Cadence services aren't read too.
+        let onTrainer = SensorKind.kinds(of: offered).contains(.trainer)
+        for service in services {
+            guard let number = service.uuid.short, let wanted = GATT.characteristics(toRead: number, onTrainer: onTrainer) else { continue }
+            peripheral.discoverCharacteristics(wanted.map(\.cbuuid), for: service)
+        }
         // What it really offers can say more than its advertisement did (a trainer that advertised only its power).
-        if let kind = SensorKind.main(of: services.compactMap { $0.uuid.short }),
+        if let kind = SensorKind.main(of: offered),
            let i = paired.firstIndex(where: { $0.id == peripheral.identifier }), paired[i].kind != kind {
             paired[i].kind = kind
             save()
