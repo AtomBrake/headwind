@@ -65,7 +65,9 @@ minute to be kept.
   (`/activities` takes average heart rate only), and controlling a smart trainer.
 - **Uploads:** every ride is saved on the phone first, then uploaded as GPX through the server's normal import
   (best efforts, segment matching, weather); a timed session as its summary. Failed uploads, e.g. when offline, retry
-  when the app is next opened. The server ignores duplicates, so a retry can't create a second copy.
+  when the app is next opened. The server ignores duplicates, so a retry can't create a second copy. Each recording
+  uploads only to the server the phone was paired with when it was made: after pairing with another server, one still
+  waiting says so under Recordings, and its menu offers to upload it to the new server instead.
 - **Photos:** add them from the library or the camera to a recording (Photos in its menu under Recordings) before or after
   it's uploaded, or to any activity under Activities. They're redrawn as a JPEG of at most 1600 px on the phone (iPhone
   pictures are HEIC, which the server can't read), wait with the recording until it's on the server, and never hold it up.
@@ -170,6 +172,9 @@ On the server, open **Phones**, name the phone and press **Create token**. Then 
 - tap **Scan QR code** in the app,
 - point the iPhone's Camera app at the QR code. The app registers the `headwind://` scheme, so iOS offers to open it, or
 - paste the `headwind://pair?...` link shown under the QR code into *Enter details manually*.
+
+A link opened from outside the app (the Camera app, a web page, a message) never pairs by itself: the app names the
+server it points to and asks first, and when it would replace the current pairing it names both.
 
 A friend's QR code holds a `headwind://friend?c=hwfc_…` link instead. Opened from the Camera app, it goes to *Add a friend*
 rather than pairing; on a phone that isn't paired yet, it waits until it is.

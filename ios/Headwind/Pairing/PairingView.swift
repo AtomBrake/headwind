@@ -54,12 +54,37 @@ struct PairingView: View {
                 }
             }
             .task(id: session.pendingLink) {
-                // A headwind://pair link opened from outside the app while unpaired.
+                // A headwind://pair link opened from outside the app while unpaired. One that can't be read says why here; one that can
+                // waits for the alert below, so a link from a web page or a message can't pair the phone with its server unseen.
                 guard let link = session.pendingLink else { return }
-                session.pendingLink = nil
-                await pair(link: link)
+                do throws(AppError) {
+                    _ = try PairLink.parse(link)
+                } catch {
+                    session.pendingLink = nil
+                    self.error = error
+                }
+            }
+            .alert("Pair with \(offeredHost ?? "this server")?", isPresented: linkPrompt) {
+                Button("Pair") {
+                    guard let link = session.pendingLink else { return }
+                    session.pendingLink = nil
+                    Task { await pair(link: link) }
+                }
+                Button("Cancel", role: .cancel) { session.pendingLink = nil }
+            } message: {
+                Text("Recordings from this phone, and Apple Health data if you send it, will go to \(offeredHost ?? "it"). Only pair with a Headwind server you know.")
             }
         }
+    }
+
+    /// The server of a pairing link opened from outside the app, while it waits to be confirmed.
+    private var offeredHost: String? {
+        session.pendingLink.flatMap { try? PairLink.parse($0) }?.server.host()
+    }
+
+    /// Only unpaired; paired, RootView asks instead. Both buttons settle pendingLink themselves, so the setter does nothing.
+    private var linkPrompt: Binding<Bool> {
+        Binding(get: { session.pairing == nil && offeredHost != nil }, set: { _ in })
     }
 
     private func pairManually() async {

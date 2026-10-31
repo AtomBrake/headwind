@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Everything recorded on this phone or the Watch, with its upload status. Swipe to delete; failed uploads retry.
 /// A ride's bike can be changed from its menu, before or after it's uploaded, and photos added, removed and put in order (PendingPhotosView):
-/// they wait on the phone with the ride and go up once it's on the server, never holding the ride up.
+/// they wait on the phone with the ride and go up once it's on the server, never holding the ride up. A recording made under another server
+/// waits for it, unless it's sent to this one from its menu.
 struct RecordingsView: View {
     @Environment(Session.self) private var session
     @Environment(RideStore.self) private var store
@@ -45,6 +46,7 @@ struct RecordingsView: View {
                     Button("Delete", role: .destructive) { store.delete(ride) }
                 }
                 .contextMenu {
+                    let here = ride.belongs(to: session.pairing?.server)
                     if ride.summary.sport.isRide, !session.bikes.isEmpty {
                         Menu {
                             ForEach(session.bikes) { bike in
@@ -57,9 +59,14 @@ struct RecordingsView: View {
                         } label: {
                             Label("Bike", systemImage: "bicycle")
                         }
-                        .disabled(ride.status == .uploading)
+                        .disabled(ride.status == .uploading || (ride.status == .uploaded && !here))
                     }
-                    if ride.status == .rejected {
+                    if !here, ride.status != .uploaded, ride.status != .uploading, let host = session.pairing?.server.host() {
+                        Button { Task { await store.send(ride, toCurrentServerUsing: session) } } label: {
+                            Label("Upload to \(host) instead", systemImage: "arrow.up.circle")
+                        }
+                    }
+                    if ride.status == .rejected, here {
                         Button { Task { await store.retry(ride, using: session) } } label: {
                             Label("Try uploading again", systemImage: "arrow.clockwise")
                         }
@@ -68,7 +75,7 @@ struct RecordingsView: View {
                         let waiting = ride.pendingPhotos?.count ?? 0
                         Label(waiting == 0 ? "Add photos" : "Photos (\(waiting) waiting)", systemImage: "photo.badge.plus")
                     }
-                    .disabled(ride.status == .rejected && (ride.pendingPhotos ?? []).isEmpty)
+                    .disabled((ride.status == .rejected || (ride.status == .uploaded && !here)) && (ride.pendingPhotos ?? []).isEmpty)
                     if let gpx = store.gpxURL(for: ride) {
                         ShareLink(item: gpx) { Label("Share GPX", systemImage: "square.and.arrow.up") }
                     }
@@ -77,7 +84,7 @@ struct RecordingsView: View {
         }
         .navigationTitle("Recordings")
         .toolbar {
-            if store.rides.contains(where: { $0.status == .failed || $0.status == .pending }) {
+            if let server = session.pairing?.server, store.waitingCount(for: server) > 0 {
                 Button("Upload") { Task { await store.uploadPending(using: session) } }
             }
         }

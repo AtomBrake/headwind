@@ -46,3 +46,11 @@ enum PairLink {
         return Pairing(server: url, token: t)
     }
 }
+
+extension URL {
+    /// Whether two server addresses are the same server, ignoring the case of the scheme and host (PairLink.make has already dropped any
+    /// trailing slash). A server reached by two addresses counts as two.
+    func isSameServer(as other: URL) -> Bool {
+        absoluteString.lowercased() == other.absoluteString.lowercased()
+    }
+}

@@ -23,6 +23,7 @@ struct HeadwindApp: App {
         let health = HealthSync()
         health.observe(using: session)
         watch.onRideReceived = { Task { await store.uploadPending(using: session) } }
+        store.serverForNewRides = { session.pairing?.server ?? session.lastServer }
         recorder.postLive = { update in
             // Best effort: Home Assistant missing one position doesn't matter; the ride itself is journalled.
             // Not through session.call, so a 401 here doesn't unpair the phone mid-ride.
@@ -69,6 +70,7 @@ struct HeadwindApp: App {
 struct RootView: View {
     @Environment(Session.self) private var session
     @Environment(PhoneRideRecorder.self) private var recorder
+    @Environment(RideStore.self) private var store
     /// Set while a new server is being checked before it replaces the current pairing.
     @State private var switching = false
     @State private var switchError: AppError?
@@ -110,12 +112,16 @@ struct RootView: View {
         }
     }
 
+    /// Names both servers, and what's still to go up to the current one: those recordings stay with it (RideStore uploads a recording only to
+    /// the server it was made under) until they're sent to the new one from Recordings.
     private var switchMessage: String {
         let current = session.pairing?.server.host() ?? "a server"
+        let waiting = session.pairing.map { store.waitingCount(for: $0.server) } ?? 0
+        let stay = waiting == 0 ? "" : " \(waiting) recording\(waiting == 1 ? "" : "s") not yet uploaded will wait for \(current)."
         guard let link = session.pendingLink, let new = (try? PairLink.parse(link))?.server.host() else {
-            return "This phone is paired with \(current). Opening this code replaces that pairing."
+            return "This phone is paired with \(current). Opening this code replaces that pairing.\(stay)"
         }
-        return "This phone is paired with \(current). Opening this code pairs it with \(new) instead."
+        return "This phone is paired with \(current). Opening this code pairs it with \(new) instead.\(stay)"
     }
 
     /// The new server is checked first (Session.pair stores a pairing only once its server accepts the token), so a stale or

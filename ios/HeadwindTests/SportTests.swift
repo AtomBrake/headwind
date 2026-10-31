@@ -329,6 +329,63 @@ struct WatchRecordingTests {
     }
 }
 
+@MainActor
+struct RideServerTests {
+    let home = URL(string: "https://bike.example.com")!
+    /// Nothing listens on port 1, so an upload there fails at once.
+    let other = URL(string: "https://127.0.0.1:1")!
+    let token = "hw_TestOnlyNotARealToken0123456789abcdefghij"
+
+    private func store() -> (RideStore, URL) {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "store-\(UUID().uuidString)")
+        return (RideStore(directory: dir), dir)
+    }
+
+    @Test func aRecordingBelongsToTheServerItWasMadeUnder() throws {
+        let (store, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        store.serverForNewRides = { [home] in home }
+        let ride = try store.addSession(summary: .session(start: start, elapsed: 1200, sport: .strength), source: .phone)
+        #expect(ride.server == home)
+        #expect(ride.belongs(to: URL(string: "https://Bike.Example.com")!))
+        #expect(!ride.belongs(to: other) && !ride.belongs(to: nil))
+        #expect(store.waitingCount(for: home) == 1 && store.waitingCount(for: other) == 0)
+        #expect(RideStore(directory: dir).rides.first?.server == home)     // and after a relaunch
+
+        let older = SavedRide(id: UUID(), summary: ride.summary, source: .phone, status: .pending)   // from before rides kept their server
+        #expect(older.belongs(to: other) && !older.belongs(to: nil))
+    }
+
+    @Test func pairingWithAnotherServerDoesntSendItsRidesThere() async throws {
+        let (store, dir) = store()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        store.serverForNewRides = { [home] in home }
+        let ride = try store.addSession(summary: .session(start: start, elapsed: 1200, sport: .strength), source: .phone)
+        let session = Session(store: MemoryPairingStore(Pairing(server: other, token: token)), defaults: tempDefaults())
+
+        await store.uploadPending(using: session)
+        #expect(store.rides.first?.status == .pending && store.rides.first?.server == home)    // not tried: it's waiting for home
+
+        await store.send(ride, toCurrentServerUsing: session)       // the user says it can go to this one
+        #expect(store.rides.first?.server == other)
+        #expect(store.rides.first?.status == .failed)               // tried there (and nothing listens)
+    }
+
+    @Test func theLastServerOutlivesAnUnpair() {
+        let defaults = tempDefaults()
+        let session = Session(store: MemoryPairingStore(Pairing(server: home, token: token)), defaults: defaults)
+        session.unpair()
+        #expect(session.pairing == nil && session.lastServer == home)
+        #expect(Session(store: MemoryPairingStore(), defaults: defaults).lastServer == home)   // and after a relaunch
+    }
+
+    @Test func aPairingLinkWaitsToBeConfirmed() {
+        let session = Session(store: MemoryPairingStore(), defaults: tempDefaults())
+        session.handle(url: URL(string: "headwind://pair?u=https%3A%2F%2Fbike.example.com&t=\(token)")!)
+        #expect(session.pairing == nil && session.pendingLink != nil)
+    }
+}
+
 struct HealthSleepTests {
     @Test func overlappingSleepIsCountedOnceAndDatedToTheMorning() {
         var cal = Calendar(identifier: .gregorian)
