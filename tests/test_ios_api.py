@@ -318,3 +318,36 @@ def test_an_indoor_ride_from_the_phone_goes_on_the_chosen_bike(phone):
     with phone.app_.app_context():
         bikes = {r['id']: r['bikeId'] for r in database.get_db().execute('SELECT id, bikeId FROM Activity')}
     assert bikes[turbo] == 2 and bikes[other] == 1           # Sam's bike isn't the rider's: the default
+
+
+def test_a_phone_request_bigger_than_the_app_ever_sends_is_refused(phone, monkeypatch):
+    monkeypatch.setattr('routes.api_v1.MAX_REQUEST', 1000)
+    big = phone.post('/api/v1/health/days', headers=phone.H, json={'days': [{'date': '2026-10-01', 'metric': 'steps', 'value': 1}] * 100})
+    assert big.status_code == 413
+    small = phone.post('/api/v1/health/days', headers=phone.H, json={'days': []})
+    assert small.status_code == 200
+
+
+def test_perform_marks_the_fastest_on_each_segment(phone):
+    with phone.app_.app_context():
+        x = database.get_db()
+        x.execute("INSERT INTO Segment (id, name, startLat, startLng, endLat, endLng) VALUES (1, 'Hill', 0, 0, 1, 1), (2, 'Flat', 0, 0, 1, 1)")
+        x.commit()
+    add(phone, 'r1', 'Ride', tz.today().isoformat(), dist=20000)
+    add(phone, 'sams', 'Ride', tz.today().isoformat(), dist=20000, rider=2)
+    with phone.app_.app_context():
+        x = database.get_db()
+        x.executemany("INSERT INTO SegmentEffort (segmentId, activityId, elapsedSecs, activityDate) VALUES (?,?,?,?)",
+                      [(1, 'r1', 100, '2026-10-01'), (1, 'sams', 90, '2026-10-01'), (2, 'r1', 50, '2026-10-01'), (2, 'sams', 60, '2026-10-01')])
+        x.commit()
+    segs = {s['name']: s['isKom'] for s in phone.get('/api/v1/perform', headers=phone.H).get_json()['segments']}
+    assert segs == {'Hill': False, 'Flat': True}
+
+
+def test_nan_is_not_a_number_here(phone):
+    r = phone.post('/api/v1/activities', headers={**phone.H, 'Content-Type': 'application/json'},
+                   data='{"sport": "Yoga", "start": "2026-10-20T18:30:00Z", "duration_s": 1800, "avg_hr": NaN}')
+    assert r.status_code == 400
+    h = phone.post('/api/v1/health/days', headers={**phone.H, 'Content-Type': 'application/json'},
+                   data='{"days": [{"date": "2026-10-20", "metric": "steps", "value": NaN}, {"date": "2026-10-20", "metric": "weight_kg", "value": Infinity}]}')
+    assert h.get_json()['saved'] == 0

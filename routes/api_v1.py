@@ -31,6 +31,14 @@ bp = Blueprint('api_v1', __name__, url_prefix='/api/v1')
 ui = Blueprint('workouts_ui', __name__)
 MAX_GPX = 25 * 1024 * 1024
 MAX_PHOTOS = 60                    # per activity, from the app
+MAX_REQUEST = 64 * 1024 * 1024     # the app's largest upload is a 25 MB GPX or photo; the app-wide limit (2 GB) is for Strava export zips
+
+
+@bp.before_request
+def _limit_size():
+    """A phone's request is never near the 2 GB the web import allows: refuse anything bigger than the app sends before Werkzeug spools it to disk."""
+    if (request.content_length or 0) > MAX_REQUEST:
+        return jsonify({'error': 'request too large'}), 413
 
 
 def _rider():
@@ -271,8 +279,15 @@ def perform():
         ORDER BY pr_date DESC
     ''', [rid])
     segment_list = []
+    # Every rider's fastest effort per segment, in one query rather than one per segment
+    ids = [s['id'] for s in segs]
+    fastest = {}
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        fastest.update({r['segmentId']: r['t'] for r in query_db(
+            f"SELECT segmentId, MIN(elapsedSecs) t FROM SegmentEffort WHERE segmentId IN ({','.join('?' * len(chunk))}) GROUP BY segmentId", chunk)})
     for s in segs:
-        kom = query_db('SELECT MIN(e.elapsedSecs) t FROM SegmentEffort e WHERE e.segmentId=?', [s['id']], one=True)
+        kom = {'t': fastest.get(s['id'])}
         segment_list.append({
             'id': s['id'], 'name': s['name'], 'distanceM': s['distanceM'], 'elevationGainM': s['elevationGainM'],
             'effortCount': s['effort_count'], 'bestSecs': s['best_secs'], 'prDate': s['pr_date'],
@@ -352,7 +367,7 @@ def rides():
     q = (request.args.get('q') or '').strip()[:100]
     src = (
         f"SELECT {KIND_SQL} kind, CAST(id AS TEXT) id, name, sportType sport, startDateLocal, distance, movingTime, totalElevationGain elev, averageSpeed spd, "
-        "averageHeartrate hr, calories, city FROM Activity WHERE riderId=?")
+        "averageHeartrate hr, calories, city, summaryPolyline FROM Activity WHERE riderId=?")
     where, args = [], [rid]
     if sport:
         where.append('lower(sport)=?'); args.append(sport)
@@ -367,16 +382,16 @@ def rides():
     w = (' WHERE ' + ' AND '.join(where)) if where else ''
     total = query_db(f'SELECT COUNT(*) n FROM ({src}){w}', args, one=True)['n']
     rows = query_db(f'SELECT * FROM ({src}){w} ORDER BY startDateLocal DESC LIMIT ? OFFSET ?', args + [limit, offset])
-    def preview(rid_):
-        # ~28-point route outline for the list thumbnail: the summary polyline when there is one (small), else the stream (a whole ride's
-        # JSON, so only read when it has to be)
+    def preview(r):
+        # ~28-point route outline for the list thumbnail: the summary polyline when there is one (small, and already in the page's query), else
+        # the stream (a whole ride's JSON, so only read when it has to be)
         import json as _json
+        rid_ = r['id']
         try:
-            row = query_db('SELECT summaryPolyline FROM Activity WHERE id=?', [rid_], one=True)
             pts = []
-            if row and row['summaryPolyline']:
+            if r['summaryPolyline']:
                 import polyline as pl
-                pts = pl.decode(row['summaryPolyline'])
+                pts = pl.decode(r['summaryPolyline'])
             if not pts:
                 row = query_db('SELECT streams FROM Activity WHERE id=?', [rid_], one=True)
                 pts = ((_json.loads(row['streams']) if row and row['streams'] else {}).get('latlng') or {}).get('data') or []
@@ -385,7 +400,7 @@ def rides():
             return []
 
     from services import sports as sp
-    items = [{'kind': r['kind'], 'id': r['id'], 'preview': preview(r['id']), 'name': r['name'], 'sport': r['sport'],
+    items = [{'kind': r['kind'], 'id': r['id'], 'preview': preview(r), 'name': r['name'], 'sport': r['sport'],
               'label': sp.label(r['sport']), 'group': sp.stat_group(r['sport']), 'date': str(r['startDateLocal'])[:19],
               'distance_m': round(r['distance'] or 0), 'moving_s': int(r['movingTime'] or 0), 'elev_m': round(r['elev'] or 0),
               'avg_speed_mps': round(r['spd'] or 0, 2), 'avg_hr': round(r['hr']) if r['hr'] else None,
