@@ -13,15 +13,21 @@ final class Session {
     var pendingLink: String?
     /// A friend's code opened as a headwind://friend link; MainTabs offers to add them (once paired, if this phone isn't yet).
     var pendingFriendCode: String?
+    /// The server this phone was last paired with, kept through unpair(): a ride finished after the phone was unpaired mid-ride still
+    /// belongs to the server it was recorded under (RideStore.serverForNewRides).
+    private(set) var lastServer: URL?
 
     private let store: PairingStore
     private let defaults: UserDefaults
     private static let infoKey = "ping-info"
+    private static let lastServerKey = "last-server"
 
     init(store: PairingStore = KeychainPairingStore(), defaults: UserDefaults = .standard) {
         self.store = store
         self.defaults = defaults
         pairing = store.load()
+        lastServer = pairing?.server ?? defaults.url(forKey: Self.lastServerKey)
+        if let lastServer { defaults.set(lastServer, forKey: Self.lastServerKey) }   // paired before this was kept
         if pairing != nil, let data = defaults.data(forKey: Self.infoKey) {
             info = try? JSONDecoder().decode(PingInfo.self, from: data)
         }
@@ -39,6 +45,8 @@ final class Session {
         let ping = try await APIClient(pairing: candidate).get("ping", as: PingInfo.self)
         store.save(candidate)
         pairing = candidate
+        lastServer = candidate.server
+        defaults.set(candidate.server, forKey: Self.lastServerKey)
         remember(ping)
         wasRevoked = false
         pendingLink = nil
@@ -51,8 +59,8 @@ final class Session {
         info = nil
     }
 
-    /// Opened via the headwind:// URL scheme. A pairing link: unpaired, the pairing screen picks this up and pairs straight away;
-    /// already paired, RootView asks before replacing the current server. A friend's code goes to MainTabs instead.
+    /// Opened via the headwind:// URL scheme. A pairing link waits for the user to confirm its server, since any web page or message can
+    /// open one: PairingView asks when unpaired, RootView when it would replace the current server. A friend's code goes to MainTabs instead.
     func handle(url: URL) {
         if let code = FriendLink.code(in: url.absoluteString) {
             pendingFriendCode = code

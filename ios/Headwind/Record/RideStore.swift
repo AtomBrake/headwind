@@ -3,7 +3,7 @@ import Observation
 import UIKit
 
 /// A finished recording kept on the phone: its GPX (none for a timed-only session), headline numbers (with its sport and bike), where it came
-/// from, whether it reached the server, and photos waiting to go up with it.
+/// from, which server it's for, whether it reached it, and photos waiting to go up with it.
 struct SavedRide: Codable, Identifiable, Equatable {
     enum Source: String, Codable { case phone, watch }
     /// `rejected`: the server refused the recording itself (it can't read it, or it's too large), so it isn't retried by itself.
@@ -20,14 +20,19 @@ struct SavedRide: Codable, Identifiable, Equatable {
     var serverKind: String?
     /// Photos added on the phone that haven't reached the server yet (file names in RideStore's photo folder for this ride).
     var pendingPhotos: [String]?
+    /// The server the phone was paired with when this was recorded (RideStore.serverForNewRides). The recording, its photos and a change of
+    /// bike go there and nowhere else, so pairing with another server doesn't send them on unasked. nil for one from before this was kept:
+    /// the next server it uploads to takes it.
+    var server: URL?
 
-    init(id: UUID, summary: RideSummary, source: Source, status: Status, message: String? = nil, serverId: String? = nil) {
+    init(id: UUID, summary: RideSummary, source: Source, status: Status, message: String? = nil, serverId: String? = nil, server: URL? = nil) {
         self.id = id
         self.summary = summary
         self.source = source
         self.status = status
         self.message = message
         self.serverId = serverId
+        self.server = server
     }
 
     var name: String { GPXWriter.rideName(summary) }
@@ -35,12 +40,19 @@ struct SavedRide: Codable, Identifiable, Equatable {
     /// A GPS recording has a GPX file; a timed-only session is its summary alone.
     var hasTrack: Bool { summary.sport.usesGPS }
     var kind: String { Uploader.kind(of: summary, reply: serverKind) }
+
+    /// Whether this goes to `server`: it was recorded under it, or it's from before recordings kept their server. Never while unpaired.
+    func belongs(to server: URL?) -> Bool {
+        guard let server else { return false }
+        return self.server.map { $0.isSameServer(as: server) } ?? true
+    }
 }
 
 /// Every finished ride is written here first, then uploaded. Uploads that fail (offline, server down) stay
 /// pending and are retried when the app comes back to the foreground or another ride finishes. Ride uploads
 /// are idempotent on the server (content-addressed id + near-duplicate guard; client_id for the rest), so a retry after a dropped
-/// reply can't create a second copy.
+/// reply can't create a second copy. Each ride uploads only to the server it was recorded under (`SavedRide.server`); one left waiting for
+/// another server goes to the current one only when the user says so (`send(_:toCurrentServerUsing:)`).
 @MainActor
 @Observable
 final class RideStore {
@@ -52,6 +64,8 @@ final class RideStore {
     private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     /// Per ride, the waiting photo being sent now, which can't be removed: it may already be on the server. One pass per ride at a time.
     private(set) var sendingPhoto: [UUID: String] = [:]
+    /// The server a new recording belongs to. HeadwindApp gives the paired one, or the last one when a ride finishes after a mid-ride unpair.
+    @ObservationIgnored var serverForNewRides: () -> URL? = { nil }
 
     init(directory: URL? = nil) {
         let base = (try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
@@ -63,9 +77,14 @@ final class RideStore {
 
     var pendingCount: Int { rides.filter { $0.status != .uploaded && $0.status != .rejected }.count }
 
+    /// Recordings still to go up to `server`, e.g. to say they stay with it before pairing with another.
+    func waitingCount(for server: URL) -> Int {
+        rides.filter { ($0.status == .pending || $0.status == .failed) && $0.belongs(to: server) }.count
+    }
+
     @discardableResult
     func add(gpx: Data, summary: RideSummary, source: SavedRide.Source) throws(AppError) -> SavedRide {
-        let ride = SavedRide(id: UUID(), summary: summary, source: source, status: .pending)
+        let ride = SavedRide(id: UUID(), summary: summary, source: source, status: .pending, server: serverForNewRides())
         do {
             try gpx.write(to: fileURL(ride), options: .atomic)
         } catch {
@@ -85,7 +104,7 @@ final class RideStore {
     @discardableResult
     func addSession(summary: RideSummary, source: SavedRide.Source, id: UUID = UUID()) throws(AppError) -> SavedRide {
         if let existing = rides.first(where: { $0.id == id }) { return existing }
-        let ride = SavedRide(id: id, summary: summary, source: source, status: .pending)
+        let ride = SavedRide(id: id, summary: summary, source: source, status: .pending, server: serverForNewRides())
         try insert(ride)
         return ride
     }
@@ -98,7 +117,7 @@ final class RideStore {
             try? FileManager.default.removeItem(at: file)
             return existing
         }
-        let ride = SavedRide(id: id, summary: summary, source: source, status: .pending)
+        let ride = SavedRide(id: id, summary: summary, source: source, status: .pending, server: serverForNewRides())
         do {
             try FileManager.default.moveItem(at: file, to: fileURL(ride))
         } catch {
@@ -148,15 +167,17 @@ final class RideStore {
             throw .storage(underlying: error)
         }
         update(ride.id) { $0.pendingPhotos = ($0.pendingPhotos ?? []) + [name] }
-        if let latest = rides.first(where: { $0.id == ride.id }), latest.status == .uploaded {
+        if let latest = rides.first(where: { $0.id == ride.id }), latest.status == .uploaded, latest.belongs(to: session.pairing?.server) {
             await uploadPhotos(of: latest, using: session)
         }
     }
 
     /// Each waiting photo of an uploaded ride, one request each, in the ride's order: the list is read again for each, so one removed or moved
     /// meanwhile is followed. One that fails stays for the next pass (with the rest behind it, keeping the order); one the server refuses is dropped.
+    /// Only to the server the ride went to: another server's activity with the same id is someone else's.
     private func uploadPhotos(of ride: SavedRide, using session: Session) async {
-        guard let serverId = ride.serverId, sendingPhoto[ride.id] == nil else { return }   // the running pass picks up what's added
+        guard let serverId = ride.serverId, ride.belongs(to: session.pairing?.server),
+              sendingPhoto[ride.id] == nil else { return }   // the running pass picks up what's added
         defer { sendingPhoto[ride.id] = nil }
         let folder = photoFolder(ride.id)
         while let name = rides.first(where: { $0.id == ride.id })?.pendingPhotos?.first {
@@ -206,8 +227,10 @@ final class RideStore {
     /// Upload everything not yet on the server, oldest first, then any photos waiting. Safe to call often: a call made mid-upload
     /// returns at once, and the running upload picks up any ride added since it started.
     func uploadPending(using session: Session) async {
-        guard session.pairing != nil else { return }
+        guard let server = session.pairing?.server else { return }
         guard !uploading else { uploadAgain = true; return }
+        // Recordings from before each kept its server were most likely made under this one.
+        for ride in rides where ride.server == nil { update(ride.id) { $0.server = server } }
         uploading = true
         defer { uploading = false }
 
@@ -234,7 +257,8 @@ final class RideStore {
         var tried = Set<UUID>()
         repeat {
             uploadAgain = false
-            for ride in rides.reversed() where (ride.status == .pending || ride.status == .failed) && !tried.contains(ride.id) {
+            let server = session.pairing?.server
+            for ride in rides.reversed() where (ride.status == .pending || ride.status == .failed) && ride.belongs(to: server) && !tried.contains(ride.id) {
                 guard !Task.isCancelled else { return }
                 tried.insert(ride.id)
                 guard await upload(ride, using: session) else { return }   // offline: don't burn through the rest
@@ -249,6 +273,7 @@ final class RideStore {
     /// Returns false if the phone looks offline or the upload was cancelled, so the caller stops.
     private func upload(_ queued: SavedRide, using session: Session) async -> Bool {
         let ride = rides.first { $0.id == queued.id } ?? queued   // the latest copy: its bike may have changed since the pass began
+        guard ride.belongs(to: session.pairing?.server) else { return true }   // the pairing changed mid-pass
         var gpx: Data?
         if ride.hasTrack {
             guard let data = try? Data(contentsOf: fileURL(ride)) else {
@@ -290,6 +315,9 @@ final class RideStore {
         guard ride.summary.sport.isRide else { return }
         switch ride.status {
         case .uploaded:
+            guard ride.belongs(to: session.pairing?.server) else {
+                throw .validationError(message: "This ride is on \(ride.server?.host() ?? "another server"), not the server this phone is paired with now.")
+            }
             guard let serverId = ride.serverId else {
                 throw .validationError(message: "Headwind didn't say which ride this became. Change its bike on the ride's page.")
             }
@@ -306,7 +334,16 @@ final class RideStore {
 
     /// Try a refused upload again, e.g. after the server was updated to read it.
     func retry(_ ride: SavedRide, using session: Session) async {
+        guard ride.belongs(to: session.pairing?.server) else { return }
         update(ride.id) { $0.status = .pending; $0.message = nil }
+        await uploadPending(using: session)
+    }
+
+    /// Give a recording that's waiting for another server to the one this phone is paired with now, and upload it there. Only when the user
+    /// asks (Recordings): it was made under the other server. One already uploaded stays where it went.
+    func send(_ ride: SavedRide, toCurrentServerUsing session: Session) async {
+        guard let server = session.pairing?.server, ride.status != .uploaded, ride.status != .uploading else { return }
+        update(ride.id) { $0.server = server; $0.status = .pending; $0.message = nil }
         await uploadPending(using: session)
     }
 

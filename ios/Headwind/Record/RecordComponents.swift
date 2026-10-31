@@ -348,8 +348,27 @@ private func statRows(_ stats: [(String, String)]) -> some View {
 
 struct UploadStatusLabel: View {
     var ride: SavedRide
+    @Environment(Session.self) private var session
 
     var body: some View {
+        if let host = otherServer {
+            if ride.status == .uploaded {
+                Label("Uploaded to \(host)", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            } else {
+                Label("Waiting for \(host), the server it was recorded with", systemImage: "clock").foregroundStyle(.secondary)
+            }
+        } else {
+            status
+        }
+    }
+
+    /// The server a recording belongs to, when it isn't the one this phone is paired with now (RideStore uploads it only there).
+    private var otherServer: String? {
+        guard ride.status != .uploading, !ride.belongs(to: session.pairing?.server) else { return nil }
+        return ride.server?.host()
+    }
+
+    @ViewBuilder private var status: some View {
         switch ride.status {
         case .pending:
             Label("Waiting to upload", systemImage: "clock").foregroundStyle(.secondary)
