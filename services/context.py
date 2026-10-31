@@ -328,26 +328,31 @@ def _build_other_training_context(rider_id, exclude_id):
     return '\n'.join(lines)
 
 
-def _build_garmin_context(ride_date):
-    """Return a recovery/readiness block from GarminDaily for the 3 days up to and including ride_date."""
-    rows = query_db('''
-        SELECT date, restingHR, hrv, hrvBalanced, sleepHours, sleepScore, bodyBattery, steps, stressScore
-        FROM GarminDaily
-        WHERE date <= ? AND date >= date(?, '-3 days')
-        ORDER BY date DESC
-    ''', [ride_date, ride_date])
+def _build_garmin_context(ride_date, rid=None):
+    """Return a recovery/readiness block for the 3 days up to and including ride_date: Garmin's, or Apple Health's for a day Garmin has nothing for
+    (services/health). Apple's HRV is SDNN, not Garmin's overnight RMSSD, so it's named as such and has no balance."""
+    from services import health
+    if rid is None:
+        r = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
+        rid = r['id'] if r else None
+    rows = health.recovery_days(rid, ride_date, 3)
 
     if not rows:
         return ''
 
-    lines = ['Garmin recovery data (up to ride day):']
+    sources = {s for r in rows for s in (r['source'] or '').split('+') if s}
+    lines = [('Garmin' if sources == {'garmin'} else 'Apple Health' if sources == {health.SOURCE} else 'Garmin and Apple Health')
+             + ' recovery data (up to ride day):']
     for r in rows:
         parts = []
         if r['restingHR']:
             parts.append(f'resting HR {r["restingHR"]}bpm')
         if r['hrv']:
-            status = 'balanced' if r['hrvBalanced'] else 'unbalanced'
-            parts.append(f'HRV {r["hrv"]} ({status})')
+            if r['hrv_kind'] == 'sdnn':
+                parts.append(f'HRV {r["hrv"]}ms (Apple Watch SDNN, not comparable with overnight RMSSD)')
+            else:
+                status = 'balanced' if r['hrvBalanced'] else 'unbalanced'
+                parts.append(f'HRV {r["hrv"]} ({status})')
         if r['sleepHours']:
             parts.append(f'sleep {r["sleepHours"]}h')
             if r['sleepScore']:
@@ -554,7 +559,7 @@ def build_context(activity):
     if not recent and not month:
         lines.append('No previous rides in memory yet — this may be one of the first analysed rides.')
 
-    garmin_ctx = _build_garmin_context(str(activity['startDateLocal'])[:10])
+    garmin_ctx = _build_garmin_context(str(activity['startDateLocal'])[:10], activity['riderId'])
     if garmin_ctx:
         lines.append('')
         lines.append(garmin_ctx)

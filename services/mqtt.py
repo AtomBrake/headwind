@@ -315,7 +315,8 @@ def _gather_nutrition():
         'SELECT COALESCE(SUM(ml),0) as ml FROM HydrationLog WHERE riderId=? AND logDate=?',
         [rid, today], one=True,
     )
-    garmin = query_db('SELECT totalCalories FROM GarminDaily WHERE date=?', [today], one=True)
+    from services import health
+    device = health.device_burn(rid, today)          # Garmin's total, else Apple Health's
     settings = query_db(
         'SELECT nutritionCalGoal, nutritionProteinGoal, nutritionCarbGoal, nutritionFatGoal, nutritionWaterGoalMl, nutritionWeightEmaAlpha, nutritionBmrKcal, nutritionSugarGoal, nutritionAlcoholWeekGoal FROM Settings WHERE id=1',
         one=True,
@@ -330,8 +331,8 @@ def _gather_nutrition():
         burned = est[0]
     elif bmr:
         burned = bmr + ride_cal
-    elif garmin and garmin['totalCalories']:
-        burned = garmin['totalCalories']
+    elif device:
+        burned = device[0]
     else:
         burned = ride_cal
     eaten  = int(food['cal']) if food else 0
@@ -349,7 +350,7 @@ def _gather_nutrition():
         g = query_db('SELECT steps FROM GarminDaily WHERE date=?', [day_iso], one=True)
         if g and g['steps']:
             cands['Garmin'] = g['steps']
-        for metric, label in (('steps_phone', 'Phone'), ('steps_watch', 'Pixel Watch'), ('steps_manual', 'Manual')):
+        for metric, label in (('steps_phone', 'Phone'), ('steps_watch', 'Pixel Watch'), ('steps_manual', 'Manual'), ('steps_health', 'Apple Health')):
             m = query_db('SELECT value FROM BodyMetric WHERE riderId=? AND logDate=? AND metric=?', [rid, day_iso, metric], one=True)
             if m and m['value']:
                 cands[label] = m['value']
@@ -426,7 +427,7 @@ def _hist_now():
     return _hist_cache['v']
 
 
-STEP_METRICS = ('steps_phone', 'steps_watch', 'steps_manual')
+STEP_METRICS = ('steps_phone', 'steps_watch', 'steps_manual', 'steps_health')   # steps_health: Apple Health (services/health)
 
 
 def _step_days(rid, start_iso):
@@ -435,7 +436,7 @@ def _step_days(rid, start_iso):
     from database import query_db
     rows = query_db(
         'SELECT date AS d FROM GarminDaily WHERE date>=? UNION '
-        'SELECT logDate FROM BodyMetric WHERE riderId=? AND metric IN (?,?,?) AND logDate>=? ORDER BY 1',
+        f"SELECT logDate FROM BodyMetric WHERE riderId=? AND metric IN ({','.join('?' * len(STEP_METRICS))}) AND logDate>=? ORDER BY 1",
         [start_iso, rid, *STEP_METRICS, start_iso])
     return [r['d'] for r in rows]
 

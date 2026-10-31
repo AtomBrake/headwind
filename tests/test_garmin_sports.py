@@ -165,7 +165,7 @@ def test_apply_moves_a_ride_with_a_copy_set_aside_and_throws_the_copy_away(db):
     assert [p['parked'] for p in sport_fix.pending(db, 1)] == [1]                  # the review list says a copy goes with it
 
     assert sport_fix.apply(db, 1, ['garmin_20']) == {'changed': 1, 'failed': 0, 'kept': 0}
-    assert db.execute("SELECT sportType FROM Activity").fetchone()[0] == 'Other'
+    assert db.execute("SELECT sportType FROM Activity").fetchone()[0] == 'HIIT'                 # a sport of its own since Strength, HIIT and Yoga
     assert not db.execute("SELECT 1 FROM Ride").fetchone()
     d = db.execute("SELECT status, rowJson FROM ActivityDuplicate WHERE id='imp_hiit'").fetchone()
     assert tuple(d) == ('discarded', '{}')

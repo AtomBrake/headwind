@@ -1,6 +1,7 @@
-"""Activities typed in by hand: a ride you forgot to record, a turbo session, a walk without GPS.
+"""Activities typed in by hand, or timed on the phone or the Watch with no track: a ride you forgot to record, a turbo session, a walk without
+GPS, a strength session, a pool swim.
 
-Walk / Run / Hike / VirtualRun (an indoor run) and Ride / VirtualRide are Activity rows like everything recorded by a device; the ride ones get a bike. A manual ride has no
+Walk / Run / Hike / VirtualRun (an indoor run), Swim, Strength / HIIT / Yoga and Ride / VirtualRide are Activity rows like everything recorded by a device; the ride ones get a bike. A manual ride has no
 GPS track, so it has no map or best efforts, but it counts in the totals. If a real recording of the same ride arrives later (Garmin sync, phone
 upload) the duplicate logic keeps the recording and parks the typed-in copy.
 """
@@ -11,9 +12,10 @@ from zoneinfo import ZoneInfo
 
 from services import duplicates
 from services import tz
-from services.sports import INDOOR_RUN, ON_FOOT, RIDES, is_ride
+from services.sports import INDOOR_RUN, NO_DISTANCE, ON_FOOT, RIDES, is_ride
 
-SPORTS = RIDES + ON_FOOT + (INDOOR_RUN,)
+SPORTS = RIDES + ON_FOOT + (INDOOR_RUN, 'Swim') + NO_DISTANCE
+SOURCES = ('manual', 'ios', 'android')                # who made it: typed in, or timed by a phone app (its own recording, so not "manual")
 MAX_DURATION_S, MAX_DISTANCE_M, MAX_ELEV_M = 48 * 3600, 1_500_000, 20_000
 
 
@@ -45,13 +47,18 @@ def _num(v, name, lo=0, hi=None, required=False):
     return x
 
 
-def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, calories=None, name=None, notes=None, client_id=None):
-    """Store one manual activity. Returns {'kind', 'id', 'created', 'duplicate'}; raises ValueError with a readable reason. Commits."""
+def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, calories=None, name=None, notes=None, client_id=None,
+           source='manual', avg_hr=None):
+    """Store one manual activity. Returns {'kind', 'id', 'created', 'duplicate'}; raises ValueError with a readable reason. Commits.
+    Strength, HIIT and Yoga need no distance. `source` is SOURCES; a phone's timed session also gives its average heart rate."""
     if sport not in SPORTS:
         raise ValueError('sport must be one of ' + ', '.join(SPORTS))
+    if source not in SOURCES:
+        source = 'manual'
     start = _local_start(local_iso)
     secs = int(_num(duration_s, 'duration', 60, MAX_DURATION_S, required=True))
-    dist = _num(distance_m, 'distance', 0, MAX_DISTANCE_M, required=True)
+    dist = (0.0 if sport in NO_DISTANCE else _num(distance_m, 'distance', 0, MAX_DISTANCE_M, required=True)) or 0.0
+    hr = _num(avg_hr, 'heart rate', 25, 250)
     gain = _num(elev_m, 'elevation', 0, MAX_ELEV_M) or 0
     kcal = _num(calories, 'calories', 0, 20_000)
     name = (name or '').strip()[:80] or None
@@ -67,14 +74,14 @@ def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, 
     if not is_ride(sport):
         if duplicates.exists_anywhere(db, aid):
             return {'kind': 'workout', 'id': aid, 'created': False, 'duplicate': None}
-        from services.workouts import estimate_calories
+        from services.workouts import estimate_calories, estimate_met_calories
         from services.calorie_adjust import pair as _kcal_pair
-        kcal_raw = None                                  # a number the user typed is theirs: never adjusted
+        kcal_raw = None                                  # a number the user typed (or the Watch measured) is theirs: never adjusted
         if kcal is None:
-            kcal_raw, kcal = _kcal_pair(estimate_calories(sport, dist, secs, gain, kg))
+            kcal_raw, kcal = _kcal_pair(estimate_calories(sport, dist, secs, gain, kg) or estimate_met_calories(sport, secs, kg))
         db.execute('''INSERT INTO Activity (id, riderId, type, sportType, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain,
-                                            averageSpeed, calories, source, caloriesRaw, rawData) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
-                   [aid, rider_id, sport, sport, name, utc, local, dist, secs, secs, gain, avg, kcal, 'manual', kcal_raw])
+                                            averageSpeed, averageHeartrate, calories, source, caloriesRaw, rawData) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
+                   [aid, rider_id, sport, sport, name, utc, local, dist, secs, secs, gain, avg, hr, kcal, source, kcal_raw])
         dup = duplicates.resolve(db, aid)                # already recorded by a device? the recording wins over typed-in numbers
         db.commit()
         return {'kind': 'workout', 'id': (dup or {}).get('kept', aid), 'created': True, 'duplicate': dup}

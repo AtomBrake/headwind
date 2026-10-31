@@ -194,7 +194,7 @@ def _mqtt_nutrition():
 # For anyone without a Garmin (or whose phone/watch isn't feeding Headwind): log a day's steps by hand. Stored as BodyMetric
 # 'steps_manual'; the app already uses the highest of Garmin / phone / watch / manual for each day.
 
-_STEP_LABELS = (('steps_manual', 'Manual'), ('steps_phone', 'Phone'), ('steps_watch', 'Watch'))
+_STEP_LABELS = (('steps_manual', 'Manual'), ('steps_phone', 'Phone'), ('steps_watch', 'Watch'), ('steps_health', 'Health'))
 
 
 def _london_today():
@@ -1190,6 +1190,8 @@ def day_log(date_str):
     )
     garmin_total  = garmin_row['totalCalories']  if garmin_row else None
     garmin_active = garmin_row['activeCalories'] if garmin_row else None
+    from services import health
+    device_total, device_label = health.device_burn(rider_id, date_str) or (None, None)   # Garmin's total, else Apple Health's
     from services import goal_model
     ride_cal = goal_model.activity_calories(rider_id, date_str)   # every sport: rides, walks, runs, ...
 
@@ -1206,9 +1208,9 @@ def day_log(date_str):
     elif bmr:
         burned      = int(bmr) + ride_cal
         burn_source = 'BMR + rides' if ride_cal else 'BMR (resting)'
-    elif garmin_total:
-        burned      = garmin_total
-        burn_source = 'Garmin total'
+    elif device_total:
+        burned      = device_total
+        burn_source = device_label
     elif ride_cal:
         burned      = ride_cal
         burn_source = 'rides'
@@ -1687,11 +1689,9 @@ def week_log(date_str):
         from services import goal_model
         ride_cal = goal_model.activity_calories(rider_id, date_iso)   # every sport: rides, walks, runs, ...
 
-        garmin = query_db(
-            'SELECT totalCalories FROM GarminDaily WHERE date=?',
-            [date_iso], one=True
-        )
-        garmin_total = garmin['totalCalories'] if garmin else None
+        from services import health
+        device = health.device_burn(rider_id, date_iso)   # Garmin's total, else Apple Health's
+        garmin_total = device[0] if device else None
 
         est = goal_model.day_burn(rider_id, date_iso)
         if est:
