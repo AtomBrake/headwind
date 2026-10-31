@@ -11,6 +11,10 @@ struct HeadwindWatchApp: App {
                 .environment(workout)
                 .environment(workout.phone)
         }
+        // A ride the Watch uploaded itself while suspended: hear the server's reply.
+        .backgroundTask(.urlSession(PhoneLink.uploadSessionID)) {
+            await WorkoutManager.shared.phone.uploadEventsHandled()
+        }
     }
 }
 
@@ -151,7 +155,7 @@ private struct MetricsPage: View {
                     metric(workout.heartRate.map { "\($0)" } ?? "--")
                     Image(systemName: "heart.fill").foregroundStyle(.red).font(.footnote)
                 }
-                if let power = workout.power {
+                if let power = workout.livePower(at: context.date) {
                     metric("\(power) W" + (workout.cadence.map { " · \($0) rpm" } ?? ""))
                 } else if let cadence = workout.cadence {
                     metric("\(cadence) rpm")

@@ -249,6 +249,35 @@ struct TimedSessionTests {
         #expect(ISO8601DateFormatter().date(from: body.start) == start)
     }
 
+    /// The Watch hands this request to a background session and reads the reply with APIClient.reply, so it must be what upload sends.
+    @Test func theWatchsBackgroundUploadIsTheSameRequest() throws {
+        let client = APIClient(pairing: Pairing(server: URL(string: "https://bike.example.com")!, token: "abc"))
+        let id = UUID()
+        let ride = RideSummary.session(start: start, elapsed: 3600, sport: .ride, bikeId: 3)
+        let gpx = try Uploader.request(summary: ride, id: id, name: "Ride", gpx: Data("<gpx/>".utf8), with: client)
+        #expect(gpx.url?.absoluteString == "https://bike.example.com/api/v1/rides" && gpx.httpMethod == "POST")
+        #expect(gpx.value(forHTTPHeaderField: "Authorization") == "Bearer abc")
+        let body = String(decoding: try #require(gpx.httpBody), as: UTF8.self)
+        #expect(body.contains("name=\"bike_id\"\r\n\r\n3\r\n") && body.contains("filename=\"Ride.gpx\"") && body.contains("<gpx/>"))
+
+        let yoga = try Uploader.request(summary: .session(start: start, elapsed: 3600, sport: .yoga), id: id, name: "Yoga", gpx: nil, with: client)
+        #expect(yoga.url?.lastPathComponent == "activities" && yoga.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        #expect(throws: (any Error).self) {
+            try Uploader.request(summary: .session(start: start, elapsed: 10, sport: .yoga), id: id, name: "Yoga", gpx: nil, with: client)
+        }
+    }
+
+    @Test func aBackgroundReplyReadsAsAForegroundOne() throws {
+        let reply: UploadReply = try APIClient.reply(Data(#"{"status":"imported","ride":{"id":7}}"#.utf8), status: 201)
+        #expect(reply.isNew && reply.serverId == "7")
+        func failure(_ status: Int) -> AppError? {
+            do throws(AppError) { _ = try APIClient.reply(Data(#"{"error":"bad"}"#.utf8), status: status, as: UploadReply.self) } catch { return error }
+            return nil
+        }
+        if case .unauthorised? = failure(401) {} else { Issue.record("401 is unauthorised") }
+        #expect(failure(422)?.isRejection == true && failure(503)?.isRejection == false)
+    }
+
     @Test func powerAndCadenceGoInTheGPX() {
         let points = track(seconds: 3).map { var p = $0; p.power = 210; p.cadence = 88; p.hr = 140; return p }
         let gpx = String(decoding: GPXWriter.gpx(segments: [points], name: "x"), as: UTF8.self)
