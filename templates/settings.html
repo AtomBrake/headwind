@@ -421,10 +421,17 @@
         Use to migrate to a new machine or restore after a problem.
       </p>
       <div style="display:flex; gap:0.75rem; align-items:flex-start; flex-wrap:wrap;">
-        <div>
-          <a href="/settings/backup/export" class="btn btn-secondary">Download Backup</a>
-          <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.4rem;">Downloads a <code>.zip</code> (db + avatars)</div>
-        </div>
+        <form method="GET" action="/settings/backup/export" style="max-width:22rem;">
+          <button class="btn btn-secondary">Download Backup</button>
+          <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.4rem;">Downloads a <code>.zip</code> (database and photos)</div>
+          <label style="display:flex; gap:0.4rem; align-items:flex-start; font-size:0.8125rem; margin-top:0.6rem;">
+            <input type="checkbox" name="secrets" value="1" style="margin-top:0.2rem;">
+            <span>Include the secrets key
+              <span style="display:block; font-size:0.75rem; color:var(--text-muted);">Restoring on another server then keeps the saved AI keys,
+                Home Assistant token, MQTT password, Garmin email and friends' feed tokens. Anyone who gets the zip can read them too:
+                keep it as safe as the passwords themselves.</span></span>
+          </label>
+        </form>
         <div>
           <form method="POST" action="/settings/backup/import" enctype="multipart/form-data" id="importForm" style="display:flex; flex-direction:column; gap:0.4rem;">
             <label class="btn btn-secondary" style="cursor:pointer; margin:0;">

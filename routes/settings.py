@@ -373,7 +373,11 @@ def _validate_db(path):
 
 @bp.route('/backup/export')
 def backup_export():
+    """The whole database and its photos in one zip. ?secrets=1 adds the key the saved keys and passwords are encrypted with
+    (services/vault.py), so a restore on another server keeps them: and so does anyone else who gets the zip."""
+    from services import backup
     db = _db_path()
+    key = vault.key_path() if request.args.get('secrets') else None
     if not db or not Path(db).exists():
         flash('Database file not found.', 'error')
         return redirect('/settings')
@@ -393,6 +397,8 @@ def backup_export():
         zip_path = os.path.join(tmp_dir, 'headwind-backup.zip')
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             zf.write(snap, 'headwind.db')
+            if key:
+                zf.write(key, backup.SECRETS_KEY)
             av_dir = _avatar_dir()
             if os.path.isdir(av_dir):
                 for name in os.listdir(av_dir):
@@ -415,7 +421,7 @@ def backup_export():
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return resp
 
-        return send_file(zip_path, as_attachment=True, download_name='headwind-backup.zip',
+        return send_file(zip_path, as_attachment=True, download_name='headwind-backup-with-secrets.zip' if key else 'headwind-backup.zip',
                          mimetype='application/zip')
     except Exception as e:
         log.exception('Backup export failed')
@@ -439,7 +445,7 @@ def backup_import():
         backup.prepare(tmp_db)   # migrate + smoke-test the staged copy before anything live changes
         backup.apply(_db_path(), tmp_db, assets, _avatar_dir())
         migrate_db()   # an older backup may predate current columns/tables
-        note = backup.secrets_note()
+        note = backup.secrets_note(assets.get('secrets_key'))
     except backup.BackupError as e:
         log.warning('Restore refused: %s', e)
         flash(str(e), 'error')

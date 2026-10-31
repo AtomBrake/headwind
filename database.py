@@ -45,6 +45,30 @@ def _drop_merge_leftovers(db):
     return [name for kind, name in left if kind == 'table']
 
 
+def _drop_dead_secrets(db):
+    """Columns that held a secret nothing reads any more: upstream's Strava API tokens (services/vault.DEAD), and Settings.feedToken once
+    services/feed_tokens.py has moved it to a FeedToken row. Emptied with secure_delete on, so their bytes go too, then dropped. feedToken
+    stays while it still holds a value (encrypted with a key this server doesn't have: a restore from another server), so it isn't lost.
+    An older Headwind adds feedToken back, empty, and never reads the Athlete ones. Commits when it drops something."""
+    from services import vault
+    gone = [(t, c) for t, cols in vault.DEAD.items() for c in vault.present(db, t, cols)]
+    if vault.present(db, 'Settings', ['feedToken']):
+        if not db.execute("SELECT 1 FROM Settings WHERE feedToken <> ''").fetchone():
+            gone.append(('Settings', 'feedToken'))
+    if not gone:
+        return
+    db.commit()
+    with vault.secure_delete(db):
+        for table, col in gone:
+            db.execute(f'UPDATE {table} SET {col}=NULL')
+            try:
+                db.execute(f'ALTER TABLE {table} DROP COLUMN {col}')
+            except sqlite3.OperationalError as e:       # SQLite before 3.35: left empty
+                logging.getLogger(__name__).info('Left %s.%s empty, not dropped: %s', table, col, e)
+        db.commit()
+    db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+
+
 # Columns that can hold most of a megabyte, kept at the end of their table. SQLite stores a large row as a chain of overflow pages and reads its
 # columns in order, so reading any column that comes after a large one means reading the whole chain: `source` or `bikeId` for every activity read
 # every activity's GPS streams. A column added later with ALTER TABLE lands after these, and the next start moves it in front (heavy_last).
@@ -296,8 +320,6 @@ def migrate_db():
             firstname    TEXT,
             lastname     TEXT,
             profile      TEXT,
-            accessToken  TEXT,
-            refreshToken TEXT,
             expiresAt    INTEGER
         )
     ''')
@@ -400,7 +422,6 @@ def migrate_db():
         ('garminPassword',   'TEXT'),      # no longer kept: only an older install's, until services/garmin._client swaps it for tokens
         ('garminSyncHours',  'REAL DEFAULT 0.5'),
         ('garminSignInNeeded',   'TEXT'),      # when Garmin stopped accepting the saved sign-in (services/garmin._client); NULL = fine
-        ('feedToken',                'TEXT'),
         ('friendSyncInterval',       'INTEGER DEFAULT 15'),
         ('garminActivitySyncDate',   'TEXT'),
         ('garminSyncMode',           "TEXT DEFAULT 'health'"),
@@ -790,6 +811,7 @@ def migrate_db():
     _data_version_schema(db)
     from services.feed_tokens import ensure_schema as _feed_tokens_schema
     _feed_tokens_schema(db)
+    _drop_dead_secrets(db)
 
     # One row per paired phone/app. Only a SHA-256 of the token is stored; the token itself is shown once at pairing time.
     db.execute('''

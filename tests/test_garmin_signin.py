@@ -1,7 +1,9 @@
 """Garmin sign-in without keeping the password (services/garmin.py _client, routes/garmin.py): syncs use Garmin's tokens only, an older install's
 saved password is swapped for tokens and deleted, a sign-in Garmin turns down asks to sign in again, and no page or backup hands secrets back.
-Full app, throwaway DB, a fake garminconnect.Garmin."""
+The token file is encrypted with the database's secrets key. Full app, throwaway DB, a fake garminconnect.Garmin (the real one for the token
+file, which needs no network)."""
 import io
+import json
 import sqlite3
 import zipfile
 
@@ -12,7 +14,9 @@ from flask import Flask
 import app as app_module
 import config
 import database
-from services import credentials, garmin, tasks
+from services import credentials, garmin, tasks, vault
+
+RealGarmin = garminconnect.Garmin
 
 
 class _NoThread:
@@ -27,6 +31,7 @@ class FakeGarmin:
 
     def __init__(self, email=None, password=None, **kw):
         self.email, self.password = email, password
+        self.client = garminconnect.client.Client()      # the real one: dumps() and loads() the token file
         FakeGarmin.made.append((email, password))
 
     def login(self, tokenstore=None):
@@ -188,3 +193,46 @@ def test_a_backup_leaves_out_an_older_installs_password(app, client, tmp_path):
     out.write_bytes(zipfile.ZipFile(io.BytesIO(r.data)).read('headwind.db'))
     email, pw = sqlite3.connect(out).execute('SELECT garminEmail, garminPassword FROM Settings').fetchone()
     assert pw is None and email.startswith('enc:v1:')                # the email stays, encrypted (services/vault.py)
+
+
+def _real(tokens=None):
+    api = garmin._sealed(RealGarmin())
+    if tokens:
+        api.client.di_token, api.client.di_refresh_token, api.client.di_client_id = tokens
+    return api
+
+
+TOKENS = ('header.eyJleHAiOjF9.sig', 'refresh-token-kept-secret', 'client-id')
+
+
+def test_the_token_file_is_encrypted_with_the_databases_key(app):
+    garmin.TOKEN_DIR.mkdir(exist_ok=True)
+    with app.app_context():
+        _real(TOKENS).client.dump(str(garmin.TOKEN_DIR))         # as garminconnect does at sign-in and after each refresh
+        text = (garmin.TOKEN_DIR / garmin.TOKEN_FILE).read_text()
+        assert text.startswith(vault.PREFIX) and 'refresh-token-kept-secret' not in text
+        again = _real()
+        again.client.load(str(garmin.TOKEN_DIR))
+        assert (again.client.di_token, again.client.di_refresh_token, again.client.di_client_id) == TOKENS
+    with pytest.raises(garminconnect.GarminConnectConnectionError):
+        RealGarmin().client.load(str(garmin.TOKEN_DIR))           # without the key, the file is no use
+
+
+def test_a_plain_token_file_from_before_is_read_and_encrypted_by_the_next_sync(app):
+    garmin.TOKEN_DIR.mkdir(exist_ok=True)
+    plain = json.dumps(dict(zip(('di_token', 'di_refresh_token', 'di_client_id'), TOKENS)))
+    (garmin.TOKEN_DIR / garmin.TOKEN_FILE).write_text(plain)
+    with app.app_context():
+        api = _real()
+        api.client.load(str(garmin.TOKEN_DIR))
+        assert api.client.di_refresh_token == TOKENS[1]
+        garmin._client()
+    assert (garmin.TOKEN_DIR / garmin.TOKEN_FILE).read_text().startswith(vault.PREFIX)
+
+
+def test_a_token_file_another_key_made_asks_to_sign_in_again(app):
+    garmin.TOKEN_DIR.mkdir(exist_ok=True)
+    other = 'enc:v1:' + vault.Fernet(vault.Fernet.generate_key()).encrypt(b'{"di_token": "x"}').decode()
+    (garmin.TOKEN_DIR / garmin.TOKEN_FILE).write_text(other)
+    with app.app_context(), pytest.raises(garminconnect.GarminConnectConnectionError):
+        _real().client.load(str(garmin.TOKEN_DIR))      # garminconnect's login() then falls back to a password it hasn't got: SignInNeeded

@@ -26,6 +26,7 @@ def _app(tmp_path, legacy=None):
         d.execute("INSERT INTO CustomFood (riderId, name, calories) VALUES (1, 'Flapjack', 400)")
         d.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
         if legacy:
+            d.execute('ALTER TABLE Settings ADD COLUMN feedToken TEXT')     # as an install from before per-friend tokens has it
             d.execute("UPDATE Settings SET feedToken=? WHERE id=1", [legacy])
         d.commit()
         if legacy:
@@ -121,7 +122,7 @@ def test_old_shared_token_carries_over(tmp_path):
     app = _app(tmp_path, legacy='old-shared-token')
     assert len(_lines(_get(app, '/api/feed', 'old-shared-token'), 'ride')) == 3
     with app.app_context():
-        assert database.query_db('SELECT feedToken FROM Settings WHERE id=1', one=True)[0] is None
+        assert 'feedToken' not in database.query_db('SELECT * FROM Settings WHERE id=1', one=True).keys()     # moved, then dropped
         rows = database.query_db('SELECT name FROM FeedToken')
         assert [r['name'] for r in rows] == [feed_tokens.LEGACY_NAME]
         database.migrate_db()                                   # a later start-up doesn't add it again
@@ -145,6 +146,7 @@ def test_friends_page_after_upgrade(tmp_path, monkeypatch):
         database.migrate_db()
         d = database.get_db()
         d.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
+        d.execute('ALTER TABLE Settings ADD COLUMN feedToken TEXT')
         d.execute("UPDATE Settings SET feedToken='old-shared-token' WHERE id=1")
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Rob', 1)")
         d.commit()

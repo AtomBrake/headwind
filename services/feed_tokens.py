@@ -16,6 +16,7 @@ import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 from database import get_db, query_db
+from services import vault
 
 PREFIX = 'hwf_'
 CODE_PREFIX = 'hwfc_'
@@ -43,6 +44,8 @@ def ensure_schema(db):
             revokedAt     TEXT
         )
     ''')
+    if not vault.present(db, 'Settings', ['feedToken']):       # dropped once moved (database._drop_dead_secrets)
+        return
     row = db.execute('SELECT feedToken FROM Settings WHERE id=1').fetchone()
     if row and row[0]:
         db.execute('INSERT OR IGNORE INTO FeedToken (name, tokenHash) VALUES (?, ?)', [LEGACY_NAME, _hash(str(row[0]))])

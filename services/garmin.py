@@ -76,6 +76,35 @@ def forget_tokens():
             (TOKEN_DIR / name).unlink()
 
 
+def _sealed(api):
+    """`api` (a garminconnect.Garmin) with its token file kept encrypted by the database's secrets key (services/vault.py), so a copy of
+    TOKEN_DIR without the data folder gives no way into the Garmin account. garminconnect reads the file through client.loads() and writes it
+    (at sign-in and after each refresh) through client.dumps(), so these two are wrapped. A file from before, still plain JSON, reads as it is
+    and is written encrypted the next time; one this server's key can't open fails to load, so Garmin asks to sign in again."""
+    from services import vault
+    client = api.client
+    dumps, loads = client.dumps, client.loads
+
+    def _loads(text):
+        opened = vault.unseal(text.strip())
+        if opened is None:
+            raise ValueError('the Garmin token file is encrypted with a key this server does not have')
+        loads(opened)
+    client.dumps = lambda: vault.seal(dumps())
+    client.loads = _loads
+    return api
+
+
+def _plain_tokens():
+    """The token file is there and still plain JSON (from before it was encrypted)."""
+    from services import vault
+    try:
+        with open(TOKEN_DIR / TOKEN_FILE, encoding='utf-8') as f:
+            return not f.read(len(vault.PREFIX)).startswith(vault.PREFIX)
+    except OSError:
+        return False
+
+
 def _client():
     """Garmin, signed in with the saved tokens, which renew themselves (garminconnect refreshes them and writes them back). The password is never
     kept: when Garmin stops accepting the tokens, raises SignInNeeded and sets Settings.garminSignInNeeded for the Settings and Tasks pages; the
@@ -88,7 +117,7 @@ def _client():
     s = db.execute('SELECT garminEmail, garminPassword, garminSignInNeeded FROM Settings WHERE id=1').fetchone()
     old_pw = s['garminPassword'] if s else None
     TOKEN_DIR.mkdir(exist_ok=True)
-    api = Garmin(email=s['garminEmail'] if old_pw else None, password=old_pw or None)
+    api = _sealed(Garmin(email=s['garminEmail'] if old_pw else None, password=old_pw or None))
     try:
         api.login(tokenstore=str(TOKEN_DIR))
     except GarminConnectAuthenticationError as e:
@@ -101,6 +130,8 @@ def _client():
     if s and (old_pw or s['garminSignInNeeded']):
         db.execute('UPDATE Settings SET garminPassword=NULL, garminSignInNeeded=NULL WHERE id=1')
         db.commit()
+    if _plain_tokens():
+        api.client.dump(str(TOKEN_DIR))           # encrypted now
     return api
 
 
@@ -124,7 +155,7 @@ def start_login(email, password):
     # this function's whole job is to actually check the credentials someone just
     # typed — otherwise a wrong password, or stale tokens from a previous account,
     # would come back as a false "connected").
-    api = Garmin(email=email, password=password, return_on_mfa=True)
+    api = _sealed(Garmin(email=email, password=password, return_on_mfa=True))
     status, _ = api.login()
     if status == 'needs_mfa':
         token = secrets.token_urlsafe(16)
