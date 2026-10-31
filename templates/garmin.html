@@ -7,11 +7,11 @@
 <div style="display:flex; gap:0.5rem; align-items:center;">
   {% for d in [30, 60, 90] %}
   <a href="?days={{ d }}"
-     class="btn {% if days == d %}btn-primary{% else %}btn-secondary{% endif %}"
-     style="padding:0.3rem 0.75rem; font-size:0.8125rem;">{{ d }}d</a>
+     class="btn btn-secondary btn-sm{% if days == d %} active{% endif %}"
+    >{{ d }}d</a>
   {% endfor %}
-  <button class="btn btn-secondary" id="syncBtn" onclick="doSync()"
-          style="padding:0.3rem 0.75rem; font-size:0.8125rem;">Sync</button>
+  <button class="btn btn-secondary btn-sm" id="syncBtn" onclick="doSync()"
+         >Sync</button>
   <span id="syncStatus" style="font-size:0.8125rem; color:var(--text-muted);"></span>
 </div>
 {% endblock %}
@@ -56,7 +56,7 @@
 {% endif %}
 
 <div style="text-align:right; margin-bottom:0.4rem; font-size:0.75rem; color:var(--text-muted);">
-  <span style="color:rgba(252,76,2,0.9);">&#9650;</span> Rode
+  <span style="color:var(--accent);">&#9650;</span> Rode
 </div>
 
 <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem; margin-bottom:1rem;">
@@ -105,52 +105,52 @@
 <div class="card">
   <div class="card-title">Daily Log</div>
   <div style="overflow-x:auto;">
-    <table style="width:100%; border-collapse:collapse; font-size:0.875rem;">
+    <table class="table">
       <thead>
-        <tr style="border-bottom:1px solid var(--border);">
-          <th style="padding:0.5rem 0.75rem; text-align:left; color:var(--text-muted); font-weight:500;">Date</th>
-          <th style="padding:0.5rem 0.75rem; text-align:right; color:var(--text-muted); font-weight:500;">Resting HR</th>
-          <th style="padding:0.5rem 0.75rem; text-align:right; color:var(--text-muted); font-weight:500;">HRV</th>
-          <th style="padding:0.5rem 0.75rem; text-align:right; color:var(--text-muted); font-weight:500;">Sleep</th>
-          <th style="padding:0.5rem 0.75rem; text-align:right; color:var(--text-muted); font-weight:500;">Sleep Score</th>
-          <th style="padding:0.5rem 0.75rem; text-align:right; color:var(--text-muted); font-weight:500;">Body Battery</th>
-          <th style="padding:0.5rem 0.75rem; text-align:right; color:var(--text-muted); font-weight:500;">Steps</th>
-          <th style="padding:0.5rem 0.75rem; text-align:right; color:var(--text-muted); font-weight:500;">Stress</th>
+        <tr>
+          <th>Date</th>
+          <th class="num">Resting HR</th>
+          <th class="num">HRV</th>
+          <th class="num">Sleep</th>
+          <th class="num">Sleep Score</th>
+          <th class="num">Body Battery</th>
+          <th class="num">Steps</th>
+          <th class="num">Stress</th>
         </tr>
       </thead>
       <tbody>
         {% for r in table_rows %}
-        <tr style="border-bottom:1px solid rgba(22,51,82,0.5);">
-          <td style="padding:0.5rem 0.75rem; color:var(--text);">{{ r.date | fmt_date }}</td>
-          <td style="padding:0.5rem 0.75rem; text-align:right; color:var(--text);">
+        <tr>
+          <td style="color:var(--text);">{{ r.date | fmt_date }}</td>
+          <td class="num" style="color:var(--text);">
             {% if r.restingHR %}
-              <span style="color:{{ '#ef4444' if r.restingHR > 65 else ('#f59e0b' if r.restingHR > 58 else 'var(--success)') }};">
+              <span style="color:{{ 'var(--danger)' if r.restingHR > 65 else ('var(--warning)' if r.restingHR > 58 else 'var(--success)') }};">
                 {{ r.restingHR }} bpm
               </span>
             {% else %}—{% endif %}
           </td>
-          <td style="padding:0.5rem 0.75rem; text-align:right; color:var(--text);">
+          <td class="num" style="color:var(--text);">
             {% if r.hrv %}{{ r.hrv }}{% else %}—{% endif %}
           </td>
-          <td style="padding:0.5rem 0.75rem; text-align:right; color:var(--text);">
+          <td class="num" style="color:var(--text);">
             {% if r.sleepHours %}{{ r.sleepHours }}h{% else %}—{% endif %}
           </td>
-          <td style="padding:0.5rem 0.75rem; text-align:right; color:var(--text);">
+          <td class="num" style="color:var(--text);">
             {% if r.sleepScore %}{{ r.sleepScore }}{% else %}—{% endif %}
           </td>
-          <td style="padding:0.5rem 0.75rem; text-align:right;">
+          <td class="num">
             {% if r.bodyBattery %}
-              <span style="color:{{ '#ef4444' if r.bodyBattery < 25 else ('#f59e0b' if r.bodyBattery < 50 else 'var(--success)') }};">
+              <span style="color:{{ 'var(--danger)' if r.bodyBattery < 25 else ('var(--warning)' if r.bodyBattery < 50 else 'var(--success)') }};">
                 {{ r.bodyBattery }}%
               </span>
             {% else %}—{% endif %}
           </td>
-          <td style="padding:0.5rem 0.75rem; text-align:right; color:var(--text);">
+          <td class="num" style="color:var(--text);">
             {% if r.steps %}{{ '{:,}'.format(r.steps) }}{% else %}—{% endif %}
           </td>
-          <td style="padding:0.5rem 0.75rem; text-align:right;">
+          <td class="num">
             {% if r.stressScore %}
-              <span style="color:{{ '#ef4444' if r.stressScore > 60 else ('#f59e0b' if r.stressScore > 35 else 'var(--success)') }};">
+              <span style="color:{{ 'var(--danger)' if r.stressScore > 60 else ('var(--warning)' if r.stressScore > 35 else 'var(--success)') }};">
                 {{ r.stressScore }}
               </span>
             {% else %}—{% endif %}
@@ -197,13 +197,13 @@ const intradayOpts = (yMin, yMax, yCallback) => ({
   },
   scales: {
     x: {
-      ticks: { color: '#4d7d95', font: { size: 10 }, maxRotation: 0, autoSkip: false },
+      ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxRotation: 0, autoSkip: false },
       grid: { display: false },
     },
     y: {
       min: yMin, max: yMax,
-      ticks: { color: '#4d7d95', font: { size: 11 }, callback: v => yCallback(v) },
-      grid: { color: '#163352' },
+      ticks: { color: cssVar('--text-muted'), font: { size: 11 }, callback: v => yCallback(v) },
+      grid: { color: cssVar('--border') },
     },
   },
 });
@@ -216,8 +216,8 @@ if (hrIntraday.length > 0) {
       labels: sparseLabels(hrIntraday, every),
       datasets: [{
         data: hrIntraday.map(p => p[1]),
-        borderColor: '#ef4444',
-        backgroundColor: 'rgba(239,68,68,0.12)',
+        borderColor: cssVar('--danger'),
+        backgroundColor: cssVar('--danger', 0.12),
         borderWidth: 1.5,
         pointRadius: 0,
         fill: true,
@@ -237,11 +237,11 @@ if (bbIntraday.length > 0) {
       labels: sparseLabels(bbIntraday, every),
       datasets: [{
         data: bbValues,
-        borderColor: '#10b981',
+        borderColor: cssVar('--success'),
         backgroundColor: bbValues.map(v =>
-          v < 25 ? 'rgba(239,68,68,0.15)' :
-          v < 50 ? 'rgba(245,158,11,0.15)' :
-          'rgba(16,185,129,0.15)'
+          v < 25 ? cssVar('--danger', 0.15) :
+          v < 50 ? cssVar('--warning', 0.15) :
+          cssVar('--success', 0.15)
         ),
         borderWidth: 1.5,
         pointRadius: 0,
@@ -275,12 +275,12 @@ const baseOpts = (yLabel, yCallback) => ({
   },
   scales: {
     x: {
-      ticks: { color: '#4d7d95', font: { size: 10 }, maxTicksLimit: 10 },
+      ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: 10 },
       grid: { display: false },
     },
     y: {
-      ticks: { color: '#4d7d95', font: { size: 11 }, callback: v => yCallback(v) },
-      grid: { color: '#163352' },
+      ticks: { color: cssVar('--text-muted'), font: { size: 11 }, callback: v => yCallback(v) },
+      grid: { color: cssVar('--border') },
     },
     yRide: {
       display: false,
@@ -296,8 +296,8 @@ const rideDataset = {
   pointRadius: 5,
   pointHoverRadius: 6,
   pointStyle: 'triangle',
-  backgroundColor: 'rgba(252,76,2,0.7)',
-  borderColor: 'rgba(252,76,2,0.9)',
+  backgroundColor: cssVar('--accent', 0.7),
+  borderColor: cssVar('--accent', 0.9),
   label: 'Rode',
 };
 
@@ -311,12 +311,12 @@ if (rhrEl && rhrData.some(v => v !== null)) {
       datasets: [
         {
           data: rhrData,
-          borderColor: '#fc4c02',
-          backgroundColor: 'rgba(252,76,2,0.08)',
+          borderColor: cssVar('--accent'),
+          backgroundColor: cssVar('--accent', 0.08),
           borderWidth: 2,
           pointRadius: rhrData.map(v => v !== null ? 4 : 0),
           pointHoverRadius: 6,
-          pointBackgroundColor: '#fc4c02',
+          pointBackgroundColor: cssVar('--accent'),
           fill: true,
           tension: 0.3,
           spanGaps: false,
@@ -344,12 +344,12 @@ if (batEl && batData.some(v => v !== null)) {
       datasets: [
         {
           data: batData,
-          borderColor: '#10b981',
-          backgroundColor: 'rgba(16,185,129,0.08)',
+          borderColor: cssVar('--success'),
+          backgroundColor: cssVar('--success', 0.08),
           borderWidth: 2,
           pointRadius: batData.map(v => v !== null ? 4 : 0),
           pointHoverRadius: 6,
-          pointBackgroundColor: '#10b981',
+          pointBackgroundColor: cssVar('--success'),
           fill: true,
           tension: 0.3,
           spanGaps: false,
@@ -379,13 +379,13 @@ if (sleepEl && sleepData.some(v => v !== null)) {
           data: sleepData,
           backgroundColor: sleepData.map(v =>
             v === null ? 'transparent' :
-            v < 6 ? 'rgba(239,68,68,0.6)' :
-            v < 7 ? 'rgba(245,158,11,0.6)' :
-            'rgba(168,85,247,0.6)'
+            v < 6 ? cssVar('--danger', 0.6) :
+            v < 7 ? cssVar('--warning', 0.6) :
+            cssVar('--c-purple', 0.6)
           ),
           borderColor: sleepData.map(v =>
             v === null ? 'transparent' :
-            v < 6 ? '#ef4444' : v < 7 ? '#f59e0b' : '#a855f7'
+            v < 6 ? cssVar('--danger') : v < 7 ? cssVar('--warning') : cssVar('--c-purple')
           ),
           borderWidth: 1,
           borderRadius: 3,
@@ -399,10 +399,10 @@ if (sleepEl && sleepData.some(v => v !== null)) {
         tooltip: { callbacks: { label: ctx => ctx.raw !== null ? ctx.raw + 'h' : 'no data' } },
       },
       scales: {
-        x: { ticks: { color: '#4d7d95', font: { size: 10 }, maxTicksLimit: 10 }, grid: { display: false } },
+        x: { ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: 10 }, grid: { display: false } },
         y: {
-          ticks: { color: '#4d7d95', font: { size: 11 }, callback: v => v + 'h' },
-          grid: { color: '#163352' },
+          ticks: { color: cssVar('--text-muted'), font: { size: 11 }, callback: v => v + 'h' },
+          grid: { color: cssVar('--border') },
           beginAtZero: true,
           suggestedMax: 10,
         },
@@ -421,8 +421,8 @@ if (stepsEl && stepsData.some(v => v !== null)) {
       datasets: [
         {
           data: stepsData,
-          backgroundColor: 'rgba(99,102,241,0.5)',
-          borderColor: '#6366f1',
+          backgroundColor: cssVar('--c-indigo', 0.5),
+          borderColor: cssVar('--c-indigo'),
           borderWidth: 1,
           borderRadius: 3,
         },
@@ -449,13 +449,13 @@ if (stressEl && stressData.some(v => v !== null)) {
       datasets: [
         {
           data: stressData,
-          borderColor: '#f59e0b',
-          backgroundColor: 'rgba(245,158,11,0.08)',
+          borderColor: cssVar('--warning'),
+          backgroundColor: cssVar('--warning', 0.08),
           borderWidth: 2,
           pointRadius: stressData.map(v => v !== null ? 4 : 0),
           pointHoverRadius: 6,
           pointBackgroundColor: stressData.map(v =>
-            v === null ? 'transparent' : v > 60 ? '#ef4444' : v > 35 ? '#f59e0b' : '#10b981'
+            v === null ? 'transparent' : v > 60 ? cssVar('--danger') : v > 35 ? cssVar('--warning') : cssVar('--success')
           ),
           fill: true,
           tension: 0.3,

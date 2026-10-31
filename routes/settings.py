@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import sqlite3
@@ -13,6 +14,7 @@ _backfill_state = {'running': False, 'done': 0, 'failed': 0}
 from dotenv import load_dotenv, set_key
 from flask import Blueprint, after_this_request, current_app, flash, jsonify, redirect, render_template, request, send_file, session
 from database import get_db, migrate_db, query_db
+from services import vault
 
 import time
 bp = Blueprint('settings', __name__)
@@ -20,6 +22,20 @@ bp = Blueprint('settings', __name__)
 ENV_PATH = Path(os.environ.get('HEADWIND_ENV') or Path(__file__).parent.parent / '.env')
 
 OPENAI_MODELS = ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini', 'gpt-4-turbo', 'gpt-3.5-turbo']
+from services.ai import CLAUDE_MODELS
+
+log = logging.getLogger(__name__)
+
+APPEARANCES = ('auto', 'light', 'dark')       # Settings.appearance; auto follows the device (templates/_scheme.html)
+
+
+def appearance():
+    """The stored Appearance, for data-theme on <html>. 'auto' before setup, or if the column is missing or holds anything else."""
+    try:
+        row = query_db('SELECT appearance FROM Settings WHERE id=1', one=True)
+        return row['appearance'] if row and row['appearance'] in APPEARANCES else 'auto'
+    except Exception:
+        return 'auto'
 
 
 @bp.route('/', methods=['GET', 'POST'])
@@ -43,21 +59,21 @@ def index():
         provider     = field('aiProvider', 'openai') or 'openai'
         openai_key   = form.get('openaiKey', '').strip()
         openai_model = field('openaiModel', 'gpt-4o') or 'gpt-4o'
+        claude_key   = form.get('claudeKey', '').strip()
+        claude_model = field('claudeModel', CLAUDE_MODELS[0]) or CLAUDE_MODELS[0]
         ollama_url   = (field('ollamaUrl', 'http://localhost:11434') or 'http://localhost:11434').strip()
         ollama_model = (field('ollamaModel', 'llama3.2') or 'llama3.2').strip()
         units        = field('units', 'imperial')
         if units not in ('imperial', 'metric'):
             units = 'imperial'
         kept_key     = _kept('openaiKey')
+        kept_claude  = _kept('claudeKey')
         kept_mqtt_pw = _kept('mqttPassword')
 
         mqtt_host     = field('mqttHost').strip()
         mqtt_port     = (field('mqttPort', '1883') or '1883').strip()
         mqtt_user     = field('mqttUser').strip()
         mqtt_password = form.get('mqttPassword', '').strip()
-        garmin_email  = field('garminEmail').strip()
-        garmin_password = form.get('garminPassword', '').strip()
-        kept_garmin_pw = _kept('garminPassword')
         garmin_sync_hours_raw = (field('garminSyncHours', '0.5') or '0.5').strip()
         try:
             garmin_sync_hours = float(garmin_sync_hours_raw)
@@ -70,42 +86,54 @@ def index():
             garmin_sync_mode = 'health'
 
         db.execute('''
-            INSERT INTO Settings (id, aiProvider, openaiKey, openaiModel, ollamaUrl, ollamaModel,
+            INSERT INTO Settings (id, aiProvider, openaiKey, openaiModel, claudeKey, claudeModel, ollamaUrl, ollamaModel,
                                   mqttHost, mqttPort, mqttUser, mqttPassword,
-                                  garminEmail, garminPassword, garminSyncHours, garminSyncMode, units)
+                                  garminSyncHours, garminSyncMode, units)
             VALUES (1,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 aiProvider=excluded.aiProvider,
                 openaiKey=excluded.openaiKey,
                 openaiModel=excluded.openaiModel,
+                claudeKey=excluded.claudeKey,
+                claudeModel=excluded.claudeModel,
                 ollamaUrl=excluded.ollamaUrl,
                 ollamaModel=excluded.ollamaModel,
                 mqttHost=excluded.mqttHost,
                 mqttPort=excluded.mqttPort,
                 mqttUser=excluded.mqttUser,
                 mqttPassword=excluded.mqttPassword,
-                garminEmail=excluded.garminEmail,
-                garminPassword=excluded.garminPassword,
                 garminSyncHours=excluded.garminSyncHours,
                 garminSyncMode=excluded.garminSyncMode,
                 units=excluded.units
         ''', [
             provider,
-            openai_key if openai_key else kept_key,
+            vault.seal(openai_key if openai_key else kept_key),
             openai_model,
+            vault.seal(claude_key if claude_key else kept_claude),
+            claude_model,
             ollama_url,
             ollama_model,
             mqtt_host,
             int(mqtt_port) if mqtt_port.isdigit() else 1883,
             mqtt_user,
-            mqtt_password if mqtt_password else kept_mqtt_pw,
-            garmin_email,
-            garmin_password if garmin_password else kept_garmin_pw,
+            vault.seal(mqtt_password if mqtt_password else kept_mqtt_pw),
             garmin_sync_hours,
             garmin_sync_mode,
             units,
         ])
+        if form.get('appearance') in APPEARANCES:       # anything else keeps what is saved
+            db.execute('UPDATE Settings SET appearance=? WHERE id=1', [form['appearance']])
+        if 'timeZone' in form:                          # blank = the server's zone
+            from services import tz
+            zone = form['timeZone'].strip()
+            db.execute('UPDATE Settings SET timeZone=? WHERE id=1', [zone if tz.valid(zone) else None])
+            tz.forget()
         db.commit()
+        if current and (current['units'] or 'imperial') != units:     # the "looks wrong" reasons are stored as text: re-word them in the new units
+            from flask import g
+            from services import sanity
+            g.units = units
+            sanity.scan_all(db)
         flash('Settings saved.', 'success')
         return redirect('/settings')
 
@@ -121,7 +149,10 @@ def index():
         from version import __version__
     except ImportError:
         __version__ = 'dev'
-    return render_template('settings.html', s=s, openai_models=OPENAI_MODELS,
+    from services import tz
+    from services import garmin
+    return render_template('settings.html', s=s, openai_models=OPENAI_MODELS, zones=tz.names(), server_zone=tz.server_zone_name(),
+                           claude_models=CLAUDE_MODELS, garmin_on=garmin.connected(s),
                            current_username=current_username, build_time=build_time,
                            app_version=__version__)
 
@@ -130,26 +161,22 @@ def index():
 def test_ai():
     """Try the AI credentials currently typed into the form (saved or not) with a one-word request."""
     import time
-    from openai import OpenAI
+    from services.ai import make_chat
     f = request.form
-    saved = query_db('SELECT openaiKey FROM Settings WHERE id=1', one=True)
+    saved = query_db('SELECT openaiKey, claudeKey FROM Settings WHERE id=1', one=True)
+
+    def key(col):     # a key left blank in the form means "the one already saved"
+        typed = (f.get(col) or '').strip()
+        return typed if typed not in ('', 'None') else ((saved[col] if saved else '') or '')
     try:
-        if (f.get('aiProvider') or 'openai') == 'ollama':
-            base = (f.get('ollamaUrl') or 'http://localhost:11434').strip()
-            model = (f.get('ollamaModel') or 'llama3.2').strip()
-            client = OpenAI(api_key='ollama', base_url=f'{base}/v1', timeout=20)
-        else:
-            key = (f.get('openaiKey') or '').strip()
-            if key in ('', 'None'):
-                key = (saved['openaiKey'] if saved else '') or ''
-            if key in ('', 'None'):
-                return jsonify({'error': 'No API key entered'}), 400
-            model = f.get('openaiModel') or 'gpt-4o'
-            client = OpenAI(api_key=key, timeout=20)
+        chat = make_chat(f.get('aiProvider') or 'openai', key('openaiKey'), f.get('openaiModel'),
+                         key('claudeKey'), f.get('claudeModel'),
+                         (f.get('ollamaUrl') or '').strip(), (f.get('ollamaModel') or '').strip(), timeout=60)
+        if chat is None:
+            return jsonify({'error': 'No API key entered'}), 400
         t0 = time.time()
-        client.chat.completions.create(model=model, max_tokens=5,
-                                       messages=[{'role': 'user', 'content': 'Reply with OK'}])
-        return jsonify({'ok': True, 'model': model, 'ms': int((time.time() - t0) * 1000)})
+        chat([{'role': 'user', 'content': 'Reply with OK'}], max_tokens=5)
+        return jsonify({'ok': True, 'model': chat.model, 'ms': int((time.time() - t0) * 1000)})
     except Exception as e:
         return jsonify({'error': str(getattr(e, 'message', None) or e)[:200]}), 400
 
@@ -195,6 +222,7 @@ def test_mqtt():
         client.loop_stop()
         client.disconnect()
     except Exception as e:
+        log.warning('MQTT test connection failed', exc_info=True)
         return jsonify({'error': str(e)[:200]}), 400
     if 'rc' not in result:
         return jsonify({'error': 'Broker did not respond'}), 400
@@ -215,6 +243,7 @@ def version_check():
         data = json.loads(resp.read())
         return jsonify({'last_updated': data.get('last_updated')})
     except Exception as e:
+        log.warning('Update check failed', exc_info=True)
         return jsonify({'error': str(e)}), 502
 
 
@@ -247,7 +276,7 @@ def calorie_adjust_history():
         from services import mqtt
         mqtt.push_update()
     except Exception:
-        pass
+        log.warning('Home Assistant update after reapplying calorie adjustments failed', exc_info=True)
     return jsonify({'ok': True, 'pct': calorie_adjust.get_pct(), 'touched': touched})
 
 
@@ -357,6 +386,8 @@ def backup_export():
         dst = sqlite3.connect(snap)
         src.backup(dst)
         src.close()
+        dst.execute('UPDATE Settings SET garminPassword=NULL')     # an older install's, not yet swapped for tokens (services/garmin._client)
+        dst.commit()
         dst.close()
 
         zip_path = os.path.join(tmp_dir, 'headwind-backup.zip')
@@ -374,6 +405,10 @@ def backup_export():
             if os.path.isdir(bi_dir):
                 for name in os.listdir(bi_dir):
                     zf.write(os.path.join(bi_dir, name), f'bikeimg/{name}')
+            ri_dir = os.path.join(os.path.dirname(os.path.abspath(db)), 'rideimg')
+            if os.path.isdir(ri_dir):
+                for name in os.listdir(ri_dir):
+                    zf.write(os.path.join(ri_dir, name), f'rideimg/{name}')
 
         @after_this_request
         def _cleanup(resp):
@@ -383,6 +418,7 @@ def backup_export():
         return send_file(zip_path, as_attachment=True, download_name='headwind-backup.zip',
                          mimetype='application/zip')
     except Exception as e:
+        log.exception('Backup export failed')
         shutil.rmtree(tmp_dir, ignore_errors=True)
         flash(f'Export failed: {e}', 'error')
         return redirect('/settings')
@@ -403,10 +439,13 @@ def backup_import():
         backup.prepare(tmp_db)   # migrate + smoke-test the staged copy before anything live changes
         backup.apply(_db_path(), tmp_db, assets, _avatar_dir())
         migrate_db()   # an older backup may predate current columns/tables
+        note = backup.secrets_note()
     except backup.BackupError as e:
+        log.warning('Restore refused: %s', e)
         flash(str(e), 'error')
         return redirect('/settings')
     except Exception as e:
+        log.exception('Restore failed')
         flash(f'Restore failed: {e}', 'error')
         return redirect('/settings')
     finally:
@@ -414,4 +453,6 @@ def backup_import():
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     flash('Restored from backup — previous database saved as .pre-restore.', 'success')
+    if note:
+        flash(note, 'error')
     return redirect('/settings')

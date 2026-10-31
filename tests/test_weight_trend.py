@@ -5,12 +5,13 @@ import pytest
 from services.weight_trend import (
     compute_trend,
     format_weight,
+    is_scale_reading,
     kg_to_stone_lb,
     parse_backfill_rows,
     parse_log_date,
     parse_weight_value,
     stone_lb_to_kg,
-    stone_milestones,
+    weight_milestones,
 )
 
 
@@ -180,17 +181,33 @@ def test_compute_trend_empty():
     assert compute_trend([]) == {}
 
 
-# ── stone_milestones ─────────────────────────────────────────────────────
+# ── weight_milestones ────────────────────────────────────────────────────
 
-def test_stone_milestones_basic():
+def test_weight_milestones_every_stone_by_default():
     start = stone_lb_to_kg(16, 0)
     low = stone_lb_to_kg(14, 0)
-    lines = stone_milestones(start, low)
+    lines = weight_milestones(start, low)
     # Should include 15st and 14st marks, not 13st
     assert len(lines) == 2
     assert lines[0] == pytest.approx(stone_lb_to_kg(15, 0), abs=0.01)
     assert lines[1] == pytest.approx(stone_lb_to_kg(14, 0), abs=0.01)
 
 
-def test_stone_milestones_none_start():
-    assert stone_milestones(None, 50) == []
+def test_weight_milestones_metric_step():
+    assert weight_milestones(100.0, 88.0, 5) == pytest.approx([95.0, 90.0])
+
+
+def test_weight_milestones_none_start():
+    assert weight_milestones(None, 50) == []
+
+
+# ── Scale or typed in ────────────────────────────────────────────────────
+
+def test_garmin_counts_as_a_scale_unless_garmin_says_it_was_typed_in():
+    assert is_scale_reading('homeassistant')
+    assert is_scale_reading('garmin', None)
+    assert is_scale_reading('garmin', 'INDEX_SCALE')
+    assert not is_scale_reading('garmin', 'MANUAL')
+    assert not is_scale_reading('garmin', 'manual')
+    assert not is_scale_reading('manual')
+    assert not is_scale_reading('backfill', 'INDEX_SCALE')

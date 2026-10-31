@@ -1,0 +1,18 @@
+{# Light or dark, before anything draws. <html data-theme> is the Appearance setting (Settings.appearance: auto, light or dark);
+   this sets data-scheme, which static/css/style.css keys its light colours on. Auto follows the device, and flips with it while
+   the page is open (e.g. at sunset); base.html then recolours charts and maps on the 'schemechange' event. #}
+<meta name="color-scheme" content="{{ {'light': 'light', 'dark': 'dark'}.get(appearance, 'light dark') }}">
+<script>
+(function () {
+  var root = document.documentElement, device = matchMedia('(prefers-color-scheme: light)');
+  window.applyScheme = function () {
+    var t = root.dataset.theme, s = (t === 'light' || t === 'dark') ? t : (device.matches ? 'light' : 'dark');
+    if (root.dataset.scheme === s) return;
+    var was = root.dataset.scheme;
+    root.dataset.scheme = s;
+    if (was) dispatchEvent(new CustomEvent('schemechange', { detail: s }));
+  };
+  applyScheme();
+  device.addEventListener('change', applyScheme);
+})();
+</script>

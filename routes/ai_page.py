@@ -22,8 +22,10 @@ def _memory_viz_data():
     min_d, max_d = dates[0], dates[-1]
     span = max((max_d - min_d).days, 1)
 
-    speeds = [float(r['avgSpeedMph'] or 0) for r in rows]
-    dists  = [float(r['distanceMi']  or 0) for r in rows]
+    from services import units
+    mi, mph = units.MI, units.MPH_PER_MPS                  # RideMemory is stored in miles and mph; shown in the rider's units
+    speeds = [units.speed(float(r['avgSpeedMph'] or 0) / mph) for r in rows]
+    dists  = [units.dist(float(r['distanceMi'] or 0) * mi) for r in rows]
     min_spd, max_spd = min(speeds), max(speeds)
     spd_range = max(max_spd - min_spd, 0.1)
     max_dist = max(dists) if dists else 1
@@ -57,8 +59,8 @@ def _memory_viz_data():
     monthly = [{
         'label':      datetime.strptime(r['mo'], '%Y-%m').strftime('%b %Y'),
         'cnt':        r['cnt'],
-        'total_dist': round(r['total_dist'] or 0, 1),
-        'avg_spd':    round(r['avg_spd'] or 0, 1),
+        'total_dist': round(units.dist((r['total_dist'] or 0) * mi), 1),
+        'avg_spd':    round(units.speed((r['avg_spd'] or 0) / mph), 1),
         'avg_elev':   round(r['avg_elev'] or 0),
         'bar_pct':    round(((r['total_dist'] or 0) / max_dist_mo) * 100),
     } for r in monthly_raw]
@@ -92,13 +94,17 @@ def _memory_viz_data():
 @bp.route('/ai')
 def index():
     settings = query_db('SELECT * FROM Settings WHERE id=1', one=True)
-    total    = query_db('SELECT COUNT(*) FROM Activity', one=True)[0]
-    analysed = query_db("SELECT COUNT(*) FROM Activity WHERE aiKudos IS NOT NULL AND aiKudos != ''", one=True)[0]
+    total    = query_db('SELECT COUNT(*) FROM Ride', one=True)[0]
+    analysed = query_db("SELECT COUNT(*) FROM Ride WHERE aiKudos IS NOT NULL AND aiKudos != ''", one=True)[0]
     memories = query_db('SELECT COUNT(*) FROM RideMemory', one=True)[0]
     dots, monthly, recent = _memory_viz_data()
+    from services import ai, auto_analyse
+    ai_ready = ai.get_chat() is not None
     return render_template('ai.html', settings=settings,
                            total=total, analysed=analysed, memories=memories,
-                           dots=dots, monthly=monthly, recent=recent)
+                           dots=dots, monthly=monthly, recent=recent,
+                           ai_ready=ai_ready, missing_key=None if ai_ready else ai.missing_key_message('to analyse new rides automatically'),
+                           recent_days=auto_analyse.RECENT_DAYS)
 
 
 @bp.route('/ai/goals', methods=['POST'])
@@ -109,6 +115,23 @@ def save_goals():
     db.execute('UPDATE Settings SET coachingGoals=? WHERE id=1', [goals])
     db.commit()
     flash('Goals saved.', 'success')
+    return redirect(url_for('ai_page.index'))
+
+
+@bp.route('/ai/auto-analyse', methods=['POST'])
+def save_auto_analyse():
+    """Analyse each new ride as it's imported (services/auto_analyse.py). Only turns on once an AI provider is set up."""
+    on = request.form.get('auto') == '1'
+    if on:
+        from services import ai
+        if ai.get_chat() is None:
+            flash(ai.missing_key_message('to analyse new rides automatically'), 'error')
+            return redirect(url_for('ai_page.index'))
+    db = get_db()
+    db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
+    db.execute('UPDATE Settings SET aiAutoAnalyse=? WHERE id=1', [1 if on else 0])
+    db.commit()
+    flash('New rides will be analysed as they arrive.' if on else 'New rides will no longer be analysed automatically.', 'success')
     return redirect(url_for('ai_page.index'))
 
 
@@ -136,7 +159,7 @@ def bulk_analyse():
         db = get_db()
         clause, params = _activity_where(date_from, date_to, force)
         rides = query_db(
-            f'SELECT * FROM Activity {clause} ORDER BY startDateLocal ASC',
+            f'SELECT * FROM Ride {clause} ORDER BY startDateLocal ASC',
             params
         )
 
@@ -155,18 +178,8 @@ def bulk_analyse():
             date = str(activity['startDateLocal'] or '')[:10]
             yield f'data: {json.dumps({"type":"progress","i":i+1,"total":total,"name":name,"date":date})}\n\n'
             try:
-                from routes.kudos import _ensure_weather
-                from services.ai import generate_analysis
-                from services.context import save_ride_memory
-
-                activity = _ensure_weather(activity, db)
-                text = generate_analysis(activity)
-                db.execute(
-                    "UPDATE Activity SET aiKudos=?, aiKudosAt=datetime('now') WHERE id=?",
-                    [text, activity['id']],
-                )
-                db.commit()
-                save_ride_memory(activity, text)
+                from services.ai import analyse_ride
+                analyse_ride(db, activity)
                 analysed += 1
             except Exception:
                 skipped += 1
@@ -184,5 +197,5 @@ def count():
     date_to   = request.args.get('to', '')
     force     = request.args.get('force', '') == '1'
     clause, params = _activity_where(date_from, date_to, force)
-    row = query_db(f'SELECT COUNT(*) FROM Activity {clause}', params, one=True)
+    row = query_db(f'SELECT COUNT(*) FROM Ride {clause}', params, one=True)
     return jsonify({'count': row[0]})

@@ -1,0 +1,31 @@
+{# The sport filter (services/sport_filter): every sport is ticked to start with, and unticking one leaves it out of the totals, the charts and the list.
+   The URL lists only the ones left out (skip=), so a sport that turns up later is shown. The boxes belong to the form named by form_id, wherever it is.
+   Commute (commute=only|no) is offered once there's a commute. #}
+{% set many_sports = sf.sports | length > 1 %}
+{% if many_sports or sf.show_commute %}
+<div class="sport-include sport-filter">
+  {% if many_sports %}
+  <span class="sport-include-label">Sports</span>
+  {% for s, n in sf.sports %}
+  <label title="{{ n }} activit{{ 'y' if n == 1 else 'ies' }}"><input type="checkbox" form="{{ form_id }}" data-sport value="{{ s }}" {% if s not in sf.skip %}checked{% endif %} onchange="sportSkips(this.form); this.form.submit()"> {{ s | sport_icon }} {{ s | sport_label }}</label>
+  {% endfor %}
+  {% if sport_links %}<span class="sport-only-sep"></span>{% endif %}
+  {% for label, icon, href, active in sport_links %}<a class="sport-only{{ ' active' if active }}" href="{{ href }}" title="Leave every other sport out">{{ icon }} Only {{ label | lower }}</a>{% endfor %}
+  {% if sf.skip %}<button type="button" form="{{ form_id }}" class="sport-include-all" onclick="Array.from(this.form.elements).forEach(b => { if (b.matches('input[data-sport]')) b.checked = true; }); sportSkips(this.form); this.form.submit()">Every sport</button>{% endif %}
+  {% endif %}
+  {% if sf.show_commute %}
+  {% if many_sports %}<span class="sport-only-sep"></span>{% endif %}
+  <select name="commute" form="{{ form_id }}" aria-label="Commutes" title="{{ sf.commutes }} commute{{ '' if sf.commutes == 1 else 's' }}" onchange="sportSkips(this.form); this.form.submit()">
+    {% for value, label in sf.commute_labels %}<option value="{{ value }}" {{ 'selected' if sf.commute == value }}>{{ label }}</option>{% endfor %}
+  </select>
+  {% endif %}
+</div>
+<script>
+function sportSkips(form) {                 // the unticked sports become skip=… on the form, for the tick boxes and the form's own button alike
+  form.querySelectorAll('input[name="skip"]').forEach(i => i.remove());
+  Array.from(form.elements).filter(b => b.matches('input[data-sport]') && !b.checked).forEach(b => {
+    const h = document.createElement('input'); h.type = 'hidden'; h.name = 'skip'; h.value = b.value; form.appendChild(h);
+  });
+}
+</script>
+{% endif %}

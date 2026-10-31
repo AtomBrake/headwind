@@ -1,5 +1,8 @@
+import logging
 import requests
 from database import query_db
+
+log = logging.getLogger(__name__)
 
 
 def send_notification(title, body, click_url=None):
@@ -15,4 +18,4 @@ def send_notification(title, body, click_url=None):
     try:
         requests.post(url, data=body.encode('utf-8'), headers=headers, timeout=5)
     except Exception:
-        pass
+        log.warning('ntfy notification failed', exc_info=True)

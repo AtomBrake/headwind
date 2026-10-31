@@ -40,11 +40,13 @@ def test_stops_short_of_the_end_is_caught_as_close_not_exact():
     assert abs(secs - 3000 / 6.0) < 15              # same speed -> time scaled to the whole segment
 
 
-def test_a_lane_over_is_caught():
+def test_a_road_beside_it_is_not_it():
+    """Until 0.7.7 a line 50 m to one side the whole way counted as a close match; on a real export that was a road beside a trail segment
+    ("Avoiding the road"), at road speeds. Drift wanders either side of the line; a parallel road sits off it the whole way (CLOSE_MEDIAN_M)."""
     seg = _seg()
     ride = _ride(_line(3000, offset_m=50))           # 50 m east: too far for the exact start/end zones
     assert S.match_segment(ride, seg) is None
-    assert S.match_segment_close(ride, seg) is not None
+    assert S.match_segment_close(ride, seg) is None
 
 
 def test_only_part_of_it_is_not_a_match():
@@ -74,9 +76,12 @@ def test_approximate_efforts_never_take_the_pr():
     db.executescript('''
         CREATE TABLE SegmentEffort (id INTEGER PRIMARY KEY, segmentId INT, activityId TEXT, activityDate TEXT, elapsedSecs INT,
                                     avgSpeedMps REAL, isPR INT DEFAULT 0, approx INT DEFAULT 0);
-        CREATE TABLE Activity (id TEXT, riderId INT);
-        CREATE VIEW SegActivity AS SELECT id, riderId FROM Activity;
-        INSERT INTO Activity VALUES ('a', 1), ('b', 1);
+        CREATE TABLE Segment (id INTEGER PRIMARY KEY, sport TEXT);
+        CREATE TABLE Activity (id TEXT, riderId INT, sportType TEXT, bikeId INT);
+        CREATE TABLE Bike (id INTEGER PRIMARY KEY, kind TEXT);
+        CREATE VIEW SegActivity AS SELECT id, riderId, sportType, bikeId FROM Activity;
+        INSERT INTO Segment VALUES (1, 'ride');
+        INSERT INTO Activity VALUES ('a', 1, 'Ride', NULL), ('b', 1, 'Ride', NULL);
         INSERT INTO SegmentEffort (segmentId, activityId, elapsedSecs, approx) VALUES (1, 'a', 500, 0), (1, 'b', 400, 1);
     ''')
     S._refresh_prs(db, 1)

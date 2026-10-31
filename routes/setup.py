@@ -1,12 +1,15 @@
+import logging
 import json
 import os
 import zipfile
 import shutil
 import tempfile
 
-from flask import Blueprint, redirect, render_template, request
+from flask import Blueprint, flash, redirect, render_template, request
 from database import get_db, query_db
 from services import homeassistant as ha
+
+log = logging.getLogger(__name__)
 
 bp = Blueprint('setup', __name__)
 
@@ -100,12 +103,17 @@ def restore():
         backup.prepare(tmp_db)
         backup.apply(_db_path(), tmp_db, assets, _avatar_dir())
         migrate_db()
+        note = backup.secrets_note()
     except backup.BackupError as e:
+        log.warning('Restore in the setup wizard refused: %s', e)
         return render_template('setup.html', step='1', error=str(e))
     except Exception as e:
+        log.exception('Restore in the setup wizard failed')
         return render_template('setup.html', step='1', error=f'Could not restore backup: {e}')
     finally:
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    if note:
+        flash(note, 'error')
     return redirect('/dashboard')

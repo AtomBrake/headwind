@@ -7,26 +7,63 @@
   {% if riders %}
   <form method="GET" style="display:inline;"><select name="rider" onchange="this.form.submit()">{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>
   {% endif %}
+  {% if strava.any %}<a href="{{ url_for('gear.strava_page', rider=rid) }}" class="btn btn-secondary">Strava bikes</a>{% endif %}
   <a href="{{ url_for('gear.assign_page', rider=rid) }}" class="btn btn-secondary">Assign rides</a>
+  <a href="{{ url_for('gear.kit_form', rider=rid) }}" class="btn btn-secondary">+ Add shoes or gear</a>
   <a href="{{ url_for('gear.bike_form', rider=rid) }}" class="btn btn-primary">+ Add bike</a>
 {% endblock %}
 
-{% macro bike_icon() %}<svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="16" r="3.5"/><circle cx="18.5" cy="16" r="3.5"/><path d="M5.5 16 9 8h5l4.5 8M9 8l3.5 8M14 8l-1-3h-2"/></svg>{% endmacro %}
+{% from '_gear.html' import bike_icon, gear_card %}
+{# A line of the defaults card: what it's for, and a picker of the rider's bikes or kit (none: what the line falls back to). #}
+{% macro picker(prefix, key, label, chosen, choices, empty) %}
+<label class="default-line"><span>{{ label }}</span>
+  <select name="{{ prefix }}_{{ key }}">
+    <option value="">{{ empty }}</option>
+    {% for g in choices %}<option value="{{ g.id }}" {{ 'selected' if g.id == chosen }}>{{ g.name }}</option>{% endfor %}
+  </select></label>
+{% endmacro %}
 
 {% block content %}
-{% if error %}<div class="gear-err">{{ error }}</div>{% endif %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+{% if done %}<div class="flash flash-success">{{ done }}</div>{% endif %}
 
-{% if span.unassigned and bikes %}
+{% if strava.pending %}
 <div class="gear-note">
-  <div><strong>{{ '{:,}'.format(span.unassigned) }}</strong> of {{ '{:,}'.format(span.total) }} rides have no bike yet. New rides get your default bike automatically; use the calendar to say which bike rode the older ones.</div>
-  <a class="btn btn-primary btn-sm" href="{{ url_for('gear.assign_page', rider=rid) }}">Assign rides by calendar</a>
+  <div><strong>{{ strava.pending }}</strong> bike{{ 's' if strava.pending != 1 }} from your Strava export {{ 'are' if strava.pending != 1 else 'is' }} waiting to be matched. Their rides get a bike once you say which of yours (or a new one) each is.</div>
+  <a class="btn btn-secondary btn-sm" href="{{ url_for('gear.strava_page', rider=rid) }}">Match Strava bikes</a>
 </div>
 {% endif %}
 
-{% if due %}
+{% if merged %}
+<div class="gear-note">
+  <div><strong>{{ '{:,}'.format(merged) }}</strong> activit{{ 'y was' if merged == 1 else 'ies were' }} recorded twice on different gear: the one kept and the other recording disagree about the bike or shoes. Check which is right.</div>
+  <a class="btn btn-secondary btn-sm" href="{{ url_for('gear.merged_page', rider=rid) }}">Check them</a>
+</div>
+{% endif %}
+
+{% if no_gear %}
+<div class="gear-note">
+  <div><a href="{{ no_gear.href }}"><strong>{{ '{:,}'.format(no_gear.n) }}</strong> activit{{ 'y has' if no_gear.n == 1 else 'ies have' }} no gear</a> yet:
+    {% for s, n, href in no_gear.types %}<a href="{{ href }}">{{ s | sport_icon }} {{ '{:,}'.format(n) }} {{ s | sport_label }}</a>{{ ',' if not loop.last }} {% endfor %}
+    <div class="hint">New ones get your default bike or shoes automatically. Pick the gear for each of the older ones in the list{% if span.unassigned and bikes %}, or use the calendar to say which bike rode the rides by day{% endif %}.</div></div>
+  <a class="btn btn-secondary btn-sm" href="{{ no_gear.href }}">See them</a>
+  {% if span.unassigned and bikes %}<a class="btn btn-secondary btn-sm" href="{{ url_for('gear.assign_page', rider=rid) }}">Assign rides by calendar</a>{% endif %}
+</div>
+{% endif %}
+
+{% if due or kit_due %}
 <div class="card" style="margin-bottom:1rem;">
   <div class="card-title">Needs attention</div>
   <div class="due-list">
+    {% for d in kit_due %}
+    <div class="due-row">
+      <span class="chip {{ d.status.level }}">{{ d.status.level }}</span>
+      <div class="t"><a href="{{ url_for('gear.kit_page', kit_id=d.kit.id) }}"><strong>{{ d.kit.name }}</strong></a>
+        <div class="hint">Replace: {{ d.status.meters | fmt_dist }} of {{ d.kit.replaceAtM | fmt_dist(0) }}</div></div>
+      <div class="bar {{ d.status.level }}" style="width:140px;"><i style="width:{{ [100, ((d.status.ratio or 0) * 100) | round | int] | min }}%"></i></div>
+      <a class="btn btn-secondary btn-sm" href="{{ url_for('gear.kit_page', kit_id=d.kit.id) }}">Open</a>
+    </div>
+    {% endfor %}
     {% for d in due %}
     {% set st = d.status %}
     {% set r = (st.check if st.due == 'check' else st.replace) %}
@@ -46,37 +83,71 @@
 {% endif %}
 
 {% if not bikes %}
-<div class="card" style="text-align:center;padding:2.2rem 1rem;">
-  <div style="color:var(--text-muted);margin-bottom:.6rem;">{{ bike_icon() }}</div>
-  <h3 style="margin:.2rem 0;">Add your first bike</h3>
-  <p class="hint" style="max-width:520px;margin:.4rem auto 1rem;">Track what is on each bike, how far every chain, tyre and cassette has gone, and get a nudge when something is due. Pick a default bike and every new ride lands on it.</p>
+<div class="card empty-state">
+  <div class="empty-icon">{{ bike_icon() }}</div>
+  <h3>Add your first bike</h3>
+  <p>Track what is on each bike, how far every chain, tyre and cassette has gone, and get a nudge when something is due. Pick a default bike and every new ride lands on it.</p>
   <a class="btn btn-primary" href="{{ url_for('gear.bike_form', rider=rid) }}">+ Add a bike</a>
 </div>
 {% else %}
 <div class="bike-grid">
-  {% for b in bikes %}
-  <div class="bike-card">
-    <a class="ph" href="{{ url_for('gear.bike', bike_id=b.bike.id) }}">{% if b.bike.photo %}<img src="{{ url_for('gear.photo', name=b.bike.photo) }}" alt="{{ b.bike.name }}">{% else %}{{ bike_icon() }}{% endif %}</a>
-    <div class="body">
-      <div style="display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;">
-        <h3><a href="{{ url_for('gear.bike', bike_id=b.bike.id) }}" style="color:inherit;text-decoration:none;">{{ b.bike.name }}</a></h3>
-        {% if b.bike.id == default_id %}<span class="chip default">Default</span>{% endif %}
-        {% if b.bike.archived %}<span class="chip">Archived</span>{% endif %}
-        {% if b.health.level != 'ok' %}<span class="chip {{ b.health.level }}">{{ b.health.attention or b.health.soon }} {{ 'to do' if b.health.attention else 'soon' }}</span>{% endif %}
-      </div>
-      <div class="sub">{{ [b.bike.brand, b.bike.model, b.bike.year] | select | join(' ') }}</div>
-      <div class="odo">{{ b.odometer | fmt_dist }}</div>
-      <div class="sub">{{ '{:,}'.format(b.stats.rides) }} ride{{ '' if b.stats.rides == 1 else 's' }}{% if b.stats.last %} · last {{ b.stats.last | fmt_date }}{% endif %}</div>
-      <div class="mini-actions" style="margin-top:.3rem;">
-        {% if b.bike.id != default_id and not b.bike.archived %}
-        <form method="POST" action="{{ url_for('gear.set_default') }}"><input type="hidden" name="rider" value="{{ rid }}"><input type="hidden" name="bike" value="{{ b.bike.id }}"><button class="btn btn-secondary btn-sm" type="submit">Make default</button></form>
-        {% endif %}
-        <a class="btn btn-secondary btn-sm" href="{{ url_for('gear.bike', bike_id=b.bike.id) }}">Open</a>
-      </div>
-    </div>
-  </div>
-  {% endfor %}
+  {% for b in bikes %}{{ gear_card(b) }}{% endfor %}
 </div>
-{% if has_archived %}<p class="hint" style="margin-top:1rem;"><a href="{{ url_for('gear.index', rider=rid, archived=(0 if show_archived else 1)) }}">{{ 'Hide' if show_archived else 'Show' }} archived bikes</a></p>{% endif %}
+{% if has_archived %}<p class="hint" style="margin-top:1rem;"><a href="{{ url_for('gear.index', rider=rid, archived=(0 if show_archived else 1)) }}">{{ 'Hide' if show_archived else 'Show' }} retired bikes</a></p>{% endif %}
+{% endif %}
+
+<h3 style="margin:1.6rem 0 .7rem;">Shoes and other gear</h3>
+{% if not kit_items %}
+<div class="card" style="text-align:center;padding:1.6rem 1rem;">
+  <div style="font-size:2.4rem;">👟</div>
+  <p class="hint" style="max-width:520px;margin:.4rem auto 1rem;">Track how far your running shoes, walking boots, wetsuit or skis have gone, and get a nudge when shoes are due for replacing. Make a pair the default for runs, walks or hikes and every new one lands on it.</p>
+  <a class="btn btn-primary" href="{{ url_for('gear.kit_form', rider=rid) }}">+ Add shoes or gear</a>
+</div>
+{% else %}
+<div class="bike-grid">
+  {% for k in kit_items %}{{ gear_card(k) }}{% endfor %}
+</div>
+{% endif %}
+{% if has_retired %}<p class="hint" style="margin-top:1rem;"><a href="{{ url_for('gear.index', rider=rid, retired=(0 if show_retired else 1)) }}">{{ 'Hide' if show_retired else 'Show' }} retired gear</a></p>{% endif %}
+
+{% if defaults.ride_lines or defaults.kit_lines %}
+<div class="card" id="defaults" style="margin-top:1.6rem;">
+  <div class="card-title">Defaults for new activities</div>
+  <p class="hint" style="margin:.1rem 0 .8rem;">Each new activity, from Garmin, a file, the phone or typed in, is put on the gear for its kind. A commute goes on the commute default whatever its sport. Ticking Commute or changing the sport later picks again, unless you chose the gear yourself.</p>
+  <form method="POST" action="{{ url_for('gear.defaults_save') }}">
+    <input type="hidden" name="rider" value="{{ rid }}">
+    <div class="defaults-grid">
+      {% if defaults.ride_lines %}
+      <div><h4>🚴 Rides</h4>
+        {% for key, label, chosen in defaults.ride_lines %}{{ picker('bike', key, label, chosen, defaults.bikes, 'No bike' if key == '*' else 'Every other ride\'s') }}{% endfor %}
+      </div>
+      {% endif %}
+      {% if defaults.kit_lines %}
+      <div><h4>👟 Everything else</h4>
+        {% for key, label, chosen in defaults.kit_lines %}{{ picker('kit', key, label | sport_icon ~ ' ' ~ label if key != 'Commute' else label, chosen, defaults.kits, 'No gear' if key != 'Commute' else 'The sport\'s') }}{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    <div class="form-actions" style="margin-top:.8rem;"><button class="btn btn-primary" type="submit">Save defaults</button></div>
+  </form>
+  {% if defaults.plan %}
+  <form method="POST" action="{{ url_for('gear.defaults_apply') }}" class="apply-defaults" onsubmit="return confirm('Put these past activities on their default gear?')">
+    <input type="hidden" name="rider" value="{{ rid }}">
+    <div class="card-title" style="margin-top:1rem;">Past activities</div>
+    <p class="hint" style="margin:.1rem 0 .4rem;">These defaults would give older activities different gear:</p>
+    <ul class="plan">
+      {% for p in defaults.plan %}<li><strong>{{ p.name }}</strong>:
+        {% set bits = [] %}
+        {% if p.none %}{% set _ = bits.append('{:,}'.format(p.none) ~ ' with none') %}{% endif %}
+        {% if p.auto %}{% set _ = bits.append('{:,}'.format(p.auto) ~ ' given other gear by an older default') %}{% endif %}
+        {% if p.other %}{% set _ = bits.append('{:,}'.format(p.other) ~ ' on other gear, maybe chosen by hand') %}{% endif %}
+        {{ bits | join(', ') }}</li>{% endfor %}
+    </ul>
+    {% if defaults.chosen %}<label class="check"><input type="checkbox" name="include_chosen" value="1"> Also move the {{ '{:,}'.format(defaults.chosen) }} on other gear (activities from before Headwind kept track of this look the same as ones you picked by hand)</label>{% endif %}
+    <div class="form-actions" style="margin-top:.6rem;"><button class="btn btn-secondary" type="submit">Apply to past activities</button>
+      {% if defaults.easy %}<span class="hint">{{ '{:,}'.format(defaults.easy) }} change{{ 's' if defaults.easy != 1 }}{% if defaults.chosen %}, or {{ '{:,}'.format(defaults.easy + defaults.chosen) }} with the box ticked{% endif %}</span>{% endif %}</div>
+  </form>
+  {% endif %}
+</div>
 {% endif %}
 {% endblock %}

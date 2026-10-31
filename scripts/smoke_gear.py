@@ -66,7 +66,7 @@ ok('assign errors are clean', c.post('/gear/api/assign', json={'bike': 1}).statu
 
 # 4b) the bike page has its own date-range picker, and the full calendar can open with that bike chosen
 bp_ = c.get('/gear/bike/1')
-ok('bike page has the date-range assign card', b'Assign rides to Roubaix' in bp_.data and b'gear_bike_assign.js' in bp_.data and c.get('/static/js/gear_bike_assign.js').status_code == 200)
+ok('bike page has the date-range assign card', b'Assign rides to Roubaix' in bp_.data and b'gear_assign_range.js' in bp_.data and c.get('/static/js/gear_assign_range.js').status_code == 200)
 ok('calendar opens with the bike preselected', b'value="2" selected' in c.get('/gear/assign?bike=2').data)
 con.execute('update Activity set bikeId=NULL'); con.commit()
 ap = c.post('/gear/api/assign?rider=1', json={'bike': 1, 'dates': [], 'from': '2026-09-01', 'to': '2026-09-30', 'only_unassigned': True}).get_json()

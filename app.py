@@ -5,11 +5,12 @@ import time
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from flask import Flask, g, jsonify, redirect, request, session, url_for, render_template
-from werkzeug.middleware.proxy_fix import ProxyFix
 from config import Config
-from database import close_db, migrate_db
+from database import close_db, get_db, migrate_db
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+from services import logs
+
+logs.setup()                    # stderr only until create_app knows where the database (and so the log folder) is
 log = logging.getLogger(__name__)
 
 
@@ -28,17 +29,66 @@ def _friends_autosync(app):
                 continue
             time.sleep(interval * 60)
             with app.app_context():
-                from database import query_db as _qdb
+                from database import query_db as _qdb, get_db as _gdb
                 from routes.friends import _do_sync
-                friends = _qdb('SELECT id FROM Friend')
+                from services import tasks
+                friends = _qdb('SELECT id, name FROM Friend')
+                task_id = tasks.start(_gdb(), 'friend_sync', 'Friend sync') if friends else None
+                failed, rides = [], 0
                 for f in (friends or []):
                     try:
-                        _do_sync(f['id'])
+                        res = _do_sync(f['id'])                   # (activities new or changed here, error text or None)
+                        if isinstance(res, tuple) and res[1]:
+                            failed.append(f"{f['name']}: {str(res[1])[:80]}")
+                        elif isinstance(res, tuple):
+                            rides += res[0] or 0
                     except Exception as e:
+                        failed.append(f"{f['name']}: {str(e)[:80]}")
                         log.warning('Auto-sync failed for friend %s: %s', f['id'], e)
+                if task_id:
+                    n = len(friends)
+                    summary = f"{n - len(failed)} of {n} friend{'s' if n != 1 else ''} synced, " + \
+                        (f"{rides} new or changed activit{'ies' if rides != 1 else 'y'}." if rides else 'nothing new.')
+                    if failed and len(failed) < n:
+                        summary += ' Failed: ' + '; '.join(failed)
+                    tasks.finish(_gdb(), task_id, summary, '; '.join(failed) if failed and len(failed) == n else None)
         except Exception as e:
             log.warning('Friends autosync loop error: %s', e)
             time.sleep(60)
+
+
+def _track_summaries(app):
+    """Once after start-up: the track summaries (services/tracks.py) of activities that have none, so the heatmap and the first new segment don't
+    wait for them. After an upgrade that is every activity, reading each one's streams once; after that, only what arrived without one."""
+    time.sleep(20)                              # let the app finish starting up
+    try:
+        with app.app_context():
+            from database import get_db
+            from services import tasks, tracks
+            db = get_db()
+            missing = db.execute('SELECT COUNT(*) FROM Activity a LEFT JOIN ActivityTrack t ON t.activityId = a.id '
+                                 'WHERE t.activityId IS NULL').fetchone()[0]
+            if missing:
+                task_id = tasks.start(db, 'track_summaries', 'Map summaries of activities')
+                n = tracks.fill(db)
+                tasks.finish(db, task_id, f"{n:,} activit{'y' if n == 1 else 'ies'} summarised for the heatmap and new segments")
+    except Exception as e:
+        log.warning('Track summaries: %s', e)
+
+
+def _ensure_default_avatar(app):
+    """New riders get custard_cream.svg as their picture. It ships in static/img and is copied into the avatar folder, which in
+    Docker is the /data volume (the image replaces static/avatars with a link to it) and with AVATAR_DIR is the user's data
+    folder: both start empty, so the picture was a broken image there."""
+    import shutil
+    av_dir = os.environ.get('AVATAR_DIR') or os.path.join(app.root_path, 'static', 'avatars')
+    dest = os.path.join(av_dir, 'custard_cream.svg')
+    try:
+        if not os.path.exists(dest):
+            os.makedirs(av_dir, exist_ok=True)
+            shutil.copyfile(os.path.join(app.root_path, 'static', 'img', 'custard_cream.svg'), dest)
+    except OSError as e:
+        log.warning('Could not put the default rider picture in %s: %s', av_dir, e)
 
 
 def _mqtt_heartbeat(app):
@@ -67,7 +117,7 @@ def _mqtt_heartbeat(app):
                 from services.goal_model import auto_update
                 auto_update()
         except Exception:
-            pass
+            log.warning('Home Assistant / goal sweep in the heartbeat failed', exc_info=True)
         time.sleep(300)  # MQTT safety net + Home Assistant import poll (HA honours its own interval)
 
 
@@ -85,12 +135,23 @@ def _garmin_heartbeat(app):
                 import logging
                 from database import query_db, get_db
                 log = logging.getLogger(__name__)
-                s = query_db('SELECT garminEmail, garminPassword, garminSyncHours, garminSyncMode FROM Settings WHERE id=1', one=True)
-                if s and s['garminEmail'] and s['garminPassword']:
+                from services.garmin import connected
+                s = query_db('SELECT garminEmail, garminPassword, garminSyncHours, garminSyncMode, garminDeviceSync, garminSweepAt FROM Settings WHERE id=1', one=True)
+                if connected(s):
                     interval_hours = s['garminSyncHours'] or 0.5
-                    from services.garmin import sync_garmin, sync_garmin_activities, fetch_ride_hr, _client
+                    from services import tasks
+                    from services.garmin import sync_garmin, sync_garmin_activities, fetch_ride_hr, _client, health_days, device_upload
+                    task_id = tasks.start(get_db(), 'garmin_sync', 'Garmin sync')
+                    result = []
+                    api, dev_sync, days, sweep = None, None, 0, False
                     try:
-                        sync_garmin(s['garminEmail'], s['garminPassword'], days=14)
+                        api = _client()      # one login for the whole run: each loads the profile and settings
+                        # When did the watch itself last reach Garmin's cloud? (Headwind can only see what has been uploaded.) It decides how
+                        # many days to read: none when nothing was uploaded since the last sync, all HISTORY_RECENT once a day.
+                        dev_sync = device_upload(api)
+                        days, sweep = health_days(s['garminDeviceSync'], dev_sync, s['garminSweepAt'])
+                        sync_garmin(days=days, api=api, strict=True)   # an outage must not count as read
+                        result.append(f"Health data synced ({days} day{'s' if days != 1 else ''})" if days else 'No new watch upload')
                         ok = True
                     except Exception as e:
                         ok, err = False, str(e)[:200]
@@ -100,25 +161,41 @@ def _garmin_heartbeat(app):
                         rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
                         if rider:
                             try:
-                                for _ in sync_garmin_activities(s['garminEmail'], s['garminPassword'], rider['id']):
+                                final = {}
+                                for final in sync_garmin_activities(rider['id'], api=api):
                                     pass
+                                if final.get('error'):
+                                    result.append(f"rides failed: {final['error']}")
+                                else:
+                                    n = final.get('imported', 0)
+                                    result.append(f"{n} new ride{'s' if n != 1 else ''} or workout{'s' if n != 1 else ''}" if n else 'no new rides')
                             except Exception as e:
                                 log.warning('Garmin activity sync failed: %s', e)
+                                result.append(f'rides failed: {str(e)[:120]}')
+                            if sweep:                       # once a day: anything deleted or changed in Garmin since it was imported
+                                from services import garmin_changes
+                                try:
+                                    with tasks.run(get_db(), garmin_changes.TASK, 'Garmin changes check') as t:
+                                        t.result = garmin_changes.describe(garmin_changes.run(get_db(), api, rider['id']))
+                                except Exception:
+                                    pass                    # logged as failed by tasks.run; tomorrow's sweep tries again
+                    tasks.finish(get_db(), task_id, '; '.join(result) + '.' if ok else None, None if ok else err)
 
-                    # Backfill HR for owner's recent rides that landed without it (a plain GPX import has none)
+                    # Backfill HR for owner's recent rides that landed without it (a plain GPX import has none). Only after a new upload
+                    # (or in the daily sweep): with nothing uploaded, Garmin has no more heart rate than last time.
                     missing = query_db('''
                         SELECT a.id, a.startDate, a.elapsedTime, a.streams
-                        FROM Activity a
+                        FROM Ride a
                         JOIN Rider r ON r.id = a.riderId
                         WHERE r.isDefault = 1
                           AND a.averageHeartrate IS NULL
                           AND a.startDate IS NOT NULL
                           AND a.elapsedTime IS NOT NULL
                           AND a.startDate >= datetime('now', '-7 days')
-                    ''') if ok else []
+                    ''') if ok and days else []
                     if missing:
                         try:
-                            garmin_api = _client(s['garminEmail'], s['garminPassword'])
+                            garmin_api = api
                             db = get_db()
                             for act in missing:
                                 try:
@@ -138,31 +215,23 @@ def _garmin_heartbeat(app):
                                             [hr['avg'], hr['max'], json.dumps(streams), act['id']],
                                         )
                                         db.commit()
-                                        log.warning('Garmin HR backfill: enriched %s — avg=%s max=%s', act['id'], hr['avg'], hr['max'])
+                                        log.info('Garmin HR backfill: enriched %s — avg=%s max=%s', act['id'], hr['avg'], hr['max'])
                                 except Exception as hre:
                                     log.warning('Garmin HR backfill failed for %s: %s', act['id'], hre)
                         except Exception:
-                            pass
+                            log.warning('Garmin HR backfill failed', exc_info=True)
 
-                    # When did the watch itself last reach Garmin's cloud? (Headwind can only see what has been uploaded)
-                    dev_sync = None
-                    if ok:
-                        try:
-                            from datetime import datetime, timezone
-                            up = _client(s['garminEmail'], s['garminPassword']).get_device_last_used().get('lastUsedDeviceUploadTime')
-                            if up:
-                                dev_sync = datetime.fromtimestamp(up / 1000, tz=timezone.utc).isoformat(timespec='seconds')
-                        except Exception:
-                            pass
-
-                    # Record the outcome and tell HA straight away (last-sync time, fresh steps)
+                    # Record the outcome and tell HA straight away (last-sync time, fresh steps). The upload time only once a sync has read
+                    # what came with it, so a failed one is read again next time.
                     db = get_db()
-                    if dev_sync:
-                        db.execute('UPDATE Settings SET garminDeviceSync=? WHERE id=1', [dev_sync])
                     if ok:
                         from datetime import datetime, timezone
-                        db.execute("UPDATE Settings SET garminLastOk=?, garminLastError=NULL, garminFailCount=0 WHERE id=1",
-                                   [datetime.now(timezone.utc).isoformat(timespec='seconds')])
+                        now = datetime.now(timezone.utc).isoformat(timespec='seconds')
+                        if dev_sync:
+                            db.execute('UPDATE Settings SET garminDeviceSync=? WHERE id=1', [dev_sync])
+                        if sweep:
+                            db.execute('UPDATE Settings SET garminSweepAt=? WHERE id=1', [now])
+                        db.execute("UPDATE Settings SET garminLastOk=?, garminLastError=NULL, garminFailCount=0 WHERE id=1", [now])
                     else:
                         db.execute("UPDATE Settings SET garminLastError=?, garminFailCount=COALESCE(garminFailCount,0)+1 WHERE id=1", [err])
                     db.commit()
@@ -170,20 +239,54 @@ def _garmin_heartbeat(app):
                         from services.mqtt import push_update
                         push_update()
                     except Exception:
-                        pass
+                        log.warning('Home Assistant update after the Garmin sync failed', exc_info=True)
                     if not ok:
                         fails = (query_db('SELECT garminFailCount c FROM Settings WHERE id=1', one=True) or {'c': 1})['c'] or 1
                         interval_hours = min(interval_hours, 0.17 * min(fails, 3))   # retry after 10, 20, then 30 minutes
         except Exception as e:
             logging.getLogger(__name__).warning('Garmin heartbeat error: %s', e)
-        time.sleep(interval_hours * 3600)
+        from services.garmin import SYNC_WAKE
+        SYNC_WAKE.wait(interval_hours * 3600)       # or straight away when the Tasks page asks
+        SYNC_WAKE.clear()
+
+
+def _garmin_history(app):
+    """The first-run Garmin health-history backfill. Picks up where it left off after a restart, a rate limit or an
+    outage; answering the first-run question wakes it straight away (services.garmin.HISTORY_WAKE)."""
+    from datetime import datetime, timezone
+    from services import garmin
+    garmin.HISTORY_WAKE.wait(90)  # let the app and the first regular sync start
+    while True:
+        garmin.HISTORY_WAKE.clear()
+        try:
+            with app.app_context():
+                from database import query_db
+                s = query_db('SELECT garminEmail, garminPassword, garminHistoryFrom, garminHistoryDone, garminHistoryRetryAt, '
+                             'garminWeightsDone, garminWeightsRetryAt FROM Settings WHERE id=1', one=True)
+                now = datetime.now(timezone.utc).isoformat(timespec='seconds')
+                on = garmin.connected(s)
+                if (on and s['garminHistoryFrom'] and not s['garminWeightsDone']
+                        and (not s['garminWeightsRetryAt'] or s['garminWeightsRetryAt'] <= now)):
+                    garmin.backfill_weigh_ins()      # quick (a year per call), so before the long day-by-day pass
+                if (on and s['garminHistoryFrom'] and not s['garminHistoryDone']
+                        and (not s['garminHistoryRetryAt'] or s['garminHistoryRetryAt'] <= now)):
+                    garmin.backfill_history()
+        except Exception as e:
+            log.warning('Garmin history backfill error: %s', e)
+        garmin.HISTORY_WAKE.wait(600)
 
 
 def create_app():
     app = Flask(__name__)
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+    from services import trusted_proxy
+    app.wsgi_app = trusted_proxy.wrap(app.wsgi_app)   # X-Forwarded-* only from a trusted proxy
     app.config.from_object(Config)
     app.teardown_appcontext(close_db)
+    logs.setup(app.config['DATABASE'])                # adds the log file beside the database
+    logs.init_app(app)                                # request ids before any other before_request hook
+    from version import __version__
+    log.info('Headwind %s starting: log level %s, log file %s', __version__, logging.getLevelName(logs.level()),
+             logs.file_path() or 'none')
 
     # Generates + logs the first-login password now (not lazily at first sign-in) when none is configured
     from services import credentials
@@ -191,43 +294,29 @@ def create_app():
 
     with app.app_context():
         migrate_db()
+        from services import vault
+        vault.seal_plain(get_db())                    # keys and passwords saved before they were encrypted
+    _ensure_default_avatar(app)
 
     # ── Template filters ─────────────────────────────────────────
+    from services import units as _units
+
     def _get_units():
-        if not hasattr(g, 'units'):
-            from database import query_db
-            row = query_db('SELECT units FROM Settings WHERE id=1', one=True)
-            g.units = (row['units'] if row and row['units'] else 'imperial')
-        return g.units
+        return _units.current()
 
-    @app.template_filter('pace_mi')
-    def pace_mi(mps):
-        """Metres per second -> running pace per mile, e.g. 3.1 -> '8:39 /mi'."""
-        if not mps or mps <= 0:
-            return '—'
-        secs = round(1609.344 / mps)
-        return f'{secs // 60}:{secs % 60:02d} /mi'
-
-    @app.template_filter('fmt_dist')
-    def fmt_dist(m):
-        v = float(m or 0)
-        if _get_units() == 'metric':
-            return f'{v/1000:,.1f} km'
-        return f'{v/1609.344:,.1f} mi'
-
-    @app.template_filter('fmt_speed')
-    def fmt_speed(mps):
-        v = float(mps or 0)
-        if _get_units() == 'metric':
-            return f'{v*3.6:.1f} km/h'
-        return f'{v*2.23694:.1f} mph'
-
-    @app.template_filter('fmt_elev')
-    def fmt_elev(m):
-        v = float(m or 0)
-        if _get_units() == 'metric':
-            return f'{round(v):,} m'
-        return f'{round(v*3.28084):,} ft'
+    # Distances, climbs, speeds and paces in the rider's units (services/units.py). The *_val filters give the bare number, for charts and inputs.
+    app.template_filter('fmt_dist')(lambda m, places=1: _units.fmt_dist(m, places=places))
+    app.template_filter('fmt_elev')(lambda m: _units.fmt_elev(m))
+    app.template_filter('fmt_speed')(lambda mps, places=1: _units.fmt_speed(mps, places=places))
+    app.template_filter('fmt_pace')(lambda mps: _units.fmt_pace(mps))
+    app.template_filter('fmt_swim_pace')(lambda mps: _units.fmt_swim_pace(mps))
+    app.template_filter('pace_mi')(lambda mps: _units.fmt_pace(mps))       # old name, still used by a few templates
+    from services import sports as _sports
+    app.template_filter('has_climbing')(lambda sport: _sports.has_climbing(sport))       # no climb on the water: it's GPS noise
+    app.template_filter('fmt_rate')(lambda mps, sport: _units.fmt_rate(mps, _sports.rate_style(sport)))   # speed, pace or per 100 m, by sport
+    app.template_filter('dist_val')(lambda m: _units.dist(m))
+    app.template_filter('elev_val')(lambda m: _units.elev(m))
+    app.template_filter('speed_val')(lambda mps: _units.speed(mps))
 
     @app.template_filter('fmt_duration')
     def fmt_duration(secs):
@@ -239,6 +328,12 @@ def create_app():
             return f'{days}d {h:02d}h {m:02d}m {s:02d}s'
         return f'{h}:{m:02d}:{s:02d}' if h else f'{m}:{s:02d}'
 
+    @app.template_filter('fmt_hours')
+    def fmt_hours(secs):
+        """A long total: '312h 05m', or '45m' under an hour."""
+        h, m = divmod(int(secs or 0) // 60, 60)
+        return f'{h:,}h {m:02d}m' if h else f'{m}m'
+
     @app.template_filter('fmt_date')
     def fmt_date(val):
         try:
@@ -247,19 +342,31 @@ def create_app():
         except Exception:
             return str(val or '')
 
+    @app.template_filter('fmt_when')
+    def fmt_when(val):
+        """A moment Headwind recorded itself (SQLite datetime('now'), UTC) at home time: '24 Oct 2026, 14:05'."""
+        try:
+            from datetime import timezone
+            from services import tz
+            from services.dates import day_month_year
+            local = datetime.fromisoformat(str(val)[:19]).replace(tzinfo=timezone.utc).astimezone(tz.zone())
+            return f'{day_month_year(local)}, {local:%H:%M}'
+        except Exception:
+            return str(val or '')
+
     @app.template_filter('weather_icon')
     def weather_icon(condition):
         from services.homeassistant import weather_icon as _wi
         return _wi(condition)
 
+    @app.template_filter('sport_label')
+    def sport_label(t):
+        from services.sports import label
+        return label(t)
+
     @app.template_filter('sport_icon')
     def sport_icon(t):
-        t = (t or '').lower()
-        if 'ride' in t or 'cycling' in t: return '🚴'
-        if 'run'  in t: return '🏃'
-        if 'swim' in t: return '🏊'
-        if 'walk' in t or 'hike' in t: return '🥾'
-        return '🏅'
+        return _sports.icon(t)
 
     @app.template_filter('wmo_label')
     def wmo_label(code):
@@ -370,7 +477,7 @@ def create_app():
             origin = request.headers.get('Origin')
             if origin and origin != 'null' and urlparse(origin).netloc != request.host:
                 return jsonify(error='cross-origin request blocked'), 403
-        if request.endpoint not in ('setup.wizard', 'setup.restore', 'garmin.connect', 'garmin.connect_mfa'):
+        if request.endpoint not in ('setup.wizard', 'setup.restore', 'garmin.connect', 'garmin.connect_mfa', 'garmin.history', 'garmin.history_status'):
             from database import query_db
             if query_db('SELECT COUNT(*) FROM Rider', one=True)[0] == 0:
                 return redirect('/setup')
@@ -379,7 +486,34 @@ def create_app():
 
     @app.context_processor
     def inject_units():
-        return {'units': _get_units()}
+        return {'units': _get_units(), 'U': _units.spec()}
+
+    @app.context_processor
+    def inject_appearance():
+        from routes.settings import appearance
+        return {'appearance': appearance()}
+
+    @app.context_processor
+    def inject_task_notice():
+        """How many start-up repairs ran that nobody has looked at yet (a notice on every page until the Tasks page is opened)."""
+        if not session.get('logged_in') or request.endpoint == 'tasks.index':
+            return {'startup_unseen': 0}
+        try:
+            from services import tasks
+            return {'startup_unseen': tasks.unseen_startup(get_db())}
+        except Exception:
+            return {'startup_unseen': 0}
+
+    @app.context_processor
+    def inject_reimport_notice():
+        """How many riders a release advises to import their Strava export again (services/strava_export.advice): a badge on Import."""
+        if not session.get('logged_in'):
+            return {'reimport_advised': 0}
+        try:
+            from services import strava_export
+            return {'reimport_advised': len(strava_export.advice(get_db(), app.config['DATABASE']))}
+        except Exception:
+            return {'reimport_advised': 0}
 
     @app.context_processor
     def inject_demo():
@@ -432,7 +566,14 @@ def create_app():
     app.register_blueprint(api_v1_bp)
     app.register_blueprint(workouts_ui_bp)
     app.register_blueprint(phones_bp)
+    from routes.tasks import bp as tasks_bp
+    app.register_blueprint(tasks_bp)
+    from routes.goals import bp as goals_bp
+    app.register_blueprint(goals_bp)
+    from routes.matched import bp as matched_bp
+    app.register_blueprint(matched_bp)
 
+    threading.Thread(target=_track_summaries, args=(app,), daemon=True).start()
     if DEMO:                                   # no background threads that talk to the network; just the nightly reset
         from routes.demo import bp as demo_bp
         app.register_blueprint(demo_bp)
@@ -440,6 +581,7 @@ def create_app():
     else:
         threading.Thread(target=_mqtt_heartbeat,   args=(app,), daemon=True).start()
         threading.Thread(target=_garmin_heartbeat, args=(app,), daemon=True).start()
+        threading.Thread(target=_garmin_history,   args=(app,), daemon=True).start()
         threading.Thread(target=__import__('services.mqtt_commands', fromlist=['run']).run, args=(app,), daemon=True).start()
         threading.Thread(target=_friends_autosync, args=(app,), daemon=True).start()
 

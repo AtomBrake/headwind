@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+
+{% block title %}Activities{% endblock %}
+{% block page_title %}Activities{% endblock %}
+
+{% block content %}
+{% if all_riders | length > 1 %}
+<div style="display:flex; gap:0.5rem; margin-bottom:1.25rem; flex-wrap:wrap;">
+  {% for r in all_riders %}
+  <a href="{{ url_for('dashboard.activities_page', rider=r.id) }}"
+     style="display:inline-flex; align-items:center; gap:0.5rem; padding:0.4rem 0.75rem 0.4rem 0.4rem;
+            border-radius:999px; border:1px solid {% if r.id == active_rider.id %}var(--accent){% else %}var(--border){% endif %};
+            background:{% if r.id == active_rider.id %}var(--accent-soft){% else %}var(--card-bg){% endif %};
+            text-decoration:none; color:var(--text); font-size:0.875rem; font-weight:{% if r.id == active_rider.id %}600{% else %}400{% endif %};">
+    {% if r.avatarPath %}
+      <img src="{{ url_for('static', filename='avatars/' + r.avatarPath) }}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
+    {% else %}
+      <span class="rider-initial" style="width:28px;height:28px;font-size:0.75rem;flex-shrink:0;">{{ r.name[0] | upper }}</span>
+    {% endif %}
+    {{ r.name }}
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="page-greeting">
+  <h2>{{ active_rider.name if active_rider else 'Your' }}{{ "'s" if active_rider }} activities</h2>
+  <div class="sub">{{ '{:,}'.format(totals.n or 0) }} activit{{ 'y' if totals.n == 1 else 'ies' }} &middot; {{ (totals.secs or 0) | fmt_hours }}{% if sf.skip %} &middot; some sports left out{% endif %}</div>
+</div>
+
+{% set form_id = 'dashFilter' %}{% include '_sport_filter.html' %}
+{% include '_activity_list.html' %}
+{% endblock %}

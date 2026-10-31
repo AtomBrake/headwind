@@ -1,4 +1,7 @@
+import copy
 import os
+import threading
+from collections import OrderedDict
 
 from flask import Blueprint, abort, redirect, render_template, request, url_for, current_app
 
@@ -10,17 +13,65 @@ bp = Blueprint('riders', __name__)
 _ALLOWED = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'}
 
 
+_BADGES = OrderedDict()     # the last few results of _compute_badges, by everything they depend on (_badge_key)
+_BADGES_KEEP = 16
+_BADGES_LOCK = threading.Lock()   # page threads and the MQTT heartbeat share it
+
+
+def _badge_key(rid, totals):
+    """What a rider's badges depend on: the database, the rider, the totals passed in, the units they're worded in, and the version of the tables
+    they are counted from (services/data_version.py). None when the version can't be read: then nothing is kept."""
+    from services import data_version, units
+    v = data_version.current(get_db())
+    if v is None:
+        return None
+    return (current_app.config.get('DATABASE'), rid, tuple(totals[k] for k in ('rides', 'dist', 'elev')), units.current(), v)
+
+
 def _compute_badges(rid, totals):
-    total_rides   = totals['rides'] or 0
-    total_dist_m  = totals['dist']  or 0
-    total_elev_m  = totals['elev']  or 0
+    """Every badge category for a rider, earned or not. Counting them takes about 80 queries over the rider's whole history, and the ride page
+    wants them on every view (to show the badges that ride earned), so a result is kept until a ride, segment, effort or bike changes."""
+    try:
+        from services import sport_records
+        sport_records.ensure(get_db(), rid)     # before the key: working out a new run's best times changes the version
+    except Exception:
+        pass
+    try:
+        key = _badge_key(rid, totals)
+    except Exception:
+        key = None
+    with _BADGES_LOCK:
+        hit = _BADGES.get(key) if key is not None else None
+        if hit is not None:
+            _BADGES.move_to_end(key)
+    if hit is not None:
+        return copy.deepcopy(hit)
+    out = _count_badges(rid, totals)
+    if key is not None:
+        with _BADGES_LOCK:
+            _BADGES[key] = copy.deepcopy(out)
+            while len(_BADGES) > _BADGES_KEEP:
+                _BADGES.popitem(last=False)
+    return out
+
+
+def _count_badges(rid, totals):
+    """Every badge category. An indoor ride or run (Zwift, a turbo, a treadmill: services/sports.is_virtual) counts for the badges that count
+    activities or time (rides, runs, hours, a brick day, three kinds in a week) but not for the ones that measure the road: distance, climbing,
+    speed, weather, segments. Its distance and climb are made up, or a trainer's."""
+    from services.sports import indoor_sql
+    outdoor = indoor_sql(False, 'sportType')
+    out_totals = query_db(f'SELECT SUM(distance) AS dist, SUM(totalElevationGain) AS elev FROM Ride WHERE riderId=? AND {outdoor}', [rid], one=True)
+    total_rides   = totals['rides'] or 0                # every ride, indoors too: the profile's count
+    total_dist_m  = out_totals['dist'] or 0
+    total_elev_m  = out_totals['elev'] or 0
     total_dist_mi = total_dist_m / 1609.344
     total_elev_ft = total_elev_m * 3.28084
     everests      = total_elev_m / 8849
 
     def _nth_ride(n):
         row = query_db(
-            'SELECT id, startDateLocal FROM Activity WHERE riderId=? ORDER BY startDateLocal LIMIT 1 OFFSET ?',
+            'SELECT id, startDateLocal FROM Ride WHERE riderId=? ORDER BY startDateLocal LIMIT 1 OFFSET ?',
             [rid, n - 1], one=True)
         return (row['startDateLocal'][:10], row['id']) if row else (None, None)
 
@@ -29,9 +80,9 @@ def _compute_badges(rid, totals):
             SELECT id, startDateLocal FROM (
                 SELECT id, startDateLocal,
                        SUM(distance) OVER (ORDER BY startDateLocal) as running
-                FROM Activity WHERE riderId=?
+                FROM Ride WHERE riderId=? AND {outdoor}
             ) WHERE running >= ? LIMIT 1
-        ''', [rid, threshold_mi * 1609.344], one=True)
+        '''.format(outdoor=outdoor), [rid, threshold_mi * 1609.344], one=True)
         return (row['startDateLocal'][:10], row['id']) if row else (None, None)
 
     def _elev_milestone(threshold_m):
@@ -39,69 +90,26 @@ def _compute_badges(rid, totals):
             SELECT id, startDateLocal FROM (
                 SELECT id, startDateLocal,
                        SUM(totalElevationGain) OVER (ORDER BY startDateLocal) as running
-                FROM Activity WHERE riderId=?
+                FROM Ride WHERE riderId=? AND {outdoor}
             ) WHERE running >= ? LIMIT 1
-        ''', [rid, threshold_m], one=True)
+        '''.format(outdoor=outdoor), [rid, threshold_m], one=True)
         return (row['startDateLocal'][:10], row['id']) if row else (None, None)
 
+    # _first_ride, _count_cond and _nth_cond are for the badges that measure the road (distance, speed, climbing, weather): outdoor rides only
     def _first_ride(condition_sql, params=None):
         row = query_db(
-            f'SELECT id, startDateLocal FROM Activity WHERE riderId=? AND {condition_sql} ORDER BY startDateLocal LIMIT 1',
+            f'SELECT id, startDateLocal FROM Ride WHERE riderId=? AND {outdoor} AND {condition_sql} ORDER BY startDateLocal LIMIT 1',
             [rid] + (params or []), one=True)
-        return (row['startDateLocal'][:10], row['id']) if row else (None, None)
-
-    # Segment stats
-    seg_efforts_total = query_db('''
-        SELECT COUNT(*) as n FROM SegmentEffort e
-        JOIN Activity a ON a.id=e.activityId WHERE a.riderId=?
-    ''', [rid], one=True)['n'] or 0
-
-    seg_prs_held = query_db('''
-        SELECT COUNT(*) as n FROM SegmentEffort e
-        JOIN Activity a ON a.id=e.activityId WHERE a.riderId=? AND e.isPR=1
-    ''', [rid], one=True)['n'] or 0
-
-    total_segs_defined = query_db('SELECT COUNT(*) as n FROM Segment', one=True)['n'] or 0
-
-    seg_max_repeats = query_db('''
-        SELECT MAX(cnt) as m FROM (
-            SELECT COUNT(*) as cnt FROM SegmentEffort e
-            JOIN Activity a ON a.id=e.activityId
-            WHERE a.riderId=? GROUP BY e.segmentId
-        )
-    ''', [rid], one=True)['m'] or 0
-
-    seg_max_speed = query_db('''
-        SELECT MAX(e.avgSpeedMps) as v FROM SegmentEffort e
-        JOIN Activity a ON a.id=e.activityId WHERE a.riderId=?
-    ''', [rid], one=True)['v'] or 0
-    seg_max_speed_mph = seg_max_speed * 2.23694
-
-    def _nth_effort(n):
-        row = query_db('''
-            SELECT a.id, a.startDateLocal FROM SegmentEffort e
-            JOIN Activity a ON a.id=e.activityId
-            WHERE a.riderId=? ORDER BY a.startDateLocal LIMIT 1 OFFSET ?
-        ''', [rid, n - 1], one=True)
-        return (row['startDateLocal'][:10], row['id']) if row else (None, None)
-
-    def _first_effort_speed(threshold_mph):
-        row = query_db('''
-            SELECT a.id, a.startDateLocal FROM SegmentEffort e
-            JOIN Activity a ON a.id=e.activityId
-            WHERE a.riderId=? AND e.avgSpeedMps >= ?
-            ORDER BY a.startDateLocal LIMIT 1
-        ''', [rid, threshold_mph / 2.23694], one=True)
         return (row['startDateLocal'][:10], row['id']) if row else (None, None)
 
     def _count_cond(cond, params=None):
         return query_db(
-            f'SELECT COUNT(*) as n FROM Activity WHERE riderId=? AND {cond}',
+            f'SELECT COUNT(*) as n FROM Ride WHERE riderId=? AND {outdoor} AND {cond}',
             [rid] + (params or []), one=True)['n'] or 0
 
     def _nth_cond(n, cond, params=None):
         row = query_db(
-            f'SELECT id, startDateLocal FROM Activity WHERE riderId=? AND {cond} ORDER BY startDateLocal LIMIT 1 OFFSET ?',
+            f'SELECT id, startDateLocal FROM Ride WHERE riderId=? AND {outdoor} AND {cond} ORDER BY startDateLocal LIMIT 1 OFFSET ?',
             [rid] + (params or []) + [n - 1], one=True)
         return (row['startDateLocal'][:10], row['id']) if row else (None, None)
 
@@ -118,24 +126,10 @@ def _compute_badges(rid, totals):
         return {'earned': headwind_count >= n, 'earned_date': d, 'ride_id': i,
                 'progress': headwind_count, 'target': n}
 
-    def _first_repeat(n):
-        row = query_db('''
-            SELECT a.id, a.startDateLocal FROM SegmentEffort e
-            JOIN Activity a ON a.id=e.activityId
-            WHERE a.riderId=? AND e.segmentId IN (
-                SELECT segmentId FROM SegmentEffort e2
-                JOIN Activity a2 ON a2.id=e2.activityId
-                WHERE a2.riderId=?
-                GROUP BY e2.segmentId HAVING COUNT(*) >= ?
-            )
-            ORDER BY a.startDateLocal LIMIT 1 OFFSET ?
-        ''', [rid, rid, n, n - 1], one=True)
-        return (row['startDateLocal'][:10], row['id']) if row else (None, None)
-
-    peak = query_db('''
+    peak = query_db(f'''
         SELECT MAX(distance) as max_dist, MAX(totalElevationGain) as max_elev,
                MAX(averageSpeed) as max_speed, MAX(maxSpeed) as top_speed
-        FROM Activity WHERE riderId=?
+        FROM Ride WHERE riderId=? AND {outdoor}
     ''', [rid], one=True)
     max_dist_mi   = (peak['max_dist']  or 0) / 1609.344
     max_elev_ft   = (peak['max_elev']  or 0) * 3.28084
@@ -146,20 +140,20 @@ def _compute_badges(rid, totals):
         d, i = _first_ride('maxSpeed >= ?', [mph / 2.23694])
         return {'earned': top_speed_mph >= mph, 'earned_date': d, 'ride_id': i}
 
-    wx = query_db('''
-        SELECT MIN(weatherTempC) as min_temp FROM Activity
-        WHERE riderId=? AND weatherTempC IS NOT NULL
+    wx = query_db(f'''
+        SELECT MIN(weatherTempC) as min_temp FROM Ride
+        WHERE riderId=? AND weatherTempC IS NOT NULL AND {outdoor}
     ''', [rid], one=True)
     min_temp = wx['min_temp'] if wx and wx['min_temp'] is not None else 999
 
-    wx_coldest = query_db('''
-        SELECT id, startDateLocal, weatherTempC FROM Activity
-        WHERE riderId=? AND weatherTempC IS NOT NULL
+    wx_coldest = query_db(f'''
+        SELECT id, startDateLocal, weatherTempC FROM Ride
+        WHERE riderId=? AND weatherTempC IS NOT NULL AND {outdoor}
         ORDER BY weatherTempC ASC LIMIT 1
     ''', [rid], one=True)
-    wx_windiest = query_db('''
-        SELECT id, startDateLocal, weatherWindKph, weatherGustKph FROM Activity
-        WHERE riderId=? AND weatherWindKph IS NOT NULL
+    wx_windiest = query_db(f'''
+        SELECT id, startDateLocal, weatherWindKph, weatherGustKph FROM Ride
+        WHERE riderId=? AND weatherWindKph IS NOT NULL AND {outdoor}
         ORDER BY COALESCE(weatherGustKph, weatherWindKph) DESC LIMIT 1
     ''', [rid], one=True)
 
@@ -174,7 +168,7 @@ def _compute_badges(rid, totals):
     def _dm(mi):  # distance milestone helper
         d, i = _dist_milestone(mi) if total_dist_mi >= mi else (None, None)
         return {'earned': total_dist_mi >= mi, 'earned_date': d, 'ride_id': i,
-                'progress': round(total_dist_mi), 'target': int(mi)}
+                'progress': round(units.dist(total_dist_mi * units.MI)), 'target': round(units.dist(mi * units.MI))}
     def _em(m):   # elevation milestone helper
         d, i = _elev_milestone(m) if everests >= m / 8849 else (None, None)
         ev_target = round(m / 8849, 1)
@@ -183,32 +177,22 @@ def _compute_badges(rid, totals):
     def _fr(cond, params=None):  # first ride matching condition — binary, no bar
         d, i = _first_ride(cond, params)
         return {'earned': bool(d), 'earned_date': d, 'ride_id': i}
-    def _fe(n):   # nth segment effort helper
-        d, i = _nth_effort(n) if seg_efforts_total >= n else (None, None)
-        return {'earned': seg_efforts_total >= n, 'earned_date': d, 'ride_id': i,
-                'progress': seg_efforts_total, 'target': n}
-    def _fs(mph): # first segment effort at speed — binary, no bar
-        d, i = _first_effort_speed(mph) if seg_max_speed_mph >= mph else (None, None)
-        return {'earned': seg_max_speed_mph >= mph, 'earned_date': d, 'ride_id': i}
-    def _rp(n):   # first repeat nth time on same segment
-        d, i = _first_repeat(n) if seg_max_repeats >= n else (None, None)
-        return {'earned': seg_max_repeats >= n, 'earned_date': d, 'ride_id': i,
-                'progress': seg_max_repeats, 'target': n}
-
-    def _b(icon, name, desc, r):
-        return {'icon': icon, 'name': name, 'desc': desc, **r}
+    from services import units
+    from services.sports import class_sql
+    def _b(icon, name, desc, r):   # the limits are in miles / mph / feet; the wording follows the rider's units
+        return {'icon': icon, 'name': units.localise(name), 'desc': units.localise(desc), **r}
 
     ride_count = [
-        _b('🚴', 'First Pedal',     '1 activity',       _rc(1)),
-        _b('🎯', 'Getting Started', '10 activities',    _rc(10)),
-        _b('🔥', 'Regular Rider',   '50 activities',    _rc(50)),
-        _b('💯', 'Centurion',       '100 activities',   _rc(100)),
-        _b('⚡', 'Dedicated',       '250 activities',   _rc(250)),
-        _b('🏆', 'Five Hundred',    '500 activities',   _rc(500)),
-        _b('🌟', 'One Thousand',    '1,000 activities', _rc(1000)),
-        _b('💫', 'Two Thousand',    '2,000 activities', _rc(2000)),
-        _b('👑', 'Elite',           '3,000 activities', _rc(3000)),
-        _b('🔮', 'Five Thousand',   '5,000 activities', _rc(5000)),
+        _b('🚴', 'First Pedal',     '1 ride',           _rc(1)),
+        _b('🎯', 'Getting Started', '10 rides',         _rc(10)),
+        _b('🔥', 'Regular Rider',   '50 rides',         _rc(50)),
+        _b('💯', 'Centurion',       '100 rides',        _rc(100)),
+        _b('⚡', 'Dedicated',       '250 rides',        _rc(250)),
+        _b('🏆', 'Five Hundred',    '500 rides',        _rc(500)),
+        _b('🌟', 'One Thousand',    '1,000 rides',      _rc(1000)),
+        _b('💫', 'Two Thousand',    '2,000 rides',      _rc(2000)),
+        _b('👑', 'Elite',           '3,000 rides',      _rc(3000)),
+        _b('🔮', 'Five Thousand',   '5,000 rides',      _rc(5000)),
     ]
     distance = [
         _b('📍', 'Road Tripper',  '100 miles total',     _dm(100)),
@@ -334,27 +318,72 @@ def _compute_badges(rid, totals):
             'earned_date': wx_windiest['startDateLocal'][:10] if wx_windiest else None,
             'ride_id': wx_windiest['id'] if wx_windiest else None}),
     ]
-    segments = [
-        _b('📐', 'First Effort',      '1 segment effort',    _fe(1)),
-        _b('🔄', '10 Efforts',        '10 segment efforts',  _fe(10)),
-        _b('💪', '50 Efforts',        '50 segment efforts',  _fe(50)),
-        _b('💯', '100 Efforts',       '100 segment efforts', _fe(100)),
-        _b('⚡', '250 Efforts',       '250 segment efforts', _fe(250)),
-        _b('🏆', '500 Efforts',       '500 segment efforts', _fe(500)),
-        _b('🥇', 'First PR',          'Set your first segment PR',
-           {'earned': seg_prs_held >= 1, 'earned_date': None, 'ride_id': None,
-            'progress': seg_prs_held, 'target': 1}),
-        _b('👑', 'King of the Road',  f'Hold every segment PR ({total_segs_defined} segments)',
-           {'earned': total_segs_defined > 0 and seg_prs_held >= total_segs_defined, 'earned_date': None, 'ride_id': None,
-            'progress': seg_prs_held, 'target': total_segs_defined or 1}),
-        _b('🔁', 'Creature of Habit', 'Ride the same segment 10+ times', _rp(10)),
-        _b('😤', 'Obsessed',          'Ride the same segment 25+ times', _rp(25)),
-        _b('🏠', 'Local Legend',      'Ride the same segment 50+ times', _rp(50)),
-        _b('💨', 'Segment Flyer',     '20 mph avg on a segment', _fs(20)),
-        _b('🚀', 'Segment Rocket',    '25 mph avg on a segment', _fs(25)),
-        _b('💫', 'Segment Missile',   '30 mph avg on a segment', _fs(30)),
-        _b('👑', 'Flying Machine',    '35 mph avg on a segment', _fs(35)),
-    ]
+    def _segment_badges(cls, names):
+        """One class's segment badges (services/sports.CLASSES), counted over its family's segments and the rider's efforts of that class on them:
+        pedal and e-bike rides share the ride segments but each has its own efforts, PRs and badges; walks, runs and hikes share the foot ones."""
+        fam = 'foot' if cls == 'foot' else 'ride'
+        keep, keep2 = class_sql(cls), class_sql(cls, 'a2.sportType', 'b2.kind')
+        on = ("FROM SegmentEffort e JOIN Segment s ON s.id = e.segmentId AND COALESCE(s.sport, 'ride') = ? JOIN Activity a ON a.id = e.activityId "
+              f"LEFT JOIN Bike b ON b.id = a.bikeId WHERE a.riderId = ? AND {keep} AND {indoor_sql(False)}")
+        args = [fam, rid]
+        efforts = query_db(f'SELECT COUNT(*) AS n {on}', args, one=True)['n'] or 0
+        prs = query_db(f'SELECT COUNT(*) AS n {on} AND e.isPR = 1', args, one=True)['n'] or 0
+        defined = query_db("SELECT COUNT(*) AS n FROM Segment WHERE COALESCE(sport, 'ride') = ?", [fam], one=True)['n'] or 0
+        repeats = query_db(f'SELECT MAX(cnt) AS m FROM (SELECT COUNT(*) AS cnt {on} GROUP BY e.segmentId)', args, one=True)['m'] or 0
+        fastest = query_db(f'SELECT MAX(e.avgSpeedMps) AS v {on}', args, one=True)['v'] or 0
+
+        def first(extra='', extra_args=(), offset=0):
+            row = query_db(f'SELECT a.id, a.startDateLocal {on} {extra} ORDER BY a.startDateLocal LIMIT 1 OFFSET ?', args + list(extra_args) + [offset], one=True)
+            return (row['startDateLocal'][:10], row['id']) if row else (None, None)
+
+        def count(n):
+            d, i = first(offset=n - 1) if efforts >= n else (None, None)
+            return {'earned': efforts >= n, 'earned_date': d, 'ride_id': i, 'progress': efforts, 'target': n}
+
+        def repeat(n):
+            d, i = (first('AND e.segmentId IN (SELECT e2.segmentId FROM SegmentEffort e2 JOIN Activity a2 ON a2.id = e2.activityId '
+                          f'LEFT JOIN Bike b2 ON b2.id = a2.bikeId WHERE a2.riderId = ? AND {keep2} '
+                          'GROUP BY e2.segmentId HAVING COUNT(*) >= ?)', [rid, n], offset=n - 1) if repeats >= n else (None, None))
+            return {'earned': repeats >= n, 'earned_date': d, 'ride_id': i, 'progress': repeats, 'target': n}
+
+        def quick(mps):
+            d, i = first('AND e.avgSpeedMps >= ?', [mps]) if fastest >= mps else (None, None)
+            return {'earned': fastest >= mps, 'earned_date': d, 'ride_id': i}
+
+        n = names
+        how = n.get('how', '')
+        return ([_b(icon, name, f"{k:,} {n['effort']}{'s' if k != 1 else ''}", count(k)) for (icon, name), k in zip(n['counts'], (1, 10, 50, 100, 250, 500))]
+                + [_b('🥇', n['first_pr'], f"Set your first {n['noun']} PR{how}", {'earned': prs >= 1, 'earned_date': None, 'ride_id': None, 'progress': prs, 'target': 1}),
+                   _b('👑', n['king'], f"Hold every {n['noun']} PR{how} ({defined} segment{'s' if defined != 1 else ''})",
+                      {'earned': defined > 0 and prs >= defined, 'earned_date': None, 'ride_id': None, 'progress': prs, 'target': defined or 1})]
+                + [_b(icon, name, f"{n['verb']} the same {n['noun']} {k}+ times{how}", repeat(k)) for (icon, name), k in zip(n['repeats'], (10, 25, 50))]
+                + [_b(icon, name, desc, quick(mps)) for icon, name, desc, mps in n['fast']])
+
+    # Pedal rides keep the names and limits the Segments badges always had. E-bike rides race on the same segments for their own PRs, with higher
+    # limits; on foot it is pace, not speed.
+    _pace = lambda secs_per_mi: units.MI / secs_per_mi
+    seg_ride = _segment_badges('bike', {
+        'effort': 'segment effort', 'noun': 'segment', 'verb': 'Ride', 'first_pr': 'First PR', 'king': 'King of the Road',
+        'counts': [('📐', 'First Effort'), ('🔄', '10 Efforts'), ('💪', '50 Efforts'), ('💯', '100 Efforts'), ('⚡', '250 Efforts'), ('🏆', '500 Efforts')],
+        'repeats': [('🔁', 'Creature of Habit'), ('😤', 'Obsessed'), ('🏠', 'Local Legend')],
+        'fast': [('💨', 'Segment Flyer', '20 mph avg on a segment', 20 / 2.23694), ('🚀', 'Segment Rocket', '25 mph avg on a segment', 25 / 2.23694),
+                 ('💫', 'Segment Missile', '30 mph avg on a segment', 30 / 2.23694), ('👑', 'Flying Machine', '35 mph avg on a segment', 35 / 2.23694)],
+    })
+    seg_eride = _segment_badges('ebike', {
+        'effort': 'e-bike segment effort', 'noun': 'segment', 'how': ' on an e-bike', 'verb': 'Ride', 'first_pr': 'First E-Bike PR', 'king': 'King of the E-Road',
+        'counts': [('🔌', 'Plugged In'), ('🔋', '10 E-Efforts'), ('🔋', '50 E-Efforts'), ('⚡', '100 E-Efforts'), ('⚡', '250 E-Efforts'), ('🏆', '500 E-Efforts')],
+        'repeats': [('🔁', 'Daily Charge'), ('😤', 'Battery Obsessed'), ('🏠', 'E-Local Legend')],
+        'fast': [('💨', 'Turbo Mode', '25 mph avg on a segment (e-bike)', 25 / 2.23694), ('🚀', 'Boost', '30 mph avg on a segment (e-bike)', 30 / 2.23694),
+                 ('💫', 'Overdrive', '35 mph avg on a segment (e-bike)', 35 / 2.23694), ('👑', 'Ludicrous Mode', '40 mph avg on a segment (e-bike)', 40 / 2.23694)],
+    })
+    seg_foot = _segment_badges('foot', {
+        'effort': 'foot segment effort', 'noun': 'foot segment', 'verb': 'Walk or run', 'first_pr': 'First Foot PR', 'king': 'King of the Trail',
+        'counts': [('👟', 'First Steps'), ('🔄', '10 Foot Efforts'), ('💪', '50 Foot Efforts'), ('💯', '100 Foot Efforts'), ('⚡', '250 Foot Efforts'),
+                   ('🏆', '500 Foot Efforts')],
+        'repeats': [('🔁', 'Familiar Path'), ('😤', 'Well Trodden'), ('🏠', 'Local Legend on Foot')],
+        'fast': [(icon, name, f'{units.fmt_pace(_pace(secs))} avg on a foot segment', _pace(secs))
+                 for icon, name, secs in (('🏃', 'Jogger', 600), ('💨', 'Runner', 480), ('🚀', 'Swift', 420), ('👑', 'Flying Feet', 360))],
+    })
 
     return [
         {'name': 'Ride Count',   'badges': ride_count},
@@ -364,8 +393,172 @@ def _compute_badges(rid, totals):
         {'name': 'Speed',        'badges': speed},
         {'name': 'Climbing',     'badges': climbing},
         {'name': 'Weather',      'badges': weather},
-        {'name': 'Segments',     'badges': segments},
-    ]
+        {'name': 'Segments',            'badges': seg_ride},
+        {'name': 'E-Bike Segments',     'badges': seg_eride},
+        {'name': 'Segments on Foot',    'badges': seg_foot},
+    ] + _sport_badges(rid, _b)
+
+
+def _sport_badges(rid, _b):
+    """The badge categories for the sports other than riding, each shown once the rider has done that sport: Running, Walking & Hiking, Swimming,
+    Other Sports (a few for each), and All Sports once they do more than one kind. Counted in Python from one pass over the rider's activities and
+    their run and swim best times (services/sport_records), so they add two queries, not one per badge. An indoor run (a treadmill, Zwift) counts
+    as a run and for the hours and the days and weeks of training, but not for the badges for distance, climbing or time over a distance."""
+    from services import sport_records, sports, units
+    from services.run_stats import MIN_RUN_M, MIN_RUN_S
+    acts = [dict(r) for r in query_db('SELECT id, startDateLocal, sportType, distance, movingTime, totalElevationGain FROM Activity '
+                                      'WHERE riderId=? ORDER BY startDateLocal, id', [rid])]
+    for a in acts:
+        a['group'] = sports.stat_group(a['sportType'])
+        a['day'] = str(a['startDateLocal'] or '')[:10]
+        a['outdoor'] = not sports.is_virtual(a['sportType'])
+    runs = [a for a in acts if sport_records.kind(a['sportType']) == 'run' and (a['distance'] or 0) >= MIN_RUN_M and (a['movingTime'] or 0) >= MIN_RUN_S]
+    walks = [a for a in acts if a['group'] == 'foot' and sport_records.kind(a['sportType']) != 'run']
+    swims = [a for a in acts if a['group'] == 'swim']
+    times = query_db(f'''SELECT e.kind, e.distanceM, e.elapsedSecs, a.id, a.startDateLocal FROM SportEffort e JOIN Activity a ON a.id = e.activityId
+                         WHERE a.riderId=? AND e.distanceM > 0 AND {sport_records.kind_sql('a.sportType')} = e.kind AND {sports.indoor_sql(False)}
+                         ORDER BY a.startDateLocal''', [rid])      # a sub-25 5 km on a treadmill or in Zwift is not one run outside
+
+    def at(a):
+        return (a['day'], a['id']) if a else (None, None)
+
+    def count(lst, n):
+        d, i = at(lst[n - 1]) if len(lst) >= n else (None, None)
+        return {'earned': len(lst) >= n, 'earned_date': d, 'ride_id': i, 'progress': len(lst), 'target': n}
+
+    def single(lst, col, value):                        # distance or climb in one: outdoors only
+        hit = next((a for a in lst if a['outdoor'] and (a[col] or 0) >= value), None)
+        d, i = at(hit)
+        return {'earned': bool(hit), 'earned_date': d, 'ride_id': i}
+
+    def total(lst, metres, unit_m=units.MI):
+        """Distance added up to `metres`, outdoors only; the bar counts in miles / km (unit_m: metres per step, 1000 for swims)."""
+        run = 0
+        for a in lst:
+            if not a['outdoor']:
+                continue
+            run += a['distance'] or 0
+            if run >= metres:
+                return {'earned': True, 'earned_date': a['day'], 'ride_id': a['id']}
+        step = unit_m if unit_m != units.MI else units.spec()['distM']
+        return {'earned': False, 'earned_date': None, 'ride_id': None, 'progress': round(run / step), 'target': round(metres / step)}
+
+    def under(k, dist, secs):
+        hit = next((t for t in times if t['kind'] == k and t['distanceM'] == dist and t['elapsedSecs'] < secs), None)
+        return {'earned': bool(hit), 'earned_date': str(hit['startDateLocal'])[:10] if hit else None, 'ride_id': hit['id'] if hit else None}
+
+    finished = 0.99           # a race the GPS measured a touch short still counts as finished
+    cats = []
+    if runs:
+        cats.append({'name': 'Running', 'badges': [
+            *[_b(icon, name, f"{n:,} run{'s' if n != 1 else ''}", count(runs, n)) for icon, name, n in (
+                ('👟', 'First Run', 1), ('🎯', 'Getting Going', 10), ('🔥', 'Regular Runner', 50), ('💯', 'Century of Runs', 100),
+                ('⚡', 'Dedicated Runner', 250), ('🏆', 'Five Hundred Runs', 500))],
+            *[_b(icon, name, f'{label} in one run', single(runs, 'distance', m * finished)) for icon, name, label, m in (
+                ('🏅', '5K Finisher', '5 km', 5000), ('🎽', '10K Finisher', '10 km', 10000), ('🥈', 'Half Marathoner', 'A half marathon', 21097.5),
+                ('🥇', 'Marathoner', 'A marathon', 42195), ('🦄', 'Ultra Runner', '50 km', 50000))],
+            *[_b(icon, name, f'{mi:,} miles run in total', total(runs, mi * units.MI)) for icon, name, mi in (
+                ('📍', 'Hundred Miler', 100), ('🗺️', 'Long Haul Runner', 500), ('🌍', 'Thousand Mile Club', 1000), ('🚀', 'Road Warrior', 2500))],
+            *[_b(icon, name, desc, under('run', m, secs)) for icon, name, desc, m, secs in (
+                ('🐢', '5K Under 30', '5 km in under 30:00', 5000, 1800), ('🏃', '5K Under 25', '5 km in under 25:00', 5000, 1500),
+                ('💨', '5K Under 20', '5 km in under 20:00', 5000, 1200), ('⏱️', '10K Under the Hour', '10 km in under 1:00:00', 10000, 3600),
+                ('⚡', '10K Under 50', '10 km in under 50:00', 10000, 3000), ('🔥', 'Sub-2 Half', 'A half marathon in under 2:00:00', 21097.5, 7200),
+                ('👑', 'Sub-4 Marathon', 'A marathon in under 4:00:00', 42195, 14400))],
+        ]})
+    if walks:
+        cats.append({'name': 'Walking & Hiking', 'badges': [
+            *[_b(icon, name, f"{n:,} walk{'s' if n != 1 else ''} or hike{'s' if n != 1 else ''}", count(walks, n)) for icon, name, n in (
+                ('🚶', 'Out for a Walk', 1), ('🌳', 'Stroller', 10), ('🥾', 'Rambler', 50), ('🧭', 'Wanderer', 100), ('🏕️', 'Trekker', 250),
+                ('🗺️', 'Pathfinder', 500))],
+            *[_b(icon, name, f'{mi} miles in one walk or hike', single(walks, 'distance', mi * units.MI)) for icon, name, mi in (
+                ('📍', 'Long Walk', 5), ('🌄', 'Big Day Out', 10), ('💪', 'Long Haul', 20), ('🏆', 'Marathon Walker', 26))],
+            *[_b(icon, name, f'{ft:,}ft+ on one walk or hike', single(walks, 'totalElevationGain', ft / units.FT_PER_M)) for icon, name, ft in (
+                ('⛰️', 'Hill Walker', 1000), ('🏔️', 'Fell Walker', 2000), ('🧗', 'Mountaineer', 3000), ('👑', 'High Peaks', 5000))],
+            *[_b(icon, name, f'{mi:,} miles walked in total', total(walks, mi * units.MI)) for icon, name, mi in (
+                ('👣', 'Hundred Mile Walker', 100), ('🌍', 'Long Walk Home', 500), ('💎', 'Thousand Mile Walker', 1000))],
+        ]})
+    if swims:
+        cats.append({'name': 'Swimming', 'badges': [
+            *[_b(icon, name, f"{n:,} swim{'s' if n != 1 else ''}", count(swims, n)) for icon, name, n in (
+                ('💧', 'First Dip', 1), ('🏊', 'Regular Swimmer', 10), ('🐸', 'Water Baby', 25), ('🐟', 'Fish', 50), ('🐬', 'Dolphin', 100))],
+            *[_b(icon, name, f'{label} in one swim', single(swims, 'distance', m * finished)) for icon, name, label, m in (
+                ('🎯', 'Kilometre Swim', '1 km', 1000), ('🏅', 'Olympic Distance', '1,500 m', 1500), ('🥇', 'Iron Distance', '3.8 km', 3800),
+                ('🌊', 'Long Distance', '5 km', 5000), ('👑', 'Marathon Swim', '10 km', 10000))],
+            *[_b(icon, name, desc, total(swims, km * 1000, 1000)) for icon, name, desc, km in (
+                ('📏', 'Ten K in the Water', '10 km swum in total', 10), ('⛴️', 'Channel Crosser', 'The English Channel (34 km) swum in total', 34),
+                ('🌍', 'Hundred K Swimmer', '100 km swum in total', 100), ('🐋', 'Open Ocean', '250 km swum in total', 250))],
+            *[_b(icon, name, desc, under('swim', m, secs)) for icon, name, desc, m, secs in (
+                ('🐢', 'Steady Stroke', '400 m in under 10:00', 400, 600), ('🏊', 'Smooth Stroke', '400 m in under 8:00', 400, 480),
+                ('💨', 'Quick Stroke', '400 m in under 7:00', 400, 420), ('⚡', 'Fast Kilometre', '1 km in under 20:00', 1000, 1200),
+                ('🔥', 'Olympic Pace', '1,500 m in under 30:00', 1500, 1800))],
+        ]})
+    others = {}
+    for a in acts:
+        if a['group'] not in ('ride', 'foot', 'swim'):
+            others.setdefault(sports.label(a['sportType']), []).append(a)
+    if others:
+        cats.append({'name': 'Other Sports', 'badges': [
+            _b(sports.icon(sport), name.format(sport=sport), f"{n:,} session{'s' if n != 1 else ''}", count(lst, n))
+            for sport, lst in sorted(others.items()) for name, n in (('First {sport}', 1), ('{sport} Regular', 10), ('{sport} Devotee', 50))]})
+
+    groups = {a['group'] for a in acts}
+    if len(groups) > 1:
+        def first_day(test):
+            """The first day whose activities pass test(set of stat groups), and the activity that made it pass."""
+            seen, day = set(), None
+            for a in acts:
+                if a['day'] != day:
+                    seen, day = set(), a['day']
+                seen.add(a['group'])
+                if test(seen):
+                    return {'earned': True, 'earned_date': a['day'], 'ride_id': a['id']}
+            return {'earned': False, 'earned_date': None, 'ride_id': None}
+
+        def first_week(n):
+            seen, week, best = set(), None, 0
+            from datetime import date, timedelta
+            for a in acts:
+                try:
+                    d = date.fromisoformat(a['day'])
+                except ValueError:
+                    continue
+                w = d - timedelta(days=d.weekday())
+                if w != week:
+                    seen, week = set(), w
+                seen.add(a['group'])
+                best = max(best, len(seen))
+                if len(seen) >= n:
+                    return {'earned': True, 'earned_date': a['day'], 'ride_id': a['id'], 'progress': n, 'target': n}
+            return {'earned': False, 'earned_date': None, 'ride_id': None, 'progress': best, 'target': n}
+
+        def kinds(n):
+            seen = set()
+            for a in acts:
+                seen.add(a['group'])
+                if len(seen) >= n:
+                    return {'earned': True, 'earned_date': a['day'], 'ride_id': a['id']}
+            return {'earned': False, 'earned_date': None, 'ride_id': None, 'progress': len(seen), 'target': n}
+
+        def hours(h):
+            run = 0
+            for a in acts:
+                run += a['movingTime'] or 0
+                if run >= h * 3600:
+                    return {'earned': True, 'earned_date': a['day'], 'ride_id': a['id']}
+            return {'earned': False, 'earned_date': None, 'ride_id': None, 'progress': round(run / 3600), 'target': h}
+
+        cats.append({'name': 'All Sports', 'badges': [
+            _b('🔀', 'Double Day', 'Two kinds of training on the same day', first_day(lambda g: len(g) >= 2)),
+            _b('🧱', 'Brick', 'A ride and a run (or walk) on the same day', first_day(lambda g: {'ride', 'foot'} <= g)),
+            _b('🔱', 'Triathlete', 'A swim, a ride and a run on the same day', first_day(lambda g: {'swim', 'ride', 'foot'} <= g)),
+            _b('🗓️', 'All-Rounder', 'Three kinds of training in one week', first_week(3)),
+            _b('🧭', 'Explorer', '5 different kinds of training', kinds(5)),
+            _b('🃏', 'Jack of All Trades', '10 different kinds of training', kinds(10)),
+            *[_b(icon, name, f'{h:,} hours of training, every sport', hours(h)) for icon, name, h in (
+                ('⏱️', 'Hundred Hours', 100), ('⌛', 'Five Hundred Hours', 500), ('🏆', 'Thousand Hours', 1000), ('💎', 'Devotion', 2500),
+                ('👑', 'Lifer', 5000))],
+        ]})
+    return cats
 
 
 def _avatar_dir():
@@ -382,7 +575,7 @@ def index():
                COUNT(a.id) AS ride_count,
                SUM(a.distance) AS total_dist
         FROM Rider r
-        LEFT JOIN Activity a ON a.riderId = r.id
+        LEFT JOIN Ride a ON a.riderId = r.id
         GROUP BY r.id
         ORDER BY r.isDefault DESC, r.name ASC
     ''')
@@ -398,21 +591,21 @@ def detail(rid):
     totals = query_db(
         'SELECT COUNT(*) as rides, SUM(distance) as dist, '
         'SUM(totalElevationGain) as elev, SUM(movingTime) as secs, '
-        'SUM(calories) as cals FROM Activity WHERE riderId=?',
+        'SUM(calories) as cals FROM Ride WHERE riderId=?',
         [rid], one=True,
     )
 
     recent = query_db('''
         SELECT id, name, sportType, startDateLocal, distance, movingTime,
                totalElevationGain, averageSpeed
-        FROM Activity WHERE riderId=? ORDER BY startDateLocal DESC LIMIT 20
+        FROM Ride WHERE riderId=? ORDER BY startDateLocal DESC LIMIT 20
     ''', [rid])
 
     seg_prs = query_db('''
         SELECT s.name AS seg_name, s.id AS seg_id,
                e.elapsedSecs, e.activityDate, e.avgSpeedMps
         FROM SegmentEffort e
-        JOIN Activity a ON a.id = e.activityId
+        JOIN Ride a ON a.id = e.activityId
         JOIN Segment s ON s.id = e.segmentId
         WHERE a.riderId=? AND e.isPR=1
         ORDER BY s.name
@@ -420,26 +613,36 @@ def detail(rid):
 
     effort_rows = query_db('''
         SELECT e.distanceMi, e.elapsedSecs, e.avgSpeedMps, e.activityDate,
-               a.name AS rideName, e.activityId
+               a.name AS rideName, e.activityId, a.sportType
         FROM BestEffort e
-        JOIN Activity a ON a.id = e.activityId
+        JOIN Ride a ON a.id = e.activityId
         WHERE a.riderId=?
         ORDER BY e.distanceMi, e.elapsedSecs ASC
-    ''', [rid])
+    ''', [rid])      # the Ride view: BestEffort has rows for anything with a track, and a ski run is not a ride's best 5 miles
 
-    best_by_dist = {}
+    from services import sports, units
+    best_by_dist, indoor_by_dist = {}, {}           # an indoor ride's best times (Zwift, a turbo) are its own, never a ride's best 5 miles
     for e in effort_rows:
-        d = int(e['distanceMi'])
-        if d not in best_by_dist:
-            best_by_dist[d] = e
+        (indoor_by_dist if sports.is_virtual(e['sportType']) else best_by_dist).setdefault(int(e['distanceMi']), e)
 
-    badges = _compute_badges(rid, totals)
+    badges = _compute_badges(rid, totals)        # works out any run and swim best times still missing (services/sport_records.ensure)
+    from services import sport_records
+    sport_bests = []                                # [(heading, kind, [(distance label, effort row, m/s)])]: indoor rides, runs, indoor runs, swims
+    if indoor_by_dist:
+        places = 0 if units.spec()['system'] != 'metric' else 1
+        sport_bests.append(('Indoor rides', 'ride', [(units.fmt_dist(d * units.MI, places=places), indoor_by_dist[d], indoor_by_dist[d]['avgSpeedMps'])
+                                                    for d in BRACKETS_MI if d in indoor_by_dist]))
+    for k, indoor in (('run', False), ('run', True), ('swim', False)):
+        got = sport_records.bests(get_db(), rid, k, indoor=indoor)
+        rows = [(label, got[d], d / got[d]['elapsedSecs']) for d, label in sport_records.DISTANCES[k] if d in got]
+        if rows:
+            sport_bests.append(((sport_records.INDOOR_LABELS if indoor else sport_records.LABELS)[k], k, rows))
 
     from services import gear as gear_svc
     rider_bikes = gear_svc.list_bikes(get_db(), rid)
     return render_template('rider.html', rider=rider, totals=totals, rider_bikes=rider_bikes,
                            recent=recent, seg_prs=seg_prs,
-                           best_by_dist=best_by_dist, brackets=BRACKETS_MI,
+                           best_by_dist=best_by_dist, brackets=BRACKETS_MI, sport_bests=sport_bests,
                            badges=badges)
 
 
@@ -502,7 +705,7 @@ def upload_avatar(rid):
         log.warning('Avatar rejected, not a decodable image: %s', e)
         return redirect(url_for('riders.detail', rid=rid))
 
-    log.warning('Avatar saved to %s', save_path)
+    log.info('Avatar saved to %s', save_path)
 
     db = get_db()
     db.execute('UPDATE Rider SET avatarPath=? WHERE id=?', [filename, rid])
@@ -542,6 +745,15 @@ def delete(rid):
                '(SELECT id FROM Activity WHERE riderId=?)', [rid])
     db.execute('DELETE FROM RideMemory WHERE rideId IN '
                '(SELECT id FROM Activity WHERE riderId=?)', [rid])
+    db.execute('DELETE FROM SportEffort WHERE activityId IN '
+               '(SELECT id FROM Activity WHERE riderId=?)', [rid])          # their run and swim best times
+    from services import photos
+    photos.delete_for(db, [r[0] for r in db.execute('SELECT id FROM Activity WHERE riderId=?', [rid])], current_app.config['DATABASE'])
+    from services import strava_export
+    strava_export.forget(db, current_app.config['DATABASE'], rid)                 # their Strava export kept for Import again
+    strava_export.forget_read(db, rid)
+    from services import goals
+    goals.forget_rider(db, rid)
     db.execute('DELETE FROM Activity WHERE riderId=?', [rid])
     db.execute('DELETE FROM Rider WHERE id=?', [rid])
     for sid in seg_ids:

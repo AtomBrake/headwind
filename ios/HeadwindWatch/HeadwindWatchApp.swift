@@ -2,7 +2,8 @@ import SwiftUI
 
 @main
 struct HeadwindWatchApp: App {
-    @State private var workout = WorkoutManager(phone: PhoneLink())
+    /// The shared one, so the Action button's intents and these screens drive the same workout.
+    @State private var workout = WorkoutManager.shared
 
     var body: some Scene {
         WindowGroup {
@@ -23,7 +24,7 @@ struct WatchRootView: View {
         case .recording, .paused:
             RecordingView()
         case .saving:
-            ProgressView("Saving ride…")
+            ProgressView("Saving \(workout.sport.title.lowercased())…")
         case .finished:
             SummaryView()
         }
@@ -73,6 +74,16 @@ struct StartView: View {
                 .disabled(workout.state == .starting)
                 .accessibilityIdentifier("watch-sport-picker")
 
+                if workout.sport == .poolSwim {
+                    Picker("Pool", selection: Binding(get: { workout.poolLength }, set: { workout.choose(poolLength: $0) })) {
+                        ForEach([25.0, 33.33, 50.0, 22.86], id: \.self) { length in
+                            Text(length == 22.86 ? "25 yd" : "\(length.formatted(.number.precision(.fractionLength(0)))) m").tag(length)
+                        }
+                    }
+                    .pickerStyle(.navigationLink)
+                    .disabled(workout.state == .starting)
+                }
+
                 if workout.sport.isRide, !phone.bikes.isEmpty {
                     Picker("Bike", selection: Binding(get: { Bike.pick(workout.chosenBike, from: phone.bikes) },
                                                       set: { workout.choose(bike: $0) })) {
@@ -121,18 +132,35 @@ private struct MetricsPage: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
+            let sport = workout.sport
+            let elapsed = workout.clock.elapsed(at: context.date)
             VStack(alignment: .leading, spacing: 2) {
-                Text(Units.clock(seconds: workout.clock.elapsed(at: context.date)))
+                Text(Units.clock(seconds: elapsed))
                     .font(.system(size: 34, weight: .semibold, design: .rounded))
                     .foregroundStyle(workout.state == .paused ? .yellow : .accentColor)
                     .monospacedDigit()
-                metric(phone.units.distance(metres: workout.tracker.distance))
-                metric(phone.units.rate(metresPerSecond: workout.tracker.currentSpeed, sport: workout.sport))
+                if sport.usesGPS {
+                    metric(phone.units.distance(metres: workout.tracker.distance, sport: sport))
+                    metric(phone.units.rate(metresPerSecond: workout.tracker.currentSpeed, sport: sport))
+                } else if sport.hasDistance, workout.healthDistance > 0 {
+                    // Lengths swum, a treadmill's steps, a speed sensor: HealthKit's distance, and the average rate over the session.
+                    metric(phone.units.distance(metres: workout.healthDistance, sport: sport))
+                    metric(phone.units.rate(metresPerSecond: elapsed > 0 ? workout.healthDistance / elapsed : 0, sport: sport))
+                }
                 HStack(spacing: 4) {
                     metric(workout.heartRate.map { "\($0)" } ?? "--")
                     Image(systemName: "heart.fill").foregroundStyle(.red).font(.footnote)
                 }
-                metric(phone.units.elevation(metres: workout.tracker.elevationGain) + " ↑")
+                if let power = workout.power {
+                    metric("\(power) W" + (workout.cadence.map { " · \($0) rpm" } ?? ""))
+                } else if let cadence = workout.cadence {
+                    metric("\(cadence) rpm")
+                }
+                if sport.usesGPS && !sport.isSwim {
+                    metric(phone.units.elevation(metres: workout.tracker.elevationGain) + " ↑")
+                } else {
+                    metric("\(Units.whole(workout.activeEnergy)) kcal")
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -184,16 +212,30 @@ struct SummaryView: View {
             VStack(alignment: .leading, spacing: 8) {
                 if let s = workout.lastSummary {
                     Text(GPXWriter.rideName(s)).font(.headline)
-                    LabeledContent("Distance", value: phone.units.distance(metres: s.distance))
-                    LabeledContent("Moving", value: Units.duration(seconds: s.movingTime))
-                    LabeledContent("Climbing", value: phone.units.elevation(metres: s.elevationGain))
+                    if s.sport.hasDistance, s.distance > 0 {
+                        LabeledContent("Distance", value: phone.units.distance(metres: s.distance, sport: s.sport))
+                    }
+                    LabeledContent(s.sport.usesGPS ? "Moving" : "Time", value: Units.duration(seconds: s.movingTime))
+                    if s.sport.usesGPS && !s.sport.isSwim {
+                        LabeledContent("Climbing", value: phone.units.elevation(metres: s.elevationGain))
+                    }
                     if let hr = s.averageHeartRate {
                         LabeledContent("Avg HR", value: "\(hr) bpm")
+                    }
+                    if let power = s.averagePower {
+                        LabeledContent("Avg power", value: "\(power) W")
+                    }
+                    if let kcal = s.calories {
+                        LabeledContent("Active", value: "\(Units.whole(kcal)) kcal")
                     }
                 }
                 // Nothing to report when nothing was sent: too short to keep, or the Watch couldn't store it (the error says which).
                 if !workout.lastSent {
                     EmptyView()
+                } else if phone.waitingToSend == 0, let direct = phone.lastDirect, -direct.timeIntervalSinceNow < 3600 {
+                    Label("Uploaded to Headwind", systemImage: "checkmark.icloud")
+                        .font(.footnote)
+                        .foregroundStyle(.green)
                 } else if phone.waitingToSend > 0, let problem = phone.sendProblem {
                     Label("Not sent to iPhone: \(problem)", systemImage: "exclamationmark.circle")
                         .font(.footnote)

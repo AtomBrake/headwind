@@ -1,29 +1,13 @@
 {% extends 'base.html' %}
+{% from '_activity_row.html' import activity_row %}
 {% block title %}Workouts{% endblock %}
 {% block page_title %}Workouts{% endblock %}
-{% block head %}
-<style>
-  .wo-row { display:flex; align-items:center; gap:0.8rem; padding:0.7rem 0; border-top:1px solid var(--border); }
-  .wo-ico { font-size:1.6rem; width:2rem; text-align:center; }
-  .wo-main { flex:1; min-width:0; }
-  .wo-main b { display:block; }
-  .wo-main small { color:var(--text-muted); }
-  .wo-num { text-align:right; font-variant-numeric:tabular-nums; font-weight:700; }
-  .wo-num small { display:block; font-weight:400; color:var(--text-muted); }
-  .wo-del { background:none; border:1px solid var(--border); color:var(--text-muted); border-radius:8px; padding:.3rem .6rem; cursor:pointer; font-size:.8rem; }
-  .wo-del:hover { color:#ef4444; border-color:#ef4444; }
-  .wo-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr)); gap:.6rem; margin:.8rem 0 1rem; }
-  .wo-form label { display:flex; flex-direction:column; gap:.2rem; font-size:.78rem; color:var(--text-muted); }
-  .wo-form input, .wo-form select { background:var(--bg,#071525); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:.5rem; font:inherit; }
-  .wo-form .wide { grid-column:1/-1; }
-</style>
-{% endblock %}
 {% block content %}
-{% if error %}<div style="background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);color:#fecaca;border-radius:10px;padding:.6rem .9rem;margin-bottom:.8rem;">Could not add that: {{ error }}</div>{% endif %}
-<details style="background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:.8rem 1rem;margin-bottom:1rem;" {% if error %}open{% endif %}>
-  <summary style="cursor:pointer;font-weight:600;">+ Add an activity by hand</summary>
-  <form method="POST" action="{{ url_for('workouts_ui.workouts_new') }}" class="wo-form">
-    <label>Type<select name="sport"><option>Ride</option><option value="VirtualRide">Indoor ride</option><option>Walk</option><option>Run</option><option>Hike</option></select></label>
+{% if error %}<div class="flash flash-error">Could not add that: {{ error }}</div>{% endif %}
+<details class="gcard" {% if error %}open{% endif %}>
+  <summary>+ Add an activity by hand</summary>
+  <form method="POST" action="{{ url_for('workouts_ui.workouts_new') }}" class="form-grid">
+    <label>Type<select name="sport"><option>Ride</option><option value="MountainBikeRide">Mountain bike ride</option><option value="GravelRide">Gravel ride</option><option value="VirtualRide">Indoor ride</option><option>Walk</option><option>Run</option><option value="VirtualRun">Indoor run</option><option>Hike</option></select></label>
     <label>Date<input type="date" name="date" value="{{ today }}" max="{{ today }}" required></label>
     <label>Start time<input type="time" name="time" value="{{ now }}" required></label>
     <label>Hours<input type="number" name="hours" min="0" max="47" value="0"></label>
@@ -34,42 +18,21 @@
     <label>Calories (optional)<input type="number" name="calories" min="0" step="1"></label>
     <label class="wide">Name (optional)<input type="text" name="name" maxlength="80"></label>
     <label class="wide">Notes (optional)<input type="text" name="notes" maxlength="500"></label>
-    <div class="wide"><button class="btn" type="submit">Add activity</button>
-      <span style="color:var(--text-muted);font-size:.8rem;margin-left:.6rem;">Rides appear on the dashboard (no map, since there is no GPS). If a real recording of the same ride arrives later, Headwind keeps the recording and puts this one aside.</span></div>
+    <div class="wide form-actions"><button class="btn btn-primary" type="submit">Add activity</button>
+      <span class="hint">Rides appear on the dashboard (no map, since there is no GPS). If a real recording of the same ride arrives later, Headwind keeps the recording and puts this one aside.</span></div>
   </form>
 </details>
 
 
 {% macro wo_row(w) %}
-  {% set secs = w.movingTime or 0 %}
-  <div class="wo-line" onclick="location.href='{{ url_for('rides.detail', rid=w.id) }}'"
-       style="display:flex; align-items:center; gap:0.75rem; padding:0.55rem 0.25rem; border-bottom:1px solid rgba(22,51,82,0.4); cursor:pointer; transition:background 0.1s;"
-       onmouseover="this.style.background='rgba(255,255,255,0.025)'" onmouseout="this.style.background=''">
-    <div style="flex:1; min-width:0;">
-      <div style="font-size:0.9375rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-        {{ w.sport | sport_icon }} {{ w.name or w.sport }}
-        {% if w.source == 'sensor-recovery' %}<span style="font-size:0.65rem; color:#c9a84c; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">RECOVERED</span>{% endif %}
-        {% if w.sport == 'Run' %}<span style="font-size:0.65rem; color:#a78bfa; margin-left:0.3rem; font-weight:500; letter-spacing:0.03em;">RUN</span>{% endif %}
-      </div>
-      <div style="font-size:0.775rem; color:var(--text-muted); margin-top:0.15rem; font-variant-numeric:tabular-nums;">
-        {% if is_filtered %}{{ w.startDateLocal | fmt_date }} &nbsp;·&nbsp; {% endif %}{{ w.startDateLocal[11:16] }} &nbsp;·&nbsp;<span style="color:var(--text);">{{ w.distance | fmt_dist }}</span>
-        &nbsp;·&nbsp;{{ w.movingTime | fmt_duration }}
-        {% if w.averageSpeed %}&nbsp;·&nbsp;{{ w.averageSpeed | fmt_speed }}{% endif %}
-        {% if w.totalElevationGain %}&nbsp;·&nbsp;{{ w.totalElevationGain | fmt_elev }}{% endif %}
-        {% if w.calories %}&nbsp;·&nbsp;{{ w.calories | round | int }} kcal{% endif %}
-        {% if w.steps %}&nbsp;·&nbsp;{{ '{:,}'.format(w.steps) }} steps{% endif %}
-        {% if w.weatherSummary %}&nbsp;·&nbsp;{{ w.weatherSummary }}{% endif %}
-      </div>
-    </div>
-    <div style="display:flex; gap:0.4rem; align-items:center; flex-shrink:0;" onclick="event.stopPropagation()">
-      <form method="POST" action="{{ url_for('workouts_ui.workouts_sport', wid=w.id) }}" style="margin:0;" title="Recorded as the wrong type?">
-        <select name="sport" aria-label="Activity type" onchange="if (this.value !== '{{ w.sport }}' && confirm('Change this to a ' + this.value.replace('VirtualRide','indoor ride').toLowerCase() + '?')) this.form.submit(); else this.value='{{ w.sport }}';" style="font-size:.78rem;padding:.2rem .3rem;">
-          {% for sp in ['Walk','Run','Hike','Ride','VirtualRide'] %}<option value="{{ sp }}" {{ 'selected' if w.sport == sp }}>{{ 'Indoor ride' if sp == 'VirtualRide' else sp }}</option>{% endfor %}
+  {% call activity_row(w, date=is_filtered, more=[(w.calories | round | int ~ ' kcal') if w.calories, ('{:,}'.format(w.steps) ~ ' steps') if w.steps, w.weatherSummary]) %}
+      <form method="POST" action="{{ url_for('workouts_ui.workouts_sport', wid=w.id) }}" title="Recorded as the wrong type?">
+        <select name="sport" aria-label="Activity type" onchange="if (this.value !== '{{ w.sport }}' && confirm('Change this to a ' + this.value.replace('VirtualRide','indoor ride').replace('VirtualRun','indoor run').toLowerCase() + '?')) this.form.submit(); else this.value='{{ w.sport }}';" style="font-size:.78rem;padding:.2rem .3rem;">
+          {% for sp in (['Walk','Run','VirtualRun','Hike','Ride','VirtualRide'] if w.sport in ['Walk','Run','VirtualRun','Hike'] else [w.sport,'Walk','Run','VirtualRun','Hike','Ride','VirtualRide']) %}<option value="{{ sp }}" {{ 'selected' if w.sport == sp }}>{{ {'VirtualRide': 'Indoor ride', 'VirtualRun': 'Indoor run'}.get(sp, sp) }}</option>{% endfor %}
         </select>
       </form>
-      <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=w.id) }}" onsubmit="return confirm('Delete this activity? This cannot be undone.')" style="margin:0;"><button class="wo-del" type="submit" title="Delete">Delete</button></form>
-    </div>
-  </div>
+      <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=w.id) }}" onsubmit="return confirm('Delete this activity? Its photos and notes go with it. This cannot be undone.')"><button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button></form>
+  {% endcall %}
 {% endmacro %}
 
 <!-- Lifetime stats -->
@@ -87,19 +50,20 @@
   <div class="form-group-sm" style="flex:2; min-width:140px;"><label>Name</label><input type="text" name="q" value="{{ f.q }}" placeholder="Search workouts…"></div>
   <div class="form-group-sm" style="flex:1; min-width:110px;"><label>From</label><input type="date" name="from" value="{{ f['from'] }}"></div>
   <div class="form-group-sm" style="flex:1; min-width:110px;"><label>To</label><input type="date" name="to" value="{{ f.to }}"></div>
-  <div class="form-group-sm" style="flex:1; min-width:80px;"><label>Min mi</label><input type="number" name="min_mi" value="{{ f.min_mi }}" placeholder="0" min="0" step="0.5"></div>
-  <div class="form-group-sm" style="flex:1; min-width:80px;"><label>Max mi</label><input type="number" name="max_mi" value="{{ f.max_mi }}" placeholder="&infin;" min="0" step="0.5"></div>
+  <div class="form-group-sm" style="flex:1; min-width:80px;"><label>Min {{ U.dist }}</label><input type="number" name="min_dist" value="{{ f.min_dist }}" placeholder="0" min="0" step="0.5"></div>
+  <div class="form-group-sm" style="flex:1; min-width:80px;"><label>Max {{ U.dist }}</label><input type="number" name="max_dist" value="{{ f.max_dist }}" placeholder="&infin;" min="0" step="0.5"></div>
   <div class="form-group-sm" style="flex:1; min-width:110px;"><label>Type</label>
     <select name="sport"><option value="">All</option>{% for sp in sports %}<option value="{{ sp }}" {{ 'selected' if f.sport == sp }}>{{ sp }}</option>{% endfor %}</select></div>
   <div style="display:flex; gap:0.4rem;">
-    <button type="submit" class="btn btn-primary" style="padding:0.35rem 0.9rem; font-size:0.875rem;">Search</button>
-    {% if is_filtered %}<a href="{{ url_for('workouts_ui.workouts_page') }}" class="btn btn-secondary" style="padding:0.35rem 0.75rem; font-size:0.875rem;">&times; Clear</a>{% endif %}
+    <button type="submit" class="btn btn-primary btn-sm">Search</button>
+    {% if is_filtered %}<a href="{{ url_for('workouts_ui.workouts_page') }}" class="btn btn-secondary btn-sm">&times; Clear</a>{% endif %}
   </div>
 </form>
 
-<div class="card" id="workout-history">
-  <div class="card-title">Workouts{% if is_filtered %}<span style="font-size:0.8125rem; font-weight:400; color:var(--text-muted); margin-left:0.5rem;">{{ workouts | length }} result{{ 's' if workouts | length != 1 }}</span>{% endif %}</div>
-  <p style="color:var(--text-muted);font-size:0.8125rem;margin:0 0 0.6rem;">Your complete history of walks, runs and hikes, from the Headwind phone app or added by hand. Runs also appear in the dashboard's activity list. Workouts are kept apart from rides so they never change your ride stats; their calories count toward the day's burn.</p>
+<div class="card" id="workout-history" data-pick-list>
+  <div class="card-title" style="display:flex; align-items:center; gap:0.5rem;">Workouts{% if is_filtered %}<span style="font-size:0.8125rem; font-weight:400; color:var(--text-muted); margin-left:0.5rem;">{{ workouts | length }} result{{ 's' if workouts | length != 1 }}</span>{% endif %}
+    {% if workouts %}<button type="button" class="btn btn-secondary pick-toggle" data-pick-toggle>Select</button>{% endif %}</div>
+  <p class="hint" style="margin:0 0 0.6rem;">Your complete history of walks, runs and hikes, from the Headwind phone app or added by hand. Runs also appear in the dashboard's activity list. Workouts are kept apart from rides so they never change your ride stats; their calories count toward the day's burn.</p>
   {% if not workouts %}
     <p style="color:var(--text-muted)">{{ 'No workouts match your filters.' if is_filtered else 'Nothing yet. Pair a phone under Phones and record a walk, or add one above.' }}</p>
   {% elif is_filtered %}
@@ -129,4 +93,5 @@
     {% endfor %}
   {% endif %}
 </div>
+{% include '_bulk_bar.html' %}
 {% endblock %}

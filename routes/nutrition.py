@@ -1,3 +1,4 @@
+import logging
 import os
 import sqlite3
 import re
@@ -14,13 +15,18 @@ from database import get_db, query_db
 from services.food_lookup import name_key
 from services.food_quality import nutri_score_label, nutrient_tags
 from services.weight_trend import (
+    KG_MILESTONE_STEP,
+    KG_PER_STONE,
     MAX_SANE_KG,
     MIN_SANE_KG,
     compute_trend,
+    is_scale_reading,
     parse_backfill_rows,
     stone_lb_to_kg,
-    stone_milestones,
+    weight_milestones,
 )
+
+log = logging.getLogger(__name__)
 
 OFF_IMAGE_HOSTS = ('openfoodfacts.org', 'openfoodfacts.net')
 
@@ -127,13 +133,14 @@ def _goal_weight_settings():
 
 def _weight_settings():
     row = query_db(
-        'SELECT nutritionWeightUnit, nutritionWeightEmaAlpha, dietStartDate FROM Settings WHERE id=1',
+        'SELECT nutritionWeightUnit, nutritionWeightEmaAlpha, dietStartDate, weightMilestoneLines FROM Settings WHERE id=1',
         one=True,
     )
     return {
         'unit':          (row['nutritionWeightUnit'] if row else None) or 'stlb',
         'emaAlpha':      (row['nutritionWeightEmaAlpha'] if row else None) or 0.1,
         'dietStartDate': row['dietStartDate'] if row else None,
+        'milestoneLines': bool(row['weightMilestoneLines']) if row and row['weightMilestoneLines'] is not None else True,
         **_goal_weight_settings(),
     }
 
@@ -159,7 +166,7 @@ def _weight_snapshot(rider_id, date_str):
     if not entries:
         return {'raw': None, 'trend': None, 'unit': settings['unit']}
     d = date.fromisoformat(date_str)
-    src = query_db('SELECT source FROM WeightLog WHERE riderId=? AND logDate=?', [rider_id, date_str], one=True)
+    src = query_db('SELECT source, sourceDetail FROM WeightLog WHERE riderId=? AND logDate=?', [rider_id, date_str], one=True)
     fat = query_db("SELECT value FROM BodyMetric WHERE riderId=? AND metric='body_fat' AND logDate<=? ORDER BY logDate DESC LIMIT 1",
                    [rider_id, date_str], one=True)
     trend_map = compute_trend(entries, alpha=settings['emaAlpha'], end_date=d)
@@ -170,6 +177,7 @@ def _weight_snapshot(rider_id, date_str):
         'trend': round(trend, 2) if trend is not None else None,
         'unit':  settings['unit'],
         'source': src['source'] if src else None,
+        'scale':  bool(src) and is_scale_reading(src['source'], src['sourceDetail']),
         'bodyFat': round(fat['value'], 1) if fat else None,
     }
 
@@ -179,20 +187,19 @@ def _mqtt_nutrition():
         from services.mqtt import push_update_nutrition
         push_update_nutrition()
     except Exception:
-        pass
+        log.warning('Home Assistant nutrition update failed', exc_info=True)
 
 
 # ── Manual steps ─────────────────────────────────────────────────────
 # For anyone without a Garmin (or whose phone/watch isn't feeding Headwind): log a day's steps by hand. Stored as BodyMetric
 # 'steps_manual'; the app already uses the highest of Garmin / phone / watch / manual for each day.
 
-_STEP_LABELS = (('steps_manual', 'Manual'), ('steps_phone', 'Phone'), ('steps_watch', 'Watch'))
+_STEP_LABELS = (('steps_manual', 'Manual'), ('steps_phone', 'Phone'), ('steps_watch', 'Watch'), ('steps_health', 'Health'))
 
 
 def _london_today():
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    return datetime.now(ZoneInfo('Europe/London')).date()
+    from services import tz
+    return tz.today()
 
 
 @bp.route('/steps')
@@ -315,6 +322,7 @@ def estimate_meal_photo():
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
+        log.warning('AI meal estimate failed', exc_info=True)
         return jsonify({'error': f'AI request failed: {e}'}), 502
     try:
         img = Image.open(io.BytesIO(raw)).convert('RGB')
@@ -354,7 +362,7 @@ def save_goal_profile():
     d = request.get_json() or {}
     sex = d.get('sex') if d.get('sex') in ('male', 'female') else None
     try:
-        age = int(d['age']) if d.get('age') else None
+        age = int(d['age']) if d.get('age') else None           # older clients still send an age
         height_cm = float(d['height_cm']) if d.get('height_cm') not in (None, '') else None
         rides = float(d['ride_kcal_week']) if d.get('ride_kcal_week') not in (None, '') else None
         loss = float(d['loss_lb_week']) if d.get('loss_lb_week') not in (None, '') else None
@@ -368,11 +376,23 @@ def save_goal_profile():
         return jsonify({'error': 'rides per week must be between 1 and 14'}), 400
     if height_cm is not None and not (100 <= height_cm <= 250):
         return jsonify({'error': 'height must be between 100 and 250 cm'}), 400
+    born = None
+    if d.get('birth_date'):
+        born = goal_model.parse_birth_date(d['birth_date'])
+        if not born or not (16 <= goal_model.age_on(born, goal_model._today()) <= 100):
+            return jsonify({'error': 'date of birth must be a real date, for an age between 16 and 100'}), 400
+    elif age is not None and not (16 <= age <= 100):
+        return jsonify({'error': 'age must be between 16 and 100'}), 400
     db = get_db()
     db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
-    db.execute("UPDATE Settings SET sex=COALESCE(?, sex), birthYear=COALESCE(?, birthYear), heightCm=COALESCE(?, heightCm), rideKcalWeek=COALESCE(?, rideKcalWeek), "
+    db.execute("UPDATE Settings SET sex=COALESCE(?, sex), heightCm=COALESCE(?, heightCm), rideKcalWeek=COALESCE(?, rideKcalWeek), "
                "lossLbPerWeek=COALESCE(?, lossLbPerWeek), stepGoal=COALESCE(?, stepGoal), rideGoalWeek=COALESCE(?, rideGoalWeek), goalAuto=? WHERE id=1",
-               [sex, (goal_model._today().year - age) if age else None, height_cm, rides, loss, steps, ride_goal, 1 if d.get('auto') else 0])
+               [sex, height_cm, rides, loss, steps, ride_goal, 1 if d.get('auto') else 0])
+    if born:
+        db.execute('UPDATE Settings SET birthDate=?, birthDateGuessed=0, birthYear=? WHERE id=1', [born.isoformat(), born.year])
+    elif age is not None and age != goal_model.profile()['age']:     # an age alone: 1 January of the year it gives, still to be confirmed
+        y = goal_model._today().year - age
+        db.execute('UPDATE Settings SET birthDate=?, birthDateGuessed=1, birthYear=? WHERE id=1', [f'{y:04d}-01-01', y])
     db.commit()
     _mqtt_nutrition()
     return jsonify({'plan': goal_model.plan(), 'profile': goal_model.profile()})
@@ -456,7 +476,7 @@ def search_food():
                 if p:
                     products.append(p)
     except Exception:
-        pass
+        log.warning('Open Food Facts search failed', exc_info=True)
 
     if products:
         food_cache.store(products)  # every product we see is kept for when the API is down
@@ -525,7 +545,7 @@ def lookup(barcode):
             sugars = product.pop('_sugars_per_100g', None)
             return jsonify(_with_quality(_apply_override(product), sugars))
     except Exception:
-        pass
+        log.warning('Open Food Facts barcode lookup failed', exc_info=True)
     # API down or product missing there: a stale local copy beats nothing
     stale = food_cache.get_by_barcode(barcode)
     if stale:
@@ -559,7 +579,7 @@ def stock_image():
                 if img:
                     return jsonify({'image_url': img})
     except Exception:
-        pass
+        log.debug('Open Food Facts image lookup failed', exc_info=True)
     return jsonify({'image_url': None})
 
 
@@ -708,7 +728,7 @@ def image_search():
             try:
                 candidates.extend(j.result())
             except Exception:
-                pass
+                log.debug('A food image search failed', exc_info=True)
     seen, out = set(), []
     for c in candidates:
         if c['url'] not in seen and food_cache.image_allowed(c['url']):
@@ -1170,13 +1190,10 @@ def day_log(date_str):
     )
     garmin_total  = garmin_row['totalCalories']  if garmin_row else None
     garmin_active = garmin_row['activeCalories'] if garmin_row else None
-    ride_row = query_db('''
-        SELECT COALESCE(SUM(calories), 0) as total FROM Activity
-        WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL
-    ''', [rider_id, date_str], one=True)
-    ride_cal = int(ride_row['total']) if ride_row else 0
-    from services import workouts as _wk
-    ride_cal += _wk.calories_on(rider_id, date_str)               # recorded walks / runs
+    from services import health
+    device_total, device_label = health.device_burn(rider_id, date_str) or (None, None)   # Garmin's total, else Apple Health's
+    from services import goal_model
+    ride_cal = goal_model.activity_calories(rider_id, date_str)   # every sport: rides, walks, runs, ...
 
     goals = _get_goals()
     bmr   = goals.get('bmr')
@@ -1185,16 +1202,15 @@ def day_log(date_str):
     #   1. Manual BMR + today's ride calories (always current, no sync lag)
     #   2. Garmin daily total (comprehensive but up to 2h stale)
     #   3. Ride calories only
-    from services import goal_model
     est = goal_model.day_burn(rider_id, date_str)
     if est:
         burned, burn_source = est
     elif bmr:
         burned      = int(bmr) + ride_cal
         burn_source = 'BMR + rides' if ride_cal else 'BMR (resting)'
-    elif garmin_total:
-        burned      = garmin_total
-        burn_source = 'Garmin total'
+    elif device_total:
+        burned      = device_total
+        burn_source = device_label
     elif ride_cal:
         burned      = ride_cal
         burn_source = 'rides'
@@ -1670,21 +1686,13 @@ def week_log(date_str):
         water_ml = int(water['total']) if water else 0
 
         # Burn
-        ride_cal = query_db(
-            'SELECT COALESCE(SUM(calories),0) as total FROM Activity WHERE riderId=? AND date(startDateLocal)=?',
-            [rider_id, date_iso], one=True
-        )
-        ride_cal = int(ride_cal['total']) if ride_cal else 0
-        from services import workouts as _wk
-        ride_cal += _wk.calories_on(rider_id, date_iso)           # recorded walks / runs
-
-        garmin = query_db(
-            'SELECT totalCalories FROM GarminDaily WHERE date=?',
-            [date_iso], one=True
-        )
-        garmin_total = garmin['totalCalories'] if garmin else None
-
         from services import goal_model
+        ride_cal = goal_model.activity_calories(rider_id, date_iso)   # every sport: rides, walks, runs, ...
+
+        from services import health
+        device = health.device_burn(rider_id, date_iso)   # Garmin's total, else Apple Health's
+        garmin_total = device[0] if device else None
+
         est = goal_model.day_burn(rider_id, date_iso)
         if est:
             burned = est[0]
@@ -1781,6 +1789,8 @@ def save_weight_settings():
     ])
     if 'goalWeightKg' in d:
         db.execute('UPDATE Settings SET goalWeightKg=? WHERE id=1', [float(d['goalWeightKg']) if d.get('goalWeightKg') else None])
+    if 'milestoneLines' in d:
+        db.execute('UPDATE Settings SET weightMilestoneLines=? WHERE id=1', [1 if d['milestoneLines'] else 0])
     db.commit()
     _mqtt_nutrition()
     return jsonify({'ok': True})
@@ -1882,7 +1892,7 @@ def weight_graph_data():
     if not entries:
         return jsonify({
             'raw': [], 'trend': [], 'unit': unit, 'dietStartDate': diet_start,
-            'periodStart': None, 'periodEnd': None, 'summary': None, 'stoneLines': [],
+            'periodStart': None, 'periodEnd': None, 'summary': None, 'milestones': [],
         })
 
     today = date.today()
@@ -1895,11 +1905,19 @@ def weight_graph_data():
     trend_end = max(end_date, entries[-1][0], today)
     trend_map = compute_trend(entries, alpha=settings['emaAlpha'], end_date=trend_end)
 
-    sources = {x['logDate']: x['source'] for x in query_db('SELECT logDate, source FROM WeightLog WHERE riderId=?', [rider_id])}
-    raw_points = [
-        {'date': d.isoformat(), 'kg': round(w, 2), 'source': sources.get(d.isoformat())}
-        for d, w in entries if start_date <= d <= end_date
-    ]
+    sources = {x['logDate']: x for x in query_db('SELECT logDate, source, sourceDetail FROM WeightLog WHERE riderId=?', [rider_id])}
+    # changeKg is against the previous weigh-in overall, so the oldest row in the window still gets one
+    raw_points = []
+    for i, (d, w) in enumerate(entries):
+        if not start_date <= d <= end_date:
+            continue
+        src = sources[d.isoformat()]
+        raw_points.append({
+            'date': d.isoformat(), 'kg': round(w, 2), 'source': src['source'], 'sourceDetail': src['sourceDetail'],
+            'scale': is_scale_reading(src['source'], src['sourceDetail']),
+            'trendKg': round(trend_map[d], 2) if d in trend_map else None,
+            'changeKg': round(w - entries[i - 1][1], 2) if i else None,
+        })
     trend_points = [
         {'date': d.isoformat(), 'kg': round(t, 2)}
         for d, t in sorted(trend_map.items()) if start_date <= d <= end_date
@@ -1939,10 +1957,13 @@ def weight_graph_data():
             summary['changeSinceDietStartKg'] = round(change_diet, 2)
             summary['dietWeeklyRateKg']       = round(change_diet / diet_days * 7, 3)
 
+    # lines below the diet start (or the heaviest ever): every stone for stlb, every 5 kg for kg. The chart draws only those in view.
     all_weights = [w for _, w in entries]
-    stone_lines = [
-        round(k, 2) for k in
-        stone_milestones(diet_start_trend or max(all_weights), min(all_weights))
+    metric = unit == 'kg'
+    milestones = [
+        {'kg': round(k, 2), 'label': f'-{n * KG_MILESTONE_STEP}kg' if metric else f'-{n}st'}
+        for n, k in enumerate(weight_milestones(diet_start_trend or max(all_weights), min(all_weights),
+                                                KG_MILESTONE_STEP if metric else KG_PER_STONE), start=1)
     ]
 
     return jsonify({
@@ -1953,7 +1974,7 @@ def weight_graph_data():
         'periodStart':   start_date.isoformat(),
         'periodEnd':     end_date.isoformat(),
         'summary':       summary,
-        'stoneLines':    stone_lines,
+        'milestones':    milestones,
     })
 
 

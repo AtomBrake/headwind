@@ -15,6 +15,13 @@ struct Units {
         return value.formatted(.number.precision(.fractionLength(digits))) + (metric ? " km" : " mi")
     }
 
+    /// A swim's distance reads in metres or yards ("1,500 m"), everything else in km or miles.
+    func distance(metres m: Double, sport: Sport) -> String {
+        guard sport.isSwim else { return distance(metres: m) }
+        let value = metric ? m : m / 0.9144
+        return value.formatted(.number.precision(.fractionLength(0))) + (metric ? " m" : " yd")
+    }
+
     func elevation(metres m: Double) -> String {
         let value = metric ? m : m * 3.28084
         return value.formatted(.number.precision(.fractionLength(0))) + (metric ? " m" : " ft")
@@ -32,17 +39,37 @@ struct Units {
         return String(format: "%d:%02d", total / 60, total % 60) + (metric ? " /km" : " /mi")
     }
 
-    /// Speed for rides, pace on foot, as the server's dashboard shows them.
+    /// Minutes per 100 m (or 100 yd) in the water: "1:52 /100m".
+    func swimPace(metresPerSecond v: Double) -> String {
+        let unit = metric ? " /100m" : " /100yd"
+        guard v >= 0.05 else { return "–" + unit }
+        let total = Int(((metric ? 100 : 91.44) / v).rounded())
+        return String(format: "%d:%02d", total / 60, total % 60) + unit
+    }
+
+    /// Speed for rides, pace on foot, per 100 m for swims, as the server's dashboard shows them (services/sports.rate_style).
     func rate(metresPerSecond v: Double, sport: Sport) -> String {
-        sport.isRide ? speed(metresPerSecond: v) : pace(metresPerSecond: v)
+        if sport.isSwim { return swimPace(metresPerSecond: v) }
+        return sport.isOnFoot ? pace(metresPerSecond: v) : speed(metresPerSecond: v)
+    }
+
+    /// The same for a stat group the server sends ('speed', 'pace', 'swim'; 'time' has none).
+    func rate(metresPerSecond v: Double, style: String?) -> String? {
+        switch style {
+        case "pace": pace(metresPerSecond: v)
+        case "swim": swimPace(metresPerSecond: v)
+        case "time": nil
+        default: speed(metresPerSecond: v)
+        }
     }
 
     static func rateCaption(_ sport: Sport, average: Bool = false) -> String {
-        switch (sport.isRide, average) {
-        case (true, false): "Speed"
-        case (true, true): "Avg speed"
-        case (false, false): "Pace"
-        case (false, true): "Avg pace"
+        let pace = sport.isOnFoot || sport.isSwim
+        switch (pace, average) {
+        case (false, false): return "Speed"
+        case (false, true): return "Avg speed"
+        case (true, false): return "Pace"
+        case (true, true): return "Avg pace"
         }
     }
 

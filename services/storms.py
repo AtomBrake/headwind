@@ -42,7 +42,7 @@ def storm_rides(db, rider_id, sport=None):
     `confirmed` = the rider has already settled the condition by hand (so it is not re-suggested)."""
     from services import weather
     rows = db.execute("""SELECT id, name, startDateLocal, distance, averageSpeed, weatherWindKph, weatherGustKph, weatherCode, weatherSource
-                         FROM Activity WHERE riderId=? AND startDateLocal IS NOT NULL ORDER BY startDateLocal DESC""", [rider_id]).fetchall()
+                         FROM Ride WHERE riderId=? AND startDateLocal IS NOT NULL ORDER BY startDateLocal DESC""", [rider_id]).fetchall()
     out = []
     for r in rows:
         day = str(r['startDateLocal'])[:10]
@@ -78,7 +78,7 @@ def claim(db, act_id):
 def claim_all(db, rider_id):
     """Apply the rule to every ride (history). Returns the number claimed. Commits."""
     n = 0
-    for r in db.execute('SELECT id FROM Activity WHERE riderId=? AND weatherGustKph IS NOT NULL', [rider_id]).fetchall():
+    for r in db.execute('SELECT id FROM Ride WHERE riderId=? AND weatherGustKph IS NOT NULL', [rider_id]).fetchall():
         if claim(db, r['id']):
             n += 1
     db.commit()
@@ -89,11 +89,11 @@ def reassess(db, rider_id):
     """Take back rides an earlier, looser rule claimed (gusts under MIN_GUST_KPH): back to the lookup's own condition. Needs the weather service for each (a few calls). Commits."""
     from services import weather
     n = 0
-    for r in db.execute("SELECT id, startLat, startLng, startDateLocal, streams, weatherGustKph FROM Activity WHERE riderId=? AND weatherSource='storm' AND COALESCE(weatherGustKph,0) < ?",
+    for r in db.execute("SELECT id, sportType, startLat, startLng, startDateLocal, streams, weatherGustKph FROM Ride WHERE riderId=? AND weatherSource='storm' AND COALESCE(weatherGustKph,0) < ?",
                         [rider_id, MIN_GUST_KPH]).fetchall():
         weather.set_condition(db, r['id'], None)
         lat, lng = weather.origin(r)
-        w = weather.fetch_weather(lat, lng, r['startDateLocal'], r['streams']) if lat is not None else None
+        w = weather.fetch_weather(lat, lng, r['startDateLocal'], r['streams'], r['sportType']) if lat is not None else None
         if w:
             weather.save_weather(db, r['id'], w, claim=False)
         n += 1
@@ -104,7 +104,7 @@ def reassess(db, rider_id):
 def violent_unnamed(db, rider_id):
     """Rides with severe-gale gusts on a day with no named storm (candidates only)."""
     out = []
-    for r in db.execute("""SELECT id, name, startDateLocal, distance, weatherWindKph, weatherGustKph, weatherCode, weatherSource FROM Activity
+    for r in db.execute("""SELECT id, name, startDateLocal, distance, weatherWindKph, weatherGustKph, weatherCode, weatherSource FROM Ride
                            WHERE riderId=? AND weatherGustKph >= ? ORDER BY startDateLocal DESC""", [rider_id, VIOLENT_GUST_KPH]).fetchall():
         day = str(r['startDateLocal'])[:10]
         if storm_on(day) or r['weatherSource'] in ('manual', 'storm'):

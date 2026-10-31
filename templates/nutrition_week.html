@@ -73,22 +73,23 @@
 
   <!-- Day-by-Day Table -->
   <div class="week-table">
-    <table>
+    <table class="table sortable" id="weekTable">
       <thead>
         <tr>
-          <th>Day</th>
-          <th>Eaten</th>
-          <th>Burned</th>
+          <th aria-sort="ascending">Day</th>
+          <th data-first="desc">Eaten</th>
+          <th data-first="desc">Burned</th>
           <th>Net</th>
-          <th>Protein</th>
-          <th>Carbs</th>
-          <th>Fat</th>
-          <th>Water</th>
+          <th data-first="desc">Protein</th>
+          <th data-first="desc">Carbs</th>
+          <th data-first="desc">Fat</th>
+          <th data-first="desc">Water</th>
         </tr>
       </thead>
       <tbody id="weekTableBody">
-        <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading...</td></tr>
+        <tr><td colspan="8" style="color:var(--text-muted);">Loading...</td></tr>
       </tbody>
+      <tfoot id="weekTableFoot"></tfoot>
     </table>
   </div>
 </div>
@@ -170,22 +171,24 @@
       const actIcon = d.has_activity ? ' 🚴' : '';
       return `
         <tr class="${rowClass}">
-          <td>${d.dow} ${fmtDate(d.date)}${actIcon}</td>
+          <td data-sort="${d.date}">${d.dow} ${fmtDate(d.date)}${actIcon}</td>
           <td>${d.eaten}</td>
           <td>${d.burned || '—'}</td>
-          <td><span class="badge ${netClass}">${netVal}</span></td>
-          <td>${d.protein.toFixed(0)}g</td>
-          <td>${d.carbs.toFixed(0)}g</td>
-          <td>${d.fat.toFixed(0)}g</td>
-          <td>${d.water_ml}ml</td>
+          <td data-sort="${d.net === null ? '' : d.net}"><span class="badge ${netClass}">${netVal}</span></td>
+          <td data-sort="${d.protein}">${d.protein.toFixed(0)}g</td>
+          <td data-sort="${d.carbs}">${d.carbs.toFixed(0)}g</td>
+          <td data-sort="${d.fat}">${d.fat.toFixed(0)}g</td>
+          <td data-sort="${d.water_ml}">${d.water_ml}ml</td>
         </tr>
       `;
     }).join('');
 
-    // Totals row
+    if (window.sortTable) sortTable(document.getElementById('weekTable'));   // app.js loads after this page's script
+
+    // Totals row, under the days however they're sorted
     const totalsNet = totals.net === null ? '—' : `${totals.net < 0 ? '−' : '+'}${Math.abs(totals.net)}`;
     const netClass = totals.net === null ? 'neutral' : (totals.net < 0 ? 'deficit' : 'surplus');
-    tbody.innerHTML += `
+    document.getElementById('weekTableFoot').innerHTML = `
       <tr class="totals">
         <td>Total</td>
         <td>${totals.eaten}</td>

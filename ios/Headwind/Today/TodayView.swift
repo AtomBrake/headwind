@@ -10,7 +10,7 @@ struct TodayView: View {
         NavigationStack {
             Loaded(value: today, error: error, retry: load) { today in
                 ScrollView {
-                    VStack(spacing: 16) {
+                    CardColumns {
                         CaloriesCard(today: today)
                         MacrosCard(today: today)
                         HStack(alignment: .top, spacing: 16) {
@@ -25,10 +25,10 @@ struct TodayView: View {
                         if let weight = today.weight, weight.raw != nil || weight.trend != nil {
                             WeightCard(weight: weight)
                         }
-                        DiaryCard(entries: today.entries ?? [])
                         if let workouts = today.workouts, !workouts.isEmpty {
-                            WorkoutsCard(workouts: workouts, units: session.units)
+                            ActivitiesCard(workouts: workouts, units: session.units)
                         }
+                        DiaryCard(entries: today.entries ?? [])
                     }
                     .padding(16)
                 }
@@ -186,26 +186,39 @@ private struct DiaryCard: View {
     }
 }
 
-private struct WorkoutsCard: View {
+/// Today's activities that aren't rides (the server's /today `workouts`): a walk, a swim, a strength session, each with its own icon and label.
+private struct ActivitiesCard: View {
     var workouts: [Workout]
     var units: Units
 
     var body: some View {
-        Card(title: "Walks & runs") {
+        Card(title: "Activities") {
             ForEach(workouts) { w in
                 HStack {
-                    Image(systemName: w.sport?.lowercased().contains("run") == true ? "figure.run" : "figure.walk")
+                    Image(systemName: ActivitySport.systemImage(w.sport))
                         .foregroundStyle(Color.accentColor)
                         .frame(width: 24)
-                    Text(w.name ?? w.sport?.capitalized ?? "Workout")
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(w.name ?? w.label ?? w.sport ?? "Activity")
+                        if w.name != nil, let label = w.label ?? w.sport {
+                            Text(label).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     Spacer()
-                    Text([w.distance.map { units.distance(metres: $0) },
-                          w.movingTime.map { Units.duration(seconds: $0) }].compactMap { $0 }.joined(separator: " · "))
+                    Text(details(w).joined(separator: " · "))
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
                 .font(.callout)
             }
         }
+    }
+
+    /// Distance where the sport has one (a swim's in metres), then time.
+    private func details(_ w: Workout) -> [String] {
+        let sport = Sport(rawValue: w.sport ?? "")
+        let distance = w.distance.flatMap { $0 > 0 ? $0 : nil }.map { d in sport.map { units.distance(metres: d, sport: $0) } ?? units.distance(metres: d) }
+        return [distance, w.movingTime.map { Units.duration(seconds: $0) }].compactMap { $0 }
     }
 }

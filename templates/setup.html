@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{ appearance }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Welcome — Headwind</title>
+  {% include '_scheme.html' %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
   <style>
@@ -57,7 +58,7 @@
     }
 
     .arch-box {
-      background: #0a1e2e;
+      background: var(--inset-bg);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 1.1rem 1.25rem;
@@ -103,7 +104,7 @@
       text-transform: uppercase;
       letter-spacing: 0.06em;
       background: var(--accent);
-      color: #fff;
+      color: var(--on-accent);
       padding: 0.15rem 0.45rem;
       border-radius: 4px;
       margin-left: 0.4rem;
@@ -118,7 +119,7 @@
     }
     .rider-row input, .text-field {
       flex: 1;
-      background: #0f2535;
+      background: var(--field-bg);
       color: var(--text);
       border: 1px solid var(--border);
       border-radius: 6px;
@@ -175,7 +176,7 @@
     .choice-row { display: flex; gap: 0.75rem; margin-bottom: 1.75rem; }
     .choice-card {
       flex: 1;
-      background: #0f2535;
+      background: var(--field-bg);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 1rem;
@@ -184,7 +185,7 @@
       transition: border-color 0.15s;
     }
     .choice-card:hover { border-color: var(--text-muted); }
-    .choice-card.selected { border-color: var(--accent); background: #14293c; }
+    .choice-card.selected { border-color: var(--accent); background: var(--accent-soft); }
     .choice-card input { display: none; }
     .choice-card .choice-title { font-weight: 600; color: var(--text); margin-bottom: 0.2rem; }
     .choice-card .choice-sub { font-size: 0.75rem; color: var(--text-muted); }
@@ -209,9 +210,9 @@
       display: none;
     }
     .garmin-status.show { display: block; }
-    .garmin-status.ok { background: #0a1e14; border: 1px solid var(--success); color: var(--success); }
-    .garmin-status.error { background: #1a0a0a; border: 1px solid var(--danger); color: var(--danger); }
-    .garmin-status.pending { background: #1a1508; border: 1px solid var(--warning); color: var(--warning); }
+    .garmin-status.ok { background: var(--success-soft); border: 1px solid var(--success); color: var(--success); }
+    .garmin-status.error { background: var(--danger-soft); border: 1px solid var(--danger); color: var(--danger); }
+    .garmin-status.pending { background: var(--warning-soft); border: 1px solid var(--warning); color: var(--warning); }
 
     .done-icon {
       font-size: 2.5rem;
@@ -220,7 +221,7 @@
     }
     .done-text { text-align: center; color: var(--text-muted); font-size: 0.9375rem; margin-bottom: 1.75rem; }
     .also-box {
-      background: #0a1e2e;
+      background: var(--inset-bg);
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 1rem 1.25rem;
@@ -236,7 +237,7 @@
     .ha-map-name { flex:1; min-width:0; }
     .ha-map-name b { display:block; overflow-wrap:anywhere; font-size: 0.875rem; }
     .ha-map select {
-      width:auto; min-width:8rem; background:#0f2535; color:var(--text); border:1px solid var(--border);
+      width:auto; min-width:8rem; background:var(--field-bg); color:var(--text); border:1px solid var(--border);
       border-radius:6px; padding:0.35rem 0.5rem; font-size:0.8125rem;
     }
     .ha-x { background:none; border:none; color:var(--text-muted); font-size:1.4rem; min-width:36px; min-height:36px; cursor:pointer; }
@@ -288,7 +289,7 @@
       flex-shrink: 0;
     }
     .ha-search {
-      background:#0f2535; color:var(--text); border:1px solid var(--border); border-radius:6px;
+      background:var(--field-bg); color:var(--text); border:1px solid var(--border); border-radius:6px;
       padding:0.5rem 0.75rem; font-size:0.9375rem; width:100%; box-sizing:border-box;
     }
   </style>
@@ -408,7 +409,7 @@
   </div>
 
   {% if error %}
-  <div style="background:#1a0a0a; border:1px solid var(--danger); border-radius:8px; padding:0.75rem 1rem; font-size:0.875rem; color:var(--danger); margin-bottom:1rem;">
+  <div class="flash flash-error">
     {{ error }}
   </div>
   {% endif %}
@@ -456,9 +457,9 @@
     </div>
     <div class="arch-row">
       <span class="arch-icon">🔒</span>
-      <span>Your Garmin password is stored locally in this instance's database, never sent anywhere
-        but Garmin's own servers. If your account has 2-step verification, Headwind will ask for the code
-        right here — no SSH, no command line.</span>
+      <span>Your Garmin password is sent only to Garmin, to sign in, and isn't kept. Headwind keeps the
+        sign-in Garmin gives it, which renews itself. If your account has 2-step verification, Headwind will ask
+        for the code right here — no SSH, no command line.</span>
     </div>
   </div>
 
@@ -481,6 +482,26 @@
       <input type="text" id="garminMfaCode" class="text-field" inputmode="numeric" autocomplete="one-time-code" placeholder="123456">
     </div>
     <button type="button" class="btn btn-primary submit-btn" id="garminVerifyBtn" onclick="garminVerify()">Verify code</button>
+  </div>
+
+  <div class="mfa-box" id="historyBox">
+    <div class="field-group" style="margin-top:1rem;">
+      <label for="garminHistory">How much of your past health data should Headwind fetch from Garmin?</label>
+      <select id="garminHistoryRange" class="text-field">
+        <option value="all" selected>All of it</option>
+        <option value="1825">The last 5 years</option>
+        <option value="730">The last 2 years</option>
+        <option value="365">The last year</option>
+        <option value="182">The last 6 months</option>
+        <option value="91">The last 3 months</option>
+        <option value="none">None — just the last two weeks</option>
+      </select>
+    </div>
+    <p style="font-size:0.75rem; color:var(--text-muted); margin:-0.5rem 0 1rem;">
+      Sleep, HRV, resting heart rate, steps and weigh-ins. It downloads in the background, so carry on with setup;
+      several years can take an hour or two. You can fetch more later from Settings.
+    </p>
+    <button type="button" class="btn btn-primary submit-btn" id="garminHistoryBtn" onclick="garminHistory()">Continue →</button>
   </div>
 
   <a href="/setup?step=4" class="skip-link" id="garminSkip">Skip for now — I'll connect Garmin later from Settings →</a>
@@ -585,9 +606,9 @@
   </div>
 
   <form method="POST" action="/setup?step=5">
-    <label style="display:flex; align-items:center; gap:0.6rem; margin-bottom:1.5rem; cursor:pointer;">
-      <input type="checkbox" name="telemetry" value="off" style="width:20px; height:20px;">
-      <span style="font-size:0.9375rem; color:var(--text);">Opt out forever — never send this ping</span>
+    <label class="check" style="margin-bottom:1.5rem;">
+      <input type="checkbox" name="telemetry" value="off">
+      <span>Opt out forever — never send this ping</span>
     </label>
     <button type="submit" class="btn btn-primary submit-btn">Continue →</button>
   </form>
@@ -596,7 +617,7 @@
   <div class="step-label">Step 6 of 6 — Done</div>
   <div class="done-icon">🚴</div>
   <p class="done-text">Headwind is ready. Head to your dashboard, or import some rides to get started.</p>
-  <a href="/dashboard" class="btn btn-primary submit-btn" style="display:block; text-align:center; text-decoration:none;">Go to dashboard →</a>
+  <a href="/dashboard" class="btn btn-primary submit-btn" style="display:block; text-align:center;">Go to dashboard →</a>
 
   <div class="also-box">
     Also available any time from <strong>Settings</strong>: connect <strong>Garmin</strong> if you skipped it,
@@ -674,9 +695,38 @@ function garminConnect() {
     }
     if (data.ok) {
       document.getElementById('mfaBox').classList.remove('show');
-      showGarminStatus('ok', 'Garmin connected. Recovery data will sync within the hour.');
-      document.getElementById('garminSkip').textContent = 'Continue →';
+      garminConnected();
     }
+  })
+  .catch(function() {
+    btn.disabled = false;
+    showGarminStatus('error', 'Could not reach the server — check your connection and try again.');
+  });
+}
+
+// First run: once Garmin is connected, ask how much history to pull (default: all of it)
+function garminConnected() {
+  showGarminStatus('ok', 'Garmin connected.');
+  document.getElementById('historyBox').classList.add('show');
+  document.getElementById('garminSkip').style.display = 'none';
+}
+
+function garminHistory() {
+  var btn = document.getElementById('garminHistoryBtn');
+  btn.disabled = true;
+  fetch('/garmin/history', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({range: document.getElementById('garminHistoryRange').value}),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.error) {
+      btn.disabled = false;
+      showGarminStatus('error', data.error);
+      return;
+    }
+    window.location.href = '/setup?step=4';
   })
   .catch(function() {
     btn.disabled = false;
@@ -704,8 +754,7 @@ function garminVerify() {
     }
     if (data.ok) {
       document.getElementById('mfaBox').classList.remove('show');
-      showGarminStatus('ok', 'Garmin connected. Recovery data will sync within the hour.');
-      document.getElementById('garminSkip').textContent = 'Continue →';
+      garminConnected();
     }
   })
   .catch(function() {

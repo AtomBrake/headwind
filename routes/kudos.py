@@ -1,35 +1,11 @@
+import logging
 from flask import Blueprint, jsonify, request
 from database import get_db, query_db
-from services.ai import generate_analysis
-from services.context import save_ride_memory
+from services.ai import analyse_ride
+
+log = logging.getLogger(__name__)
 
 bp = Blueprint('kudos', __name__)
-
-
-def _ensure_weather(activity, db):
-    """Fetch and store weather for an activity that doesn't have it yet."""
-    if activity['weatherSummary'] or not activity['startLat'] or not activity['startLng']:
-        return activity
-    try:
-        from services.weather import fetch_weather, save_weather
-        w = fetch_weather(
-            activity['startLat'],
-            activity['startLng'],
-            activity['startDateLocal'],
-            activity['streams'],
-        )
-        if w:
-            save_weather(db, activity['id'], w)
-            db.commit()
-            return query_db('SELECT * FROM Activity WHERE id=?', [activity['id']], one=True)
-    except Exception:
-        pass
-    return activity
-
-
-def _is_ride(sport_type):
-    t = (sport_type or '').lower()
-    return 'ride' in t or 'cycling' in t
 
 
 @bp.route('/rides/<rid>/kudos', methods=['POST'])
@@ -37,7 +13,11 @@ def kudos(rid):
     activity = query_db('SELECT * FROM Activity WHERE id=?', [rid], one=True)
     if not activity:
         return jsonify({'error': 'Not found'}), 404
-    if not _is_ride(activity['sportType']):
+    from services import friend_rides
+    if friend_rides.friend_of(get_db(), rid):
+        return jsonify({'error': friend_rides.REFUSED}), 403
+    from services.sports import is_ride
+    if not is_ride(activity['sportType']):
         return jsonify({'error': 'AI coaching is only available for ride activities'}), 400
     try:
         from services.ai import PERSONALITIES
@@ -48,14 +28,16 @@ def kudos(rid):
 
         db = get_db()
         db.execute('UPDATE Settings SET coachPersonality=? WHERE id=1', [personality_key])
-        activity = _ensure_weather(activity, db)
-        text = generate_analysis(activity, personality_key=personality_key)
-        db.execute(
-            "UPDATE Activity SET aiKudos=?, aiKudosAt=datetime('now') WHERE id=?",
-            [text, rid],
-        )
-        db.commit()
-        save_ride_memory(activity, text)
+        text = analyse_ride(db, activity, personality_key=personality_key)
         return jsonify({'kudos': text})
     except Exception as e:
+        log.exception('AI analysis failed')
         return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/rides/<rid>/kudos/status')
+def kudos_status(rid):
+    """For a ride page showing 'Analysing…': whether the analysis of a new ride (services/auto_analyse.py) is still on its way, and the text once it's there."""
+    from services import auto_analyse
+    row = query_db('SELECT aiKudos FROM Activity WHERE id=?', [rid], one=True)
+    return jsonify({'pending': auto_analyse.is_pending(rid), 'kudos': (row['aiKudos'] if row else None) or None})

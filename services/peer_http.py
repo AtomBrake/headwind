@@ -23,4 +23,6 @@ _opener = urllib.request.build_opener(_SameOriginRedirect)
 def open_peer(url, headers=None, timeout=30):
     if urlparse(url).scheme not in ('http', 'https'):
         raise ValueError('friend URL must start with http:// or https://')
-    return _opener.open(urllib.request.Request(url, headers=headers or {}), timeout=timeout)
+    from services import logs
+    with logs.timed('GET', url):          # a friend's Headwind; the X-Feed-Token header is never logged
+        return _opener.open(urllib.request.Request(url, headers=headers or {}), timeout=timeout)

@@ -6,6 +6,7 @@ import re
 from datetime import date, timedelta
 
 KG_PER_STONE = 6.35029318
+KG_MILESTONE_STEP = 5   # metric users get a line every 5 kg lost, where imperial ones get one per stone
 LB_PER_KG = 2.2046226218488
 
 _STONE_LB_RE = re.compile(r'^(\d+(?:\.\d+)?)\s*st\.?\s*(\d+(?:\.\d+)?)\s*lb\.?$', re.IGNORECASE)
@@ -17,6 +18,14 @@ _DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
 
 MIN_SANE_KG = 20
 MAX_SANE_KG = 300
+
+
+def is_scale_reading(source, source_detail=None):
+    """A weigh-in a scale sent (vs one somebody typed). Garmin marks typed-in ones sourceType MANUAL; any other or no
+    sourceType counts as its scale, since that's how most Garmin weigh-ins arrive."""
+    if source == 'homeassistant':
+        return True
+    return source == 'garmin' and (source_detail or '').upper() != 'MANUAL'
 
 
 def kg_to_lb(kg):
@@ -163,14 +172,14 @@ def compute_trend(entries, alpha=0.1, end_date=None):
     return trend
 
 
-def stone_milestones(start_kg, low_kg):
-    """kg values at each whole stone below start_kg, down to low_kg."""
+def weight_milestones(start_kg, low_kg, step_kg=KG_PER_STONE):
+    """kg values at each whole step below start_kg, down to low_kg."""
     if start_kg is None:
         return []
     milestones = []
     n = 1
     while True:
-        val = start_kg - n * KG_PER_STONE
+        val = start_kg - n * step_kg
         if val < low_kg - 1e-9:
             break
         milestones.append(val)

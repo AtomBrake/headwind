@@ -1,13 +1,20 @@
-FROM python:3.11-slim
+FROM python:3.14-slim AS build
 
-WORKDIR /app
-
+# gcc only for a dependency with no wheel for this platform; it stays in this stage, out of the image
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m venv /opt/venv && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+
+
+FROM python:3.14-slim
+
+WORKDIR /app
+
+COPY --from=build /opt/venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
 
 COPY . .
 
@@ -24,4 +31,6 @@ ENV DATABASE_URL=/data/bike.db
 # Single worker (background threads — MQTT heartbeat, Garmin sync — must not be duplicated) with several request threads, so a long
 # streaming sync or import no longer blocks every other page.
 # Timeout 300s covers large Strava export imports.
-CMD ["sh", "-c", "mkdir -p /data/avatars && exec gunicorn --workers 1 --threads 8 --bind 0.0.0.0:5001 --timeout 300 'app:create_app()'"]
+# Logging (services/logs.py): LOG_LEVEL (default INFO; DEBUG when chasing a fault) sets Gunicorn's level too. Headwind logs each request itself,
+# with an id, so Gunicorn's access log stays off; the log files go to /data/logs.
+CMD ["sh", "-c", "mkdir -p /data/avatars && exec gunicorn --workers 1 --threads 8 --bind 0.0.0.0:5001 --timeout 300 --log-level \"${LOG_LEVEL:-info}\" 'app:create_app()'"]

@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const G = window.GEAR_ASSIGN, $ = (id) => document.getElementById(id);
-  const COLOURS = ['#38bdf8', '#a78bfa', '#34d399', '#f472b6', '#fbbf24', '#60a5fa', '#f87171', '#2dd4bf'];
+  const COLOURS = ['--c-sky', '--c-violet', '--c-green', '--c-pink', '--c-amber', '--c-blue', '--c-red', '--c-teal'].map((v) => `var(${v})`);
   const colourOf = Object.fromEntries(G.bikes.map((id, i) => [String(id), COLOURS[i % COLOURS.length]]));
   const nameOf = Object.fromEntries(G.bikes.map((id, i) => [String(id), G.names[i]]));
   const pad = (n) => String(n).padStart(2, '0'), iso = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`;
@@ -20,7 +20,7 @@
   const firstYear = +(G.span.first || G.today).slice(0, 4), lastYear = Math.max(t.getFullYear(), +(G.span.last || G.today).slice(0, 4));
   MONTHS.forEach((n, i) => $('monthSel').add(new Option(n, i + 1)));
   for (let y = lastYear; y >= Math.min(firstYear, lastYear); y--) $('yearSel').add(new Option(y, y));
-  $('legend').innerHTML = G.bikes.map((id) => `<span><i style="background:${colourOf[String(id)]}"></i>${nameOf[String(id)].replace(/</g, '&lt;')}</span>`).join('') + '<span><i style="box-shadow:inset 0 0 0 2px rgba(252,76,2,.8);background:transparent"></i>has rides with no bike</span>';
+  $('legend').innerHTML = G.bikes.map((id) => `<span><i style="background:${colourOf[String(id)]}"></i>${nameOf[String(id)].replace(/</g, '&lt;')}</span>`).join('') + '<span><i style="box-shadow:inset 0 0 0 2px var(--accent-line);background:transparent"></i>has rides with no bike</span>';
 
   // ---- range helpers ----
   function range() {
@@ -47,7 +47,7 @@
       if (selected.has(key)) cls.push('sel'); else if (inRange(key)) cls.push('inrange');
       if (key === G.today) cls.push('today');
       let stripes = '';
-      if (info) { const total = info.n; stripes = '<div class="stripes">' + Object.entries(info.bikes).map(([b, c]) => `<i style="flex:${c};background:${colourOf[b] || '#888'}" title="${(nameOf[b] || 'bike')}"></i>`).join('') + (info.unassigned ? `<i style="flex:${info.unassigned}"></i>` : '') + '</div>'; }
+      if (info) { const total = info.n; stripes = '<div class="stripes">' + Object.entries(info.bikes).map(([b, c]) => `<i style="flex:${c};background:${colourOf[b] || 'var(--c-grey)'}" title="${(nameOf[b] || 'bike')}"></i>`).join('') + (info.unassigned ? `<i style="flex:${info.unassigned}"></i>` : '') + '</div>'; }
       h += `<div class="${cls.join(' ')}" data-d="${key}"><span class="n">${d}</span>${info ? `<span class="c">${info.n}</span>` : ''}${stripes}</div>`;
     }
     $('calGrid').innerHTML = h;
@@ -58,7 +58,7 @@
     const key = el.dataset.d;
     if (e.shiftKey && lastClicked) datesBetween(lastClicked, key).forEach((d) => selected.add(d));
     else if (selected.has(key)) selected.delete(key); else selected.add(key);
-    lastClicked = key; render(); schedulePreview();
+    lastClicked = key; render(); schedulePreview(); loadDayRides();
   });
   const go = (dy, dm) => { let y = view.y, m = view.m + dm; if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; } view = { y, m }; load(); };
   $('prev').onclick = () => go(0, -1); $('next').onclick = () => go(0, 1);
@@ -67,7 +67,7 @@
   $('goUn').onclick = () => { const s = G.span.first_unassigned || G.span.first || G.today; view = { y: +s.slice(0, 4), m: +s.slice(5, 7) }; load(); };
 
   // ---- range controls ----
-  function setRange(f, to, present) { $('from').value = f || ''; $('toPresent').checked = !!present; $('to').value = present ? '' : (to || ''); $('to').disabled = !!present; selected.clear(); render(); schedulePreview(); }
+  function setRange(f, to, present) { $('from').value = f || ''; $('toPresent').checked = !!present; $('to').value = present ? '' : (to || ''); $('to').disabled = !!present; selected.clear(); render(); schedulePreview(); loadDayRides(); }
   $('from').onchange = $('to').onchange = () => { render(); schedulePreview(); };
   $('toPresent').onchange = () => { $('to').disabled = $('toPresent').checked; render(); schedulePreview(); };
   $('qFromDay').onclick = () => { const d = selected.size ? [...selected].sort()[0] : (lastClicked || null); if (!d) { $('result').textContent = 'Click a day on the calendar first.'; return; } setRange(d, null, true); };
@@ -75,6 +75,38 @@
   $('qYear').onclick = () => setRange(iso(view.y, 1, 1), iso(view.y, 12, 31), false);
   $('qAllUn').onclick = () => { $('onlyUn').checked = true; setRange(G.span.first_unassigned || G.span.first, null, true); };
   $('qClear').onclick = () => { setRange('', '', false); lastClicked = null; $('result').textContent = ''; };
+
+  // ---- the picked days' rides, each with its own bike (a day with a road ride and an MTB ride can be split) ----
+  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  let daySeq = 0;
+  async function loadDayRides() {
+    const box = $('dayRides'), seq = ++daySeq;
+    if (!selected.size) { box.hidden = true; box.innerHTML = ''; return; }
+    const r = await fetch(`/gear/api/day-rides?dates=${[...selected].sort().join(',')}${rider}`), j = await r.json().catch(() => ({}));
+    if (seq !== daySeq) return;
+    box.hidden = false;
+    if (!r.ok) { box.textContent = j.error || 'Could not list the rides on those days.'; return; }
+    const options = (ride) => (ride.bike && !nameOf[String(ride.bike)] ? `<option value="${ride.bike}" selected>${esc(ride.bike_name || 'another bike')}</option>` : '') +
+      `<option value=""${ride.bike ? '' : ' selected'}>No bike</option>` +
+      G.bikes.map((id) => `<option value="${id}"${ride.bike === id ? ' selected' : ''}>${esc(nameOf[String(id)])}</option>`).join('');
+    const rows = j.rides.map((ride) => `<div class="day-ride${ride.bike ? '' : ' need'}"><div class="t"><a href="/rides/${encodeURIComponent(ride.id)}">${esc(ride.name)}</a>` +
+      `<div class="hint">${esc(ride.when)} · ${esc(ride.sport)} · ${UNITS.toDist(ride.distance).toFixed(1)} ${UNITS.dist}</div></div>` +
+      `<select data-ride="${esc(ride.id)}" data-bike="${ride.bike || ''}" aria-label="Bike for ${esc(ride.name)}">${options(ride)}</select></div>`).join('');
+    const more = j.total - j.rides.length;
+    box.innerHTML = `<h3>Rides on the picked day${selected.size === 1 ? '' : 's'}</h3>` + (rows || '<div class="hint">No rides on the picked days.</div>') +
+      (more > 0 ? `<div class="hint">…and ${more.toLocaleString()} more. Pick fewer days to list them all.</div>` : '');
+  }
+  $('dayRides').addEventListener('change', async (e) => {
+    const sel = e.target.closest('select[data-ride]'); if (!sel) return;
+    const was = sel.dataset.bike, now = sel.value;
+    sel.disabled = true;
+    const r = await fetch('/gear/api/ride-bike' + (rider ? '?' + rider.slice(1) : ''), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ride: sel.dataset.ride, bike: now ? +now : null }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { $('result').textContent = j.error || 'Could not set that bike.'; sel.value = was; sel.disabled = false; return; }
+    if (!was && now) G.span.unassigned = Math.max(0, G.span.unassigned - 1); else if (was && !now) G.span.unassigned += 1;
+    $('result').textContent = now ? `Put on ${nameOf[now] || 'that bike'}.` : 'Bike cleared.';
+    await load(); loadDayRides(); schedulePreview();
+  });
 
   // ---- preview + apply ----
   function payload(dry) { const r = range(); return { bike: $('bikeSel').value ? +$('bikeSel').value : null, dates: [...selected], from: r.from, to: r.to, only_unassigned: $('onlyUn').checked, dry_run: dry }; }
