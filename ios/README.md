@@ -7,7 +7,7 @@ A native SwiftUI companion for a Headwind server. It uses the same phone API and
 |---|---|---|
 | Today | Calories ring (eaten / goal / burned), macros, water, steps, weight trend, food diary by meal, today's other activities with their own icons | `GET /api/v1/today` |
 | Record | Map (or a clock for a timed sport), live stats, start / pause / finish any sport the phone records, on a chosen bike; list of recordings, their upload status, bike and waiting photos (add, remove, reorder) | `POST /api/v1/rides`, `/workouts`, `/activities`, `/rides/ride/<id>/bike`, `/rides/<kind>/<id>/photos`, `/live` |
-| Activities | Every activity of every sport, paged, searchable and filtered by sport; each with its map, stats, charts and photos (add, delete, reorder, caption), and delete | `GET /api/v1/rides`, `/rides/<kind>/<id>`, `/photos/<name>`, `/rides/<kind>/<id>/photos…` |
+| Activities | Every activity of every sport, paged, searchable and filtered by sport; each with its map (a Zwift ride's over its Zwift world), stats, charts and photos (add, delete, reorder, caption), and delete | `GET /api/v1/rides`, `/rides/<kind>/<id>`, `/photos/<name>`, `/zwift/<slug>.png`, `/rides/<kind>/<id>/photos…` |
 | Overview | A card per sport group for week / month / year / all time, a 12-week chart of one sport by distance or every sport by time, latest recovery (Garmin's or Apple Health's) | `GET /api/v1/overview` |
 | Settings | Paired server, rider, units, Bluetooth sensors (pair, forget, battery, wheel size), Apple Health (what to send, how far back), unpair | `GET /api/v1/ping`, `POST /api/v1/health/days`, `GET`/`DELETE /api/v1/health` |
 
