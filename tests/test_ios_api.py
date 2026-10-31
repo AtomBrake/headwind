@@ -416,3 +416,35 @@ def test_a_zwift_ride_comes_with_its_world_and_the_map_takes_the_token(phone, mo
     assert r.status_code == 200 and r.mimetype == 'image/png' and r.data == b'\x89PNG...'
     assert phone.get('/api/v1/zwift/atlantis.png', headers=phone.H).status_code == 404
     assert phone.get('/api/v1/zwift/watopia.png').status_code == 401                    # no token
+
+
+def test_the_app_makes_a_friend_code_for_its_own_address(phone):
+    from services import feed_tokens
+    r = phone.post('/api/v1/friends/tokens', headers=phone.H, json={'name': 'Sam', 'foods': False, 'since': '2026-01-01',
+                                                                    'server_url': 'https://h.example/'})
+    assert r.status_code == 201
+    made = r.get_json()
+    assert made['link'] == 'headwind://friend?c=' + made['code']
+    assert feed_tokens.parse_share_code(made['code']) == ('https://h.example', made['token'])
+    with phone.app_.app_context():
+        row = feed_tokens.lookup(made['token'])
+        assert (row['name'], row['shareRides'], row['shareFoods'], row['sinceDate']) == ('Sam', 1, 0, '2026-01-01')
+    assert phone.post('/api/v1/friends/tokens', headers=phone.H, json={'name': ' '}).status_code == 400
+    assert phone.post('/api/v1/friends/tokens', json={'name': 'Sam'}).status_code == 401
+
+
+def test_the_app_adds_a_friend_from_their_code(phone, monkeypatch):
+    from services import feed_tokens
+    monkeypatch.setattr('routes.friends.probe_riders', lambda url, token: ([{'id': 3, 'name': 'Sam', 'isDefault': 1}, {'id': 4, 'name': 'Alex'}], None))
+    code = feed_tokens.share_code('https://sam.example', 'hwf_samstoken')
+    got = phone.post('/api/v1/friends/probe', headers=phone.H, json={'code': 'headwind://friend?c=' + code}).get_json()
+    assert got == {'url': 'https://sam.example', 'riders': [{'name': 'Sam', 'isDefault': True}, {'name': 'Alex', 'isDefault': False}]}
+    r = phone.post('/api/v1/friends', headers=phone.H, json={'code': code, 'rider': 'Alex', 'name': 'Alex P'})
+    assert r.status_code == 201
+    with phone.app_.app_context():
+        f = db(phone).execute('SELECT name, url, token, riderName FROM Friend').fetchone()
+        assert (f['name'], f['url'], f['token'], f['riderName']) == ('Alex P', 'https://sam.example', 'hwf_samstoken', 'Alex')
+    assert phone.post('/api/v1/friends/probe', headers=phone.H, json={'code': 'nonsense'}).status_code == 400
+    monkeypatch.setattr('routes.friends.probe_riders', lambda url, token: (None, 'Invalid token — check the feed token and try again'))
+    r = phone.post('/api/v1/friends/probe', headers=phone.H, json={'code': code})
+    assert r.status_code == 502 and 'Invalid token' in r.get_json()['error']

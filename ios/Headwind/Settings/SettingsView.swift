@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var confirmUnpair = false
     @State private var confirmRemoveHealth = false
     @State private var healthError: AppError?
+    @State private var addingFriend = false
 
     var body: some View {
         NavigationStack {
@@ -33,6 +34,23 @@ struct SettingsView: View {
                     Text("Heart rate straps, power meters, speed and cadence sensors and smart trainers, for recording on the phone without the Watch.")
                 }
 
+                Section {
+                    NavigationLink {
+                        ShareWithFriendView()
+                    } label: {
+                        Label("Share with a friend", systemImage: "qrcode")
+                    }
+                    Button {
+                        addingFriend = true
+                    } label: {
+                        Label("Add a friend", systemImage: "person.badge.plus")
+                    }
+                } header: {
+                    Text("Friends")
+                } footer: {
+                    Text("Friends with a Headwind of their own see each other's activities. Make a code for each friend, choosing what they see, and scan theirs to follow them.")
+                }
+
                 if HealthSync.isAvailable {
                     healthSection
                 }
@@ -49,6 +67,7 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .sheet(isPresented: $addingFriend) { AddFriendView() }
             .confirmationDialog("Unpair this phone?", isPresented: $confirmUnpair, titleVisibility: .visible) {
                 Button("Unpair", role: .destructive) { session.unpair() }
             }

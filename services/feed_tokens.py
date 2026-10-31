@@ -4,14 +4,22 @@ A token is shown once when it's made and stored only as a SHA-256 hash (as phone
 says what it may read: rides, segments, foods, and an optional date window (inclusive, on the ride's local start date).
 The single shared token from before (Settings.feedToken) becomes one row that shares everything, so friends already linked keep
 syncing until it's revoked.
+
+A new token is also given as a share code: our address and the token in one string, for the friend to paste, or as a
+headwind://friend link in a QR code for their phone app to open. The code is as secret as the token in it.
 """
+import base64
 import hashlib
+import json
 import secrets
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 from database import get_db, query_db
 
 PREFIX = 'hwf_'
+CODE_PREFIX = 'hwfc_'
+LINK_PREFIX = 'headwind://friend?c='
 LEGACY_NAME = 'Shared token (everyone, from before per-friend tokens)'
 
 
@@ -97,3 +105,39 @@ def lookup(token):
         db.execute("UPDATE FeedToken SET lastUsedAt=datetime('now') WHERE id=?", [row['id']])
         db.commit()
     return row
+
+
+def share_code(url, token):
+    """`hwfc_` and the base64url of {"u": address, "t": token}, unpadded: one string to paste, short enough for a QR code."""
+    raw = json.dumps({'u': url.rstrip('/'), 't': token}, separators=(',', ':')).encode()
+    return CODE_PREFIX + base64.urlsafe_b64encode(raw).decode().rstrip('=')
+
+
+def share_link(code):
+    return LINK_PREFIX + code
+
+
+def parse_share_code(text):
+    """(address, token) from a share code or its headwind://friend link, or None if it isn't one."""
+    text = (text or '').strip()
+    if len(text) > 4000:
+        return None
+    if text.lower().startswith('headwind://'):
+        link = urllib.parse.urlparse(text)
+        if link.netloc.lower() != 'friend':
+            return None
+        text = (urllib.parse.parse_qs(link.query).get('c') or [''])[0].strip()
+    if not text.startswith(CODE_PREFIX):
+        return None
+    body = text[len(CODE_PREFIX):]
+    try:
+        data = json.loads(base64.urlsafe_b64decode(body + '=' * (-len(body) % 4)))
+    except ValueError:                  # bad base64 (binascii.Error), bytes that aren't UTF-8, or not JSON
+        return None
+    url, token = (data.get('u'), data.get('t')) if isinstance(data, dict) else (None, None)
+    if not isinstance(url, str) or not isinstance(token, str) or not token.startswith(PREFIX):
+        return None
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+        return None
+    return url.rstrip('/'), token

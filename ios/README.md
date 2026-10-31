@@ -9,7 +9,7 @@ A native SwiftUI companion for a Headwind server. It uses the same phone API and
 | Record | Map (or a clock for a timed sport), live stats, start / pause / finish any sport the phone records, on a chosen bike; list of recordings, their upload status, bike and waiting photos (add, remove, reorder) | `POST /api/v1/rides`, `/workouts`, `/activities`, `/rides/ride/<id>/bike`, `/rides/<kind>/<id>/photos`, `/live` |
 | Activities | Every activity of every sport, paged, searchable and filtered by sport; each with its map (a Zwift ride's over its Zwift world), stats, charts and photos (add, delete, reorder, caption), and delete | `GET /api/v1/rides`, `/rides/<kind>/<id>`, `/photos/<name>`, `/zwift/<slug>.png`, `/rides/<kind>/<id>/photos…` |
 | Overview | A card per sport group for week / month / year / all time, a 12-week chart of one sport by distance or every sport by time, latest recovery (Garmin's or Apple Health's) | `GET /api/v1/overview` |
-| Settings | Paired server, rider, units, Bluetooth sensors (pair, forget, battery, wheel size), Apple Health (what to send, how far back), unpair | `GET /api/v1/ping`, `POST /api/v1/health/days`, `GET`/`DELETE /api/v1/health` |
+| Settings | Paired server, rider, units, Bluetooth sensors (pair, forget, battery, wheel size), Apple Health (what to send, how far back), friends (make a QR code for a friend with what they may see; add a friend by scanning or pasting their code), unpair | `GET /api/v1/ping`, `POST /api/v1/health/days`, `GET`/`DELETE /api/v1/health`, `POST /api/v1/friends/tokens`, `/friends/probe`, `/friends` |
 
 **Apple Watch:** recording only. Start, pause and end any sport on the wrist with heart rate, calories and, where it has them, GPS,
 speed or pace, distance, climbing, power and cadence. On Apple Watch Ultra the Action button starts and pauses it.
@@ -171,6 +171,9 @@ On the server, open **Phones**, name the phone and press **Create token**. Then 
 - point the iPhone's Camera app at the QR code. The app registers the `headwind://` scheme, so iOS offers to open it, or
 - paste the `headwind://pair?...` link shown under the QR code into *Enter details manually*.
 
+A friend's QR code holds a `headwind://friend?c=hwfc_…` link instead. Opened from the Camera app, it goes to *Add a friend*
+rather than pairing; on a phone that isn't paired yet, it waits until it is.
+
 The token is stored in the Keychain. If the server revokes it, the next request gets a 401 and the app returns to the
 pairing screen and says why.
 
@@ -223,6 +226,7 @@ ios/
     App/                   entry point, root view, tabs
     Core/                  API client, models, Keychain, session, shared views
     Pairing/  Today/  Overview/  Settings/
+    Friends/               share codes: make one for a friend as a QR code, add a friend from theirs
     Activities/            every activity from the server, and one in detail with its photos
     Health/                Apple Health reader (HealthSync)
     Record/                iPhone recorder, recordings store and upload queue, Watch link, Record tab

@@ -11,6 +11,8 @@ final class Session {
     var wasRevoked = false
     /// A pairing link opened (e.g. from the Camera app) while already paired; waits for the user to confirm the switch.
     var pendingLink: String?
+    /// A friend's code opened as a headwind://friend link; MainTabs offers to add them (once paired, if this phone isn't yet).
+    var pendingFriendCode: String?
 
     private let store: PairingStore
     private let defaults: UserDefaults
@@ -49,10 +51,14 @@ final class Session {
         info = nil
     }
 
-    /// Opened via the headwind:// URL scheme. Unpaired, the pairing screen picks this up and pairs straight away;
-    /// already paired, RootView asks before replacing the current server.
+    /// Opened via the headwind:// URL scheme. A pairing link: unpaired, the pairing screen picks this up and pairs straight away;
+    /// already paired, RootView asks before replacing the current server. A friend's code goes to MainTabs instead.
     func handle(url: URL) {
-        pendingLink = url.absoluteString
+        if let code = FriendLink.code(in: url.absoluteString) {
+            pendingFriendCode = code
+        } else {
+            pendingLink = url.absoluteString
+        }
     }
 
     /// Every screen loads through here so a revoked token sends the user back to pairing, wherever it's noticed.
