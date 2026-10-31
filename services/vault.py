@@ -5,7 +5,9 @@ secret.
 
 A value is stored as `enc:v1:<Fernet token>`. Reading needs nothing: get_db's row factory (row_factory) opens these columns, so code reads
 them as before. Writing goes through seal(). A plain value from before is encrypted at the next start (seal_plain). A value this key can't
-open (a database restored on another server, without its key) reads as None, as if it had never been entered; unreadable() lists them."""
+open (a database restored on another server, without its key) reads as None, as if it had never been entered; unreadable() lists them.
+A backup made with "include the secrets key" carries this key, and restoring it seals them again with the new server's (rekey)."""
+import contextlib
 import logging
 import os
 import sqlite3
@@ -18,9 +20,14 @@ log = logging.getLogger(__name__)
 PREFIX = 'enc:v1:'
 KEY_FILE = '.secrets_key'
 COLUMNS = {
-    'Settings': ('openaiKey', 'claudeKey', 'haToken', 'mqttPassword', 'garminEmail', 'garminPassword'),
+    # feedToken: the shared feed token from before per-friend tokens. services/feed_tokens.py moves it to a FeedToken row and the column is
+    # dropped, so it's only ever found in an old copy of the database (seal_copies) or in a restore not yet migrated.
+    'Settings': ('openaiKey', 'claudeKey', 'haToken', 'mqttPassword', 'garminEmail', 'garminPassword', 'feedToken'),
     'Friend':   ('token',),
 }
+# Secrets nothing reads any more: emptied wherever they're found, and dropped from the live database (database._drop_dead_secrets).
+# Upstream's Strava API tokens, from before Headwind imported Strava exports instead.
+DEAD = {'Athlete': ('accessToken', 'refreshToken')}
 NAMES = frozenset(c for cols in COLUMNS.values() for c in cols)
 # what to enter again, and where, when one can't be read
 LABELS = {
@@ -30,6 +37,7 @@ LABELS = {
     'mqttPassword':   'the MQTT password (Settings → MQTT)',
     'garminEmail':    'the Garmin sign-in (Settings → Garmin Connect)',
     'garminPassword': 'the Garmin sign-in (Settings → Garmin Connect)',
+    'feedToken':      'the shared feed token from before per-friend tokens (Friends: give each friend a code of their own)',
 }
 
 _lock = threading.Lock()
@@ -124,27 +132,114 @@ def row_factory(db_path):
     return factory
 
 
-def seal_plain(db):
-    """Encrypt every secret still stored as it was typed (a database from before, or one written by hand). Returns how many. Commits."""
+def present(db, table, cols):
+    """Those of cols that `table` has: an older database (a restore, a copy from before) may lack some, or the table."""
+    have = {r[1] for r in db.execute(f'PRAGMA table_info({table})').fetchall()}
+    return [c for c in cols if c in have]
+
+
+@contextlib.contextmanager
+def secure_delete(db):
+    """SQLite leaves a replaced value's bytes in the page unless told to zero them."""
+    was = db.execute('PRAGMA secure_delete').fetchone()[0]
+    db.execute('PRAGMA secure_delete = ON')
+    try:
+        yield
+    finally:
+        db.execute(f'PRAGMA secure_delete = {int(was)}')
+
+
+def seal_plain(db, where=None):
+    """Encrypt every secret still stored as it was typed (a database from before, or one written by hand), and empty the DEAD ones. Returns
+    how many. Commits. `where` names a database other than the live one, for the log."""
     if _fernet(_db_path(), create=True) is None:       # logged why
         return 0
     n = 0
-    secure = db.execute('PRAGMA secure_delete').fetchone()[0]
-    db.execute('PRAGMA secure_delete = ON')            # SQLite leaves a replaced value's bytes in the page unless told to zero them
-    try:
+    with secure_delete(db):
         for table, cols in COLUMNS.items():
-            for col in cols:
+            for col in present(db, table, cols):
                 rows = db.execute(f"SELECT rowid AS r, {col} AS v FROM {table} WHERE {col} <> '' AND {col} NOT LIKE '{PREFIX}%'").fetchall()
                 for r in rows:
                     db.execute(f'UPDATE {table} SET {col}=? WHERE rowid=?', [seal(r['v']), r['r']])
                     n += 1
+        for table, cols in DEAD.items():
+            for col in present(db, table, cols):
+                n += db.execute(f"UPDATE {table} SET {col}=NULL WHERE {col} <> ''").rowcount
         if n:
             db.commit()
             db.execute('PRAGMA wal_checkpoint(TRUNCATE)')   # into the database file now, and out of the WAL
-            log.info('Encrypted %d saved secret%s', n, '' if n == 1 else 's')
-    finally:
-        db.execute(f'PRAGMA secure_delete = {int(secure)}')
+            log.info('Encrypted or emptied %d saved secret%s%s', n, '' if n == 1 else 's', f' in {where}' if where else '')
     return n
+
+
+def seal_copies():
+    """The same in the copies of the whole database kept beside it: <database>.pre-0.7.0 from before the one-table merge and .pre-restore
+    from before a restore, made before their secrets were encrypted, which anyone copying the data folder takes too. Encrypted with this
+    server's key, so restoring one here still has them; an older Headwind going back to one needs them entered again. Returns how many."""
+    path = os.path.abspath(_db_path())
+    folder, base = os.path.split(path)
+    n = 0
+    for name in sorted(os.listdir(folder)):
+        if not name.startswith(base + '.pre-') or name.endswith(('-wal', '-shm', '-journal')):
+            continue
+        copy = os.path.join(folder, name)
+        try:
+            conn = sqlite3.connect(copy, timeout=5)
+            try:
+                conn.row_factory = sqlite3.Row
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='Settings'").fetchone():
+                    n += seal_plain(conn, where=name)
+            finally:
+                conn.close()
+        except sqlite3.Error as e:          # not a database, or locked: it stays as it is
+            log.warning('Could not check %s for saved secrets: %s', name, e)
+    return n
+
+
+def rekey(db, key):
+    """Restoring a backup made with its secrets key: open with that key the secrets this server's can't, and seal them again with this
+    server's. Returns how many. Commits."""
+    try:
+        old = Fernet(key.strip())
+    except (ValueError, TypeError, AttributeError):
+        log.warning('The secrets key in the backup is not a key: its saved keys and passwords stay as they are')
+        return 0
+    live = _fernet(_db_path(), create=True)
+    if live is None:
+        return 0
+    n = 0
+    with secure_delete(db):
+        for table, cols in COLUMNS.items():
+            for col in present(db, table, cols):
+                for r in db.execute(f"SELECT rowid AS r, {col} AS v FROM {table} WHERE {col} LIKE '{PREFIX}%'").fetchall():
+                    token = r['v'][len(PREFIX):].encode()
+                    try:
+                        live.decrypt(token)
+                        continue
+                    except InvalidToken:
+                        pass
+                    try:
+                        plain = old.decrypt(token)
+                    except InvalidToken:
+                        continue
+                    db.execute(f'UPDATE {table} SET {col}=? WHERE rowid=?', [PREFIX + live.encrypt(plain).decode(), r['r']])
+                    n += 1
+    db.commit()
+    return n
+
+
+def unseal(value):
+    """A value seal() made, opened with this server's key: for what's kept outside the database (the Garmin token file). A value that was
+    never sealed comes back as it is; None when this key can't open it."""
+    if not value or not value.startswith(PREFIX):
+        return value
+    return _open(value, _db_path(), 'Garmin token file')
+
+
+def key_path():
+    """This server's key file, for a backup that includes it. None when there's none yet (nothing secret has been saved)."""
+    path = _key_path(_db_path())
+    return path if os.path.isfile(path) else None
 
 
 def unreadable(db):
@@ -160,7 +255,7 @@ def unreadable(db):
             return False
         except InvalidToken:
             return True
-    for col in COLUMNS['Settings']:
+    for col in present(db, 'Settings', COLUMNS['Settings']):
         for r in db.execute(f"SELECT {col} AS v FROM Settings WHERE {col} LIKE '{PREFIX}%'").fetchall():
             if bad(r['v']) and LABELS[col] not in out:
                 out.append(LABELS[col])

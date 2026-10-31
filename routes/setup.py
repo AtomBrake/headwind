@@ -103,7 +103,7 @@ def restore():
         backup.prepare(tmp_db)
         backup.apply(_db_path(), tmp_db, assets, _avatar_dir())
         migrate_db()
-        note = backup.secrets_note()
+        note = backup.secrets_note(assets.get('secrets_key'))
     except backup.BackupError as e:
         log.warning('Restore in the setup wizard refused: %s', e)
         return render_template('setup.html', step='1', error=str(e))

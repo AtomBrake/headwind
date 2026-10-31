@@ -296,6 +296,9 @@ def create_app():
         migrate_db()
         from services import vault
         vault.seal_plain(get_db())                    # keys and passwords saved before they were encrypted
+        vault.seal_copies()                           # and in the copies of the database kept beside it (.pre-0.7.0, .pre-restore)
+        from services import downloads
+        downloads.clear(app.config['DATABASE'])        # files made for download before a restart
     _ensure_default_avatar(app)
 
     # ── Template filters ─────────────────────────────────────────

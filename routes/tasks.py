@@ -15,8 +15,8 @@ def index():
     view = tasks.overview(db)
     db.execute("UPDATE TaskLog SET seen=1 WHERE task LIKE 'startup:%' AND seen=0")      # the notice has done its job
     db.commit()
-    from services import logs
-    return render_template('tasks.html', log_file=logs.file_path(), **view)
+    from services import downloads, logs, troubleshooting_copy
+    return render_template('tasks.html', log_file=logs.file_path(), copy=downloads.status(troubleshooting_copy.KIND), **view)
 
 
 @bp.route('/tasks/run/<job>', methods=['POST'])
@@ -49,6 +49,44 @@ def diagnostics():
     data = diag.build_zip(get_db(), current_app.config['DATABASE'])
     return send_file(io.BytesIO(data), mimetype='application/zip', as_attachment=True,
                      download_name=f"headwind-diagnostics-{datetime.now():%Y-%m-%d-%H%M}.zip")
+
+
+@bp.route('/tasks/troubleshooting-copy', methods=['POST'])
+def troubleshooting_copy():
+    """Start making the database copy for someone helping with a problem (services/troubleshooting_copy.py), in the background
+    (services/downloads.py): on a big database it can take longer than a proxy waits. The card polls the status and offers the download."""
+    from services import downloads, troubleshooting_copy as copy
+    no_gps, no_streams = bool(request.form.get('no_gps')), bool(request.form.get('no_streams'))
+    database = current_app.config['DATABASE']
+    started = downloads.start(current_app._get_current_object(), copy.KIND, 'Copy for troubleshooting',
+                              lambda work_dir: copy.build(database, work_dir, no_gps=no_gps, no_streams=no_streams),
+                              f"headwind-troubleshooting-{datetime.now():%Y-%m-%d-%H%M}.zip")
+    if not started:
+        flash('A copy is already being made: it will be offered here when it\'s ready.', 'error')
+    return redirect(url_for('tasks.index') + '#copy')
+
+
+@bp.route('/tasks/troubleshooting-copy/status')
+def troubleshooting_copy_status():
+    from services import downloads, troubleshooting_copy as copy
+    return jsonify(downloads.status(copy.KIND))
+
+
+@bp.route('/tasks/troubleshooting-copy/download')
+def troubleshooting_copy_download():
+    from services import downloads, troubleshooting_copy as copy
+    made = downloads.ready(copy.KIND)
+    if not made:
+        flash('That copy is no longer kept: make it again.', 'error')
+        return redirect(url_for('tasks.index') + '#copy')
+    return send_file(made[0], mimetype='application/zip', as_attachment=True, download_name=made[1])
+
+
+@bp.route('/tasks/troubleshooting-copy/delete', methods=['POST'])
+def troubleshooting_copy_delete():
+    from services import downloads, troubleshooting_copy as copy
+    downloads.discard(copy.KIND)
+    return redirect(url_for('tasks.index') + '#copy')
 
 
 @bp.route('/tasks/logs')

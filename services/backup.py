@@ -21,6 +21,7 @@ MAX_RIDEIMGS = 100_000
 MAX_RIDEIMG_BYTES = 15 * 1024 ** 2
 MAX_FOODIMGS = 50_000
 MAX_FOODIMG_BYTES = 10 * 1024 ** 2
+SECRETS_KEY = '.secrets_key'      # in a backup made with "include the secrets key" (services/vault.py)
 
 
 class BackupError(Exception):
@@ -41,7 +42,8 @@ def _copy_member(zf, info, dest, limit):
 
 def stage_upload(file_storage):
     """Save an uploaded .db or backup .zip under a fresh temp dir with generated names.
-    Returns (tmp_dir, db_path, assets) where assets maps 'avatars'/'foodimg'/'bikeimg'/'rideimg' to staged dirs (None for a bare .db). Caller must shutil.rmtree(tmp_dir)."""
+    Returns (tmp_dir, db_path, assets) where assets maps 'avatars'/'foodimg'/'bikeimg'/'rideimg' to staged dirs (None for a bare .db), and
+    'secrets_key' to the key's bytes when the backup includes it. Caller must shutil.rmtree(tmp_dir)."""
     tmp_dir = tempfile.mkdtemp(prefix='hw-restore-')
     try:
         upload = os.path.join(tmp_dir, 'upload.bin')
@@ -59,6 +61,7 @@ def stage_upload(file_storage):
         os.makedirs(bi_dir)
         os.makedirs(ri_dir)
         found_db, n_av, n_fi, n_bi, n_ri = False, 0, 0, 0, 0
+        key = None
         with zipfile.ZipFile(upload) as zf:
             for info in zf.infolist():
                 if info.filename == 'headwind.db':
@@ -84,11 +87,13 @@ def stage_upload(file_storage):
                     if n_ri > MAX_RIDEIMGS:
                         raise BackupError('too many activity photos')
                     _copy_member(zf, info, os.path.join(ri_dir, m.group(1)), MAX_RIDEIMG_BYTES)
+                elif info.filename == SECRETS_KEY and info.file_size <= 1024:
+                    key = zf.read(info)[:1024]
                 # anything else in the archive is ignored
         if not found_db:
             raise BackupError('Invalid backup zip — headwind.db not found inside.')
         os.remove(upload)
-        return tmp_dir, db_path, {'avatars': av_dir, 'foodimg': fi_dir, 'bikeimg': bi_dir, 'rideimg': ri_dir}
+        return tmp_dir, db_path, {'avatars': av_dir, 'foodimg': fi_dir, 'bikeimg': bi_dir, 'rideimg': ri_dir, 'secrets_key': key}
     except Exception:
         shutil.rmtree(tmp_dir, ignore_errors=True)
         raise
@@ -166,15 +171,19 @@ def apply(live_db, staged_db, assets, avatar_dest):
         dst.close()
 
 
-def secrets_note():
+def secrets_note(key=None):
     """After a restore has been applied and migrated: encrypt the secrets of a backup from before they were, and say which ones a backup
     from another server needs entered again (its keys and passwords are encrypted with the key beside the database it came from, which
-    a backup leaves out; services/vault.py). None when there are none. Commits."""
+    a backup leaves out unless asked; services/vault.py). `key`, the backup's own key when it included it, opens them to seal them again
+    with this server's. None when there are none. Commits."""
     from database import get_db
     from services import vault
+    if key:
+        vault.rekey(get_db(), key)
     vault.seal_plain(get_db())
     lost = vault.unreadable(get_db())
     if not lost:
         return None
     return ('The backup came from another server, so its saved keys and passwords can\'t be read here. Enter them again: '
-            + '; '.join(lost) + f'. Or copy {vault.KEY_FILE} from beside the old server\'s database to beside this one, and restart.')
+            + '; '.join(lost) + f'. Or copy {vault.KEY_FILE} from beside the old server\'s database to beside this one, and restart, '
+            'or restore a backup made there with "Include the secrets key" ticked.')

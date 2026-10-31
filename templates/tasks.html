@@ -51,6 +51,54 @@
     activity names and dates, so look through it before posting it anywhere public.
     {% if log_file %}Headwind writes its log to <code style="overflow-wrap:anywhere;">{{ log_file }}</code>.{% endif %}</p>
   <a class="btn btn-secondary" href="{{ url_for('tasks.diagnostics') }}">Download diagnostics</a>
+
+  <div id="copy" style="margin:1.25rem 0 0; padding-top:1rem; border-top:1px solid var(--border);">
+    <div style="font-weight:600; margin-bottom:0.35rem;">A copy of your data for troubleshooting</div>
+    <p class="hint" style="margin:0 0 0.5rem;">When someone helping needs to see your data itself: a copy of the database, like a backup, with
+      these taken out of the copy (your own data isn't touched): every saved key, password and token, the Garmin email, the addresses of
+      Home Assistant, Ollama, ntfy, the MQTT broker and your friends' servers, your friends' names, riders, activities, segments and foods,
+      and every photo and avatar.</p>
+    <p class="hint" style="margin:0 0 0.6rem;"><strong>Still in it:</strong> your activities (names, dates and times, notes, distances, heart
+      rate, power and the rest), riders' names, bikes and kit, weigh-ins, the food log, Garmin and Apple Health days (sleep, HRV, resting heart
+      rate, steps), your height, sex and birth date, goals, and your GPS tracks unless you leave them out below. Send it only to someone you'd
+      trust with that, and not as a public attachment.</p>
+    {% if copy.state == 'running' %}
+    <p style="margin:0; padding:0.6rem 0.75rem; border:1px solid var(--border); border-radius:8px;">Making the copy… On a big database this
+      takes a minute or two. You can leave this page: the copy is offered here when it's ready, for a day.</p>
+    <script>
+      (function poll() {
+        setTimeout(function () {
+          fetch('{{ url_for('tasks.troubleshooting_copy_status') }}').then(function (r) { return r.json(); })
+            .then(function (s) { if (s.state === 'running') poll(); else location.reload(); })
+            .catch(poll);
+        }, 2000);
+      })();
+    </script>
+    {% else %}
+    {% if copy.state == 'ready' %}
+    <div style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; margin:0 0 0.9rem; padding:0.6rem 0.75rem; border:1px solid var(--border); border-radius:8px;">
+      <span style="flex:1 1 14rem;"><strong>Your copy is ready</strong> ({{ (copy.size / 1048576)|round(1) }} MB). It's kept here for a day, or
+        until you make another.</span>
+      <a class="btn btn-primary" href="{{ url_for('tasks.troubleshooting_copy_download') }}">Download</a>
+      <form method="POST" action="{{ url_for('tasks.troubleshooting_copy_delete') }}" style="margin:0;"><button class="btn btn-danger-quiet">Delete it</button></form>
+    </div>
+    {% elif copy.state == 'failed' %}
+    <p class="hint" style="margin:0 0 0.75rem; color:var(--danger-text);">The last copy failed: {{ copy.error }}</p>
+    {% endif %}
+    <form method="POST" action="{{ url_for('tasks.troubleshooting_copy') }}" style="margin:0;">
+      <label style="display:flex; gap:0.4rem; align-items:flex-start; font-size:0.8125rem; margin-bottom:0.3rem;">
+        <input type="checkbox" name="no_gps" value="1" style="margin-top:0.2rem;">
+        <span>Leave out GPS: tracks, start points, segments and planned routes (the town an activity started in stays, where its source gave one)</span>
+      </label>
+      <label style="display:flex; gap:0.4rem; align-items:flex-start; font-size:0.8125rem; margin-bottom:0.75rem;">
+        <input type="checkbox" name="no_streams" value="1" style="margin-top:0.2rem;">
+        <span>Leave out the streams too: heart rate, power, speed and the rest point by point, as well as GPS. A much smaller file, for a problem
+          that isn't about one activity's charts</span>
+      </label>
+      <button class="btn btn-secondary">Make a copy for troubleshooting</button>
+    </form>
+    {% endif %}
+  </div>
 </div>
 
 <div class="card" id="logs" style="margin-bottom:1.25rem;">

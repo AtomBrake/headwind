@@ -219,3 +219,96 @@ def test_a_backup_from_before_encryption_is_encrypted_when_restored(setup, tmp_p
     assert [cat for cat, _ in _flashes(c)] == ['success']
     assert sqlite3.connect(path).execute('SELECT mqttPassword FROM Settings').fetchone()[0].startswith(vault.PREFIX)
     assert _read(app, 'SELECT mqttPassword FROM Settings')['mqttPassword'] == OLD['mqttPassword']
+
+
+def _fresh_server(tmp_path, monkeypatch, name='b'):
+    other = str(tmp_path / name / 't.db')
+    os.makedirs(os.path.dirname(other))
+    pre = Flask('fresh')
+    pre.config['DATABASE'] = other
+    with pre.app_context():
+        database.migrate_db()
+        database.get_db().execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'New', 1)")
+        database.get_db().commit()
+        database.close_db()
+    return other, _make_app(other, monkeypatch)
+
+
+def test_a_backup_with_the_secrets_key_keeps_them_on_another_server(setup, tmp_path, monkeypatch):
+    path, app = setup
+    r = _client(app).get('/settings/backup/export?secrets=1')
+    assert 'with-secrets' in r.headers['Content-Disposition']
+    zipped = r.data
+    key_a = open(os.path.join(os.path.dirname(path), '.secrets_key'), 'rb').read()
+    assert zipfile.ZipFile(io.BytesIO(zipped)).read('.secrets_key') == key_a
+    other, app_b = _fresh_server(tmp_path, monkeypatch)
+    c = _client(app_b)
+    c.post('/settings/backup/import', data={'backup': (io.BytesIO(zipped), 'headwind-backup.zip')}, content_type='multipart/form-data')
+    assert [cat for cat, _ in _flashes(c)] == ['success']                    # nothing to enter again
+    s = _read(app_b, 'SELECT * FROM Settings WHERE id=1')
+    assert {k: s[k] for k in OLD if k != 'garminPassword'} == {k: v for k, v in OLD.items() if k != 'garminPassword'}
+    assert _read(app_b, 'SELECT token FROM Friend WHERE id=1')['token'] == FRIEND_TOKEN
+    # sealed again with this server's own key, which stays as it was
+    key_b = os.path.join(os.path.dirname(other), '.secrets_key')
+    assert open(key_b, 'rb').read() != key_a
+    raw = sqlite3.connect(other).execute('SELECT claudeKey FROM Settings').fetchone()[0]
+    assert vault.Fernet(open(key_b, 'rb').read()).decrypt(raw[len(vault.PREFIX):].encode()) == OLD['claudeKey'].encode()
+
+
+def test_the_settings_page_offers_the_secrets_key_with_a_warning(setup):
+    html = _client(setup[1]).get('/settings/').get_data(as_text=True)
+    assert 'name="secrets"' in html and 'Include the secrets key' in html and 'keep it as safe as the passwords' in html
+
+
+def test_copies_of_the_database_beside_it_are_encrypted_too(tmp_path, monkeypatch):
+    monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)
+    monkeypatch.setenv('AVATAR_DIR', str(tmp_path / 'avatars'))
+    path = str(tmp_path / 'a' / 't.db')
+    os.makedirs(os.path.dirname(path))
+    _old_database(path)
+    copy = path + '.pre-0.7.0'
+    shutil.copy(path, copy)
+    conn = sqlite3.connect(copy)
+    conn.execute('ALTER TABLE Settings ADD COLUMN feedToken TEXT')
+    conn.execute("UPDATE Settings SET feedToken='old-shared-feed-token'")
+    conn.execute('ALTER TABLE Athlete ADD COLUMN accessToken TEXT')
+    conn.execute("INSERT INTO Athlete (id, firstname, accessToken) VALUES (1, 'Tom', 'strava-access-token-old')")
+    conn.commit()
+    conn.close()
+    open(path + '.pre-other', 'w').write('not a database')       # left alone, and doesn't stop the start
+    _make_app(path, monkeypatch)
+    data = _file_bytes(copy)
+    for secret in [*OLD.values(), FRIEND_TOKEN, 'old-shared-feed-token', 'strava-access-token-old']:
+        assert secret.encode() not in data
+    conn = sqlite3.connect(copy)
+    conn.row_factory = vault.row_factory(copy)                   # this server's key opens them: restoring the copy here keeps them
+    s = conn.execute('SELECT * FROM Settings').fetchone()
+    assert {k: s[k] for k in OLD} == OLD and s['feedToken'] == 'old-shared-feed-token'
+    assert conn.execute('SELECT accessToken FROM Athlete').fetchone()[0] is None
+    assert conn.execute('SELECT firstname FROM Athlete').fetchone()[0] == 'Tom'
+
+
+def test_dead_secret_columns_are_emptied_and_dropped(tmp_path, monkeypatch):
+    """Upstream's Strava API tokens and the shared feed token from before per-friend tokens: nothing reads them, so they go."""
+    monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)
+    monkeypatch.setenv('AVATAR_DIR', str(tmp_path / 'avatars'))
+    path = str(tmp_path / 'a' / 't.db')
+    os.makedirs(os.path.dirname(path))
+    _old_database(path)
+    conn = sqlite3.connect(path)
+    conn.execute('ALTER TABLE Athlete ADD COLUMN accessToken TEXT')
+    conn.execute('ALTER TABLE Athlete ADD COLUMN refreshToken TEXT')
+    conn.execute("INSERT INTO Athlete (id, firstname, accessToken, refreshToken) VALUES (1, 'Tom', 'strava-access-token-x', 'strava-refresh-token-x')")
+    conn.execute('ALTER TABLE Settings ADD COLUMN feedToken TEXT')
+    conn.execute("UPDATE Settings SET feedToken='shared-feed-token-x'")
+    conn.commit()
+    conn.close()
+    app = _make_app(path, monkeypatch)
+    conn = sqlite3.connect(path)
+    assert {r[1] for r in conn.execute('PRAGMA table_info(Athlete)')} == {'id', 'firstname', 'lastname', 'profile', 'expiresAt'}
+    assert 'feedToken' not in {r[1] for r in conn.execute('PRAGMA table_info(Settings)')}
+    assert conn.execute('SELECT name FROM FeedToken').fetchone()[0] == 'Shared token (everyone, from before per-friend tokens)'
+    for secret in ('strava-access-token-x', 'strava-refresh-token-x', 'shared-feed-token-x'):
+        assert secret.encode() not in _file_bytes(path)
+    assert _client(app).get('/dashboard').status_code == 200    # still reads the Athlete row
+    _make_app(path, monkeypatch)                                 # and a second start has nothing to do
