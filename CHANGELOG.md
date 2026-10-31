@@ -19,6 +19,7 @@
 - **A product or photo title could run script in the nutrition photo picker.** Open Food Facts names (anyone can edit them) and Wikimedia file titles went into a `title="…"` with their quotes left as they were. They're escaped now, as are route names in the route builder.
 
 ### Fixed
+- **Security headers on every install, not only the public demo.** Pages can no longer be framed by another site (clickjacking), the browser won't guess file types, and full URLs aren't sent to other sites. A small Content-Security-Policy forbids framing, `<base>` and plugins. Over HTTPS (directly, or through a trusted proxy that says so) Headwind also sends HSTS for a year, so browsers stop trying plain HTTP; a plain-HTTP LAN install doesn't get it.
 - **A session timed on a phone abroad kept the server's clock.** The time zone it was sent with was cut off, so a 6.30 pm session in New York was saved as 6.30 pm in London.
 - **The phone API refuses an upload bigger than the app ever sends** (64 MB) instead of the 2 GB the web's Strava export import allows.
 - **Faster lists in the app.** The activity list no longer reads each activity's whole track for its thumbnail, and the Perform tab finds every segment's fastest time in one query.
