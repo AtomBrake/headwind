@@ -74,13 +74,18 @@ enum Uploader {
     /// that came without a route). `clientID` replaces the id as the server's client_id (Apple Health's workouts are `ah_<uuid>`).
     static func upload(summary: RideSummary, id: UUID, name: String, gpx: Data?, clientID: String? = nil,
                        with client: APIClient) async throws(AppError) -> UploadReply {
+        try await client.send(request(summary: summary, id: id, name: name, gpx: gpx, clientID: clientID, with: client), as: UploadReply.self)
+    }
+
+    /// The request `upload` sends, for the Watch to hand to a background session; its reply is read with `APIClient.reply`.
+    static func request(summary: RideSummary, id: UUID, name: String, gpx: Data?, clientID: String? = nil,
+                        with client: APIClient) throws(AppError) -> URLRequest {
         if let gpx {
             let (path, fields) = destination(summary: summary, id: id, name: name, clientID: clientID)
-            return try await client.upload(path, file: gpx, filename: "\(name).gpx", mimeType: "application/gpx+xml", fields: fields,
-                                           as: UploadReply.self)
+            return client.uploadRequest(path, file: gpx, filename: "\(name).gpx", mimeType: "application/gpx+xml", fields: fields)
         }
         guard summary.movingTime >= RideSummary.minimumSession else { throw .sessionTooShort }
-        return try await client.post("activities", json: sessionBody(summary: summary, id: id, name: name, clientID: clientID), as: UploadReply.self)
+        return try client.postRequest("activities", json: sessionBody(summary: summary, id: id, name: name, clientID: clientID))
     }
 
     /// The server's kind for a recording ('ride' or 'workout'), for the paths that take one (photos, bike, delete).

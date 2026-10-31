@@ -14,6 +14,11 @@ struct APIClient: Sendable {
 
     /// POST a JSON body (e.g. /live).
     func post<T: Decodable & Sendable>(_ path: String, json body: some Encodable, as type: T.Type = T.self) async throws(AppError) -> T {
+        try await send(postRequest(path, json: body), as: type)
+    }
+
+    /// The request `post` sends, body and all.
+    func postRequest(_ path: String, json body: some Encodable) throws(AppError) -> URLRequest {
         var req = request(path, method: "POST")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         do {
@@ -21,7 +26,7 @@ struct APIClient: Sendable {
         } catch {
             throw .validationError(message: "Couldn't encode the request: \(error.localizedDescription)")
         }
-        return try await send(req, as: type)
+        return req
     }
 
     func delete<T: Decodable & Sendable>(_ path: String, as type: T.Type = T.self) async throws(AppError) -> T {
@@ -40,6 +45,11 @@ struct APIClient: Sendable {
     /// POST one file as multipart/form-data field `file` (e.g. a GPX to /rides), plus any plain form `fields`.
     func upload<T: Decodable & Sendable>(_ path: String, file: Data, filename: String, mimeType: String, fields: [String: String] = [:],
                                          as type: T.Type = T.self) async throws(AppError) -> T {
+        try await send(uploadRequest(path, file: file, filename: filename, mimeType: mimeType, fields: fields), as: type)
+    }
+
+    /// The request `upload` sends, body and all.
+    func uploadRequest(_ path: String, file: Data, filename: String, mimeType: String, fields: [String: String] = [:]) -> URLRequest {
         let boundary = "headwind-\(UUID().uuidString)"
         var body = Data()
         for (name, value) in fields.sorted(by: { $0.key < $1.key }) {
@@ -53,7 +63,7 @@ struct APIClient: Sendable {
         req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         req.httpBody = body
         req.timeoutInterval = 120   // the server matches segments and fetches weather before it answers
-        return try await send(req, as: type)
+        return req
     }
 
     /// A ride's name goes into the multipart header as its filename: a quote or line break there would end the header early.
@@ -88,9 +98,14 @@ struct APIClient: Sendable {
         status == 401 ? .unauthorised : .serverError(status: status, message: try? JSONDecoder().decode(ServerError.self, from: data).error)
     }
 
-    private func send<T: Decodable & Sendable>(_ request: URLRequest, as type: T.Type) async throws(AppError) -> T {
+    func send<T: Decodable & Sendable>(_ request: URLRequest, as type: T.Type = T.self) async throws(AppError) -> T {
         let (data, http) = try await perform(request)
-        guard (200..<300).contains(http.statusCode) else { throw Self.failure(http.statusCode, data) }
+        return try Self.reply(data, status: http.statusCode, as: type)
+    }
+
+    /// A reply as `send` reads it, also for one that came back to a background session.
+    static func reply<T: Decodable & Sendable>(_ data: Data, status: Int, as type: T.Type = T.self) throws(AppError) -> T {
+        guard (200..<300).contains(status) else { throw failure(status, data) }
         do {
             return try JSONDecoder.headwind.decode(T.self, from: data)
         } catch {

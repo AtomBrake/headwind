@@ -23,9 +23,12 @@ final class WorkoutManager: NSObject {
     private(set) var heartRate: Int?
     private(set) var averageHeartRate: Int?
     private(set) var activeEnergy: Double = 0
-    /// Watts and rpm, latest, from a power meter or cadence sensor paired with the Watch.
+    /// Watts and rpm, latest, from a power meter or cadence sensor paired with the Watch: what goes on each point.
     private(set) var power: Int?
     private(set) var cadence: Int?
+    /// The last 3 s of power readings, for the screen; and when the latest was taken, so one HealthKit hands over again isn't counted twice.
+    private var recentPower = RollingAverage()
+    @ObservationIgnored private var lastPowerAt: Date?
     /// HealthKit's distance for the sport: what a timed-only session reports (lengths swum, a treadmill's steps), since it has no track.
     private(set) var healthDistance: Double = 0
     private(set) var lastSummary: RideSummary?
@@ -67,6 +70,10 @@ final class WorkoutManager: NSObject {
     }
 
     var isActive: Bool { [.starting, .recording, .paused].contains(state) }
+
+    /// Power averaged over the last 3 s, as head units show it: a single reading jumps about with every pedal stroke. Nil once the
+    /// readings have stopped.
+    func livePower(at now: Date) -> Int? { recentPower.average(at: now) }
 
     func requestAuthorization() async {
         let share: Set<HKSampleType> = [HKQuantityType.workoutType(), HKSeriesType.workoutRoute()]
@@ -135,6 +142,8 @@ final class WorkoutManager: NSObject {
             averageHeartRate = nil
             power = nil
             cadence = nil
+            recentPower = RollingAverage()
+            lastPowerAt = nil
             activeEnergy = 0
             healthDistance = 0
             journal.begin(start: now, sport: sport, bikeId: bikeId)
@@ -377,8 +386,14 @@ final class WorkoutManager: NSObject {
         if let energy = statistics[HKQuantityType(.activeEnergyBurned)]?.sumQuantity() {
             activeEnergy = energy.doubleValue(for: .kilocalorie())
         }
-        if let watts = statistics[HKQuantityType(.cyclingPower)]?.mostRecentQuantity() {
-            power = Int(watts.doubleValue(for: .watt()).rounded())
+        if let stats = statistics[HKQuantityType(.cyclingPower)], let watts = stats.mostRecentQuantity() {
+            let reading = Int(watts.doubleValue(for: .watt()).rounded())
+            power = reading
+            let at = stats.mostRecentQuantityDateInterval()?.end ?? .now
+            if at != lastPowerAt {
+                lastPowerAt = at
+                recentPower.add(reading, at: .now)
+            }
         }
         if let rpm = statistics[HKQuantityType(.cyclingCadence)]?.mostRecentQuantity() {
             cadence = Int(rpm.doubleValue(for: perMinute).rounded())

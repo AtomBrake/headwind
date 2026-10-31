@@ -45,13 +45,15 @@ minute to be kept.
 - **Watch without the phone:** the phone gives the Watch a token of its own (`POST /api/v1/devices/watch`, listed under
   the phone on the Phones page and revoked with it). If the phone hasn't taken a finished ride within 45 s, the Watch
   uploads it itself over Wi-Fi or cellular, backing off on failure to spare the battery, and cancels the queued transfer
-  once it's on the server. Every recording carries the Watch's id for it, sent as its `client_id` either way, so the server
+  once it's on the server. The upload goes through a background `URLSession`, queued when the ride is saved to start when
+  the 45 s are up, so it goes even if the app has been suspended (wrist down, another app opened). Every recording carries the Watch's id for it, sent as its `client_id` either way, so the server
   keeps one copy.
 - **Action button (Apple Watch Ultra):** Settings → Action Button → Workout → Headwind, then pick the sport under First
   Press. The press starts it (the system opens the app and it starts the workout session); a press during it pauses or
   resumes; the Action and side buttons together pause and resume too. `HeadwindWatch/WorkoutIntents.swift`.
 - **Power and cadence:** a power meter or cadence sensor paired in the Watch's Bluetooth settings feeds the workout
   (watchOS 10), and is recorded on every point (`<power>` and `gpxtpx:cad` in the GPX, which the server's parser reads).
+  The screen shows power as a 3 s average, as head units do; the GPX keeps every reading as it came.
 - **Bluetooth sensors on the iPhone:** for riding without the Watch. Pair them on the Sensors screen (Settings → Sensors, or
   the sensor button on the Record tab): heart rate straps, power meters, speed and cadence sensors and smart trainers (Bluetooth
   FTMS), Bluetooth LE only. Each shows its connection, battery and live reading; paired ones are remembered on this phone and
