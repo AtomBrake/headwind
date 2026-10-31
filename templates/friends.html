@@ -250,7 +250,7 @@
         <td class="act">
           <button type="button" onclick="syncFriend({{ f.id }}, this)" class="btn btn-secondary btn-sm">Sync</button>
           <form method="POST" action="{{ url_for('friends.set_friend_token', fid=f.id) }}"
-                onsubmit="var t = prompt('New feed token from {{ f.name }}:'); if (!t) return false; this.token.value = t; return true;">
+                data-prompt="New feed token from {{ f.name }}:" onsubmit="var t = prompt(this.dataset.prompt); if (!t) return false; this.token.value = t; return true;">
             <input type="hidden" name="token">
             <button type="submit" class="btn btn-secondary btn-sm" title="Paste a new token this friend gave you; their activities stay">Token</button>
           </form>

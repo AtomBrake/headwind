@@ -355,3 +355,13 @@ def test_a_friend_on_an_older_version_gets_runs_too(db, tom):
     on_tom(tom, lambda d: [add_run(d, 'run1', day='2026-10-18'), add_ride(d, 'r1', day='2026-10-18')])
     body = tom.test_client().get('/api/feed?since=2026-10-10', headers={'X-Feed-Token': TOKEN}).get_data(as_text=True)
     assert sorted(o['id'] for o in map(json.loads, body.splitlines()) if o['type'] == 'ride') == ['r1', 'run1']
+
+
+# ── The friend's name ────────────────────────────────────────────
+
+def test_the_feed_never_renames_the_friend(db, tom):
+    """Friend.name is the label typed when adding them; the feed's meta line (the friend's server controls it) doesn't overwrite it."""
+    on_tom(tom, lambda d: d.execute("UPDATE Rider SET name=? WHERE id=1", ["x');alert(1);//"]))
+    assert sync(db) == (0, None)
+    f = db.execute('SELECT name, lastSynced FROM Friend WHERE id=1').fetchone()
+    assert f['name'] == 'Tom' and f['lastSynced']

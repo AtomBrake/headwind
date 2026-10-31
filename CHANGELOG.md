@@ -14,6 +14,10 @@
 - **The Watch uploads by itself.** When the iPhone isn't with it, a ride goes straight to the server over Wi-Fi or cellular, with a token of the Watch's own (listed on the Phones page under the phone, and revoked with it). With the phone nearby it still goes through the phone.
 - **Power and cadence from the Watch.** A power meter or cadence sensor paired with the Watch is recorded on every point and shown during the ride.
 
+### Security
+- **A friend's server could run script on your Friends page.** The name its feed sent replaced the one you gave the friend on every sync, and went into the **Token** button's prompt unescaped for JavaScript, so a quote in it ran code as you when you clicked it. The friend keeps the name you typed when adding them, and no name goes into an inline script any more (the Goals page's delete and leave confirmations too).
+- **A product or photo title could run script in the nutrition photo picker.** Open Food Facts names (anyone can edit them) and Wikimedia file titles went into a `title="…"` with their quotes left as they were. They're escaped now, as are route names in the route builder.
+
 ### Fixed
 - **A session timed on a phone abroad kept the server's clock.** The time zone it was sent with was cut off, so a 6.30 pm session in New York was saved as 6.30 pm in London.
 - **The phone API refuses an upload bigger than the app ever sends** (64 MB) instead of the 2 GB the web's Strava export import allows.
