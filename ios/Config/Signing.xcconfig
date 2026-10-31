@@ -1,0 +1,7 @@
+// Signing for every target. The team is personal, so it lives in Signing.local.xcconfig beside this file (git-ignored):
+//   DEVELOPMENT_TEAM = ABCDE12345
+// Find yours in Xcode > Settings > Accounts, or at developer.apple.com/account under Membership.
+// Choosing a Team in Signing & Capabilities writes it into project.pbxproj instead, so set it here.
+DEVELOPMENT_TEAM =
+
+#include? "Signing.local.xcconfig"

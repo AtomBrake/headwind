@@ -61,3 +61,6 @@ docs/pi/*.orig
 
 # demo build output (anonymised copy of real data): never commit
 demo/out/
+
+# iOS signing team (ios/Config/Signing.xcconfig includes it)
+ios/Config/Signing.local.xcconfig
