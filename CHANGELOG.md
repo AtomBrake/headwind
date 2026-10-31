@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.28-beta] - 2026-10-31
 
 ### Added
 - **The iPhone and Apple Watch app records every sport.** Besides rides, runs, walks and hikes: open-water swims with GPS, and timed sessions with no track (an indoor ride, a treadmill run, a pool swim, strength, HIIT and yoga). On the Watch each is the matching Apple Health workout, with heart rate and calories, the pool's length for counting lengths, and water lock for swims. The iPhone records everything but swims.
