@@ -140,6 +140,7 @@ final class PhoneLink: NSObject {
         let isSession = file.pathExtension == WatchLink.sessionKind
         guard let summary = summary(of: file), let id = UUID(uuidString: file.deletingPathExtension().lastPathComponent) else { return }
         let gpx = isSession ? nil : try? Data(contentsOf: file)
+        guard isSession || gpx != nil else { return }      // a ride whose GPX can't be read isn't sent as a session: the phone's copy will do
         do throws(AppError) {
             _ = try await Uploader.upload(summary: summary, id: id, name: GPXWriter.rideName(summary), gpx: gpx, with: APIClient(pairing: pairing))
             // On the server: stop the phone sending it again, and let it go here.

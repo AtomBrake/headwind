@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **The iPhone and Apple Watch app records every sport.** Besides rides, runs, walks and hikes: open-water swims with GPS, and timed sessions with no track (an indoor ride, a treadmill run, a pool swim, strength, HIIT and yoga). On the Watch each is the matching Apple Health workout, with heart rate and calories, the pool's length for counting lengths, and water lock for swims. The iPhone records everything but swims.
+- **Strength, HIIT and Yoga are sports.** Each has its own totals (they never add to a ride's or a run's), and Garmin's strength_training and hiit, Strava's "Weight Training" and "Crossfit", and Apple's strength, core, HIIT and yoga workouts come in as them. A strength or yoga session needs no distance, and gets an estimate of its calories when it has none.
+- **Apple Health as a health source, from the iPhone app.** Switch on any of steps, resting heart rate, HRV, sleep, weight, body fat and calories in the app's Settings, and choose how far back to send. For riders without a Garmin, or days without one: Garmin's figure wins for a day it has. Apple's HRV (SDNN through the day) is kept apart from Garmin's overnight figure and labelled as such. Workouts from other apps (Apple's Workout app, Peloton) can come in too, with their route and heart rate. **Remove** in the app deletes the daily figures and weigh-ins it sent from the server.
+- **Activities on the phone.** A new tab lists every activity of every sport, with search and a sport filter, and opens each with its map, the numbers that suit its sport, its charts and its photos.
+- **Photos from the phone.** Add photos to an activity in the app, or to a recording before it's uploaded (they wait on the phone and go up after it). They're shrunk to 1600 px JPEGs on the phone, so iPhone HEIC pictures work.
+- **The Overview shows every sport.** A card per sport (rides, on foot, swims, and each other sport you do) for the week, month, year and all time, and a 12-week chart of one sport by distance or every sport by time.
+- **iPhone Duo.** The app turns with the phone and spreads out on the open screen: cards side by side, the Record map beside its controls, Activities beside the one that's open. Folding or unfolding mid-ride loses nothing.
+- **The Action button on Apple Watch Ultra.** Choose Headwind under Settings > Action Button > Workout and the button starts the workout you pick there; a press during it pauses or resumes, as does pressing it with the side button.
+- **The Watch uploads by itself.** When the iPhone isn't with it, a ride goes straight to the server over Wi-Fi or cellular, with a token of the Watch's own (listed on the Phones page under the phone, and revoked with it). With the phone nearby it still goes through the phone.
+- **Power and cadence from the Watch.** A power meter or cadence sensor paired with the Watch is recorded on every point and shown during the ride.
+
+### Fixed
+- **A session timed on a phone abroad kept the server's clock.** The time zone it was sent with was cut off, so a 6.30 pm session in New York was saved as 6.30 pm in London.
+- **The phone API refuses an upload bigger than the app ever sends** (64 MB) instead of the 2 GB the web's Strava export import allows.
+- **Faster lists in the app.** The activity list no longer reads each activity's whole track for its thumbnail, and the Perform tab finds every segment's fastest time in one query.
+
 ## [0.7.27-beta] - 2026-10-27
 
 ### Added

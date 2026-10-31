@@ -5,13 +5,28 @@ A native SwiftUI companion for a Headwind server. It uses the same phone API and
 
 | Tab | Shows | Endpoint |
 |---|---|---|
-| Today | Calories ring (eaten / goal / burned), macros, water, steps, weight trend, food diary by meal, today's walks and runs | `GET /api/v1/today` |
-| Record | Map, live stats, start / pause / finish a ride, e-bike ride, run, walk or hike, on a chosen bike; list of recordings, their upload status and bike | `POST /api/v1/rides`, `POST /api/v1/workouts`, `POST /api/v1/rides/ride/<id>/bike`, `POST /api/v1/live` |
-| Overview | Riding totals for week / month / year / all time, 12-week distance chart, latest recovery (resting HR, HRV, sleep, body battery) | `GET /api/v1/overview` |
-| Settings | Paired server, rider, units, unpair (the ping also brings the rider's bikes) | `GET /api/v1/ping` |
+| Today | Calories ring (eaten / goal / burned), macros, water, steps, weight trend, food diary by meal, today's other activities with their own icons | `GET /api/v1/today` |
+| Record | Map (or a clock for a timed sport), live stats, start / pause / finish any sport the phone records, on a chosen bike; list of recordings, their upload status, bike and waiting photos | `POST /api/v1/rides`, `/workouts`, `/activities`, `/rides/ride/<id>/bike`, `/rides/<kind>/<id>/photos`, `/live` |
+| Activities | Every activity of every sport, paged, searchable and filtered by sport; each with its map, stats, charts and photos (add, delete), and delete | `GET /api/v1/rides`, `/rides/<kind>/<id>`, `/photos/<name>` |
+| Overview | A card per sport group for week / month / year / all time, a 12-week chart of one sport by distance or every sport by time, latest recovery (Garmin's or Apple Health's) | `GET /api/v1/overview` |
+| Settings | Paired server, rider, units, Apple Health (what to send, how far back), unpair | `GET /api/v1/ping`, `POST /api/v1/health/days`, `GET`/`DELETE /api/v1/health` |
 
-**Apple Watch:** recording only. Start, pause and end a ride, run, walk or hike on the wrist with GPS, heart rate,
-speed or pace, distance and climbing.
+**Apple Watch:** recording only. Start, pause and end any sport on the wrist with heart rate, calories and, where it has them, GPS,
+speed or pace, distance, climbing, power and cadence. On Apple Watch Ultra the Action button starts and pauses it.
+
+## Sports
+
+| Sport | Records | iPhone | Watch | Goes to |
+|---|---|---|---|---|
+| Ride, E-bike ride | GPS track | ✓ | ✓ | `/rides`, with its bike |
+| Run, Walk, Hike | GPS track | ✓ | ✓ | `/workouts` |
+| Open water swim | GPS track | | ✓ (water lock) | `/workouts` as a Swim |
+| Indoor ride | Time (Watch: heart rate, calories, a paired speed sensor's distance) | ✓ | ✓ | `/activities` as VirtualRide, with its bike |
+| Treadmill run | Time (Watch: distance from its steps) | ✓ | ✓ | `/activities` as VirtualRun |
+| Pool swim | Time, lengths (pool length chosen on the Watch) | | ✓ (water lock) | `/activities` as a Swim |
+| Strength, HIIT, Yoga | Time (Watch: heart rate, calories) | ✓ | ✓ | `/activities` |
+
+On the phone a timed sport is a stopwatch: no GPS, so no battery spent on it. A session must last a minute to be kept.
 
 ## Recording rides
 
@@ -26,18 +41,65 @@ speed or pace, distance and climbing.
   rate. The finished ride is saved to Apple Health with its route, and sent to the iPhone as GPX with heart rate
   on every point. The phone uploads it with its own pairing, so the Watch never needs pairing. Riding without the
   phone is fine: the system queues the transfer until the two are back in range.
+- **Watch without the phone:** the phone gives the Watch a token of its own (`POST /api/v1/devices/watch`, listed under
+  the phone on the Phones page and revoked with it). If the phone hasn't taken a finished ride within 45 s, the Watch
+  uploads it itself over Wi-Fi or cellular, backing off on failure to spare the battery, and cancels the queued transfer
+  once it's on the server. Every recording carries the Watch's id for it, sent as its `client_id` either way, so the server
+  keeps one copy.
+- **Action button (Apple Watch Ultra):** Settings → Action Button → Workout → Headwind, then pick the sport under First
+  Press. The press starts it (the system opens the app and it starts the workout session); a press during it pauses or
+  resumes; the Action and side buttons together pause and resume too. `HeadwindWatch/WorkoutIntents.swift`.
+- **Power and cadence:** a power meter or cadence sensor paired in the Watch's Bluetooth settings feeds the workout
+  (watchOS 10), and is recorded on every point (`<power>` and `gpxtpx:cad` in the GPX, which the server's parser reads).
 - **Uploads:** every ride is saved on the phone first, then uploaded as GPX through the server's normal import
-  (best efforts, segment matching, weather). Failed uploads, e.g. when offline, retry when the app is next opened.
-  The server ignores duplicates, so a retry can't create a second copy.
-- **Crash safety:** every GPS point is written to a journal file as it arrives. If the app is killed mid-ride, it
-  offers to save the unfinished ride the next time it opens.
+  (best efforts, segment matching, weather); a timed session as its summary. Failed uploads, e.g. when offline, retry
+  when the app is next opened. The server ignores duplicates, so a retry can't create a second copy.
+- **Photos:** add them to a recording (its menu under Recordings) before or after it's uploaded, or to any activity under
+  Activities. They're redrawn as a JPEG of at most 1600 px on the phone (iPhone pictures are HEIC, which the server can't
+  read), wait with the recording until it's on the server, and never hold it up. PhotosPicker needs no photo-library
+  permission: only the pictures picked are shared.
+- **Crash safety:** every GPS point is written to a journal file as it arrives (a timed session notes its progress every
+  30 s). If the app is killed mid-ride, it offers to save the unfinished ride the next time it opens.
 - **Pauses** start a new GPX track segment, so the gap isn't counted as distance or drawn as a straight line.
+
+## Apple Health
+
+Settings → Apple Health on the phone. Each kind of data is switched on by itself, and HealthKit asks for that one when it is:
+steps, resting heart rate, HRV, sleep, weight, body fat, active and resting calories, and workouts from other apps. Headwind
+only reads, and sends what it reads to your own server (`POST /api/v1/health/days`, one figure per day and metric, safe to
+send twice). Observer queries with background delivery wake the app when there's something new; it also sends whenever it
+comes to the foreground. The first time it goes back as far as you choose (30 days to 3 years).
+
+- Steps, calories and HRV are HealthKit's daily statistics, so the iPhone's and Watch's samples are counted once.
+- Sleep is every asleep stage from every source, overlaps counted once, dated to the morning the night ends.
+- Garmin's figure wins for a day it has one. Apple's HRV is SDNN through the day, Garmin's RMSSD overnight: they're kept
+  apart, and the Overview says which it shows. Apple has no sleep score or body battery.
+- A weigh-in never replaces a manual or Garmin one for the same day.
+- Workouts from other apps go up as Headwind's recordings do (with their route and heart rate, or timed without a route),
+  with `ah_<uuid>` as their client id. Headwind's own (the Watch saves every workout to Health) are left out, and so are
+  sports Headwind doesn't have (an elliptical, say). A workout deleted in Health isn't deleted on the server: the server's
+  copy may be the one it kept of several.
+- **Remove Apple Health data from Headwind** deletes the daily figures and weigh-ins on the server and stops sending.
+
+## iPhone Duo and other screen sizes
+
+The app follows the size class, never the screen's size, so it works on the iPhone Duo's outer (compact) and inner
+(regular width) screens, in either orientation, and re-flows as it's folded or opened:
+
+- Today and Overview lay their cards out in as many columns as fit (`CardColumns`).
+- Record puts the controls beside the map instead of over it.
+- Activities is a `NavigationSplitView`: the list beside the open activity.
+- On iOS 18 the tabs are `.sidebarAdaptable`, so the system can place them where it suits the screen.
+
+All recording state lives in objects made at launch (`PhoneRideRecorder`, `RideStore`, `WatchBridge`), not in the views, so a
+fold or rotation mid-ride loses nothing. The fold-specific APIs Apple has shown (reserved regions, ArrangementView) are in the
+iOS 27.1 SDK only; the app uses only what Xcode 16 and iOS 17 have, and the system's own containers keep clear of the fold.
 
 Planned next:
 
 1. Food logging with barcode scan
 2. Widgets
-3. **Full code review: security, functionality and efficiency.**
+3. Bluetooth sensors on the iPhone (power, cadence, speed, heart rate strap, a smart trainer), for riding without the Watch
 
 Later:
 
@@ -71,7 +133,8 @@ Later:
 4. **Apple Watch:** also choose your Team for the **HeadwindWatch** target. The Watch app is embedded in the iPhone
    app, so installing on the phone offers it on the paired Watch (Watch app → *Available Apps*), or run the
    **HeadwindWatch** scheme with the Watch selected. It needs the HealthKit capability, which Xcode adds from
-   `Config/HeadwindWatch.entitlements`.
+   `Config/HeadwindWatch.entitlements`. The iPhone target needs it too, with background delivery, for Apple Health
+   (`Config/Headwind.entitlements`).
 
 ## Pairing
 
@@ -104,7 +167,8 @@ xcodebuild test -project ios/Headwind.xcodeproj -scheme Headwind -destination 'p
 ```
 
 The unit tests cover pairing links, decoding, formatting, and the recording maths: distance, moving time, GPS-jump
-rejection, climbing, pauses, GPX output and journal recovery. The decoding tests use JSON captured from a real
+rejection, climbing, pauses, GPX output (with power and cadence), journal recovery (timed sessions too), where each sport
+uploads to, the Watch's ids, and Apple Health's sleep merging. The decoding tests use JSON captured from a real
 server in `HeadwindTests/Fixtures/`. If an endpoint's shape changes, refresh those files and the tests show what
 the app no longer understands.
 
@@ -125,13 +189,16 @@ The **HeadwindWatch** scheme's UI test records a ride on a Watch simulator. Give
 ios/
   Headwind.xcodeproj
   Config/                  Info.plists (URL scheme, background modes) and the Watch's HealthKit entitlements
-  Shared/                  compiled into both apps: ride tracker, GPX writer, crash journal, ride summary, units
+  Shared/                  compiled into both apps: sports, ride tracker, GPX writer, crash journal, ride summary, units,
+                           API client and pairing, upload routing
   Headwind/
     App/                   entry point, root view, tabs
     Core/                  API client, models, Keychain, session, shared views
     Pairing/  Today/  Overview/  Settings/
+    Activities/            every activity from the server, and one in detail with its photos
+    Health/                Apple Health reader (HealthSync)
     Record/                iPhone recorder, recordings store and upload queue, Watch link, Record tab
-  HeadwindWatch/           Watch app: HealthKit workout + GPS recorder, iPhone link, screens
+  HeadwindWatch/           Watch app: HealthKit workout + GPS recorder, iPhone link and direct upload, Action button intents, screens
   HeadwindTests/           Swift Testing unit tests
   HeadwindUITests/         end-to-end iPhone tests against a live server
   HeadwindWatchUITests/    end-to-end Watch recording test

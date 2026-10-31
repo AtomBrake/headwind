@@ -7,6 +7,7 @@ upload) the duplicate logic keeps the recording and parks the typed-in copy.
 """
 import hashlib
 import json
+import math
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -52,7 +53,7 @@ def _num(v, name, lo=0, hi=None, required=False):
         x = float(v)
     except (TypeError, ValueError):
         raise ValueError(f'{name} must be a number')
-    if x < lo or (hi is not None and x > hi):
+    if not math.isfinite(x) or x < lo or (hi is not None and x > hi):      # JSON's NaN passes every comparison
         raise ValueError(f'{name} is out of range')
     return x
 

@@ -123,7 +123,9 @@ final class WatchBridge: NSObject {
     nonisolated private func hold(_ file: URL, summary: RideSummary?, id: UUID?, kind: String) throws {
         let name = (id ?? UUID()).uuidString
         if kind == WatchLink.sessionKind {
-            guard let summary, let data = try? JSONEncoder().encode(summary) else { throw AppError.unexpectedResponse }
+            guard let summary, let data = try? JSONEncoder().encode(summary) else {
+                throw AppError.validationError(message: "A session from the Watch arrived without its details.")
+            }
             try data.write(to: inbox.appending(path: "\(name).\(WatchLink.sessionKind)"), options: .atomic)
             return
         }
