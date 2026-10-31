@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.31-beta] - 2026-10-31
+
+### Added
+- **A backup that keeps your saved keys on another server.** Tick **Include the secrets key** under **Settings → Backup & Restore** and the zip (`headwind-backup-with-secrets.zip`) carries the key your saved passwords and API keys are encrypted with. Restoring it on another server, from Settings or the setup wizard, keeps them, encrypted again with that server's own key. Anyone else who gets that zip can read them too, so keep it safe; a backup without the tick still leaves the key out.
+- **A copy of the database that's safe to share for troubleshooting.** **Tasks → Make a copy for troubleshooting** gives a zip without any password, key or token, without addresses (Home Assistant, MQTT, Ollama, ntfy, friends' servers), without friends' names, activities, segments or foods, and without photos or avatars. Optionally without GPS too, or without the recorded streams altogether. It's made in the background: the page says when it's ready to download, and it's deleted after a day.
+- **iPhone: a pairing link asks before it pairs.** A `headwind://pair` link opened from outside the app now asks "Pair with <server>?" first, as switching servers already did, and switching says how many recordings will wait for the current server.
+
+### Security
+- **The Garmin sign-in tokens are encrypted** with the same key as the other saved secrets, so a copy of the token folder on its own signs nobody in. The next sync encrypts the file it finds.
+- **Old copies of the database are encrypted too.** The copies Headwind keeps beside the database before an upgrade or a restore (`bike.db.pre-0.7.0`, `bike.db.pre-restore` and the like) have their plain passwords and tokens encrypted at every start, and the ones nothing uses any more emptied.
+- **Unused secret columns are gone.** The Strava API tokens from before Headwind (read by nothing) and the old shared friend feed token (moved to a per-friend token since 0.6.1) are emptied and their columns dropped at the first start. An older version started on this database adds the feed token column back, empty.
+
+### Fixed
+- **iPhone: a recording uploads to the server it was made for.** After pairing with another server, recordings made before the switch went to the new one. Each now keeps its server, and its upload, photos and bike change go only there; one waiting for another server says so under Recordings, with **Upload to <server> instead** in its menu. Recordings from before this update go to whichever server they upload to next.
+
 ## [0.7.30-beta] - 2026-10-31
 
 ### Added
