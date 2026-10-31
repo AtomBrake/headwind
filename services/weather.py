@@ -1,6 +1,9 @@
+import logging
 import math
 import requests
 from datetime import datetime, timedelta
+
+log = logging.getLogger(__name__)
 
 
 _WMO = {
@@ -51,7 +54,7 @@ def origin(row):
             if pt and pt[0] and pt[1]:
                 return pt[0], pt[1]
     except Exception:
-        pass
+        log.debug('First GPS point for the weather failed', exc_info=True)
     return None, None
 
 
@@ -113,13 +116,17 @@ def _wind_relative(exposure, wind_kph):
     return 'mixed' if is_loop else 'crosswind'
 
 
-def fetch_weather(lat, lng, start_dt_local, streams_json=None):
+def fetch_weather(lat, lng, start_dt_local, streams_json=None, sport=None):
     """
     Fetch hourly weather from Open-Meteo for the hour of a ride.
-    Returns a dict of weather fields, or None on failure.
+    Returns a dict of weather fields, or None on failure, and None for a virtual ride (sports.is_virtual), whose track is in a Zwift world:
+    Watopia's weather is the open sea's near the Solomon Islands, not the rider's.
     Free API, no key required.
     """
     if not lat or not lng:
+        return None
+    from services import sports
+    if sports.is_virtual(sport):
         return None
 
     try:
@@ -298,11 +305,13 @@ _FAILED = set()          # rides the weather service had nothing for this proces
 
 
 def backfill_missing(db, limit=None, since_days=None, pause=0.15, on_each=None):
-    """Fetch weather for rides that have none, using the start point or else the first GPS point of the track. Returns (done, failed).
-    A ride the service has no data for is skipped for this run (never retried in a loop). Commits per ride."""
+    """Fetch weather for activities of every sport that have none, using the start point or else the first GPS point of the track. Returns
+    (done, failed). One the service has no data for is skipped for this run (never retried in a loop). Commits per activity."""
     import time
-    q = """SELECT id, startLat, startLng, startDateLocal, streams FROM Activity
-           WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL"""
+    from services import sports
+    q = f"""SELECT id, sportType, startLat, startLng, startDateLocal, streams FROM Activity
+           WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL AND (startLat IS NOT NULL OR instr(streams, '"latlng"') > 0)
+             AND NOT {sports.virtual_sql()}"""
     if since_days:
         q += f" AND startDate >= datetime('now', '-{int(since_days)} days')"
     q += ' ORDER BY startDateLocal DESC'
@@ -316,7 +325,7 @@ def backfill_missing(db, limit=None, since_days=None, pause=0.15, on_each=None):
             break
         tried += 1
         try:
-            w = fetch_weather(lat, lng, r['startDateLocal'], r['streams'])
+            w = fetch_weather(lat, lng, r['startDateLocal'], r['streams'], r['sportType'])
         except Exception:
             w = None
         if w:
@@ -335,15 +344,15 @@ def backfill_missing(db, limit=None, since_days=None, pause=0.15, on_each=None):
     return done, failed
 
 
-def fog_candidates(db, rider_id, sport=None, limit=300):
+def fog_candidates(db, rider_id, sports=None, limit=300):
     """Rides that were damp and still at the start (humidity 97%+, light wind, no rain, reported as clear / cloudy) and that nobody has confirmed or rejected.
     Fog is far too local for a weather model to report, so these are suggestions for the rider to confirm, never labelled automatically."""
-    q = """SELECT id, name, startDateLocal, weatherHumidity, weatherWindKph, weatherTempC FROM Activity
+    q = """SELECT id, name, startDateLocal, weatherHumidity, weatherWindKph, weatherTempC FROM Ride
            WHERE riderId=? AND weatherHumidity >= 97 AND weatherWindKph < 15 AND COALESCE(weatherRainMm, 0) < 0.1
              AND weatherCode IS NOT NULL AND weatherCode <= 3 AND weatherSource IS NULL"""
     args = [rider_id]
-    if sport:
-        q += " AND lower(sportType) LIKE ?"
-        args.append(f'%{sport.lower()}%')
+    if sports:                                            # (SQL condition, params) from services/sport_filter
+        q += f" AND {sports[0]}"
+        args += sports[1]
     q += " ORDER BY weatherHumidity DESC, weatherWindKph ASC, startDateLocal DESC LIMIT %d" % int(limit)
     return [dict(r) for r in db.execute(q, args).fetchall()]

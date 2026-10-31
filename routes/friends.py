@@ -1,7 +1,5 @@
-import hmac
 import json
 import logging
-import secrets
 import threading
 import time
 import urllib.parse
@@ -13,48 +11,51 @@ from flask import Blueprint, Response, abort, jsonify, redirect, render_template
 log = logging.getLogger(__name__)
 
 from database import get_db, query_db
-from services.segments import scan_activity_against_segments, _refresh_prs
+from services.segments import scan_activity_against_segments, scan_all_activities, _refresh_prs, seg_sport
 from services.limits import bounded_lines
 from services.peer_http import open_peer
+from services import feed_tokens, sports, vault
 
 bp = Blueprint('friends', __name__)
 
 BATCH = 50
+MAX_IDS = 100        # rides asked for by id in one request (?ids=): a short URL, and an interrupted request loses little
 
 # Riders who live on this instance. A synced friend is stored as a Rider too, and their rides were shared with us, not with
 # whoever holds our feed token, so the feed never offers them.
 OWN_RIDERS_SQL = 'id NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)'
 
 
+def _feed_token():
+    """The friend's FeedToken row (what they may read), or 403. Header only: a token in the query string would end up in proxy
+    access logs. Looked up by its hash, so there's no secret to compare in constant time."""
+    row = feed_tokens.lookup(request.headers.get('X-Feed-Token', ''))
+    if not row:
+        abort(403)
+    return row
+
+
 @bp.route('/api/riders')
 def riders_list():
     """Token-authenticated rider list — lets a friend's instance discover who's here."""
-    token = request.headers.get('X-Feed-Token', '') or request.args.get('token', '')
-    settings = query_db('SELECT feedToken FROM Settings WHERE id=1', one=True)
-    if not settings or not settings['feedToken'] or token != settings['feedToken']:
-        abort(403)
+    if not _feed_token()['shareRides']:
+        return jsonify([])
     riders = query_db(f'SELECT id, name, isDefault FROM Rider WHERE {OWN_RIDERS_SQL} ORDER BY isDefault DESC, name ASC')
     return jsonify([dict(r) for r in riders])
 
 
-def _feed_token_ok():
-    token = request.headers.get('X-Feed-Token', '') or request.args.get('token', '')
-    settings = query_db('SELECT feedToken FROM Settings WHERE id=1', one=True)
-    return bool(settings and settings['feedToken'] and hmac.compare_digest(str(settings['feedToken']), token))
-
-
 @bp.route('/api/foods-feed')
 def foods_feed():
-    """Token-authenticated NDJSON of this instance's own user-made foods (see services/shared_foods.py)."""
-    if not _feed_token_ok():
-        abort(403)
+    """Token-authenticated NDJSON of this instance's own user-made foods (see services/shared_foods.py). A token that doesn't
+    share foods gets a complete, empty feed, so the friend's copy of our foods is cleared on their next sync."""
+    share = _feed_token()['shareFoods']
     from services import shared_foods
 
     def generate():
         owner = query_db('SELECT name FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
         yield json.dumps({'type': 'meta', 'name': owner['name'] if owner else 'Unknown'}) + '\n'
         n = 0
-        for rec in shared_foods.feed_records():
+        for rec in (shared_foods.feed_records() if share else ()):
             n += 1
             yield json.dumps(rec) + '\n'
         yield json.dumps({'type': 'end', 'count': n}) + '\n'      # lets the receiver know the feed arrived whole
@@ -65,7 +66,7 @@ def foods_feed():
 @bp.route('/api/food-image/<ref>')
 def food_image(ref):
     """A photo referenced by /api/foods-feed ('<sha1>.<ext>')."""
-    if not _feed_token_ok():
+    if not _feed_token()['shareFoods']:
         abort(403)
     from services import food_cache
     food_cache.init_path()
@@ -78,16 +79,23 @@ def food_image(ref):
 @bp.route('/api/feed')
 def feed():
     """Token-authenticated NDJSON stream — no session required.
-    Each line is a JSON object with a 'type' field: meta | segment | ride.
-    Accepts ?since=YYYY-MM-DD and ?rider=<name> to filter.
+    Each line is a JSON object with a 'type' field: meta | segment | challenge | ride | manifest | end ('end' only once everything was sent).
+    A 'ride' is any of the rider's activities, of any sport (rides only before 0.7.6; the line keeps its name for older friends).
+    A 'challenge' (0.7.20 on) is one the rider started and invited this token's friend to, or joined from a friend (services/goals.feed_lines);
+    older friends ignore the line.
+    shareRides on the token: share the activities, and the challenges (a race needs the activities).
+    Accepts ?since=YYYY-MM-DD and ?rider=<name> to filter. The token decides whether segments and rides are sent at all, and
+    its date window (inclusive) narrows the rides.
+    Since 0.7.6 a friend asks ?manifest=1 instead: the segments and a manifest, [id, updatedAt] of every ride it may have, and no rides; then
+    ?ids=<id>,<id>,... for just the rides it is missing or that changed here (no segments). A friend on an older version sends neither and gets
+    the rides that started after `since`, as before.
     """
-    token = request.headers.get('X-Feed-Token', '') or request.args.get('token', '')
-    settings = query_db('SELECT feedToken FROM Settings WHERE id=1', one=True)
-    if not settings or not settings['feedToken'] or token != settings['feedToken']:
-        abort(403)
+    scope = dict(_feed_token())
 
     since = request.args.get('since')
     rider_name = request.args.get('rider')
+    manifest = request.args.get('manifest') == '1'
+    ids = [i for i in (request.args.get('ids') or '').split(',') if i][:MAX_IDS] if 'ids' in request.args else None
 
     def generate():
         from database import get_db as _get_db
@@ -99,52 +107,62 @@ def feed():
             rider = db.execute('SELECT * FROM Rider WHERE isDefault=1').fetchone()
         yield json.dumps({'type': 'meta', 'name': rider['name'] if rider else 'Unknown'}) + '\n'
 
-        for s in db.execute('SELECT id, name, startLat, startLng, endLat, endLng, '
-                            "distanceM, elevationGainM, polyline, COALESCE(sport, 'ride') AS sport FROM Segment WHERE friendId IS NULL"):
-            yield json.dumps({'type': 'segment', **dict(s)}) + '\n'
+        if scope['shareSegments'] and ids is None:
+            for s in db.execute('SELECT id, name, startLat, startLng, endLat, endLng, '
+                                "distanceM, elevationGainM, polyline, COALESCE(sport, 'ride') AS family FROM Segment WHERE friendId IS NULL"):
+                # `sport` is what a friend on a version before 0.7.3 reads: 'run' for anything on foot, else 'ride'. `family` is the whole answer.
+                yield json.dumps({'type': 'segment', **dict(s), 'sport': 'run' if s['family'] == 'foot' else 'ride'}) + '\n'
 
         owner_id = rider['id'] if rider else None
-        if owner_id:
-            if since:
-                cur = db.execute('''
-                    SELECT id, name, type, sportType, startDate, startDateLocal, distance, movingTime,
-                           elapsedTime, totalElevationGain, averageSpeed, maxSpeed,
-                           averageHeartrate, maxHeartrate, averageWatts, weightedAvgWatts,
-                           averageCadence, calories, startLat, startLng, streams,
-                           weatherTempC, weatherWindKph, weatherGustKph, weatherWindDir,
-                           weatherHumidity, weatherRainMm, weatherCode, weatherSummary, weatherWindRel
-                    FROM Activity WHERE riderId=? AND startDateLocal > ? ORDER BY startDateLocal DESC
-                ''', [owner_id, since])
-            else:
-                cur = db.execute('''
-                    SELECT id, name, type, sportType, startDate, startDateLocal, distance, movingTime,
-                           elapsedTime, totalElevationGain, averageSpeed, maxSpeed,
-                           averageHeartrate, maxHeartrate, averageWatts, weightedAvgWatts,
-                           averageCadence, calories, startLat, startLng, streams,
-                           weatherTempC, weatherWindKph, weatherGustKph, weatherWindDir,
-                           weatherHumidity, weatherRainMm, weatherCode, weatherSummary, weatherWindRel
-                    FROM Activity WHERE riderId=? ORDER BY startDateLocal DESC
-                ''', [owner_id])
+        if rider and scope['shareRides'] and ids is None:
+            from services import goals
+            for line in goals.feed_lines(db, rider, scope['id']):
+                yield json.dumps(line) + '\n'
+
+        where, args = ['riderId=?'], [owner_id]
+        if scope['sinceDate']:
+            where.append('substr(startDateLocal, 1, 10) >= ?')
+            args.append(scope['sinceDate'])
+        if scope['untilDate']:
+            where.append('substr(startDateLocal, 1, 10) <= ?')
+            args.append(scope['untilDate'])
+
+        if manifest:
+            # No such rider (renamed?): no manifest, so the friend deletes nothing. Rides no longer shared: an empty one, so they go.
+            if owner_id:
+                rides = db.execute(f"SELECT id, COALESCE(updatedAt, createdAt, '') FROM Activity WHERE {' AND '.join(where)}", args).fetchall() \
+                    if scope['shareRides'] else []
+                yield json.dumps({'type': 'manifest', 'rides': [[r[0], r[1]] for r in rides]}) + '\n'
+        elif owner_id and scope['shareRides']:
+            if ids is not None:
+                where.append('id IN ({})'.format(','.join('?' * len(ids)) or "''"))
+                args.extend(ids)
+            elif since:
+                where.append('startDateLocal > ?')
+                args.append(since)
+            cur = db.execute(f'''
+                SELECT id, name, type, sportType, startDate, startDateLocal, distance, movingTime,
+                       elapsedTime, totalElevationGain, averageSpeed, maxSpeed,
+                       averageHeartrate, maxHeartrate, averageWatts, weightedAvgWatts,
+                       averageCadence, calories, startLat, startLng, streams,
+                       weatherTempC, weatherWindKph, weatherGustKph, weatherWindDir,
+                       weatherHumidity, weatherRainMm, weatherCode, weatherSummary, weatherWindRel, steps,
+                       COALESCE(updatedAt, createdAt, '') AS updatedAt
+                FROM Activity WHERE {' AND '.join(where)} ORDER BY startDateLocal DESC
+            ''', args)
             for row in cur:
                 d = dict(row)
                 d.pop('type', None)  # avoid collision with the NDJSON routing key
                 yield json.dumps({'type': 'ride', **d}) + '\n'
+        yield json.dumps({'type': 'end'}) + '\n'
 
     return Response(stream_with_context(generate()), mimetype='application/x-ndjson')
 
 
 @bp.route('/friends')
 def index():
-    settings = query_db('SELECT feedToken, friendSyncInterval FROM Settings WHERE id=1', one=True)
-    feed_token = settings['feedToken'] if settings else None
+    settings = query_db('SELECT friendSyncInterval FROM Settings WHERE id=1', one=True)
     sync_interval = settings['friendSyncInterval'] if settings and settings['friendSyncInterval'] is not None else 15
-
-    if not feed_token:
-        db = get_db()
-        feed_token = secrets.token_urlsafe(24)
-        db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
-        db.execute('UPDATE Settings SET feedToken=? WHERE id=1', [feed_token])
-        db.commit()
 
     friends = query_db('''
         SELECT f.*, r.name AS rider_name, r.avatarPath AS rider_avatar
@@ -153,7 +171,7 @@ def index():
         ORDER BY f.name
     ''')
 
-    return render_template('friends.html', friends=friends, feed_token=feed_token,
+    return render_template('friends.html', friends=friends, feed_tokens=feed_tokens.tokens(),
                            sync_interval=sync_interval)
 
 
@@ -169,13 +187,23 @@ def set_sync_interval():
     return redirect(url_for('friends.index'))
 
 
-@bp.route('/friends/regenerate-token', methods=['POST'])
-def regenerate_token():
-    db = get_db()
-    db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
-    db.execute('UPDATE Settings SET feedToken=? WHERE id=1', [secrets.token_urlsafe(24)])
-    db.commit()
-    return redirect(url_for('friends.index'))
+@bp.route('/friends/tokens', methods=['POST'])
+def create_token():
+    """Returns the new token once, as JSON (only its hash is kept)."""
+    token, tid = feed_tokens.create(request.form.get('name'), request.form)
+    return jsonify({'id': tid, 'token': token})
+
+
+@bp.route('/friends/tokens/<int:tid>', methods=['POST'])
+def update_token(tid):
+    feed_tokens.update(tid, request.form)
+    return redirect(url_for('friends.index') + '#feed-tokens')
+
+
+@bp.route('/friends/tokens/<int:tid>/revoke', methods=['POST'])
+def revoke_token(tid):
+    feed_tokens.revoke(tid)
+    return redirect(url_for('friends.index') + '#feed-tokens')
 
 
 @bp.route('/friends/probe', methods=['POST'])
@@ -204,6 +232,7 @@ def probe():
             return jsonify({'riders': [{'id': None, 'name': 'Default rider', 'isDefault': 1}]})
         return jsonify({'error': f'HTTP {e.code} from remote instance'})
     except Exception as e:
+        log.warning('Fetching riders from a friend failed', exc_info=True)
         return jsonify({'error': f'Could not connect: {e}'})
 
 
@@ -219,7 +248,7 @@ def add():
 
     db = get_db()
     db.execute('INSERT INTO Friend (name, url, token, riderName) VALUES (?,?,?,?)',
-               [name, url, token, rider_name])
+               [name, url, vault.seal(token), rider_name])
     db.commit()
     fid = db.execute('SELECT last_insert_rowid()').fetchone()[0]
 
@@ -241,6 +270,17 @@ def sync(fid):
     return jsonify({'ok': err is None, 'synced': count, 'error': err})
 
 
+@bp.route('/friends/<int:fid>/token', methods=['POST'])
+def set_friend_token(fid):
+    """Swap in a new token a friend gave us (e.g. their own per-friend token in place of the old shared one), keeping their rides."""
+    token = (request.form.get('token') or '').strip()
+    if token:
+        db = get_db()
+        db.execute('UPDATE Friend SET token=? WHERE id=?', [vault.seal(token), fid])
+        db.commit()
+    return redirect(url_for('friends.index'))
+
+
 @bp.route('/friends/<int:fid>/delete', methods=['POST'])
 def delete(fid):
     db = get_db()
@@ -252,6 +292,8 @@ def delete(fid):
         db.execute('DELETE FROM RideMemory WHERE rideId IN (SELECT id FROM Activity WHERE riderId=?)', [friend['riderId']])
         db.execute('DELETE FROM Activity WHERE riderId=?', [friend['riderId']])
         db.execute('DELETE FROM Rider WHERE id=?', [friend['riderId']])
+    from services import goals
+    goals.forget_friend(db, fid)
     # Segments imported from this friend cascade-delete their efforts via ON DELETE CASCADE
     db.execute('DELETE FROM Segment WHERE friendId=?', [fid])
     db.execute('DELETE FROM Friend WHERE id=?', [fid])
@@ -265,8 +307,24 @@ def delete(fid):
     return redirect(url_for('friends.index'))
 
 
+_syncing = set()                 # friend ids with a sync running: a second one would only fight the first for the write lock
+_syncing_lock = threading.Lock()
+
+
 def _do_sync(friend_id):
     """Rides + segments, then the friend's shared foods. A foods problem never fails the ride sync."""
+    with _syncing_lock:
+        if friend_id in _syncing:
+            return 0, 'Already syncing'
+        _syncing.add(friend_id)
+    try:
+        return _do_sync_once(friend_id)
+    finally:
+        with _syncing_lock:
+            _syncing.discard(friend_id)
+
+
+def _do_sync_once(friend_id):
     result = _do_ride_sync(friend_id)
     try:
         from services import shared_foods
@@ -280,45 +338,47 @@ def _do_sync(friend_id):
     return result
 
 
-def _do_ride_sync(friend_id):
-    friend = query_db('SELECT * FROM Friend WHERE id=?', [friend_id], one=True)
-    if not friend:
-        return 0, 'Friend not found'
+_SHARED_COLS = ['name', 'type', 'sportType', 'startDate', 'startDateLocal', 'distance', 'movingTime', 'elapsedTime', 'totalElevationGain',
+              'averageSpeed', 'maxSpeed', 'averageHeartrate', 'maxHeartrate', 'averageWatts', 'weightedAvgWatts', 'averageCadence', 'calories',
+              'startLat', 'startLng', 'streams', 'weatherTempC', 'weatherWindKph', 'weatherGustKph', 'weatherWindDir', 'weatherHumidity',
+              'weatherRainMm', 'weatherCode', 'weatherSummary', 'weatherWindRel', 'steps']
+_ZERO_IF_MISSING = {'distance', 'movingTime', 'elapsedTime', 'totalElevationGain', 'averageSpeed', 'maxSpeed'}
 
-    is_incremental = bool(friend['lastSynced'])
-    feed_url = friend['url'].rstrip('/') + '/api/feed'
-    params = []
-    if friend['riderName']:
-        params.append('rider=' + urllib.parse.quote(friend['riderName']))
-    if is_incremental:
-        # Trim to date only so we don't miss rides added on the same day as last sync
-        since = friend['lastSynced'][:10]
-        params.append(f'since={since}')
-    if params:
-        feed_url += '?' + '&'.join(params)
 
-    headers  = {'User-Agent': 'Headwind/1.0'}
+class _Pull:
+    """What one friend sync has received so far."""
+    def __init__(self, friend):
+        self.friend = friend
+        self.name = friend['name']
+        self.rider_id = friend['riderId']
+        self.rides = {}          # local id -> the friend's updatedAt for it (None from a version before 0.7.6): stored, not matched yet
+        self.new = 0             # of those, missing here before
+        self.changed = 0         # and different from what was here: the rest came again unchanged (an old feed's ?since=, a stopped sync)
+        self.segments = 0
+        self.manifest = None     # remote id -> updatedAt, every ride the friend shares (0.7.6 on)
+        self.challenges = set()  # uids of the challenges the friend is in (0.7.20 on)
+        self.complete = False    # the feed said 'end'
+
+
+def _open_feed(friend, params):
+    url = friend['url'].rstrip('/') + '/api/feed' + ('?' + '&'.join(params) if params else '')
+    headers = {'User-Agent': 'Headwind/1.0'}
     if friend['token']:
         headers['X-Feed-Token'] = friend['token']
-
-    log.info('Friends sync: streaming feed for "%s" from %s', friend['name'], feed_url)
+    log.info('Friends sync: streaming feed for "%s" from %s', friend['name'], url)
     try:
-        resp = open_peer(feed_url, headers, timeout=60)
+        return open_peer(url, headers, timeout=60), None
     except urllib.error.HTTPError as e:
-        log.warning('Friends sync: HTTP %s from %s', e.code, feed_url)
-        return 0, f'HTTP {e.code} from {feed_url}'
+        log.warning('Friends sync: HTTP %s from %s', e.code, url)
+        return None, f'HTTP {e.code} from {url}'
     except Exception as e:
         log.warning('Friends sync: connect failed for "%s": %s', friend['name'], e)
-        return 0, str(e)
+        return None, str(e)
 
-    db   = get_db()
-    name = friend['name']
-    rider_id = friend['riderId']
-    synced = 0
-    remote_seg_count = 0
-    imported_seg_ids = []
-    new_ride_ids = []  # local IDs of rides received this sync (for incremental segment scan)
 
+def _read_feed(db, pull, resp):
+    """Store everything in one feed response as it lands. Returns an error text, or None."""
+    friend_id = pull.friend['id']
     try:
         for raw_line in bounded_lines(resp, 500 * 1024 ** 2, 2_000_000, 900):
             line = raw_line.strip()
@@ -332,157 +392,228 @@ def _do_ride_sync(friend_id):
             t = obj.get('type')
 
             if t == 'meta':
-                name = obj.get('name') or friend['name']
-                if not rider_id:
-                    db.execute('INSERT INTO Rider (name, isDefault) VALUES (?, 0)', [name])
-                    rider_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
-                    db.execute('UPDATE Friend SET riderId=? WHERE id=?', [rider_id, friend_id])
-                    log.info('Friends sync: created rider "%s" (id=%s)', name, rider_id)
+                pull.name = obj.get('name') or pull.friend['name']
+                if not pull.rider_id:
+                    db.execute('INSERT INTO Rider (name, isDefault) VALUES (?, 0)', [pull.name])
+                    pull.rider_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
+                    db.execute('UPDATE Friend SET riderId=? WHERE id=?', [pull.rider_id, friend_id])
+                    log.info('Friends sync: created rider "%s" (id=%s)', pull.name, pull.rider_id)
                 else:
-                    db.execute('UPDATE Rider SET name=? WHERE id=?', [name, rider_id])
+                    db.execute('UPDATE Rider SET name=? WHERE id=?', [pull.name, pull.rider_id])
 
             elif t == 'segment':
-                from services.segments import clean_polyline, valid_coord
-                _sc = valid_coord(obj.get('startLat'), obj.get('startLng'))
-                _ec = valid_coord(obj.get('endLat'), obj.get('endLng'))
-                if not _sc or not _ec:
-                    continue                       # a friend's segment with impossible coordinates is ignored
-                _shape = clean_polyline(obj.get('polyline'))
-                _poly = json.dumps(_shape) if _shape else None
-                existing = db.execute(
-                    'SELECT id FROM Segment WHERE friendId=? AND sourceSegId=?',
-                    [friend_id, obj['id']]
-                ).fetchone()
-                if existing:
-                    db.execute('''UPDATE Segment SET name=?, startLat=?, startLng=?, endLat=?, endLng=?,
-                                      distanceM=?, elevationGainM=?, polyline=?, sport=? WHERE id=?''', [
-                        obj.get('name'), _sc[0], _sc[1], _ec[0], _ec[1],
-                        obj.get('distanceM'), obj.get('elevationGainM'), _poly, 'run' if obj.get('sport') == 'run' else 'ride',
-                        existing[0],
-                    ])
-                    imported_seg_ids.append(existing[0])
-                else:
-                    db.execute('''INSERT INTO Segment (name, startLat, startLng, endLat, endLng,
-                                      distanceM, elevationGainM, polyline, friendId, sourceSegId, sport)
-                                  VALUES (?,?,?,?,?,?,?,?,?,?,?)''', [
-                        obj.get('name'), _sc[0], _sc[1], _ec[0], _ec[1],
-                        obj.get('distanceM'), obj.get('elevationGainM'), _poly,
-                        friend_id, obj['id'], 'run' if obj.get('sport') == 'run' else 'ride',
-                    ])
-                    imported_seg_ids.append(db.execute('SELECT last_insert_rowid()').fetchone()[0])
-                remote_seg_count += 1
+                if _store_segment(db, friend_id, obj):
+                    pull.segments += 1
 
-            elif t == 'ride':
-                remote_id = f"f{friend_id}_{obj['id']}"
-                db.execute('''
-                    INSERT INTO Activity (
-                        id, name, type, sportType, startDate, startDateLocal, distance, movingTime,
-                        elapsedTime, totalElevationGain, averageSpeed, maxSpeed,
-                        averageHeartrate, maxHeartrate, averageWatts, weightedAvgWatts,
-                        averageCadence, calories, startLat, startLng, streams, rawData, riderId,
-                        weatherTempC, weatherWindKph, weatherGustKph, weatherWindDir,
-                        weatherHumidity, weatherRainMm, weatherCode, weatherSummary, weatherWindRel,
-                        createdAt, updatedAt
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
-                    ON CONFLICT(id) DO UPDATE SET
-                        name=excluded.name, streams=excluded.streams,
-                        weatherTempC=excluded.weatherTempC, weatherWindKph=excluded.weatherWindKph,
-                        weatherGustKph=excluded.weatherGustKph, weatherWindDir=excluded.weatherWindDir,
-                        weatherHumidity=excluded.weatherHumidity, weatherRainMm=excluded.weatherRainMm,
-                        weatherCode=excluded.weatherCode, weatherSummary=excluded.weatherSummary,
-                        weatherWindRel=excluded.weatherWindRel,
-                        updatedAt=datetime('now')
-                ''', [
-                    remote_id,
-                    obj.get('name'),             obj.get('sportType'),
-                    obj.get('sportType'),
-                    obj.get('startDate'),         obj.get('startDateLocal'),
-                    obj.get('distance') or 0,     obj.get('movingTime') or 0,
-                    obj.get('elapsedTime') or 0,  obj.get('totalElevationGain') or 0,
-                    obj.get('averageSpeed') or 0, obj.get('maxSpeed') or 0,
-                    obj.get('averageHeartrate'),  obj.get('maxHeartrate'),
-                    obj.get('averageWatts'),      obj.get('weightedAvgWatts'),
-                    obj.get('averageCadence'),    obj.get('calories'),
-                    obj.get('startLat'),          obj.get('startLng'),
-                    obj.get('streams'),           '{}', rider_id,
-                    obj.get('weatherTempC'),      obj.get('weatherWindKph'),
-                    obj.get('weatherGustKph'),    obj.get('weatherWindDir'),
-                    obj.get('weatherHumidity'),   obj.get('weatherRainMm'),
-                    obj.get('weatherCode'),       obj.get('weatherSummary'),
-                    obj.get('weatherWindRel'),
-                ])
-                new_ride_ids.append(remote_id)
-                synced += 1
-                if synced % BATCH == 0:
-                    db.commit()
-                    log.info('Friends sync: streamed %d rides for "%s"…', synced, name)
+            elif t == 'challenge':
+                from services import goals
+                uid = goals.store_from_friend(db, friend_id, obj)
+                if uid:
+                    pull.challenges.add(uid)
 
-        db.commit()
+            elif t == 'ride' and pull.rider_id:
+                aid, kind = _store_ride(db, friend_id, pull.rider_id, obj)
+                if aid not in pull.rides:
+                    pull.new += kind == 'new'
+                    pull.changed += kind == 'changed'
+                pull.rides[aid] = obj.get('updatedAt')
+                if len(pull.rides) % BATCH == 0:
+                    log.info('Friends sync: streamed %d rides for "%s"…', len(pull.rides), pull.name)
+
+            elif t == 'manifest':
+                pull.manifest = {str(r[0]): r[1] or '' for r in obj.get('rides') or [] if isinstance(r, list) and len(r) == 2}
+
+            elif t == 'end':
+                pull.complete = True
+
+            db.commit()   # each item as it lands: never hold the write lock while waiting on the network for the next
+        return None
     except Exception as e:
-        log.warning('Friends sync: stream error for "%s": %s', name, e)
+        log.warning('Friends sync: stream error for "%s": %s', pull.name, e)
         db.commit()  # save whatever we got
-        if synced == 0:
-            return 0, str(e)
+        return str(e)
     finally:
         resp.close()
 
-    log.info('Friends sync: received %d rides, %d segments from "%s"', synced, remote_seg_count, name)
 
-    all_segments = db.execute('SELECT * FROM Segment').fetchall()
-    affected_seg_ids = {s['id'] for s in all_segments}
+def _store_segment(db, friend_id, obj):
+    """One of the friend's segments. Marked matchPending when it is new or where it is, its length or its family changed: every sync sends
+    every segment, and only those are matched again. Returns False for one that is ignored."""
+    from services.segments import clean_polyline, valid_coord
+    _sc = valid_coord(obj.get('startLat'), obj.get('startLng'))
+    _ec = valid_coord(obj.get('endLat'), obj.get('endLng'))
+    if not _sc or not _ec:
+        return False                       # a friend's segment with impossible coordinates is ignored
+    _fam = seg_sport({'sport': obj.get('family') or obj.get('sport')})     # 0.7.3 sent 'eride' for e-bike segments, older versions 'run' for foot
+    _shape = clean_polyline(obj.get('polyline'))
+    _poly = json.dumps(_shape) if _shape else None
+    existing = db.execute(
+        "SELECT id, startLat, startLng, endLat, endLng, distanceM, polyline, COALESCE(sport, 'ride') "
+        'FROM Segment WHERE friendId=? AND sourceSegId=?',
+        [friend_id, obj['id']]
+    ).fetchone()
+    if existing:
+        changed = tuple(existing[1:]) != (_sc[0], _sc[1], _ec[0], _ec[1], obj.get('distanceM'), _poly, _fam)
+        db.execute('''UPDATE Segment SET name=?, startLat=?, startLng=?, endLat=?, endLng=?,
+                          distanceM=?, elevationGainM=?, polyline=?, sport=?, matchPending=MAX(COALESCE(matchPending, 0), ?) WHERE id=?''', [
+            obj.get('name'), _sc[0], _sc[1], _ec[0], _ec[1],
+            obj.get('distanceM'), obj.get('elevationGainM'), _poly, _fam, int(changed),
+            existing[0],
+        ])
+    else:
+        db.execute('''INSERT INTO Segment (name, startLat, startLng, endLat, endLng,
+                          distanceM, elevationGainM, polyline, friendId, sourceSegId, sport, matchPending)
+                      VALUES (?,?,?,?,?,?,?,?,?,?,?,1)''', [
+            obj.get('name'), _sc[0], _sc[1], _ec[0], _ec[1],
+            obj.get('distanceM'), obj.get('elevationGainM'), _poly,
+            friend_id, obj['id'], _fam,
+        ])
+    return True
 
-    # ── Scan received rides against all segments ──────────────────
-    if all_segments and new_ride_ids:
-        scan_ids = new_ride_ids if is_incremental else None
-        if scan_ids:
-            acts = db.execute(
-                'SELECT id, startDateLocal, streams FROM Activity WHERE id IN ({}) '
-                "AND streams IS NOT NULL AND streams NOT IN ('null', '{{}}')".format(
-                    ','.join('?' * len(scan_ids))), scan_ids
-            ).fetchall()
-        else:
-            acts = db.execute(
-                "SELECT id, startDateLocal, streams FROM Activity "
-                "WHERE riderId=? AND streams IS NOT NULL AND streams NOT IN ('null', '{}')",
-                [rider_id]
-            ).fetchall()
-        log.info('Friends sync: scanning %d rides against %d segments…', len(acts), len(all_segments))
-        for i, act in enumerate(acts, 1):
-            scan_activity_against_segments(db, act, all_segments)
-            if i % BATCH == 0:
-                db.commit()
-                log.info('Friends sync: segment scan %d / %d…', i, len(acts))
-                time.sleep(0.5)
+
+def _store_ride(db, friend_id, rider_id, obj):
+    """One of the friend's activities (any sport), new or changed: every field is taken again. srcUpdatedAt '' until it has been matched against the segments,
+    so one stored by a sync that never got that far is asked for again. Returns its local id, and 'new', 'changed' or None (the same as here)."""
+    remote_id = f"f{friend_id}_{obj['id']}"
+    vals = [obj.get(c) or 0 if c in _ZERO_IF_MISSING else obj.get(c) for c in _SHARED_COLS]
+    sport = sports.canonical(obj.get('sportType'))                 # a friend on an older Headwind still sends Strava's "Virtual Ride"
+    vals[_SHARED_COLS.index('sportType')] = vals[_SHARED_COLS.index('type')] = sport     # the NDJSON routing key took 'type'
+    was = db.execute(f"SELECT {', '.join(_SHARED_COLS)} FROM Activity WHERE id=?", [remote_id]).fetchone()
+    kind = 'new' if was is None else 'changed' if list(was) != vals else None
+    db.execute(f'''
+        INSERT INTO Activity (id, {', '.join(_SHARED_COLS)}, rawData, riderId, srcUpdatedAt, createdAt, updatedAt)
+        VALUES (?, {', '.join('?' * len(_SHARED_COLS))}, '{{}}', ?, '', datetime('now'), datetime('now'))
+        ON CONFLICT(id) DO UPDATE SET {', '.join(f'{c}=excluded.{c}' for c in _SHARED_COLS)},
+            riderId=excluded.riderId, srcUpdatedAt='', updatedAt=datetime('now')
+    ''', [remote_id, *vals, rider_id])
+    return remote_id, kind
+
+
+def _forget_ride(db, act_id):
+    """A ride the friend no longer shares (deleted, or out of the token's dates). Returns the segments it was on. Does not commit."""
+    from services.duplicates import _drop_derived
+    seg_ids = _drop_derived(db, act_id)
+    db.execute('DELETE FROM Activity WHERE id=?', [act_id])
+    return seg_ids
+
+
+def _chunks(items, n):
+    items = list(items)
+    for i in range(0, len(items), n):
+        yield items[i:i + n]
+
+
+def _do_ride_sync(friend_id):
+    """Segments and rides from one friend. From a friend on 0.7.6 or later: the segments and a manifest of every ride they share, then just the
+    rides missing here or changed there, MAX_IDS at a time; a ride they no longer share goes. A friend on an older version gets the old request
+    and sends the rides that started since the day of the last sync. The sync only counts as done (lastSynced) when everything arrived.
+    Returns how many rides are new or changed here (not the ones that came again as they were), and an error text or None."""
+    friend = query_db('SELECT * FROM Friend WHERE id=?', [friend_id], one=True)
+    if not friend:
+        return 0, 'Friend not found'
+
+    rider = ['rider=' + urllib.parse.quote(friend['riderName'])] if friend['riderName'] else []
+    # What a friend before 0.7.6 reads (it ignores manifest=1): trimmed to the date so we don't miss rides added on the same day as last sync
+    since = ['since=' + friend['lastSynced'][:10]] if friend['lastSynced'] else []
+    resp, err = _open_feed(friend, rider + since + ['manifest=1'])
+    if err:
+        return 0, err
+
+    db = get_db()
+    pull = _Pull(friend)
+    err = _read_feed(db, pull, resp)
+    gone_segs = set()
+
+    if pull.manifest is not None and pull.complete and pull.rider_id:
+        from services import goals
+        goals.forget_missing(db, friend_id, pull.challenges)       # the whole feed arrived: a challenge it didn't list, they're no longer in
+        db.commit()
+        prefix = f'f{friend_id}_'
+        remote = {prefix + k: u for k, u in pull.manifest.items()}
+        local = {r[0]: r[1] for r in db.execute('SELECT id, srcUpdatedAt FROM Activity WHERE riderId=?', [pull.rider_id])}
+        gone = [aid for aid in local if aid not in remote]
+        if gone:
+            log.info('Friends sync: %d rides no longer shared by "%s"', len(gone), pull.name)
+            for aid in gone:
+                gone_segs.update(_forget_ride(db, aid))
+            db.commit()
+        # A ride from before 0.7.6 has no srcUpdatedAt: it is current unless it changed there after the last sync
+        before = (friend['lastSynced'] or '').replace('T', ' ')
+        want, settle = [], []
+        for aid, u in remote.items():
+            if aid not in local:
+                want.append(aid[len(prefix):])
+            elif local[aid] is None:
+                if u > before:
+                    want.append(aid[len(prefix):])
+                else:
+                    settle.append((u, aid))
+            elif local[aid] == '' or local[aid] < u:          # '': stored by a sync that stopped before matching it
+                want.append(aid[len(prefix):])
+        db.executemany('UPDATE Activity SET srcUpdatedAt=? WHERE id=?', settle)
+        db.commit()
+        if want:
+            log.info('Friends sync: fetching %d new or changed rides from "%s"', len(want), pull.name)
+        for ids in _chunks(want, MAX_IDS):
+            resp, err = _open_feed(friend, rider + ['ids='+ ','.join(urllib.parse.quote(i, safe='') for i in ids)])
+            if not err:
+                pull.complete = False
+                err = _read_feed(db, pull, resp)
+                if not err and not pull.complete:
+                    err = 'feed ended early'
+            if err:
+                break
+
+    log.info('Friends sync: received %d rides (%d new, %d changed), %d segments from "%s"',
+             len(pull.rides), pull.new, pull.changed, pull.segments, pull.name)
+
+    # ── New and changed segments: matched from scratch against every activity near them ──
+    # matchPending survives a sync that stopped before this, so the next one still matches them
+    pending = [r[0] for r in db.execute('SELECT id FROM Segment WHERE friendId=? AND matchPending=1', [friend_id])]
+    if pending:
+        log.info('Friends sync: matching %d new or changed segments…', len(pending))
+        scan_all_activities(db, segment_ids=pending)   # clears their old efforts, reads only the activities that go near them, picks PRs
+        db.execute('UPDATE Segment SET matchPending=0 WHERE friendId=? AND matchPending=1', [friend_id])
         db.commit()
 
-    # ── Scan owner's rides against any new imported segments ──────
-    if imported_seg_ids:
-        new_segs = db.execute(
-            'SELECT * FROM Segment WHERE id IN ({})'.format(','.join('?' * len(imported_seg_ids))),
-            imported_seg_ids
-        ).fetchall()
-        owner = db.execute('SELECT id FROM Rider WHERE isDefault=1').fetchone()
-        if owner:
-            owner_acts = db.execute(
-                "SELECT id, startDateLocal, streams FROM Activity "
-                "WHERE riderId=? AND streams IS NOT NULL AND streams NOT IN ('null', '{}')",
-                [owner[0]]
-            ).fetchall()
-            log.info('Friends sync: scanning %d owner rides against %d new segments…',
-                     len(owner_acts), len(new_segs))
-            for i, act in enumerate(owner_acts, 1):
-                scan_activity_against_segments(db, act, new_segs)
-                if i % BATCH == 0:
-                    db.commit()
+    # ── The received rides against the other segments (the pending ones have just seen them) ──
+    affected = set(gone_segs)
+    others = db.execute(f"SELECT * FROM Segment WHERE id NOT IN ({','.join('?' * len(pending))})", pending).fetchall()
+    if pull.rides:
+        log.info('Friends sync: scanning %d rides against %d segments…', len(pull.rides), len(others))
+        done = 0
+        for ids in _chunks(pull.rides, 500):
+            marks = ','.join('?' * len(ids))
+            # a changed ride is matched from scratch: its sport or its track may be different now
+            affected.update(r[0] for r in db.execute(f'SELECT DISTINCT segmentId FROM SegmentEffort WHERE activityId IN ({marks})', ids))
+            db.execute(f'DELETE FROM SegmentEffort WHERE activityId IN ({marks}) AND segmentId NOT IN ({",".join("?" * len(pending))})',
+                       [*ids, *pending])
+            acts = db.execute(f"SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id IN ({marks}) "
+                              "AND streams IS NOT NULL AND streams NOT IN ('null', '{}')", ids).fetchall() if others else []
+            for act in acts:
+                scan_activity_against_segments(db, act, others)
+                db.commit()   # one ride at a time, so other writes (a token, a Garmin sync) wait milliseconds, not a minute
+                done += 1
+                if done % BATCH == 0:
+                    log.info('Friends sync: segment scan %d / %d…', done, len(pull.rides))
                     time.sleep(0.5)
+            affected.update(r[0] for r in db.execute(f'SELECT DISTINCT segmentId FROM SegmentEffort WHERE activityId IN ({marks})', ids))
+            db.executemany('UPDATE Activity SET srcUpdatedAt=? WHERE id=?', [(pull.rides[i], i) for i in ids])
             db.commit()
 
-    log.info('Friends sync: refreshing PRs…')
-    for sid in affected_seg_ids:
+    # Only the segments the received (or removed) rides were or are on can have a new PR
+    affected -= set(pending)
+    log.info('Friends sync: refreshing PRs on %d segments…', len(affected))
+    for sid in affected:
         _refresh_prs(db, sid)
+        db.commit()
 
-    db.execute("UPDATE Friend SET lastSynced=datetime('now'), name=? WHERE id=?",
-               [name, friend_id])
+    old_friend = pull.manifest is None and not pull.complete      # a version before 0.7.6 sends no 'end': all it can tell us is no error
+    if not err and (pull.complete or old_friend):
+        db.execute("UPDATE Friend SET lastSynced=datetime('now'), name=? WHERE id=?", [pull.name, friend_id])
+    else:
+        db.execute('UPDATE Friend SET name=? WHERE id=?', [pull.name, friend_id])
     db.commit()
-    log.info('Friends sync: done — %d rides, %d segments for "%s"', synced, remote_seg_count, name)
-    return synced, None
+    log.info('Friends sync: %s — received %d rides (%d new, %d changed), %d segments for "%s"',
+             'done' if not err else 'stopped early', len(pull.rides), pull.new, pull.changed, pull.segments, pull.name)
+    return pull.new + pull.changed, err

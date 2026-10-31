@@ -11,7 +11,7 @@
     #mapOverlay {
       position: absolute; top: 1rem; right: 1rem; z-index: 1000;
       display: flex; flex-direction: column; gap: 0.5rem;
-      background: rgba(7,20,33,0.88); border: 1px solid #1e4060;
+      background: color-mix(in srgb, var(--main-bg) 88%, transparent); border: 1px solid var(--border-strong);
       border-radius: 8px; padding: 0.65rem 0.85rem;
       backdrop-filter: blur(6px);
       min-width: 260px;
@@ -21,34 +21,42 @@
     }
     .preset-btn {
       font-size: 0.75rem; padding: 0.2rem 0.55rem;
-      border-radius: 999px; border: 1px solid #1e4060;
+      border-radius: 999px; border: 1px solid var(--border-strong);
       background: transparent; color: var(--text-muted);
       cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s;
       white-space: nowrap;
     }
-    .preset-btn:hover  { background: #0e2437; color: var(--text); }
-    .preset-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .preset-btn:hover  { background: var(--raised-bg); color: var(--text); }
+    .preset-btn.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
     .preset-btn:disabled { opacity: 0.5; cursor: default; }
     .date-input {
-      background: #071525; color: var(--text);
-      border: 1px solid #1e4060; border-radius: 6px;
+      background: var(--field-bg); color: var(--text);
+      border: 1px solid var(--border-strong); border-radius: 6px;
       padding: 0.2rem 0.4rem; font-size: 0.8125rem;
       flex: 1; min-width: 110px;
-      color-scheme: dark;
     }
     .date-input:focus { outline: none; border-color: var(--accent); }
     #rideCount  { font-size: 0.8125rem; color: var(--text-muted); }
-    #loadingMsg { font-size: 0.8125rem; color: #fc4c02; display: none; }
+    #loadingMsg { font-size: 0.8125rem; color: var(--accent); display: none; }
     #exportBtn  {
       margin-left: auto;
       font-size: 0.75rem; padding: 0.2rem 0.65rem;
-      border-radius: 999px; border: 1px solid #1e4060;
+      border-radius: 999px; border: 1px solid var(--border-strong);
       background: transparent; color: var(--text-muted);
       cursor: pointer; transition: background 0.12s, color 0.12s;
       white-space: nowrap;
     }
-    #exportBtn:hover:not(:disabled) { background: #0e2437; color: var(--text); }
+    #exportBtn:hover:not(:disabled) { background: var(--raised-bg); color: var(--text); }
     #exportBtn:disabled { opacity: 0.45; cursor: default; }
+    .overlay-select {
+      width: 100%; box-sizing: border-box; background-color: var(--field-bg); color: var(--text);
+      border: 1px solid var(--border-strong); border-radius: 5px; padding: 0.35rem 0.6rem; font-size: 0.875rem;
+    }
+    .overlay-label { font-size: 0.75rem; color: var(--text-muted); width: 100%; margin-bottom: 0.25rem; }
+    #whoKey { gap: 0.35rem 0.75rem; font-size: 0.8125rem; color: var(--text-muted); }
+    #whoKey span { display: inline-flex; align-items: center; gap: 0.35rem; }
+    #whoKey i { width: 0.65rem; height: 0.65rem; border-radius: 50%; flex-shrink: 0; }
+    #zwiftWorlds { gap: 0.3rem; width: 0; min-width: 100%; }      /* wraps within the panel instead of widening it */
   </style>
 {% endblock %}
 
@@ -56,7 +64,7 @@
 <div style="position:relative;">
   <div id="mapOverlay">
     <!-- Presets -->
-    <div class="overlay-row">
+    <div class="overlay-row" id="datePresets">
       <button class="preset-btn" onclick="applyPreset(this,'all')">All Time</button>
       <button class="preset-btn" onclick="applyPreset(this,'year')">This Year</button>
       <button class="preset-btn" onclick="applyPreset(this,'lastyear')">Last Year</button>
@@ -73,19 +81,47 @@
              min="{{ min_date }}" max="{{ max_date }}"
              onchange="applyCustom()">
     </div>
+    <!-- Whose rides: only once there's someone besides the owner (a friend, or another rider here) -->
+    {% if people | length > 1 %}
+    {% set others = people | rejectattr('isFriend') | rejectattr('isDefault') | list %}
+    {% set friends = people | selectattr('isFriend') | list %}
+    <div class="overlay-row" style="gap: 0.25rem;">
+      <label for="whoFilter" class="overlay-label">Whose</label>
+      <select id="whoFilter" class="overlay-select" onchange="fitNext = true; reload()">
+        <option value="">Mine</option>
+        <option value="all">Everyone together</option>
+        {% if others %}<optgroup label="Riders">{% for p in others %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</optgroup>{% endif %}
+        {% if friends %}<optgroup label="Friends">{% for p in friends %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</optgroup>{% endif %}
+      </select>
+    </div>
+    <div class="overlay-row" id="whoKey" style="display:none;"></div>
+    {% endif %}
     <!-- Sport filter -->
     <div class="overlay-row" style="gap: 0.25rem;">
-      <label style="font-size:0.75rem; color:var(--text-muted); width:100%; margin-bottom:0.25rem;">Sport</label>
-      <select id="sportFilter" onchange="applyCustom()" style="width:100%; box-sizing:border-box; background:#071525; color:var(--text); border:1px solid #1e4060; border-radius:5px; padding:0.35rem 0.6rem; font-size:0.875rem;">
+      <label for="sportFilter" class="overlay-label">Sport</label>
+      <select id="sportFilter" class="overlay-select" onchange="reload()">
         <option value="">All Sports</option>
         {% for st in sport_types %}
         <option value="{{ st.sportType }}">{{ st.sportType }}</option>
         {% endfor %}
       </select>
     </div>
+    {% if has_virtual %}
+    <!-- Zwift and other virtual rides and runs: left out by default, since Watopia and the other made-up worlds are out at sea -->
+    <div class="overlay-row" style="gap: 0.25rem;">
+      <label for="virtualFilter" class="overlay-label">Zwift</label>
+      <select id="virtualFilter" class="overlay-select" onchange="fitNext = true; reload()">
+        <option value="out">Leave out</option>
+        <option value="in">Include</option>
+        <option value="only">Only Zwift</option>
+      </select>
+    </div>
+    <!-- The Zwift worlds on the map, to jump between -->
+    <div class="overlay-row" id="zwiftWorlds" style="display:none;"></div>
+    {% endif %}
     <!-- Map layer -->
     <div class="overlay-row">
-      <button class="preset-btn active" id="layer-dark"     onclick="setLayer('dark',     this)">Dark</button>
+      <button class="preset-btn"        id="layer-dark"     onclick="setLayer('dark',     this)">Dark</button>
       <button class="preset-btn"        id="layer-light"    onclick="setLayer('light',    this)">Light</button>
       <button class="preset-btn"        id="layer-sat"      onclick="setLayer('sat',      this)">Satellite</button>
       <button class="preset-btn"        id="layer-satlabel" onclick="setLayer('satlabel', this)">Sat + Labels</button>
@@ -137,11 +173,86 @@ function setLayer(key, btn) {
 }
 
 var layerGroup = L.layerGroup();
-setLayer('dark', document.getElementById('layer-dark'));
+// Zwift worlds' maps sit above the base map and below the tracks
+map.createPane('zwift').style.zIndex = 350;
+var worldGroup = L.layerGroup().addTo(map);
+var ZWIFT_WORLDS = {{ zwift_worlds | tojson }};
+var ZWIFT_CREDIT = {{ zwift_credit | tojson }};
+var shownWorlds = [];                  // the worlds drawn now, for the HD export
+// Start on the grey map that matches the page, and follow the page when it flips between light and dark (unless on satellite)
+function schemeLayer() { var k = document.documentElement.dataset.scheme === 'light' ? 'light' : 'dark'; setLayer(k, document.getElementById('layer-' + k)); }
+schemeLayer();
+addEventListener('schemechange', function () { if (currentLayerKey === 'dark' || currentLayerKey === 'light') schemeLayer(); });
 layerGroup.addTo(map);
-var initialLoad = true;
+var fitNext = true;                    // zoom to the tracks on the next load: the first, and after switching whose rides are shown
 var currentFrom = '', currentTo = '';
 var currentCount = 0;
+
+// Each person keeps one colour in every view: the owner the accent, everyone else the next data colour along
+var PEOPLE = {{ people | tojson }};
+var PERSON_COLOURS = ['--c-blue', '--c-green', '--c-pink', '--c-yellow', '--c-violet', '--c-teal', '--c-sky', '--c-lime', '--c-purple', '--c-red'];
+var colourVar = {};
+PEOPLE.filter(function (p) { return !p.isDefault; }).forEach(function (p, i) { colourVar[p.id] = PERSON_COLOURS[i % PERSON_COLOURS.length]; });
+function personVar(id) { return colourVar[id] || '--accent'; }
+
+function whoValue() { var w = document.getElementById('whoFilter'); return w ? w.value : ''; }
+
+// The filters on the map now, as /heatmap/data's query string
+function filterParams() {
+  var params = new URLSearchParams();
+  if (currentFrom) params.set('from', currentFrom);
+  if (currentTo)   params.set('to', currentTo);
+  var sport = document.getElementById('sportFilter').value;
+  if (sport) params.set('sport', sport);
+  if (whoValue()) params.set('who', whoValue());
+  params.set('virtual', virtualValue());
+  return params;
+}
+
+function virtualValue() { var v = document.getElementById('virtualFilter'); return v ? v.value : 'out'; }
+
+// Draw each Zwift world that has a track, under the tracks. With real rides on the map too, only the made-up worlds: Zwift's London
+// would cover the real London the other rides are on. Then a button per world (busiest first) to go to it.
+function showWorlds(d) {
+  worldGroup.clearLayers();
+  var counts = {};
+  (d.worlds || []).forEach(function (w) { if (w) counts[w] = (counts[w] || 0) + 1; });
+  var slugs = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; });
+  var realToo = virtualValue() !== 'only';
+  shownWorlds = slugs.map(function (s) { return ZWIFT_WORLDS[s]; }).filter(function (w) { return w && (w.madeUp || !realToo); });
+  shownWorlds.forEach(function (w) {
+    L.imageOverlay(w.url, w.bounds, { pane: 'zwift', attribution: ZWIFT_CREDIT, interactive: false }).addTo(worldGroup);
+  });
+  var row = document.getElementById('zwiftWorlds');
+  if (!row) return slugs;
+  row.innerHTML = '';
+  slugs.forEach(function (s) {
+    var w = ZWIFT_WORLDS[s], b = document.createElement('button');
+    b.className = 'preset-btn';
+    b.textContent = w.name + ' ' + counts[s];
+    b.onclick = function () { map.fitBounds(w.bounds, { padding: [20, 20] }); };
+    row.appendChild(b);
+  });
+  row.style.display = slugs.length ? '' : 'none';
+  return slugs;
+}
+
+// Everyone together: a key of who's who, with each person's count
+function showKey(d) {
+  var key = document.getElementById('whoKey');
+  if (!key) return;
+  var counts = {};
+  d.riders.forEach(function (r) { counts[r] = (counts[r] || 0) + 1; });
+  var shown = whoValue() === 'all' ? PEOPLE.filter(function (p) { return counts[p.id]; }) : [];
+  key.innerHTML = '';
+  shown.forEach(function (p) {
+    var item = document.createElement('span'), dot = document.createElement('i');
+    dot.style.background = 'var(' + personVar(p.id) + ')';
+    item.append(dot, p.name + ' ' + counts[p.id]);
+    key.appendChild(item);
+  });
+  key.style.display = shown.length > 1 ? '' : 'none';
+}
 
 function opacityFor(count) {
   if (count < 30)  return 0.55;
@@ -157,30 +268,27 @@ function loadRange(from, to) {
   document.getElementById('exportBtn').disabled = true;
   currentFrom = from; currentTo = to;
 
-  var params = new URLSearchParams();
-  if (from) params.set('from', from);
-  if (to)   params.set('to', to);
-  var sport = document.getElementById('sportFilter').value;
-  if (sport) params.set('sport', sport);
-
-  fetch('/heatmap/data?' + params.toString())
+  fetch('/heatmap/data?' + filterParams().toString())
     .then(r => r.json())
     .then(function(d) {
       layerGroup.clearLayers();
       var opacity = opacityFor(d.count);
-      var bounds  = [];
+      var bounds  = [];                // where to zoom: the real rides, so Zwift's worlds don't pull the view out to sea
 
-      d.tracks.forEach(function(pts) {
+      d.tracks.forEach(function(pts, i) {
         if (!pts || pts.length < 2) return;
-        L.polyline(pts, { color: '#fc4c02', weight: 2, opacity: opacity, interactive: false })
+        L.polyline(pts, { color: cssVar(personVar(d.riders[i])), weight: 2, opacity: opacity, interactive: false })
          .addTo(layerGroup);
-        pts.forEach(function(p) { bounds.push(p); });
+        if (!d.worlds[i]) pts.forEach(function(p) { bounds.push(p); });
       });
+      var worlds = showWorlds(d);
 
-      if (initialLoad && bounds.length) {
-        map.fitBounds(L.latLngBounds(bounds), { padding: [20, 20] });
-        initialLoad = false;
+      if (fitNext && (bounds.length || worlds.length)) {
+        if (bounds.length) map.fitBounds(L.latLngBounds(bounds), { padding: [20, 20] });
+        else map.fitBounds(ZWIFT_WORLDS[worlds[0]].bounds, { padding: [20, 20] });      // Zwift only: the busiest world
+        fitNext = false;
       }
+      showKey(d);
 
       currentCount = d.count;
       document.getElementById('loadingMsg').style.display = 'none';
@@ -193,8 +301,10 @@ function loadRange(from, to) {
     });
 }
 
+function reload() { loadRange(currentFrom, currentTo); }
+
 function setActive(btn) {
-  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#datePresets .preset-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
 }
 
@@ -276,17 +386,26 @@ function exportHD() {
     }));
   });
 
-  // Fetch HD track data
-  var params = new URLSearchParams();
-  if (currentFrom) params.set('from', currentFrom);
-  if (currentTo)   params.set('to', currentTo);
+  // Fetch HD track data, under the same filters as the map
+  var params = filterParams();
   params.set('hd', '1');
   var trackPromise = fetch('/heatmap/data?' + params.toString()).then(r => r.json());
 
-  Promise.all([trackPromise, Promise.all(tileLayerPromises)])
+  // Zwift worlds' maps, through the server (Zwift's CDN sends no CORS headers, so the canvas couldn't be saved)
+  var worldPromise = Promise.all(shownWorlds.map(function(w) {
+    return new Promise(function(resolve) {
+      var img = new Image();
+      img.onload  = function() { resolve({ img: img, bounds: w.bounds }); };
+      img.onerror = function() { resolve(null); };
+      img.src = w.url;
+    });
+  }));
+
+  Promise.all([trackPromise, Promise.all(tileLayerPromises), worldPromise])
     .then(function(results) {
       var trackData      = results[0];
       var tileLayerSets  = results[1];
+      var worldImages    = results[2];
 
       btn.textContent = '⏳ Rendering…';
       setTimeout(function() {
@@ -295,7 +414,7 @@ function exportHD() {
         var ctx = canvas.getContext('2d');
 
         // Dark background (shows behind any missing tiles)
-        ctx.fillStyle = '#050d18';
+        ctx.fillStyle = cssVar('--sidebar-bg');
         ctx.fillRect(0, 0, W, H);
 
         // Draw map tile layers in order (base first, then overlays)
@@ -309,22 +428,30 @@ function exportHD() {
           });
         });
 
+        function project(lat, lng) {
+          var pt = map.latLngToContainerPoint(L.latLng(lat, lng));
+          return [pt.x * scaleX, pt.y * scaleY];
+        }
+
+        // Zwift worlds over the tiles: [[south, west], [north, east]] -> the north-west and south-east corners
+        worldImages.forEach(function(w) {
+          if (!w) return;
+          var nw = project(w.bounds[1][0], w.bounds[0][1]), se = project(w.bounds[0][0], w.bounds[1][1]);
+          ctx.drawImage(w.img, nw[0], nw[1], se[0] - nw[0], se[1] - nw[1]);
+        });
+
         // Draw routes on top — alpha accumulates so busy segments glow
         if (trackData.tracks.length) {
-          function project(lat, lng) {
-            var pt = map.latLngToContainerPoint(L.latLng(lat, lng));
-            return [pt.x * scaleX, pt.y * scaleY];
-          }
 
           var alpha = Math.max(0.12, 4.0 / Math.max(trackData.tracks.length, 1));
-          ctx.strokeStyle = '#fc4c02';
           ctx.lineWidth   = 1.8;
           ctx.lineCap     = 'round';
           ctx.lineJoin    = 'round';
           ctx.globalAlpha = alpha;
 
-          trackData.tracks.forEach(function(pts) {
+          trackData.tracks.forEach(function(pts, i) {
             if (pts.length < 2) return;
+            ctx.strokeStyle = cssVar(personVar(trackData.riders[i]));
             ctx.beginPath();
             var p0 = project(pts[0][0], pts[0][1]);
             ctx.moveTo(p0[0], p0[1]);
@@ -342,8 +469,10 @@ function exportHD() {
           var label = (currentFrom && currentTo)
             ? currentFrom + '_' + currentTo
             : (currentFrom || currentTo || 'all-time');
+          var whoSel = document.getElementById('whoFilter');
+          var whose  = whoSel && whoSel.value ? whoSel.options[whoSel.selectedIndex].text.replace(/[^\w-]+/g, '-').toLowerCase() + '_' : '';
           a.href     = url;
-          a.download = 'heatmap_' + label + '.png';
+          a.download = 'heatmap_' + whose + label + '.png';
           a.click();
           setTimeout(function() { URL.revokeObjectURL(url); }, 2000);
           btn.disabled = false;
@@ -360,6 +489,6 @@ function exportHD() {
 }
 
 // Default: this year
-applyPreset(document.querySelector('.preset-btn:nth-child(2)'), 'year');
+applyPreset(document.querySelector('#datePresets .preset-btn:nth-child(2)'), 'year');
 </script>
 {% endblock %}

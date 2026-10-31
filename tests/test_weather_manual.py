@@ -21,16 +21,16 @@ def db(tmp_path):
         yield d
 
 
-def ride(db, rid='r1', lat=None, lng=None, track=True, summary=None, code=None):
+def ride(db, rid='r1', lat=None, lng=None, track=True, summary=None, code=None, sport='Ride'):
     streams = json.dumps({'latlng': {'data': [[51.5, -0.12], [51.51, -0.13]]}}) if track else None
     db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,averageSpeed,startLat,startLng,streams,rawData,riderId,weatherSummary,weatherCode,createdAt,updatedAt)"
                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,datetime('now'),datetime('now'))",
-               [rid, 'x', 'Ride', 'Ride', '2020-01-05T10:00:00', '2020-01-05T10:00:00', 10000, 1800, 1800, 5.0, lat, lng, streams, '{}', summary, code])
+               [rid, 'x', sport, sport, '2020-01-05T10:00:00', '2020-01-05T10:00:00', 10000, 1800, 1800, 5.0, lat, lng, streams, '{}', summary, code])
     db.commit()
 
 
 def fake(code=3):
-    return lambda lat, lng, when, streams=None: {'weatherTempC': 1.0, 'weatherWindKph': 10.0, 'weatherGustKph': 20.0, 'weatherWindDir': 200, 'weatherHumidity': 80,
+    return lambda lat, lng, when, streams=None, sport=None: {'weatherTempC': 1.0, 'weatherWindKph': 10.0, 'weatherGustKph': 20.0, 'weatherWindDir': 200, 'weatherHumidity': 80,
                                                  'weatherRainMm': 0.0, 'weatherCode': code, 'weatherSummary': weather._WMO[code].capitalize() + ', 1°C, wind 10kph', 'weatherWindRel': 'calm'}
 
 
@@ -55,9 +55,30 @@ def test_backfill_reaches_rides_with_only_a_track_and_fills_the_start_point(db, 
     assert r['weatherCode'] == 73 and 'snow' in r['weatherSummary'].lower() and r['startLat'] == 51.5
 
 
+def test_a_virtual_ride_gets_no_weather(db, monkeypatch):
+    # Zwift's Watopia sits on open sea near the Solomon Islands: its weather is never the rider's
+    assert weather.fetch_weather(-11.63, 166.97, '2026-10-17T17:00:19', sport='VirtualRide') is None
+    asked = []
+    monkeypatch.setattr(weather, 'fetch_weather', lambda *a, **k: asked.append(a) or None)
+    weather._FAILED.clear()
+    ride(db, 'z', lat=-11.63, lng=166.97, sport='VirtualRide')
+    assert weather.backfill_missing(db, pause=0) == (0, 0) and asked == []
+
+
+def test_weather_already_on_a_virtual_ride_is_cleared_at_startup(db):
+    ride(db, 'z', lat=-11.63, lng=166.97, sport='VirtualRide', summary='Overcast, 26°C, wind 17kph', code=3)
+    ride(db, 'r', lat=51.5, lng=-0.12, summary='Overcast, 9°C, wind 10kph', code=3)
+    db.execute("UPDATE Activity SET weatherTempC=26.4 WHERE id='z'")
+    db.commit()
+    database.migrate_db()
+    rows = {r['id']: r for r in db.execute("SELECT id, weatherSummary, weatherTempC, weatherCode FROM Activity").fetchall()}
+    assert rows['z']['weatherSummary'] is None and rows['z']['weatherTempC'] is None and rows['z']['weatherCode'] is None
+    assert rows['r']['weatherSummary'] == 'Overcast, 9°C, wind 10kph'
+
+
 def test_a_ride_with_no_weather_data_does_not_block_the_queue(db, monkeypatch):
     calls = []
-    def f(lat, lng, when, streams=None):
+    def f(lat, lng, when, streams=None, sport=None):
         calls.append(when)
         return None
     monkeypatch.setattr(weather, 'fetch_weather', f)

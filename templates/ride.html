@@ -3,6 +3,8 @@
 {% block title %}{{ activity.name }}{% endblock %}
 {% block page_title %}{{ activity.sportType | sport_icon }} {{ activity.name }}<span style="font-size:0.875rem;font-weight:400;color:var(--text-muted);margin-left:0.6rem;">{{ activity.startDateLocal | fmt_date }}</span>{% endblock %}
 
+{# Back to the list this was opened from, filters and all (routes/dashboard.remember_list); the plain list for the sport when there's none yet. #}
+{% block parent %}{% set back = session.get('list_back') %}{% if back %}<a href="{{ back.url }}">{{ back.label }}</a>{% elif is_workout %}<a href="{{ url_for('workouts_ui.workouts_page') }}">Workouts</a>{% else %}<a href="{{ url_for('dashboard.activities_page') }}">Activities</a>{% endif %}{% endblock %}
 {% block topbar_actions %}
   {% if activity.riderName %}
     <a href="{{ url_for('riders.detail', rid=activity.riderId) }}" title="{{ activity.riderName }}" style="display:inline-flex;align-items:center;text-decoration:none;">
@@ -23,20 +25,29 @@
     </a>
   {% endfor %}
   {% if prev_ride %}
-    <a href="{{ url_for('rides.detail', rid=prev_ride.id) }}" class="btn btn-secondary" title="{{ prev_ride.name }}">‹ Prev</a>
+    <a href="{{ url_for('rides.detail', rid=prev_ride.id) }}" class="btn btn-secondary" title="{{ prev_ride.name }}" aria-label="Previous activity">‹<span class="wide-only"> Prev</span></a>
   {% else %}
-    <span class="btn btn-secondary" style="opacity:0.3;cursor:default;">‹ Prev</span>
+    <span class="btn btn-secondary" style="opacity:0.3;cursor:default;">‹<span class="wide-only"> Prev</span></span>
   {% endif %}
   {% if next_ride %}
-    <a href="{{ url_for('rides.detail', rid=next_ride.id) }}" class="btn btn-secondary" title="{{ next_ride.name }}">Next ›</a>
+    <a href="{{ url_for('rides.detail', rid=next_ride.id) }}" class="btn btn-secondary" title="{{ next_ride.name }}" aria-label="Next activity"><span class="wide-only">Next </span>›</a>
   {% else %}
-    <span class="btn btn-secondary" style="opacity:0.3;cursor:default;">Next ›</span>
+    <span class="btn btn-secondary" style="opacity:0.3;cursor:default;"><span class="wide-only">Next </span>›</span>
   {% endif %}
-  {% if not is_workout %}<a href="{{ url_for('rides.export_gpx', rid=activity.id) }}" class="btn btn-secondary" title="Download GPX">GPX</a>{% endif %}
-  <a href="{{ url_for('workouts_ui.workouts_page') if is_workout else url_for('dashboard.dashboard') }}" class="btn btn-secondary">← Back</a>
-  <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=activity.id) if is_workout else url_for('rides.delete', rid=activity.id) }}" style="display:inline;" onsubmit="return confirm('Delete this activity? This cannot be undone.')">
-    <button type="submit" class="btn" style="background:var(--danger,#ef4444);color:#fff;border:none;">Delete</button>
-  </form>
+  {% if not is_workout or source_links or not friend %}
+  <details class="more-menu">
+    <summary class="btn btn-secondary" title="More" aria-label="More actions">⋯</summary>
+    <div class="more-menu-list">
+      {% if not is_workout %}<a href="{{ url_for('rides.export_gpx', rid=activity.id) }}">Download GPX</a>{% endif %}
+      {% for l in source_links %}<a href="{{ l.url }}" target="_blank" rel="noopener">Open on {{ l.name }} ↗</a>{% endfor %}
+      {% if not friend %}
+      <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=activity.id) if is_workout else url_for('rides.delete', rid=activity.id) }}" onsubmit="return confirm('{{ 'Delete this activity? Its photos and notes go with it. This cannot be undone.' if is_workout else 'Delete this activity? Its photos, notes and segment times go with it, and a later sync or import will not bring it back. This cannot be undone.' }}')">
+        <button type="submit" class="danger">Delete</button>
+      </form>
+      {% endif %}
+    </div>
+  </details>
+  {% endif %}
 {% endblock %}
 
 {% block head %}
@@ -49,29 +60,54 @@
 
 {% block content %}
 
-{% if not is_workout and activity.flagReason and not activity.flagDismissed %}
-<div class="card" id="flagBanner" style="margin-bottom:1rem; padding:0.8rem 1rem; border-color:#b45309; background:rgba(180,83,9,0.12);">
-  <div style="font-weight:600; margin-bottom:0.25rem;">This ride looks wrong</div>
-  <div style="font-size:0.875rem; color:var(--text-muted); line-height:1.5;">{{ activity.flagReason }}. It is left out of the speed and weather analytics until you decide.</div>
+{% if not friend and activity.flagReason and not activity.flagDismissed %}
+<div class="card" id="flagBanner" style="margin-bottom:1rem; padding:0.8rem 1rem; border-color:var(--warning-line); background:var(--warning-soft);">
+  <div style="font-weight:600; margin-bottom:0.25rem;">This {{ 'activity' if is_workout else 'ride' }} looks wrong</div>
+  <div class="hint">{{ activity.flagReason }}. It is left out of the speed and weather analytics until you decide.</div>
   <div style="margin-top:0.6rem; display:flex; gap:0.6rem; flex-wrap:wrap;">
+    {% if elapsed_fix %}<button class="btn btn-secondary" onclick="useElapsedTime()"
+      title="The file's timestamps are broken; start to finish gives {{ (activity.distance / elapsed_fix) | fmt_rate(activity.sportType) }}">Use the elapsed time ({{ elapsed_fix | fmt_duration }})</button>{% endif %}
     <button class="btn btn-secondary" onclick="dismissFlag()">It's right, keep it</button>
-    <form method="POST" action="/rides/{{ activity.id }}/delete" onsubmit="return confirm('Delete this ride? This cannot be undone.')" style="margin:0;"><button class="btn btn-secondary" type="submit">Delete the ride</button></form>
+    <form method="POST" action="/rides/{{ activity.id }}/delete" onsubmit="return confirm('Delete this activity? Its photos, notes and segment times go with it, and a later sync or import will not bring it back. This cannot be undone.')" style="margin:0;"><button class="btn btn-danger-quiet" type="submit">Delete the {{ 'activity' if is_workout else 'ride' }}</button></form>
   </div>
 </div>
 {% endif %}
 
+{% if friend %}
+<div class="card" style="margin-bottom:1rem;padding:.7rem 1rem;" id="friendCard">
+  <strong>{{ friend.name }}'s {{ 'ride' if is_ride else 'activity' }}</strong>, synced from <a href="{{ url_for('friends.index') }}">their instance</a> on
+  {{ (activity.updatedAt or activity.createdAt) | fmt_when }}.
+  <span class="hint">It's shown as they recorded it: changes are made there and arrive with the next sync.</span>
+</div>
+{% else %}
 <div class="card" style="margin-bottom:1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;padding:.7rem 1rem;" id="typeCard">
   <span style="color:var(--text-muted);font-size:.78rem;letter-spacing:.07em;text-transform:uppercase;font-weight:700;">Activity type</span>
   <form method="POST" action="{{ url_for('workouts_ui.workouts_sport', wid=activity.id) if is_workout else url_for('rides.change_sport', rid=activity.id) }}" style="margin:0;"
         id="typeForm" data-current="{{ activity.sportType }}">
     <select name="sport" id="typeSelect" aria-label="What kind of activity was this?" onchange="typeChanged(this)">
       {% if activity.sportType not in sports %}<option value="" selected>{{ activity.sportType or 'Not set' }}</option>{% endif %}
-      {% for sp in sports %}<option value="{{ sp }}" {{ 'selected' if activity.sportType == sp }}>{{ 'Indoor ride' if sp == 'VirtualRide' else sp }}</option>{% endfor %}
+      {% for sp in sports %}<option value="{{ sp }}" {{ 'selected' if activity.sportType == sp }}>{{ sp | sport_label }}</option>{% endfor %}
     </select>
   </form>
   <span style="color:var(--text-muted);font-size:.8rem;">Recorded as the wrong thing? Pick the right type. A walk, run or hike moves to Workouts; a ride moves back to your rides.</span>
+  <label class="check" style="margin:0 0 0 auto;">
+    <input type="checkbox" id="commuteBox" {{ 'checked' if activity.commute == 1 }} onchange="saveCommute(this)"> Commute
+    <span id="commuteSaved" style="font-size:.78rem;color:var(--text-muted);display:none;">Saved</span>
+  </label>
 </div>
 <script>
+function saveCommute(box) {
+  fetch('/rides/{{ activity.id }}/commute', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'commute=' + (box.checked ? '1' : '0')
+  }).then(function(r) {
+    if (r.status !== 204) { box.checked = !box.checked; return; }
+    var s = document.getElementById('commuteSaved');
+    s.style.display = 'inline';
+    setTimeout(function() { s.style.display = 'none'; }, 1500);
+  }).catch(function() { box.checked = !box.checked; });
+}
 function typeChanged(sel) {
   var f = sel.form, cur = f.getAttribute('data-current');
   if (!sel.value || sel.value === cur) { sel.value = cur; return; }
@@ -81,79 +117,181 @@ function typeChanged(sel) {
   else sel.value = cur;
 }
 </script>
+{% endif %}
 
-{% if is_ride and (gear_bikes or activity.riderId) %}
+{% if is_ride and not friend and (gear_bikes or activity.riderId) %}
 <div class="card" style="margin-bottom:1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;padding:.7rem 1rem;">
   <span style="color:var(--text-muted);font-size:.78rem;letter-spacing:.07em;text-transform:uppercase;font-weight:700;">Bike</span>
   {% if gear_bikes %}
   <form method="POST" action="{{ url_for('gear.ride_bike', rid=activity.id) }}" style="margin:0;">
     <select name="bike" onchange="this.form.submit()" aria-label="Which bike did you ride?">
       <option value="" {{ 'selected' if not activity.bikeId }}>No bike chosen</option>
-      {% for b in gear_bikes %}<option value="{{ b.id }}" {{ 'selected' if activity.bikeId == b.id }}>{{ b.name }}</option>{% endfor %}
+      {% for b in gear_bikes %}<option value="{{ b.id }}" {{ 'selected' if activity.bikeId == b.id }}>{{ b.name }}{{ ' (retired)' if b.archived }}</option>{% endfor %}
     </select>
   </form>
-  {% if activity.bikeId %}<a class="btn btn-secondary btn-sm" style="padding:.25rem .6rem;font-size:.78rem;" href="{{ url_for('gear.bike', bike_id=activity.bikeId) }}">Open bike</a>{% endif %}
+  {% if activity.bikeId %}<a class="btn btn-secondary btn-sm" href="{{ url_for('gear.bike', bike_id=activity.bikeId) }}">Open bike</a>{% endif %}
   {% else %}
   <a href="{{ url_for('gear.bike_form', rider=activity.riderId) }}">Add a bike</a><span style="color:var(--text-muted);font-size:.85rem;">to track which bike rode this and how worn its parts are.</span>
   {% endif %}
-  {% if gear_error %}<span style="color:#fecaca;">{{ gear_error }}</span>{% endif %}
+  {% if gear_error %}<span style="color:var(--danger-text);">{{ gear_error }}</span>{% endif %}
+</div>
+{% endif %}
+
+{% if not is_ride and not friend and activity.riderId %}
+<div class="card" style="margin-bottom:1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;padding:.7rem 1rem;" id="kitCard">
+  <span style="color:var(--text-muted);font-size:.78rem;letter-spacing:.07em;text-transform:uppercase;font-weight:700;">Gear</span>
+  {% if kit_items %}
+  <form method="POST" action="{{ url_for('gear.activity_kit', rid=activity.id) }}" style="margin:0;">
+    <select name="kit" onchange="this.form.submit()" aria-label="Which shoes or other gear?">
+      <option value="" {{ 'selected' if not activity.kitId }}>None</option>
+      {% for k in kit_items %}<option value="{{ k.id }}" {{ 'selected' if activity.kitId == k.id }}>{{ k.name }}{{ ' (retired)' if k.retiredOn }}</option>{% endfor %}
+    </select>
+  </form>
+  {% if activity.kitId %}<a class="btn btn-secondary btn-sm" href="{{ url_for('gear.kit_page', kit_id=activity.kitId) }}">Open</a>{% endif %}
+  {% else %}
+  <a href="{{ url_for('gear.kit_form', rider=activity.riderId) }}">Add shoes or other gear</a><span style="color:var(--text-muted);font-size:.85rem;">to track how far they've gone and when they're due for replacing.</span>
+  {% endif %}
+  {% if gear_error %}<span style="color:var(--danger-text);">{{ gear_error }}</span>{% endif %}
+</div>
+{% endif %}
+
+{% if garmin_change %}{% set gc = garmin_change %}
+<div class="card" style="margin-bottom:1.25rem;border-color:var(--accent);">
+  {% if gc.kind == 'deleted' %}
+  <div style="font-weight:600;margin-bottom:.35rem;">This activity was deleted in Garmin Connect</div>
+  <div style="color:var(--text-muted);font-size:.9rem;margin-bottom:.75rem;">It's still here. Keep it, or delete it here too: its notes, photos and segment times go with it.</div>
+  {% else %}
+  <div style="font-weight:600;margin-bottom:.35rem;">This activity was changed in Garmin Connect</div>
+  <div style="color:var(--text-muted);font-size:.9rem;margin-bottom:.75rem;">
+    {% for d in gc.diffs %}{{ 'Name' if d.field == 'name' else 'Sport' }}: {{ d.old if d.field == 'name' else d.old | sport_label }} → <strong style="color:var(--text);">{{ d.new if d.field == 'name' else d.new | sport_label }}</strong>{% if not loop.last %}<br>{% endif %}{% endfor %}</div>
+  {% endif %}
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+    {% for choice, label in ((('delete', 'Delete it here too'), ('keep', 'Keep it')) if gc.kind == 'deleted' else (('garmin', "Use Garmin's"), ('keep', 'Keep as it is here'))) %}
+    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=activity.id, choice=choice) }}"{% if choice == 'delete' %} onsubmit="return confirm('Delete this activity here too? Its notes, photos and segment times go with it.')"{% endif %}>
+      <input type="hidden" name="back" value="ride"><button class="btn btn-secondary" type="submit">{{ label }}</button></form>
+    {% endfor %}
+  </div>
 </div>
 {% endif %}
 
 {% if dups %}
-<div class="card" style="margin-bottom:1.25rem;border-color:var(--accent,#fc4c02);">
+<div class="card" style="margin-bottom:1.25rem;border-color:var(--accent);">
   <div style="font-weight:600;margin-bottom:.35rem;">This ride was also recorded by another device</div>
   {% for d in dups %}
   <div style="margin:.5rem 0 .75rem;color:var(--text-muted);font-size:.9rem;">
     <strong style="color:var(--text);">{{ d.source }}</strong> &middot; {{ d.start | fmt_date }} &middot; {{ d.distance | fmt_dist }} &middot; {{ d.moving | fmt_duration }}{% if d.hr %} &middot; avg HR {{ d.hr | round | int }}{% endif %}{% if d.watts %} &middot; {{ d.watts | round | int }} W{% endif %}
     <div>{{ d.reason }} The other recording is saved, not deleted.</div>
   </div>
+  {% if d.gear %}{% set g = d.gear %}
+  <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:-.25rem 0 .75rem;padding:.5rem .75rem;border:1px solid var(--warning-line);background:var(--warning-soft);border-radius:8px;font-size:.9rem;">
+    <span style="flex:1 1 16rem;"><strong>Different {{ 'bike' if g.ride else 'gear' }}:</strong> this {{ 'ride' if g.ride else 'activity' }} is on <strong>{{ g.kept.name }}</strong>,
+      the other recording on <strong>{{ g.other.name }}</strong>{% if g.fromStrava %} (its Strava export says){% endif %}. Check which is right.</span>
+    {% for choice, label in (('other', 'Use ' ~ g.other.name), ('kept', g.kept.name ~ ' is right')) %}
+    <form method="POST" action="{{ url_for('gear.merged_save', dup_id=d.id, choice=choice) }}" style="margin:0;">
+      <input type="hidden" name="back" value="{{ url_for('rides.detail', rid=activity.id) }}"><button class="btn btn-secondary btn-sm" type="submit">{{ label }}</button></form>
+    {% endfor %}
+  </div>
+  {% endif %}
   <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem;">
+    <a class="btn btn-secondary" href="{{ url_for('rides.view_duplicate', rid=activity.id, dup_id=d.id) }}">View</a>
+    <a class="btn btn-secondary" href="{{ url_for('rides.view_duplicate', rid=activity.id, dup_id=d.id, compare=1) }}">Compare side by side</a>
     <form method="POST" action="{{ url_for('rides.resolve_duplicate', rid=activity.id, dup_id=d.id, action='swap') }}"><button class="btn btn-secondary" type="submit">Use that recording instead</button></form>
     <form method="POST" action="{{ url_for('rides.resolve_duplicate', rid=activity.id, dup_id=d.id, action='keep') }}"><button class="btn btn-secondary" type="submit">They are different rides - keep both</button></form>
-    <form method="POST" action="{{ url_for('rides.resolve_duplicate', rid=activity.id, dup_id=d.id, action='discard') }}" onsubmit="return confirm('Delete the other recording for good?')"><button class="btn btn-secondary" type="submit">Delete the other recording</button></form>
+    <form method="POST" action="{{ url_for('rides.resolve_duplicate', rid=activity.id, dup_id=d.id, action='discard') }}" onsubmit="return confirm('Delete the other recording for good? This activity stays as it is. This cannot be undone.')"><button class="btn btn-danger-quiet" type="submit">Delete the other recording</button></form>
   </div>
   {% endfor %}
 </div>
 {% endif %}
 
-<!-- Stats grid -->
+<!-- Stats grid: what fits the sport (services/activity_detail.view): pace on foot and in the pool, runs and vertical on a ski day, no climb on the water -->
+{% set pl = detail.pool %}{% set ski = detail.ski %}
+{% set moved = activity.distance and activity.distance > 0 %}{# yoga, weights, a session with no distance: no distance, speed or climb to show #}
 <div class="stats-grid" style="margin-bottom:1.5rem;">
 
+  {% if moved %}
   <div class="stat-card">
-    <div class="stat-value">{{ activity.distance | fmt_dist }}</div>
+    <div class="stat-value">{% if pl %}{{ '{:,}'.format(pl.dist_m | int) }} m{% else %}{{ activity.distance | fmt_dist }}{% endif %}</div>
     <div class="stat-label">Distance</div>
-    {% if activity.distance and activity.movingTime %}
-      {% set pace_secs = (activity.movingTime / (activity.distance / 1609.344)) | int %}
-      {% set pace_m = pace_secs // 60 %}
-      {% set pace_s = pace_secs % 60 %}
-      <div class="stat-sub">{{ pace_m }}:{% if pace_s < 10 %}0{% endif %}{{ pace_s }} /mi pace</div>
-    {% endif %}
+    {% if pl %}<div class="stat-sub">{{ pl.lengths }} &times; {{ pl.pool_m | round(2) | replace('.0', '') }} m pool{% if pl.pool_unit == 'yd' %} ({{ (pl.pool_m / 0.9144) | round | int }} yd){% endif %}</div>{% endif %}
   </div>
+  {% endif %}
 
   <div class="stat-card">
     <div class="stat-value">{{ activity.movingTime | fmt_duration }}</div>
     <div class="stat-label">Moving Time</div>
     {% if activity.elapsedTime and activity.elapsedTime != activity.movingTime %}
       <div class="stat-sub">{{ activity.elapsedTime | fmt_duration }} elapsed</div>
+    {% elif file_moving is not none %}
+      <div class="stat-sub" title="The file's timestamps were broken, so the time from start to finish is used">Elapsed time: the file said {{ file_moving | fmt_duration }}</div>
     {% endif %}
   </div>
 
+  {% if view == 'foot' %}
   <div class="stat-card">
-    <div class="stat-value">{{ activity.averageSpeed | fmt_speed }}</div>
+    <div class="stat-value">{{ avg_mps | fmt_pace }}</div>
+    <div class="stat-label">Avg Pace</div>
+    {% if detail.best_split %}<div class="stat-sub">{{ detail.best_split.mps | fmt_pace }} fastest {{ U.dist }}</div>{% endif %}
+  </div>
+  {% elif view == 'swim' %}
+  <div class="stat-card">
+    <div class="stat-value">{{ ((pl.dist_m / pl.secs) if pl and pl.secs else avg_mps) | fmt_swim_pace }}</div>
+    <div class="stat-label">Avg Pace</div>
+    {% if pl and pl.rest_secs %}<div class="stat-sub">{{ pl.secs | fmt_duration }} swimming, {{ pl.rest_secs | fmt_duration }} rest</div>{% endif %}
+  </div>
+  {% elif view == 'ski' and ski %}
+  <div class="stat-card">
+    <div class="stat-value">{{ ski.runs | length }}</div>
+    <div class="stat-label">Runs</div>
+    <div class="stat-sub">longest {{ ski.longest_m | fmt_dist }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ ski.top_mps | fmt_speed if ski.top_mps else activity.maxSpeed | fmt_speed }}</div>
+    <div class="stat-label">Top Speed</div>
+    <div class="stat-sub">{{ ski.run_secs | fmt_duration }} skiing, {{ ski.lift_secs | fmt_duration }} going up</div>
+  </div>
+  {% elif moved %}
+  <div class="stat-card">
+    <div class="stat-value">{{ avg_mps | fmt_speed }}</div>
     <div class="stat-label">Avg Speed</div>
     {% if activity.maxSpeed %}
       <div class="stat-sub">{{ activity.maxSpeed | fmt_speed }} max</div>
     {% endif %}
   </div>
+  {% endif %}
 
+  {% if view == 'ski' %}
+  <div class="stat-card">
+    <div class="stat-value">{{ (ski.drop_m if ski else elev_loss_m) | fmt_elev }}</div>
+    <div class="stat-label">Vertical Descent</div>
+    {% if activity.totalElevationGain %}<div class="stat-sub">&uarr; {{ activity.totalElevationGain | fmt_elev }} up, mostly lifts</div>{% endif %}
+  </div>
+  {% elif has_climbing and (moved or activity.totalElevationGain) %}
   <div class="stat-card">
     <div class="stat-value">{{ activity.totalElevationGain | fmt_elev }}</div>
     <div class="stat-label">Elevation Gain</div>
-    {% if elev_loss_ft %}
-      <div class="stat-sub">↓ {{ elev_loss_ft | int }} ft loss</div>
+    {% if file_climb is not none %}
+      <div class="stat-sub" title="The device's altitude readings can't be real, so Strava's own figure from the export is used">Strava's figure: the file said {{ file_climb | fmt_elev }}</div>
+    {% endif %}
+    {% if elev_loss_m %}
+      <div class="stat-sub">↓ {{ elev_loss_m | fmt_elev }} loss</div>
     {% endif %}
   </div>
+  {% endif %}
+
+  {% if pl and pl.swolf %}
+  <div class="stat-card">
+    <div class="stat-value">{{ pl.swolf }}</div>
+    <div class="stat-label">Avg SWOLF</div>
+    <div class="stat-sub">{{ '{:,}'.format(pl.strokes) }} strokes, {{ (pl.strokes / pl.lengths) | round(1) }} a length</div>
+  </div>
+  {% endif %}
+
+  {% if activity.steps %}
+  <div class="stat-card">
+    <div class="stat-value">{{ '{:,}'.format(activity.steps) }}</div>
+    <div class="stat-label">Steps</div>
+  </div>
+  {% endif %}
 
   {% if activity.averageHeartrate %}
   <div class="stat-card">
@@ -175,7 +313,7 @@ function typeChanged(sel) {
   </div>
   {% endif %}
 
-  {% if activity.weightedAvgWatts %}
+  {% if activity.weightedAvgWatts and is_ride %}
   <div class="stat-card">
     <div class="stat-value">{{ activity.weightedAvgWatts | int }} W</div>
     <div class="stat-label">Weighted Avg Power</div>
@@ -187,8 +325,16 @@ function typeChanged(sel) {
 
   {% if activity.averageCadence %}
   <div class="stat-card">
+    {% if view == 'foot' %}
+    <div class="stat-value">{{ (activity.averageCadence * 2) | int }} spm</div>
+    <div class="stat-label">Avg Cadence</div>
+    {% elif view in ('swim', 'water') %}
+    <div class="stat-value">{{ activity.averageCadence | int }} spm</div>
+    <div class="stat-label">Stroke Rate</div>
+    {% else %}
     <div class="stat-value">{{ activity.averageCadence | int }} rpm</div>
     <div class="stat-label">Avg Cadence</div>
+    {% endif %}
   </div>
   {% endif %}
 
@@ -237,17 +383,17 @@ function typeChanged(sel) {
 </div>
 
 <!-- Weather -->
-{% if activity.weatherSummary or not is_workout %}
+{% if (activity.weatherSummary or not is_workout) and not is_virtual %}{# a virtual ride had no weather: its track is in a Zwift world #}
 <div class="card" style="margin-bottom:1.5rem; padding:1rem 1.25rem;" id="weatherCard">
-  <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); font-weight:600; margin-bottom:0.75rem;">Weather at ride start</div>
-  {% if not activity.weatherSummary %}<div style="color:var(--text-muted); font-size:0.875rem; margin-bottom:0.5rem;">No weather was recorded for this ride{% if not is_workout %}; pick the conditions below and it will count in your analytics.{% endif %}</div>{% endif %}
+  <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); font-weight:600; margin-bottom:0.75rem;">Weather at the start</div>
+  {% if not activity.weatherSummary %}<div class="hint" style="margin-bottom:0.5rem;">No weather was recorded for this {{ 'ride' if is_ride else 'activity' }}{% if not is_workout and not friend %}; pick the conditions below and it will count in your analytics.{% endif %}</div>{% endif %}
   <div style="display:flex; flex-wrap:wrap; gap:2rem; align-items:flex-start;">
 
     {% if activity.weatherTempC is not none %}
     <div>
       <div style="font-size:1.5rem; font-weight:700; color:var(--text); line-height:1;">{{ activity.weatherTempC | int }}°C</div>
       {% if activity.weatherCode is not none %}
-      <div style="font-size:0.8125rem; color:var(--text-muted); margin-top:0.25rem;">{{ activity.weatherCode | wmo_label }}</div>
+      <div class="hint" style="margin-top:0.25rem;">{{ activity.weatherCode | wmo_label }}</div>
       {% endif %}
     </div>
     {% endif %}
@@ -260,45 +406,49 @@ function typeChanged(sel) {
         <span style="font-size:0.8125rem; color:var(--text-muted); font-weight:400;">· gusts {{ activity.weatherGustKph | int }}</span>
         {% endif %}
       </div>
+      {% if view in ('ride', 'foot') %}{# into the wind or with it: a sail, a kite or a paddle goes every way the wind allows #}
       <div style="margin-top:0.35rem;">
         {% if activity.weatherWindRel == 'headwind' %}
-          <span style="font-size:0.75rem; padding:0.15rem 0.45rem; border-radius:3px; font-weight:600; background:#7f1d1d; color:#fca5a5;">Headwind</span>
+          <span style="font-size:0.75rem; padding:0.15rem 0.45rem; border-radius:3px; font-weight:600; background:var(--danger-soft); color:var(--danger-text);">Headwind</span>
         {% elif activity.weatherWindRel == 'tailwind' %}
-          <span style="font-size:0.75rem; padding:0.15rem 0.45rem; border-radius:3px; font-weight:600; background:#14532d; color:#86efac;">Tailwind</span>
+          <span style="font-size:0.75rem; padding:0.15rem 0.45rem; border-radius:3px; font-weight:600; background:var(--success-soft); color:var(--success-text);">Tailwind</span>
         {% elif activity.weatherWindRel == 'crosswind' %}
-          <span style="font-size:0.75rem; padding:0.15rem 0.45rem; border-radius:3px; font-weight:600; background:#1e3a8a; color:#93c5fd;">Crosswind</span>
+          <span style="font-size:0.75rem; padding:0.15rem 0.45rem; border-radius:3px; font-weight:600; background:var(--info-soft); color:var(--info-text);">Crosswind</span>
         {% elif activity.weatherWindRel == 'mixed' %}
-          <span style="font-size:0.75rem; padding:0.15rem 0.45rem; border-radius:3px; font-weight:600; background:#3f3f46; color:#d4d4d8;" title="A loop: headwind on some stretches, tailwind on others">Mixed</span>
+          <span style="font-size:0.75rem; padding:0.15rem 0.45rem; border-radius:3px; font-weight:600; background:var(--raised-bg); color:var(--text);" title="A loop: headwind on some stretches, tailwind on others">Mixed</span>
         {% else %}
           <span style="font-size:0.8125rem; color:var(--text-muted);">Calm</span>
         {% endif %}
       </div>
+      {% endif %}
     </div>
     {% endif %}
 
     {% if activity.weatherHumidity is not none %}
     <div>
       <div style="font-size:1.25rem; font-weight:700; color:var(--text); line-height:1;">{{ activity.weatherHumidity }}%</div>
-      <div style="font-size:0.8125rem; color:var(--text-muted); margin-top:0.25rem;">Humidity</div>
+      <div class="hint" style="margin-top:0.25rem;">Humidity</div>
     </div>
     {% endif %}
 
     {% if activity.weatherRainMm and activity.weatherRainMm > 0.1 %}
     <div>
-      <div style="font-size:1.25rem; font-weight:700; color:#60a5fa; line-height:1;">{{ activity.weatherRainMm }}mm</div>
-      <div style="font-size:0.8125rem; color:var(--text-muted); margin-top:0.25rem;">Rain</div>
+      <div style="font-size:1.25rem; font-weight:700; color:var(--c-blue); line-height:1;">{{ activity.weatherRainMm }}mm</div>
+      <div class="hint" style="margin-top:0.25rem;">Rain</div>
     </div>
     {% endif %}
 
   </div>
-  {% if not is_workout %}
-  <div style="margin-top:0.9rem; display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
-    <label for="wxSelect" style="font-size:0.8125rem; color:var(--text-muted);">Conditions</label>
+  {% if not is_workout and not friend %}
+  <div class="form-group" style="margin:0.9rem 0 0;">
+    <label for="wxSelect">Conditions</label>
+    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
     <select id="wxSelect" style="width:auto; min-width:9rem;" onchange="setWeather(this.value)">
       <option value="auto" {% if not wx_manual and not wx_storm %}selected{% endif %}>{% if not wx_manual and not wx_storm %}{{ wx_condition or 'Automatic' }}{% if wx_condition %} (automatic){% endif %}{% else %}Automatic{% endif %}</option>
       {% for c in wx_categories %}<option value="{{ c }}" {% if (wx_manual or wx_storm) and wx_condition == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
     </select>
-    <span id="wxMsg" style="font-size:0.75rem; color:var(--text-muted);">{% if wx_storm %}Counted as a named storm ({{ activity.weatherSummary.split(',')[0] }}) because it was gusty. Not a storm ride? Pick another condition.{% elif wx_manual %}Set by you; a backfill will not change it.{% else %}Pick one to override the automatic lookup, which can miss or get it wrong.{% endif %}</span>
+    <span id="wxMsg" class="hint">{% if wx_storm %}Counted as a named storm ({{ activity.weatherSummary.split(',')[0] }}) because it was gusty. Not a storm ride? Pick another condition.{% elif wx_manual %}Set by you; a backfill will not change it.{% else %}Pick one to override the automatic lookup, which can miss or get it wrong.{% endif %}</span>
+    </div>
   </div>
   {% endif %}
 </div>
@@ -311,8 +461,8 @@ function typeChanged(sel) {
   <div style="display:flex; flex-wrap:wrap; gap:0.6rem;">
     {% for b in ride_badges %}
     <div style="display:flex; align-items:center; gap:0.5rem; padding:0.5rem 0.85rem;
-                border-radius:999px; border:1px solid rgba(252,76,2,0.4);
-                background:rgba(252,76,2,0.08);">
+                border-radius:999px; border:1px solid var(--accent-line);
+                background:var(--accent-soft);">
       <span style="font-size:1.25rem; line-height:1;">{{ b.icon }}</span>
       <div>
         <div style="font-size:0.8125rem; font-weight:700; color:var(--text);">{{ b.name }}</div>
@@ -329,11 +479,11 @@ function typeChanged(sel) {
 <div class="card" style="margin-bottom:1.5rem; padding:1rem 1.25rem;">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.875rem;">
     <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); font-weight:600;">Heart Rate</div>
-    {% if charts.heartrate %}<span style="font-size:0.6875rem; color:#ef4444; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.25); padding:0.15rem 0.5rem; border-radius:4px;">♥ Garmin</span>{% endif %}
+    {% if charts.heartrate %}<span style="font-size:0.6875rem; color:var(--danger); background:var(--danger-soft); border:1px solid var(--danger-line); padding:0.15rem 0.5rem; border-radius:4px;">♥ Garmin</span>{% endif %}
   </div>
   <div style="display:flex; gap:2.5rem; align-items:flex-end;">
     <div>
-      <div style="font-size:2.25rem; font-weight:700; color:#ef4444; line-height:1; font-variant-numeric:tabular-nums;">{{ activity.averageHeartrate | int }}</div>
+      <div style="font-size:2.25rem; font-weight:700; color:var(--danger); line-height:1; font-variant-numeric:tabular-nums;">{{ activity.averageHeartrate | int }}</div>
       <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">avg bpm</div>
     </div>
     {% if activity.maxHeartrate %}
@@ -353,7 +503,7 @@ function typeChanged(sel) {
 {% endif %}
 
 <!-- Map + Charts -->
-{% set has_charts = charts.elevation or charts.speed or charts.heartrate or charts.power or charts.cadence %}
+{% set has_charts = charts.elevation or charts.speed or charts.pace or charts.heartrate or charts.power or charts.cadence %}
 {% if coords or has_charts %}
 <div class="map-charts-grid {% if coords and has_charts %}has-both{% endif %}">
 
@@ -368,31 +518,37 @@ function typeChanged(sel) {
     {% if charts.elevation %}
     <div class="card">
       <div class="card-title">Elevation{% if charts.heartrate %} &amp; Heart Rate{% endif %}</div>
-      <canvas id="elevChart"></canvas>
+      <div class="cbox"><canvas id="elevChart"></canvas></div>
     </div>
     {% endif %}
     {% if charts.speed %}
     <div class="card">
-      <div class="card-title">Speed (mph)</div>
-      <canvas id="speedChart"></canvas>
+      <div class="card-title">Speed ({{ U.speed }})</div>
+      <div class="cbox"><canvas id="speedChart"></canvas></div>
+    </div>
+    {% endif %}
+    {% if charts.pace %}
+    <div class="card">
+      <div class="card-title">Pace ({{ '/100 m' if view == 'swim' else U.pace }})</div>
+      <div class="cbox"><canvas id="paceChart"></canvas></div>
     </div>
     {% endif %}
     {% if charts.heartrate and not charts.elevation %}
     <div class="card">
       <div class="card-title">Heart Rate (bpm)</div>
-      <canvas id="hrChart"></canvas>
+      <div class="cbox"><canvas id="hrChart"></canvas></div>
     </div>
     {% endif %}
     {% if charts.power %}
     <div class="card">
       <div class="card-title">Power (W)</div>
-      <canvas id="powerChart"></canvas>
+      <div class="cbox"><canvas id="powerChart"></canvas></div>
     </div>
     {% endif %}
     {% if charts.cadence %}
     <div class="card">
-      <div class="card-title">Cadence (rpm)</div>
-      <canvas id="cadenceChart"></canvas>
+      <div class="card-title">{% if view == 'foot' %}Cadence (spm){% elif view in ('swim', 'water') %}Stroke rate (spm){% else %}Cadence (rpm){% endif %}</div>
+      <div class="cbox"><canvas id="cadenceChart"></canvas></div>
     </div>
     {% endif %}
   </div>
@@ -404,45 +560,45 @@ function typeChanged(sel) {
 <!-- Segment creation panel (must stay directly under the map, above the phone-sensor card, so the map is visible while placing markers) -->
 {% if coords %}
 <div id="segPanel" style="display:none; margin-bottom:1.5rem;">
-  <div id="segSliders" style="display:none; background:var(--card-bg); border:1px solid #1e4060; border-radius:10px; padding:1.25rem;">
+  <div id="segSliders" style="display:none; background:var(--card-bg); border:1px solid var(--border-strong); border-radius:10px; padding:1.25rem;">
     <p style="color:var(--accent); font-size:0.875rem; margin:0 0 1.25rem; font-weight:500;">👈 Drag markers on map or fine-tune with arrows 👉</p>
 
     <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
       <!-- START -->
-      <div style="background:rgba(16,185,129,0.1); border:1px solid #10b981; border-radius:6px; padding:0.75rem;">
+      <div style="background:var(--success-soft); border:1px solid var(--success); border-radius:6px; padding:0.75rem;">
         <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.25rem; text-transform:uppercase; font-weight:600;">Start</div>
-        <div style="font-size:1.25rem; font-weight:600; color:#10b981; margin-bottom:0.5rem;">
-          <span id="segStartDist">0.0</span> mi
+        <div style="font-size:1.25rem; font-weight:600; color:var(--success); margin-bottom:0.5rem;">
+          <span id="segStartDist">0.0</span> {{ U.dist }}
         </div>
-        <input type="range" id="segStartSlider" min="0" max="100" value="0" style="width:100%; height:5px; margin-bottom:0.5rem;" oninput="updateSegmentFromSliders()">
+        <input type="range" id="segStartSlider" min="0" max="100" value="0" style="width:100%; height:5px; margin-bottom:0.5rem;" oninput="updateSegmentFromSliders('start')">
         <div style="display:flex; gap:0.3rem; justify-content:center; margin-bottom:0.5rem;">
-          <button type="button" class="btn btn-secondary" style="padding:0.25rem 0.5rem; font-size:0.75rem; flex:1;" onclick="adjustSegStart(-1)">← Back</button>
-          <button type="button" class="btn btn-secondary" style="padding:0.25rem 0.5rem; font-size:0.75rem; flex:1;" onclick="adjustSegStart(1)">Fwd →</button>
+          <button type="button" class="btn btn-secondary btn-sm" style="flex:1;" onclick="adjustSegStart(-1)">← Back</button>
+          <button type="button" class="btn btn-secondary btn-sm" style="flex:1;" onclick="adjustSegStart(1)">Fwd →</button>
         </div>
         <div style="font-size:0.7rem; color:var(--text-muted); text-align:center;" id="segStartTime"></div>
       </div>
 
       <!-- SEGMENT -->
-      <div style="background:rgba(59,130,246,0.1); border:1px solid #3b82f6; border-radius:6px; padding:0.75rem;">
+      <div style="background:var(--info-soft); border:1px solid var(--info); border-radius:6px; padding:0.75rem;">
         <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.25rem; text-transform:uppercase; font-weight:600;">Segment</div>
-        <div style="font-size:1.25rem; font-weight:600; color:#3b82f6; margin-bottom:0.25rem;">
-          <span id="segLength">0.0</span> mi
+        <div style="font-size:1.25rem; font-weight:600; color:var(--info); margin-bottom:0.25rem;">
+          <span id="segLength">0.0</span> {{ U.dist }}
         </div>
         <div style="font-size:0.9rem; color:var(--text-muted); text-align:center;">
-          ↑ <span id="segElevation">0</span> ft
+          ↑ <span id="segElevation">0</span> {{ U.elev }}
         </div>
       </div>
 
       <!-- END -->
-      <div style="background:rgba(239,68,68,0.1); border:1px solid #ef4444; border-radius:6px; padding:0.75rem;">
+      <div style="background:var(--danger-soft); border:1px solid var(--danger); border-radius:6px; padding:0.75rem;">
         <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:0.25rem; text-transform:uppercase; font-weight:600;">End</div>
-        <div style="font-size:1.25rem; font-weight:600; color:#ef4444; margin-bottom:0.5rem;">
-          <span id="segEndDist">0.0</span> mi
+        <div style="font-size:1.25rem; font-weight:600; color:var(--danger); margin-bottom:0.5rem;">
+          <span id="segEndDist">0.0</span> {{ U.dist }}
         </div>
-        <input type="range" id="segEndSlider" min="0" max="100" value="100" style="width:100%; height:5px; margin-bottom:0.5rem;" oninput="updateSegmentFromSliders()">
+        <input type="range" id="segEndSlider" min="0" max="100" value="100" style="width:100%; height:5px; margin-bottom:0.5rem;" oninput="updateSegmentFromSliders('end')">
         <div style="display:flex; gap:0.3rem; justify-content:center; margin-bottom:0.5rem;">
-          <button type="button" class="btn btn-secondary" style="padding:0.25rem 0.5rem; font-size:0.75rem; flex:1;" onclick="adjustSegEnd(-1)">← Back</button>
-          <button type="button" class="btn btn-secondary" style="padding:0.25rem 0.5rem; font-size:0.75rem; flex:1;" onclick="adjustSegEnd(1)">Fwd →</button>
+          <button type="button" class="btn btn-secondary btn-sm" style="flex:1;" onclick="adjustSegEnd(-1)">← Back</button>
+          <button type="button" class="btn btn-secondary btn-sm" style="flex:1;" onclick="adjustSegEnd(1)">Fwd →</button>
         </div>
         <div style="font-size:0.7rem; color:var(--text-muted); text-align:center;" id="segEndTime"></div>
       </div>
@@ -454,10 +610,10 @@ function typeChanged(sel) {
     </div>
   </div>
 
-  <div id="segForm" style="display:none; background:var(--card-bg); border:1px solid #1e4060; border-radius:10px; padding:1.25rem;">
+  <div id="segForm" style="display:none; background:var(--card-bg); border:1px solid var(--border-strong); border-radius:10px; padding:1.25rem;">
     <form method="POST" action="{{ url_for('segments.create') }}">
       <input type="hidden" name="activityId" value="{{ activity.id }}">
-      <input type="hidden" name="sport"      value="{{ 'run' if is_run else 'ride' }}">
+      <input type="hidden" name="sport"      value="{{ seg_family or 'ride' }}">
       <input type="hidden" name="startLat"   id="segStartLat">
       <input type="hidden" name="startLng"   id="segStartLng">
       <input type="hidden" name="endLat"     id="segEndLat">
@@ -466,16 +622,71 @@ function typeChanged(sel) {
       <input type="hidden" name="polyline"    id="segPolyline">
       <input type="hidden" name="elevGainM"  id="segElevGainM">
       <div class="form-group" style="margin:0 0 0.75rem;">
-        <label style="font-size:0.8125rem;">Segment name</label>
-        <input type="text" name="name" placeholder="e.g. Lumley Lane Climb" required autofocus style="font-size:0.875rem;">
+        <label for="segName">Segment name</label>
+        <input type="text" name="name" id="segName" placeholder="e.g. Lumley Lane Climb" required autofocus>
       </div>
       <div style="display:flex; gap:0.5rem;">
-        <button type="submit" class="btn btn-primary" style="flex:1; font-size:0.8125rem;">Save Segment</button>
-        <button type="button" class="btn btn-secondary" style="font-size:0.8125rem;" onclick="cancelSegment()">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm" style="flex:1;">Save Segment</button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="cancelSegment()">Cancel</button>
       </div>
     </form>
   </div>
 </div>
+{% endif %}
+
+{% if photos or not (demo_mode or friend) %}
+<div class="card" style="margin-top:1rem;" id="photosCard">
+  <div class="card-title" style="display:flex; align-items:center; gap:0.5rem;">
+    <span>Photos{% if photos %} <span style="font-size:0.75rem; color:var(--text-muted); font-weight:400;">· {{ photos | length }}</span>{% endif %}</span>
+    {% if not (demo_mode or friend) %}
+    <form method="POST" action="{{ url_for('rides.add_photos', rid=activity.id) }}" enctype="multipart/form-data" style="margin:0 0 0 auto;">
+      <label class="btn btn-secondary" style="font-size:0.8125rem; padding:0.3rem 0.75rem; cursor:pointer; font-weight:500;">
+        Add photos
+        <input type="file" name="photos" accept="image/*" multiple hidden onchange="if (this.files.length) { this.closest('label').firstChild.textContent = 'Adding…'; this.form.submit(); }">
+      </label>
+    </form>
+    {% endif %}
+  </div>
+  {% if photos %}
+  <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:0.5rem;">
+    {% for p in photos %}
+    <figure style="margin:0; position:relative;">
+      <a href="{{ url_for('rides.photo', name=p.filename) }}" onclick="return openPhoto(this)" data-caption="{{ p.caption or '' }}">
+        <img src="{{ url_for('rides.photo', name=p.filename[:-4] ~ '_t.jpg') }}" alt="{{ p.caption or 'Photo from this activity' }}" loading="lazy"
+             style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; display:block;">
+      </a>
+      {% if not friend %}
+      <form method="POST" action="{{ url_for('rides.delete_photo', rid=activity.id, pid=p.id) }}" onsubmit="return confirm('Delete this photo? The activity keeps its other photos. This cannot be undone.')"
+            style="position:absolute; top:4px; right:4px; margin:0;">
+        <button type="submit" aria-label="Remove this photo" title="Remove"
+                style="border:none; border-radius:50%; width:24px; height:24px; line-height:24px; padding:0; background:var(--overlay); color:var(--white); cursor:pointer;">×</button>
+      </form>
+      {% endif %}
+      {% if p.caption %}<figcaption style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem; line-height:1.3;">{{ p.caption }}</figcaption>{% endif %}
+    </figure>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="hint">No photos yet. Location and camera details are taken out of the ones you add.</div>
+  {% endif %}
+</div>
+{% endif %}
+{% if photos %}
+<dialog id="photoDialog" onclick="this.close()" style="padding:0; border:none; background:transparent; max-width:95vw; max-height:95vh;">
+  <img id="photoDialogImg" alt="" style="max-width:95vw; max-height:88vh; display:block; border-radius:6px;">
+  <div id="photoDialogCaption" style="color:var(--white); font-size:0.875rem; margin-top:0.4rem; text-align:center;"></div>
+</dialog>
+<script>
+function openPhoto(a) {
+  var d = document.getElementById('photoDialog');
+  if (!d.showModal) return true;                        // no <dialog>: just open the picture
+  document.getElementById('photoDialogImg').src = a.href;
+  document.getElementById('photoDialogImg').alt = a.getAttribute('data-caption') || 'Photo from this activity';
+  document.getElementById('photoDialogCaption').textContent = a.getAttribute('data-caption') || '';
+  d.showModal();
+  return false;
+}
+</script>
 {% endif %}
 
 {% if phone_sensors %}
@@ -487,7 +698,7 @@ function typeChanged(sel) {
     {% if ps.rough_p95 is defined %}<div class="stat-box"><div class="stat-value">{{ ps.rough_p95 }}</div><div class="stat-label">Rough 5% of the ride</div></div>{% endif %}
     {% if ps.peak_max is defined %}<div class="stat-box"><div class="stat-value">{{ ps.peak_max }}</div><div class="stat-label">Biggest shock (m/s²)</div></div>{% endif %}
     {% if ps.tilt_max is defined %}<div class="stat-box"><div class="stat-value">{{ ps.tilt_max }}°</div><div class="stat-label">Max tilt</div></div>{% endif %}
-    {% if ps.baro_climb_m is defined %}<div class="stat-box"><div class="stat-value">{{ (ps.baro_climb_m * 3.28084) | round | int }} ft</div><div class="stat-label">Climb by barometer</div></div>{% endif %}
+    {% if ps.baro_climb_m is defined %}<div class="stat-box"><div class="stat-value">{{ ps.baro_climb_m | fmt_elev }}</div><div class="stat-label">Climb by barometer</div></div>{% endif %}
     {% if ps.cad_avg is defined %}<div class="stat-box"><div class="stat-value">{{ ps.cad_avg }} rpm</div><div class="stat-label">Cadence, estimated</div></div>{% endif %}
     {% if ps.coast_pct is defined %}<div class="stat-box"><div class="stat-value">{{ ps.coast_pct }}%</div><div class="stat-label">Time coasting</div></div>{% endif %}
     {% if ps.hard_brakes is defined %}<div class="stat-box"><div class="stat-value">{{ ps.hard_brakes }}</div><div class="stat-label">Hard braking events</div></div>{% endif %}
@@ -499,45 +710,182 @@ function typeChanged(sel) {
 </div>
 {% endif %}
 
+<!-- Same route (routes/matched.py): the other times this way, fetched after the page; nothing when there are none -->
+{% if coords %}
+<div id="matchedCard"></div>
+<script>
+(function () {
+  var slot = document.getElementById('matchedCard');
+  fetch('{{ url_for('matched.card', rid=activity.id) }}').then(function (r) { return r.ok ? r.text() : ''; }).then(function (html) {
+    if (!html.trim()) { slot.remove(); return; }
+    slot.outerHTML = html;
+    var el = document.getElementById('matchedChart');
+    if (!el || !window.Chart) return;
+    var s = JSON.parse(el.dataset.series);
+    new Chart(el, { type: 'line',
+      data: { labels: s.map(function (p) { return p.d; }),
+              datasets: [{ data: s.map(function (p) { return p.secs; }), borderColor: cssVar('--border-strong'), borderWidth: 1, tension: 0,
+                           pointRadius: s.map(function (p) { return p.current ? 6 : 3; }),
+                           pointBackgroundColor: s.map(function (p) { return p.current ? cssVar('--accent') : cssVar('--text-muted'); }),
+                           pointBorderWidth: 0 }] },
+      options: { animation: false, maintainAspectRatio: false,
+        onClick: function (e, items) { if (items.length && !s[items[0].index].current) location.href = '/rides/' + s[items[0].index].id; },
+        plugins: { legend: { display: false }, tooltip: { callbacks: {
+          title: function (c) { return s[c[0].dataIndex].name || c[0].label; },
+          label: function (c) { return c.label + ': ' + UNITS.fmtMinSec(c.parsed.y); } } } },
+        scales: { x: { ticks: { maxTicksLimit: 6, font: { size: 10 } }, grid: { display: false } },
+                  y: { ticks: { font: { size: 10 }, callback: function (v) { return UNITS.fmtMinSec(v); } },
+                       title: { display: true, text: 'moving time (lower is quicker)', font: { size: 10 } } } } } });
+  });
+})();
+</script>
+{% endif %}
+
+<!-- What fits the sport (services/activity_detail): splits on foot and in open water, a pool swim's sets, a ski day's runs, the device's laps -->
+{% if detail.splits %}
+<div class="card" style="margin-top:1rem; overflow-x:auto;" id="splitsCard">
+  <div class="card-title">Splits <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">per {{ '100 m' if view == 'swim' else U.dist }}, moving time</span></div>
+  {% set fastest = detail.best_split.mps if detail.best_split else None %}
+  <table class="table table-compact sortable" data-sort-name="splits">
+    <thead><tr>
+      <th aria-sort="ascending" data-col="n">{{ '100 m' if view == 'swim' else U.dist | capitalize }}</th><th class="num">Time</th><th class="num">Pace</th>
+      {% if has_climbing and view != 'swim' %}<th class="num" data-first="desc">Up</th><th class="num" data-first="desc">Down</th>{% endif %}<th class="num">HR</th>
+    </tr></thead>
+    <tbody>
+    {% for sp in detail.splits %}
+    <tr{% if fastest and sp.mps == fastest %} style="color:var(--accent);"{% endif %}>
+      <td data-sort="{{ loop.index }}">{% if loop.last and sp.dist_m < detail.splits[0].dist_m %}{{ (sp.dist_m | int ~ ' m') if view == 'swim' else sp.dist_m | fmt_dist(2) }}{% else %}{{ sp.n }}{% endif %}</td>
+      <td class="num" data-sort="{{ sp.secs }}">{{ sp.secs | fmt_duration }}</td>
+      <td class="num" data-sort="{{ (1 / sp.mps) if sp.mps else '' }}">{{ sp.mps | fmt_swim_pace if view == 'swim' else sp.mps | fmt_pace }}</td>
+      {% if has_climbing and view != 'swim' %}<td class="num" data-sort="{{ sp.up_m }}">{{ sp.up_m | fmt_elev }}</td><td class="num" data-sort="{{ sp.down_m }}">{{ sp.down_m | fmt_elev }}</td>{% endif %}
+      <td class="num">{{ sp.hr or '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if detail.pool %}{% set pl = detail.pool %}
+<div class="card" style="margin-top:1rem; overflow-x:auto;" id="poolCard">
+  <div class="card-title">Sets <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">{{ pl.lengths }} lengths{% for k, n in pl.by_stroke %}{{ ':' if loop.first else ',' }} {{ n }} {{ k | lower }}{% endfor %}</span></div>
+  <table class="table table-compact sortable" data-sort-name="sets">
+    <thead><tr>
+      <th aria-sort="ascending">Set</th><th>Stroke</th><th class="num" data-first="desc">Distance</th><th class="num">Time</th>
+      <th class="num">Pace</th><th class="num" title="Strokes a length">Strokes</th><th class="num" title="Seconds plus strokes a length: lower is better">SWOLF</th><th class="num">Rest</th>
+    </tr></thead>
+    <tbody>
+    {% for st in pl.sets %}
+    <tr>
+      <td>{{ st.n }}</td>
+      <td>{{ st.stroke or '—' }}</td>
+      <td class="num" data-sort="{{ st.lengths }}">{{ st.lengths }} &times; {{ pl.pool_m | round(2) | replace('.0', '') }} m</td>
+      <td class="num" data-sort="{{ st.secs }}">{{ st.secs | fmt_duration }}</td>
+      <td class="num" data-sort="{{ (1 / st.mps) if st.mps else '' }}">{{ st.mps | fmt_swim_pace }}</td>
+      <td class="num">{{ st.strokes_per_length or '—' }}</td>
+      <td class="num">{{ st.swolf or '—' }}</td>
+      <td class="num" data-sort="{{ st.rest_after or '' }}">{{ st.rest_after | fmt_duration if st.rest_after else '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if detail.ski %}{% set ski = detail.ski %}
+<div class="card" style="margin-top:1rem; overflow-x:auto;" id="skiCard">
+  <div class="card-title">Runs <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">each descent of 30 m or more, read off the altitude; time is moving time</span></div>
+  <table class="table table-compact sortable" data-sort-name="runs">
+    <thead><tr>
+      <th aria-sort="ascending">Run</th><th>Started</th><th class="num" data-first="desc">Vertical</th><th class="num" data-first="desc">Distance</th>
+      <th class="num">Time</th><th class="num" data-first="desc">Avg</th><th class="num" data-first="desc">Top</th>
+    </tr></thead>
+    <tbody>
+    {% for r in ski.runs %}
+    <tr>
+      <td>{{ r.n }}</td>
+      <td data-sort="{{ r.t }}">+{{ r.t | fmt_duration }}</td>
+      <td class="num" data-sort="{{ r.drop_m }}">{{ r.drop_m | fmt_elev }}</td>
+      <td class="num" data-sort="{{ r.dist_m or '' }}">{{ r.dist_m | fmt_dist(2) if r.dist_m else '—' }}</td>
+      <td class="num" data-sort="{{ r.secs }}">{{ r.secs | fmt_duration }}</td>
+      <td class="num" data-sort="{{ r.mps or '' }}">{{ r.mps | fmt_speed if r.mps else '—' }}</td>
+      <td class="num" data-sort="{{ r.top_mps or '' }}">{{ r.top_mps | fmt_speed if r.top_mps else '—' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if detail.laps %}
+<div class="card" style="margin-top:1rem; overflow-x:auto;" id="lapsCard">
+  <div class="card-title">Laps <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">as the device recorded them</span></div>
+  {% set any_hr = detail.laps | selectattr('hr') | list %}{% set any_watts = detail.laps | selectattr('watts') | list %}{% set any_cad = detail.laps | selectattr('cad') | list %}
+  {% set lap_pace = view in ('foot', 'swim') %}
+  <table class="table table-compact sortable" data-sort-name="laps">
+    <thead><tr>
+      <th aria-sort="ascending">Lap</th><th class="num" data-first="desc">Distance</th><th class="num">Time</th><th class="num" data-col="rate"{% if not lap_pace %} data-first="desc"{% endif %}>{{ 'Pace' if lap_pace else 'Speed' }}</th>
+      {% if has_climbing and view not in ('swim',) %}<th class="num" data-first="desc">Up</th>{% endif %}
+      {% if any_hr %}<th class="num">HR</th>{% endif %}{% if any_watts %}<th class="num" data-first="desc">Power</th>{% endif %}{% if any_cad %}<th class="num" data-col="cadence">{{ 'Cadence' if view in ('ride', 'foot', 'other') else 'Strokes/min' }}</th>{% endif %}
+    </tr></thead>
+    <tbody>
+    {% for l in detail.laps %}
+    <tr>
+      <td>{{ l.n }}</td>
+      <td class="num" data-sort="{{ l.dist or '' }}">{% if view == 'swim' %}{{ (l.dist or 0) | int }} m{% else %}{{ l.dist | fmt_dist(2) if l.dist else '—' }}{% endif %}</td>
+      <td class="num" data-sort="{{ l.secs or '' }}">{{ l.secs | fmt_duration if l.secs else '—' }}</td>
+      <td class="num" data-sort="{% if l.mps %}{{ (1 / l.mps) if lap_pace else l.mps }}{% endif %}">{% if view == 'swim' %}{{ l.mps | fmt_swim_pace }}{% elif view == 'foot' %}{{ l.mps | fmt_pace }}{% else %}{{ l.mps | fmt_speed if l.mps else '—' }}{% endif %}</td>
+      {% if has_climbing and view not in ('swim',) %}<td class="num" data-sort="{{ l.up if l.up is not none else '' }}">{{ l.up | fmt_elev if l.up is not none else '—' }}</td>{% endif %}
+      {% if any_hr %}<td class="num">{{ l.hr | int if l.hr else '—' }}</td>{% endif %}
+      {% if any_watts %}<td class="num" data-sort="{{ l.watts or '' }}">{{ (l.watts | int ~ ' W') if l.watts else '—' }}</td>{% endif %}
+      {% if any_cad %}<td class="num">{{ ((l.cad * 2) if view == 'foot' else l.cad) | int if l.cad else '—' }}</td>{% endif %}
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <!-- Segments -->
 
 {% if coords %}
 <div class="card" style="margin-top:1rem;" id="segmentsCard">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
-    <div class="card-title" style="margin:0;">Segments</div>
+    <div class="card-title" style="margin:0;">Segments{% if seg_family_label %} <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">{{ seg_family_label }}</span>{% endif %}</div>
+    {% if seg_family and not friend %}
     <div style="display:flex;gap:0.5rem;align-items:center;">
-      <button class="btn btn-secondary" style="font-size:0.8125rem;" onclick="enterSegmentMode()">+ Create Segment</button>
-      <button class="btn btn-secondary" style="font-size:0.8125rem;" id="scanBtn" onclick="scanSegments('{{ activity.id }}')">Scan for segments</button>
+      <button class="btn btn-secondary btn-sm" onclick="enterSegmentMode()">+ Create Segment</button>
+      <button class="btn btn-secondary btn-sm" id="scanBtn" onclick="scanSegments('{{ activity.id }}')">Scan for segments</button>
       <span id="scanResult" style="font-size:0.8125rem;color:var(--text-muted);display:none;"></span>
     </div>
+    {% endif %}
   </div>
 
   {% if seg_efforts %}
-  <table style="width:100%; border-collapse:collapse; margin-bottom:0.5rem;">
+  <table class="table sortable" data-sort-name="segments" style="margin-bottom:0.5rem;">
     <thead>
-      <tr style="border-bottom:1px solid #1e4060;">
-        <th style="padding:0.5rem 0; text-align:left; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Segment</th>
-        <th style="padding:0.5rem 0; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Time</th>
-        <th style="padding:0.5rem 0; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Speed</th>
-        <th style="padding:0.5rem 0; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;">Trend</th>
-        <th style="padding:0.5rem 0; text-align:right; font-size:0.75rem; color:var(--text-muted); font-weight:600;"></th>
+      <tr>
+        <th>Segment</th>
+        <th class="num">Time</th>
+        <th class="num" data-col="rate"{% if seg_family != 'foot' %} data-first="desc"{% endif %}>{{ 'Pace' if seg_family == 'foot' else 'Speed' }}</th>
+        <th class="num" data-nosort>Trend</th>
       </tr>
     </thead>
     <tbody>
       {% for e in seg_efforts %}
-      <tr style="border-bottom:1px solid #163352;">
-        <td style="padding:0.6rem 0;">
-          <a href="{{ url_for('segments.detail', sid=e.seg_id) }}" style="color:var(--text); text-decoration:none; font-size:0.9375rem;">{{ e.seg_name }}</a>
-          {% if e.isPR %}<span style="margin-left:0.4rem; font-size:0.7rem; background:var(--accent); color:#fff; padding:0.1rem 0.35rem; border-radius:4px;">PR</span>{% endif %}
+      <tr>
+        <td data-sort="{{ e.seg_name }}">
+          <a href="{{ url_for('segments.detail', sid=e.seg_id) }}" style="font-size:0.9375rem;">{{ e.seg_name }}</a>
+          {% if e.isPR %}<span style="margin-left:0.4rem; font-size:0.7rem; background:var(--accent); color:var(--on-accent); padding:0.1rem 0.35rem; border-radius:4px;">PR</span>{% endif %}
         </td>
-        <td style="padding:0.6rem 0; text-align:right; vertical-align:middle;">
+        <td class="num" data-sort="{{ e.elapsedSecs }}" style="vertical-align:middle;">
           <div style="display:flex; align-items:center; justify-content:flex-end; gap:0.6rem; flex-wrap:wrap;">
             {# This rider's time #}
             <span style="display:inline-flex; align-items:center; gap:0.3rem;">
               {% if activity.riderAvatar %}
                 <img src="{{ url_for('static', filename='avatars/' + activity.riderAvatar) }}" alt="{{ activity.riderName }}" title="{{ activity.riderName }}" data-rider-id="{{ activity.riderId }}" style="width:16px;height:16px;border-radius:50%;object-fit:cover;cursor:pointer;">
               {% else %}
-                <span style="width:16px;height:16px;border-radius:50%;background:#163352;display:inline-flex;align-items:center;justify-content:center;font-size:0.55rem;font-weight:700;">{{ (activity.riderName or '?')[0] | upper }}</span>
+                <span style="width:16px;height:16px;border-radius:50%;background:var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:0.55rem;font-weight:700;">{{ (activity.riderName or '?')[0] | upper }}</span>
               {% endif %}
               <span style="font-weight:600; font-variant-numeric:tabular-nums; color:{% if e.isPR %}var(--accent){% else %}var(--text){% endif %};">{% if e.approx %}<span title="Close match: the time is estimated" style="font-weight:400; color:var(--text-muted);">≈</span>{% endif %}{{ e.elapsedSecs | fmt_duration }}</span>
             </span>
@@ -547,18 +895,18 @@ function typeChanged(sel) {
               {% if rival.rider_avatar %}
                 <img src="{{ url_for('static', filename='avatars/' + rival.rider_avatar) }}" alt="{{ rival.rider_name }}" title="{{ rival.rider_name }}" data-rider-id="{{ rival.rider_id }}" style="width:16px;height:16px;border-radius:50%;object-fit:cover;cursor:pointer;">
               {% else %}
-                <span style="width:16px;height:16px;border-radius:50%;background:#163352;display:inline-flex;align-items:center;justify-content:center;font-size:0.55rem;font-weight:700;">{{ rival.rider_name[0] | upper }}</span>
+                <span style="width:16px;height:16px;border-radius:50%;background:var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:0.55rem;font-weight:700;">{{ rival.rider_name[0] | upper }}</span>
               {% endif %}
               <span style="font-weight:600; font-variant-numeric:tabular-nums; color:{% if rival.elapsedSecs < e.elapsedSecs %}var(--success){% elif rival.elapsedSecs > e.elapsedSecs %}var(--danger){% else %}var(--text-muted){% endif %};">{{ rival.elapsedSecs | fmt_duration }}</span>
-              {% if rival.isPR %}<span style="font-size:0.7rem; background:var(--accent); color:#fff; padding:0.1rem 0.35rem; border-radius:4px;">PR</span>{% endif %}
+              {% if rival.isPR %}<span style="font-size:0.7rem; background:var(--accent); color:var(--on-accent); padding:0.1rem 0.35rem; border-radius:4px;">PR</span>{% endif %}
             </span>
             {% endfor %}
           </div>
         </td>
-        <td style="padding:0.6rem 0; text-align:right; color:var(--text-muted); font-size:0.875rem; vertical-align:middle;">
-          {% if e.avgSpeedMps %}{{ (e.avgSpeedMps * 2.23694) | round(1) }} mph{% else %}—{% endif %}
+        <td class="num" data-sort="{% if e.avgSpeedMps %}{{ (1 / e.avgSpeedMps) if seg_family == 'foot' else e.avgSpeedMps }}{% endif %}" style="color:var(--text-muted); vertical-align:middle;">
+          {% if e.avgSpeedMps %}{% if seg_family == 'foot' %}{{ e.avgSpeedMps | fmt_pace }}{% else %}{{ e.avgSpeedMps | fmt_speed }}{% endif %}{% else %}—{% endif %}
         </td>
-        <td style="padding:0.6rem 0; text-align:right; vertical-align:middle; white-space:nowrap;">
+        <td class="num" style="vertical-align:middle; white-space:nowrap;">
           <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.25rem;">
             {# Owner's trend #}
             {% set trend = seg_trends.get(e.seg_id) %}
@@ -566,13 +914,13 @@ function typeChanged(sel) {
               {% if activity.riderAvatar %}
                 <img src="{{ url_for('static', filename='avatars/' + activity.riderAvatar) }}" alt="{{ activity.riderName }}" data-rider-id="{{ activity.riderId }}" style="width:14px;height:14px;border-radius:50%;object-fit:cover;cursor:pointer;">
               {% else %}
-                <span style="width:14px;height:14px;border-radius:50%;background:#163352;display:inline-flex;align-items:center;justify-content:center;font-size:0.5rem;font-weight:700;">{{ (activity.riderName or '?')[0] | upper }}</span>
+                <span style="width:14px;height:14px;border-radius:50%;background:var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:0.5rem;font-weight:700;">{{ (activity.riderName or '?')[0] | upper }}</span>
               {% endif %}
               {% if trend %}
                 {% if trend.dir == 'up' %}
-                  <span style="color:#10b981; font-size:1rem; font-weight:700;" title="{{ trend.delta | fmt_duration }} faster">↑</span><span style="color:#10b981; font-size:0.75rem;">{{ trend.delta | fmt_duration }}</span>
+                  <span style="color:var(--success); font-size:1rem; font-weight:700;" title="{{ trend.delta | fmt_duration }} faster">↑</span><span style="color:var(--success); font-size:0.75rem;">{{ trend.delta | fmt_duration }}</span>
                 {% elif trend.dir == 'down' %}
-                  <span style="color:#ef4444; font-size:1rem; font-weight:700;" title="{{ trend.delta | fmt_duration }} slower">↓</span><span style="color:#ef4444; font-size:0.75rem;">{{ trend.delta | fmt_duration }}</span>
+                  <span style="color:var(--danger); font-size:1rem; font-weight:700;" title="{{ trend.delta | fmt_duration }} slower">↓</span><span style="color:var(--danger); font-size:0.75rem;">{{ trend.delta | fmt_duration }}</span>
                 {% else %}
                   <span style="color:var(--text-muted); font-size:0.875rem;">—</span>
                 {% endif %}
@@ -587,13 +935,13 @@ function typeChanged(sel) {
                 {% if rival.rider_avatar %}
                   <img src="{{ url_for('static', filename='avatars/' + rival.rider_avatar) }}" alt="{{ rival.rider_name }}" data-rider-id="{{ rival.rider_id }}" style="width:14px;height:14px;border-radius:50%;object-fit:cover;cursor:pointer;">
                 {% else %}
-                  <span style="width:14px;height:14px;border-radius:50%;background:#163352;display:inline-flex;align-items:center;justify-content:center;font-size:0.5rem;font-weight:700;">{{ rival.rider_name[0] | upper }}</span>
+                  <span style="width:14px;height:14px;border-radius:50%;background:var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:0.5rem;font-weight:700;">{{ rival.rider_name[0] | upper }}</span>
                 {% endif %}
                 {% if rt %}
                   {% if rt.dir == 'up' %}
-                    <span style="color:#10b981; font-size:1rem; font-weight:700;" title="{{ rt.delta | fmt_duration }} faster">↑</span><span style="color:#10b981; font-size:0.75rem;">{{ rt.delta | fmt_duration }}</span>
+                    <span style="color:var(--success); font-size:1rem; font-weight:700;" title="{{ rt.delta | fmt_duration }} faster">↑</span><span style="color:var(--success); font-size:0.75rem;">{{ rt.delta | fmt_duration }}</span>
                   {% elif rt.dir == 'down' %}
-                    <span style="color:#ef4444; font-size:1rem; font-weight:700;" title="{{ rt.delta | fmt_duration }} slower">↓</span><span style="color:#ef4444; font-size:0.75rem;">{{ rt.delta | fmt_duration }}</span>
+                    <span style="color:var(--danger); font-size:1rem; font-weight:700;" title="{{ rt.delta | fmt_duration }} slower">↓</span><span style="color:var(--danger); font-size:0.75rem;">{{ rt.delta | fmt_duration }}</span>
                   {% else %}
                     <span style="color:var(--text-muted); font-size:0.875rem;">—</span>
                   {% endif %}
@@ -604,38 +952,37 @@ function typeChanged(sel) {
             {% endfor %}
           </div>
         </td>
-        <td style="padding:0.6rem 0; text-align:right; vertical-align:top;"><a href="{{ url_for('segments.detail', sid=e.seg_id) }}" style="font-size:0.8125rem; color:var(--text-muted);">→</a></td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
   {% else %}
-  <p style="color:var(--text-muted); font-size:0.875rem; margin:0 0 0.5rem;">No segment efforts on this ride yet.</p>
+  <p class="hint" style="margin:0 0 0.5rem;">{% if seg_family %}No segment efforts on this {{ 'activity' if is_workout else 'ride' }} yet.{% else %}Segments are only for outdoor rides, e-bike rides, walks, runs and hikes.{% endif %}</p>
   {% endif %}
 </div>
 {% endif %}
 
-{% if not is_workout %}
-<!-- Ride Notes -->
+<!-- Notes -->
+{% if not friend %}
 <div class="card" style="margin-top:1rem;">
-  <div class="card-title">Ride Notes</div>
-  <p style="font-size:0.8125rem; color:var(--text-muted); margin:0 0 0.75rem;">Anything the AI should know — GPS dropout, mechanical, cut short, how you felt, etc.</p>
-  <textarea id="rideNotes" rows="3" style="width:100%; box-sizing:border-box; background:var(--surface,#0f2535); color:var(--text); border:1px solid var(--border,#1e4060); border-radius:6px; padding:0.6rem 0.75rem; font-size:0.9375rem; font-family:inherit; resize:vertical; line-height:1.5;">{{ activity.notes or '' }}</textarea>
+  <div class="card-title">{{ 'Ride Notes' if is_ride else 'Notes' }}</div>
+  <p class="hint" style="margin:0 0 0.75rem;">{% if is_ride %}Anything the AI should know — GPS dropout, mechanical, cut short, how you felt, etc.{% else %}Anything worth remembering: how it went, how you felt, what was different.{% endif %}</p>
+  <textarea id="rideNotes" rows="3" style="width:100%; box-sizing:border-box; background:var(--field-bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:0.6rem 0.75rem; font-size:0.9375rem; font-family:inherit; resize:vertical; line-height:1.5;">{{ activity.notes or '' }}</textarea>
   <div style="display:flex; align-items:center; gap:0.75rem; margin-top:0.6rem;">
     <button class="btn btn-secondary" onclick="saveNotes('{{ activity.id }}')">Save notes</button>
     <span id="notesSaved" style="font-size:0.8125rem; color:var(--text-muted); display:none;">Saved</span>
   </div>
 </div>
-
 {% endif %}
 
+
 <!-- AI Coaching Analysis -->
-{% if is_ride %}
+{% if is_ride and not friend %}
 <div class="card" style="margin-top:1rem;" id="kudosCard">
   <div class="card-title">AI Coaching Analysis</div>
 
   <div style="margin-bottom:1rem;">
-    <select id="personalitySelect" style="padding:0.4rem 0.6rem; font-size:0.8125rem; background:var(--card-bg); color:var(--text); border:1px solid var(--border); border-radius:0.375rem;">
+    <select id="personalitySelect" style="padding:0.4rem 0.6rem; font-size:0.8125rem; background-color:var(--card-bg); color:var(--text); border:1px solid var(--border); border-radius:0.375rem;">
       {% for key, p in personalities.items() %}
       <option value="{{ key }}" {% if current_personality and current_personality.coachPersonality == key %}selected{% elif not current_personality and key == 'default' %}selected{% endif %}>{{ p.label }}</option>
       {% endfor %}
@@ -650,11 +997,13 @@ function typeChanged(sel) {
       </button>
       <span style="font-size:0.8125rem; color:var(--text-muted);">Generated {{ activity.aiKudosAt | fmt_date }}{% if has_memory %} · using ride history{% endif %}</span>
     </div>
+  {% elif ai_pending %}
+    <p id="kudosPending" data-rid="{{ activity.id }}" style="color:var(--text-muted); margin:0;">Analysing… This new ride's coaching notes will appear here in a moment.</p>
   {% else %}
     <p style="color:var(--text-muted); margin-bottom:1rem;">
       Get a personalised coaching analysis{% if has_memory %} comparing this ride against your history{% endif %}.
     </p>
-    <button class="btn btn-primary" onclick="getKudos('{{ activity.id }}')">
+    <button class="btn btn-secondary" onclick="getKudos('{{ activity.id }}')">
       {% if has_memory %}Analyse with history{% else %}Analyse Ride{% endif %}
     </button>
   {% endif %}
@@ -673,17 +1022,28 @@ function typeChanged(sel) {
   window._rideAlt    = {{ alt_raw | tojson }};
   var map = L.map('map');
   window._rideMap = map;
+  {% if zwift_world %}
+  // A virtual ride: drawn over its Zwift world's map alone, with no real place around or under it, and the view kept to that world
+  var zw = {{ zwift_world | tojson }};
+  L.imageOverlay(zw.url, zw.bounds, { attribution: zw.credit, interactive: false }).addTo(map);
+  map.setMaxBounds(zw.bounds);
+  map.options.maxBoundsViscosity = 1;
+  map.setMinZoom(map.getBoundsZoom(zw.bounds));
+  map.setMaxZoom(18);                                   // no tiles to take it from
+  map.getContainer().style.background = cssVar('--card-bg');
+  {% else %}
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
     attribution: 'Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics', maxZoom: 19
   }).addTo(map);
   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
     maxZoom: 19, opacity: 1
   }).addTo(map);
+  {% endif %}
   if (coords.length) {
-    var line = L.polyline(coords, { color: '#fc4c02', weight: 3 }).addTo(map);
+    var line = L.polyline(coords, { color: cssVar('--accent'), weight: 3 }).addTo(map);
     map.fitBounds(line.getBounds(), { padding: [20, 20] });
     L.circleMarker(coords[0], {
-      color: '#10b981', fillColor: '#10b981', fillOpacity: 1, radius: 7, weight: 2
+      color: cssVar('--success'), fillColor: cssVar('--success'), fillOpacity: 1, radius: 7, weight: 2
     }).addTo(map).bindPopup('Start');
     L.marker(coords[coords.length - 1], {
       icon: L.divIcon({ html: '<div style="font-size:20px;line-height:1;">🏁</div>', className: '', iconAnchor: [10, 20] })
@@ -701,16 +1061,16 @@ function typeChanged(sel) {
   var windDir = {{ activity.weatherWindDir }};
   var windKph = {{ activity.weatherWindKph }};
   var arrowDeg = (windDir + 180) % 360;
-  var color = windKph < 15 ? '#64b5f6' : windKph < 30 ? '#ffb74d' : '#ef5350';
+  var color = windKph < 15 ? 'var(--c-blue)' : windKph < 30 ? 'var(--c-amber)' : 'var(--danger)';
   var sw = windKph < 15 ? 16 : windKph < 30 ? 18 : 20;
   var sh = Math.round(sw * 1.4);
   var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + sw + '" height="' + sh + '" viewBox="0 0 10 14">'
-          + '<polygon points="5,0 10,14 5,10 0,14" fill="' + color + '" stroke="#0b1f33" stroke-width="1" stroke-linejoin="round"/></svg>';
+          + '<polygon points="5,0 10,14 5,10 0,14" style="fill:' + color + ';stroke:var(--card-bg)" stroke-width="1" stroke-linejoin="round"/></svg>';
   var step = Math.max(1, Math.floor(coords.length / 10));
   for (var i = step; i < coords.length - 1; i += step) {
     L.marker(coords[i], {
       icon: L.divIcon({
-        html: '<div style="transform:rotate(' + arrowDeg + 'deg);transform-origin:center;opacity:1;line-height:0;pointer-events:none;filter:drop-shadow(0 0 2px rgba(0,0,0,0.9));">' + svg + '</div>',
+        html: '<div style="transform:rotate(' + arrowDeg + 'deg);transform-origin:center;opacity:1;line-height:0;pointer-events:none;filter:drop-shadow(0 0 2px var(--shadow));">' + svg + '</div>',
         className: '',
         iconSize: [sw, sh],
         iconAnchor: [sw / 2, sh / 2]
@@ -721,6 +1081,10 @@ function typeChanged(sel) {
 })();
 {% endif %}
 {% endif %}
+
+function useElapsedTime() {
+  fetch('/rides/{{ activity.id }}/moving/elapsed', { method: 'POST' }).then(function(r) { if (r.ok) location.reload(); });
+}
 
 function dismissFlag() {
   fetch('/rides/{{ activity.id }}/flag/dismiss', { method: 'POST' }).then(function(r) { if (r.ok) { var b = document.getElementById('flagBanner'); if (b) b.remove(); } });
@@ -741,7 +1105,7 @@ function setWeather(v) {
 // ── Segment creation ─────────────────────────────────────────────
 var _segState = { active: false, startIdx: 0, endIdx: null,
                   startMarker: null, endMarker: null, segLine: null, segLineGroup: null,
-                  draggingStart: false, draggingEnd: false };
+                  dragging: null };                 // 'start' or 'end' while that marker is held
 
 function enterSegmentMode() {
   var coords = window._rideCoords || [];
@@ -757,6 +1121,7 @@ function enterSegmentMode() {
 
   var maxIdx = coords.length - 1;
   document.getElementById('segStartSlider').max = maxIdx;
+  document.getElementById('segStartSlider').value = 0;
   document.getElementById('segEndSlider').max = maxIdx;
   document.getElementById('segEndSlider').value = maxIdx;
 
@@ -771,7 +1136,7 @@ function adjustSegStart(delta) {
   var newVal = parseInt(slider.value) + delta;
   newVal = Math.max(0, Math.min(newVal, parseInt(slider.max)));
   slider.value = newVal;
-  updateSegmentFromSliders();
+  updateSegmentFromSliders('start');
 }
 
 function adjustSegEnd(delta) {
@@ -779,7 +1144,7 @@ function adjustSegEnd(delta) {
   var newVal = parseInt(slider.value) + delta;
   newVal = Math.max(0, Math.min(newVal, parseInt(slider.max)));
   slider.value = newVal;
-  updateSegmentFromSliders();
+  updateSegmentFromSliders('end');
 }
 
 function showSegmentForm() {
@@ -799,13 +1164,13 @@ function resetSegmentMode() {
   if (_segState.segLineGroup && map) map.removeLayer(_segState.segLineGroup);
   _segState = { active: false, startIdx: 0, endIdx: null,
                 startMarker: null, endMarker: null, segLine: null, segLineGroup: null,
-                draggingStart: false, draggingEnd: false };
+                dragging: null };
   document.getElementById('segSliders').style.display = 'none';
   document.getElementById('segForm').style.display = 'none';
   if (map) map.getContainer().style.cursor = '';
 }
 
-function updateSegmentFromSliders() {
+function updateSegmentFromSliders(moved) {
   if (!_segState.active) return;
   var coords = window._rideCoords || [];
   var timeData = window._rideTime || [];
@@ -814,7 +1179,10 @@ function updateSegmentFromSliders() {
   var si = parseInt(document.getElementById('segStartSlider').value);
   var ei = parseInt(document.getElementById('segEndSlider').value);
 
-  if (si > ei) { si = ei; document.getElementById('segStartSlider').value = si; }
+  if (si > ei) {                        // crossed: the one being moved stops at the other, the other stays put
+    if (moved === 'end') { ei = si; document.getElementById('segEndSlider').value = ei; }
+    else                 { si = ei; document.getElementById('segStartSlider').value = si; }
+  }
   _segState.startIdx = si;
   _segState.endIdx = ei;
 
@@ -824,21 +1192,21 @@ function updateSegmentFromSliders() {
   // Update markers and segment line
   if (_segState.segLineGroup) _segState.segLineGroup.clearLayers();
 
+  // Segment line, under the markers and not clickable, so pressing a marker grabs the marker
+  _segState.segLine = L.polyline(segCoords, { color: cssVar('--info'), weight: 5, opacity: 0.85, interactive: false })
+    .addTo(_segState.segLineGroup);
+
   // Start marker
   _segState.startMarker = L.circleMarker(coords[si], {
-    color: '#10b981', fillColor: '#10b981', fillOpacity: 1, radius: 10, weight: 2
+    color: cssVar('--success'), fillColor: cssVar('--success'), fillOpacity: 1, radius: 10, weight: 2
   }).addTo(_segState.segLineGroup);
-  _segState.startMarker.on('mousedown', function() { _segState.draggingStart = true; });
+  _segState.startMarker.on('mousedown', function(e) { startSegDrag('start', e); });
 
   // End marker
   _segState.endMarker = L.circleMarker(coords[ei], {
-    color: '#ef4444', fillColor: '#ef4444', fillOpacity: 1, radius: 10, weight: 2
+    color: cssVar('--danger'), fillColor: cssVar('--danger'), fillOpacity: 1, radius: 10, weight: 2
   }).addTo(_segState.segLineGroup);
-  _segState.endMarker.on('mousedown', function() { _segState.draggingEnd = true; });
-
-  // Segment line
-  _segState.segLine = L.polyline(segCoords, { color: '#3b82f6', weight: 5, opacity: 0.85 })
-    .addTo(_segState.segLineGroup);
+  _segState.endMarker.on('mousedown', function(e) { startSegDrag('end', e); });
 
   // Calculate distance
   var dist = 0;
@@ -850,7 +1218,7 @@ function updateSegmentFromSliders() {
     var a = Math.sin(dlat/2)*Math.sin(dlat/2) + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dlng/2)*Math.sin(dlng/2);
     dist += 2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   }
-  var distMi = dist / 1609.344;
+  var distMi = UNITS.toDist(dist);              // in the rider's unit, despite the name
 
   // Calculate elevation gain
   var elevGain = 0;
@@ -869,14 +1237,14 @@ function updateSegmentFromSliders() {
     var dlat = (coords[i+1][0]-coords[i][0])*Math.PI/180;
     var dlng = (coords[i+1][1]-coords[i][1])*Math.PI/180;
     var a = Math.sin(dlat/2)*Math.sin(dlat/2) + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dlng/2)*Math.sin(dlng/2);
-    startDistMi += 2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) / 1609.344;
+    startDistMi += UNITS.toDist(2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
   }
   var endDistMi = startDistMi + distMi;
 
   document.getElementById('segStartDist').textContent = startDistMi.toFixed(1);
   document.getElementById('segEndDist').textContent = endDistMi.toFixed(1);
   document.getElementById('segLength').textContent = distMi.toFixed(2);
-  document.getElementById('segElevation').textContent = Math.round(elevGain * 3.28084);
+  document.getElementById('segElevation').textContent = Math.round(UNITS.toElev(elevGain));
 
   if (timeData[si] !== undefined) {
     document.getElementById('segStartTime').textContent = Math.round(timeData[si]/60) + 'm in';
@@ -895,36 +1263,54 @@ function updateSegmentFromSliders() {
   document.getElementById('segPolyline').value = JSON.stringify(segCoords);
 }
 
+// Holding a marker drags it, not the map, until the button comes up anywhere on the page.
+function startSegDrag(which, e) {
+  _segState.dragging = which;
+  window._rideMap.dragging.disable();
+  L.DomEvent.preventDefault(e.originalEvent);
+}
+
+// The route point under the cursor for the marker being dragged. Only the part of the route that keeps the start before the end is
+// searched, and where a loop or an out-and-back passes under the cursor more than once, the pass nearest the marker's current place
+// along the route wins, so the marker stays on the pass it is on.
+function segSnapIdx(latlng, which) {
+  var map = window._rideMap, coords = window._rideCoords || [];
+  var lo = which === 'end' ? _segState.startIdx : 0;
+  var hi = which === 'start' ? _segState.endIdx : coords.length - 1;
+  var cur = which === 'start' ? _segState.startIdx : _segState.endIdx;
+  var p = map.latLngToContainerPoint(latlng), d = [], nearest = Infinity;
+  for (var i = lo; i <= hi; i++) {
+    d[i - lo] = p.distanceTo(map.latLngToContainerPoint(coords[i]));
+    if (d[i - lo] < nearest) nearest = d[i - lo];
+  }
+  var tol = nearest + 15, pick = cur, pickGap = Infinity, runBest = -1;     // pixels
+  for (var j = lo; j <= hi + 1; j++) {
+    if (j <= hi && d[j - lo] <= tol) {
+      if (runBest < 0 || d[j - lo] < d[runBest - lo]) runBest = j;
+    } else if (runBest >= 0) {                                               // one pass under the cursor ends here
+      if (Math.abs(runBest - cur) < pickGap) { pickGap = Math.abs(runBest - cur); pick = runBest; }
+      runBest = -1;
+    }
+  }
+  return pick;
+}
+
 {% if coords %}
 (function() {
   var map = window._rideMap;
   if (!map) return;
 
-  // Mouse move to drag markers along route
   map.on('mousemove', function(e) {
-    if (!_segState.active) return;
-    if (!_segState.draggingStart && !_segState.draggingEnd) return;
-
-    var coords = window._rideCoords || [];
-    var best = 0, bestD = Infinity;
-    for (var i = 0; i < coords.length; i++) {
-      var dl = coords[i][0] - e.latlng.lat, dm = coords[i][1] - e.latlng.lng;
-      var d = dl*dl + dm*dm;
-      if (d < bestD) { bestD = d; best = i; }
-    }
-
-    if (_segState.draggingStart) {
-      document.getElementById('segStartSlider').value = best;
-      updateSegmentFromSliders();
-    } else if (_segState.draggingEnd) {
-      document.getElementById('segEndSlider').value = best;
-      updateSegmentFromSliders();
-    }
+    if (!_segState.active || !_segState.dragging) return;
+    var which = _segState.dragging;
+    document.getElementById(which === 'start' ? 'segStartSlider' : 'segEndSlider').value = segSnapIdx(e.latlng, which);
+    updateSegmentFromSliders(which);
   });
 
-  map.on('mouseup', function() {
-    _segState.draggingStart = false;
-    _segState.draggingEnd = false;
+  document.addEventListener('mouseup', function() {
+    if (!_segState.dragging) return;
+    _segState.dragging = null;
+    map.dragging.enable();
     if (_segState.active) {
       document.getElementById('segForm').style.display = 'block';
     }
@@ -940,48 +1326,72 @@ function updateSegmentFromSliders() {
     new Chart(el, { type: 'line',
       data: { labels: s.min, datasets: [{ data: vals, borderColor: color, borderWidth: 1.3, pointRadius: 0, fill: false, tension: 0.25 }] },
       options: { animation: false, maintainAspectRatio: false, spanGaps: true,
-        plugins: { legend: { display: false }, title: { display: true, text: label, color: '#8fb1c4', font: { size: 11 } },
+        plugins: { legend: { display: false }, title: { display: true, text: label, color: cssVar('--text-soft'), font: { size: 11 } },
           tooltip: { mode: 'index', intersect: false, callbacks: { title: c => Math.round(c[0].label) + ' min', label: c => c.parsed.y + ' ' + unit } } },
-        scales: { x: { ticks: { color: '#4d7d95', font: { size: 10 }, maxTicksLimit: 8, callback: function(v) { return Math.round(this.getLabelForValue(v)) + 'm'; } }, grid: { display: false } },
-                  y: { ticks: { color: '#4d7d95', font: { size: 10 } }, grid: { color: '#163352' } } } } });
+        scales: { x: { ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: 8, callback: function(v) { return Math.round(this.getLabelForValue(v)) + 'm'; } }, grid: { display: false } },
+                  y: { ticks: { color: cssVar('--text-muted'), font: { size: 10 } }, grid: { color: cssVar('--border') } } } } });
   }
-  line('roughChart', s.rough, '#fbbf24', 'Roughness', 'm/s²');
+  line('roughChart', s.rough, cssVar('--c-amber'), 'Roughness', 'm/s²');
   // the route itself, coloured by how rough it was (this ride's own smooth-to-rough scale)
   var tr = {{ (phone_sensors.track or []) | tojson }}, m = window._rideMap;
   if (m && tr.length > 5 && {{ 'false' if phone_sensors.mount == 'pocket' else 'true' }}) {        // a pocket mostly measures the rider, so no road colouring
     var vals = tr.map(function(p) { return p[2]; }).sort(function(a, b) { return a - b; });
     var q = function(f) { return vals[Math.floor(f * (vals.length - 1))]; }, br = [q(0.25), q(0.5), q(0.8), q(0.95)];
-    var cols = ['#22c55e', '#a3e635', '#fbbf24', '#fb923c', '#ef4444'];
+    var cols = [cssVar('--c-green'), cssVar('--c-lime'), cssVar('--c-amber'), cssVar('--c-orange'), cssVar('--danger')];
     for (var i = 1; i < tr.length; i++) {
       var r = tr[i][2], c = cols[cols.length - 1];
       for (var k = 0; k < br.length; k++) { if (r < br[k]) { c = cols[k]; break; } }
       L.polyline([[tr[i - 1][0], tr[i - 1][1]], [tr[i][0], tr[i][1]]], { color: c, weight: 6, opacity: 0.9 }).addTo(m);
     }
   }
-  if (document.getElementById('cadChart')) line('cadChart', s.cad, '#a78bfa', 'Cadence (estimated rpm)', 'rpm');
-  line('baroChart', s.alt, '#38bdf8', 'Barometric altitude (m, relative)', 'm');
+  if (document.getElementById('cadChart')) line('cadChart', s.cad, cssVar('--c-violet'), 'Cadence (estimated rpm)', 'rpm');
+  line('baroChart', s.alt, cssVar('--c-sky'), 'Barometric altitude (m, relative)', 'm');
 })();
 {% endif %}
 
-function makeChart(id, data, color) {
+function makeChart(id, data, colour) {     // colour: a variable from style.css, e.g. '--success'
+  var color = cssVar(colour);
   new Chart(document.getElementById(id), {
     type: 'line',
     data: {
       labels: data.labels,
       datasets: [{ data: data.values, borderColor: color, borderWidth: 1.5,
         pointRadius: 0, fill: true,
-        backgroundColor: color.replace(')', ', 0.08)').replace('rgb', 'rgba') }]
+        backgroundColor: cssVar(colour, 0.08) }]
     },
     options: {
       animation: false,
       maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: {
         mode: 'index', intersect: false,
-        callbacks: { title: ctx => ctx[0].label + ' mi' }
+        callbacks: { title: ctx => ctx[0].label + ' ' + UNITS.dist }
       }},
       scales: {
-        x: { ticks: { color: '#4d7d95', font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false } },
-        y: { ticks: { color: '#4d7d95', font: { size: 10 } }, grid: { color: '#163352' } }
+        x: { ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false } },
+        y: { ticks: { color: cssVar('--text-muted'), font: { size: 10 } }, grid: { color: cssVar('--border') } }
+      }
+    }
+  });
+}
+
+// Pace in seconds per mile / km / 100 m: faster at the top, minutes and seconds on the axis. A gap is a stop.
+function makePaceChart(id, data, colour) {
+  var color = cssVar(colour);
+  var mmss = function (v) { v = Math.round(v); return Math.floor(v / 60) + ':' + String(v % 60).padStart(2, '0'); };
+  var vals = data.values.filter(function (v) { return v; }).sort(function (a, b) { return a - b; });
+  var cap = vals.length ? vals[Math.floor(vals.length * 0.95)] * 1.15 : null;      // a slow shuffle at a junction shouldn't squash the rest
+  new Chart(document.getElementById(id), {
+    type: 'line',
+    data: { labels: data.labels, datasets: [{ data: data.values.map(function (v) { return v && cap && v > cap ? cap : v; }), borderColor: color,
+            borderWidth: 1.5, pointRadius: 0, fill: false, spanGaps: false }] },
+    options: {
+      animation: false,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false,
+        callbacks: { title: function (ctx) { return ctx[0].label + ' ' + UNITS.dist; }, label: function (ctx) { return mmss(ctx.parsed.y); } } } },
+      scales: {
+        x: { ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false } },
+        y: { reverse: true, ticks: { color: cssVar('--text-muted'), font: { size: 10 }, callback: mmss }, grid: { color: cssVar('--border') } }
       }
     }
   });
@@ -993,9 +1403,9 @@ function makeElevHrChart(id, elevData, hrData) {
     data: {
       labels: elevData.labels,
       datasets: [
-        { label: 'Elev (ft)', data: elevData.values, borderColor: 'rgb(16,185,129)', borderWidth: 1.5,
-          pointRadius: 0, fill: true, backgroundColor: 'rgba(16,185,129, 0.08)', yAxisID: 'yElev' },
-        { label: 'HR (bpm)',  data: hrData.values,   borderColor: 'rgb(239,68,68)',  borderWidth: 1.5,
+        { label: 'Elev (' + UNITS.elev + ')', data: elevData.values, borderColor: cssVar('--success'), borderWidth: 1.5,
+          pointRadius: 0, fill: true, backgroundColor: cssVar('--success', 0.08), yAxisID: 'yElev' },
+        { label: 'HR (bpm)',  data: hrData.values,   borderColor: cssVar('--danger'),  borderWidth: 1.5,
           pointRadius: 0, fill: false, yAxisID: 'yHr' }
       ]
     },
@@ -1003,14 +1413,14 @@ function makeElevHrChart(id, elevData, hrData) {
       animation: false,
       maintainAspectRatio: false,
       plugins: {
-        legend: { display: true, labels: { color: '#4d7d95', font: { size: 10 }, boxWidth: 10, padding: 12 } },
+        legend: { display: true, labels: { color: cssVar('--text-muted'), font: { size: 10 }, boxWidth: 10, padding: 12 } },
         tooltip: { mode: 'index', intersect: false,
-          callbacks: { title: ctx => ctx[0].label + ' mi' } }
+          callbacks: { title: ctx => ctx[0].label + ' ' + UNITS.dist } }
       },
       scales: {
-        x: { ticks: { color: '#4d7d95', font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false } },
-        yElev: { position: 'left',  ticks: { color: 'rgb(16,185,129)', font: { size: 10 } }, grid: { color: '#163352' } },
-        yHr:   { position: 'right', ticks: { color: 'rgb(239,68,68)',  font: { size: 10 } }, grid: { drawOnChartArea: false } }
+        x: { ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false } },
+        yElev: { position: 'left',  ticks: { color: cssVar('--success'), font: { size: 10 } }, grid: { color: cssVar('--border') } },
+        yHr:   { position: 'right', ticks: { color: cssVar('--danger'),  font: { size: 10 } }, grid: { drawOnChartArea: false } }
       }
     }
   });
@@ -1019,12 +1429,13 @@ function makeElevHrChart(id, elevData, hrData) {
 {% if charts.elevation and charts.heartrate %}
 makeElevHrChart('elevChart', {{ charts.elevation | tojson }}, {{ charts.heartrate | tojson }});
 {% elif charts.elevation %}
-makeChart('elevChart', {{ charts.elevation | tojson }}, 'rgb(16,185,129)');
+makeChart('elevChart', {{ charts.elevation | tojson }}, '--success');
 {% endif %}
-{% if charts.speed %}makeChart('speedChart',  {{ charts.speed | tojson }},     'rgb(14,165,233)');{% endif %}
-{% if charts.heartrate and not charts.elevation %}makeChart('hrChart', {{ charts.heartrate | tojson }}, 'rgb(239,68,68)');{% endif %}
-{% if charts.power %}makeChart('powerChart', {{ charts.power | tojson }},       'rgb(252,76,2)');{% endif %}
-{% if charts.cadence %}makeChart('cadenceChart', {{ charts.cadence | tojson }}, 'rgb(168,85,247)');{% endif %}
+{% if charts.speed %}makeChart('speedChart',  {{ charts.speed | tojson }},     '--c-sky');{% endif %}
+{% if charts.pace %}makePaceChart('paceChart', {{ charts.pace | tojson }}, '--c-sky');{% endif %}
+{% if charts.heartrate and not charts.elevation %}makeChart('hrChart', {{ charts.heartrate | tojson }}, '--danger');{% endif %}
+{% if charts.power %}makeChart('powerChart', {{ charts.power | tojson }},       '--accent');{% endif %}
+{% if charts.cadence %}makeChart('cadenceChart', {{ charts.cadence | tojson }}, '--c-purple');{% endif %}
 
 {% if activity.weatherWindDir is not none %}
 (function() {

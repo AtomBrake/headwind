@@ -46,6 +46,11 @@ enum AppError: LocalizedError {
         return false
     }
 
+    var isNotFound: Bool {
+        if case .serverError(404, _) = self { return true }
+        return false
+    }
+
     /// The server refused the request itself (bad request, too large, unreadable), so sending it again won't help.
     var isRejection: Bool {
         if case .serverError(let status, _) = self { return [400, 413, 422].contains(status) }
@@ -65,4 +70,6 @@ extension AppError {
         message: "That token doesn't look right. Tokens start with hw_ and are shown once when you create a pairing.")
     static let rideTooShort = AppError.validationError(
         message: "Not enough GPS was recorded to save this ride. Wait for \"GPS ready\" before starting.")
+    static let sessionTooShort = AppError.validationError(
+        message: "Too short to save: Headwind keeps sessions of a minute or more.")
 }

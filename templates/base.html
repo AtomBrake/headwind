@@ -1,13 +1,107 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{ appearance }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}{% endblock %} — Headwind</title>
+  {% include '_scheme.html' %}
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
   <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <script>
+  // The rider's units (services/units.py): page scripts get stored metres / m/s through these, never their own 1609.344 or 2.23694.
+  window.UNITS = {{ U | tojson }};
+  // Labels: UNITS.dist ('mi'|'km'), UNITS.elev ('ft'|'m'), UNITS.speed ('mph'|'km/h'), UNITS.pace ('/mi'|'/km'). Numbers from stored values:
+  UNITS.toDist  = function (m)   { return (m || 0) / UNITS.distM; };
+  UNITS.toElev  = function (m)   { return (m || 0) * UNITS.elevPerM; };
+  UNITS.toSpeed = function (mps) { return (mps || 0) * UNITS.speedPerMps; };
+  // Pace (services/sports.rate_style): seconds per mile / km for 'pace', per 100 m for 'swim'.
+  UNITS.toPace    = function (mps, style) { return mps > 0 ? (style === 'swim' ? 100 : UNITS.distM) / mps : null; };
+  UNITS.paceLabel = function (style) { return style === 'swim' ? '/100 m' : UNITS.pace; };
+  UNITS.fmtMinSec = function (s) { s = Math.round(s || 0); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  (function () {
+    // A colour from the variables in style.css, for what can't read var(--x) itself: Chart.js, Leaflet, canvas. Markup and inline
+    // styles (SVG included, through .style) use var(--x), which follows the scheme by itself.
+    // cssVar('--danger') is '#ef4444'; cssVar('--danger', 0.15) is 'rgba(239,68,68,0.15)'.
+    function colourOf(name, alpha) {
+      var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      if (alpha === undefined) return v;
+      var m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v);
+      if (m) {
+        var h = m[1].length === 3 ? m[1].replace(/./g, '$&$&') : m[1], n = parseInt(h, 16);
+        return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + alpha + ')';
+      }
+      m = /^rgba?\(([^,]+),([^,]+),([^,)]+)/.exec(v);
+      return m ? 'rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',' + alpha + ')' : v;
+    }
+    var handedOut = {};                     // 'name alpha' -> [name, alpha, the colour cssVar() gave for it]
+    window.cssVar = function (name, alpha) {
+      var v = colourOf(name, alpha);
+      handedOut[name + ' ' + alpha] = [name, alpha, v];
+      return v;
+    };
+    // When the scheme flips with the page open, every colour cssVar() handed out maps to the same variable's new one. A colour
+    // two variables shared that now differ can't be mapped: null, and the page reloads instead.
+    var stale = {};                         // a colour from an earlier scheme -> the current one
+    window.cssVar.restale = function () {
+      var step = {};
+      for (var k in handedOut) {
+        var h = handedOut[k], now = colourOf(h[0], h[1]);
+        if (h[2] in step && step[h[2]] !== now) return null;
+        step[h[2]] = now; h[2] = now;
+      }
+      for (var old in stale) { if (stale[old] in step) stale[old] = step[stale[old]]; }
+      for (var o in step) stale[o] = step[o];
+      for (var x in stale) { if (stale[x] === x) delete stale[x]; }
+      return stale;
+    };
+  })();
+  </script>
   {% block head %}{% endblock %}
+  <script>
+  // Chart.js draws ticks, labels and grid lines in these unless a chart says otherwise
+  if (window.Chart) { Chart.defaults.color = cssVar('--text-muted'); Chart.defaults.borderColor = cssVar('--border'); }
+
+  // Recolouring on a scheme change. Charts and map lines hold the strings cssVar() returned, so they are swapped for the new
+  // scheme's: in what is already drawn, and in charts and lines a page makes later from colours it kept in a variable.
+  (function () {
+    var stale = {}, maps = [];
+    function plain(o) { var p = Object.getPrototypeOf(o); return p === Object.prototype || p === null; }     // Chart.js merges scales into null-prototype objects
+    function swap(o, depth) {             // options and datasets, not the data points
+      for (var k in o) {
+        var x = o[k];
+        if (typeof x === 'string') { if (stale.hasOwnProperty(x)) o[k] = stale[x]; }
+        else if (x && typeof x === 'object' && k !== 'data' && depth < 8 && (Array.isArray(x) || plain(x))) swap(x, depth + 1);
+      }
+    }
+    function swapChart(c) { swap(c.config.data, 0); swap(c.config.options, 0); }
+    function pathStyle(o) {
+      var s = {};
+      ['color', 'fillColor'].forEach(function (k) { if (stale.hasOwnProperty(o[k])) s[k] = stale[o[k]]; });
+      return s;
+    }
+    if (window.Chart) Chart.register({ id: 'scheme', beforeInit: swapChart });
+    if (window.L) {
+      L.Map.addInitHook(function () { maps.push(this); });
+      L.Path.addInitHook(function () { L.Util.extend(this.options, pathStyle(this.options)); });
+    }
+    function themeColour() { document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) { m.content = cssVar('--main-bg'); }); }
+    addEventListener('DOMContentLoaded', themeColour);
+    addEventListener('schemechange', function () {
+      var now = cssVar.restale();
+      if (!now) { location.reload(); return; }
+      stale = now;
+      themeColour();
+      if (window.Chart) {
+        ['color', 'borderColor', 'backgroundColor'].forEach(function (k) { if (stale.hasOwnProperty(Chart.defaults[k])) Chart.defaults[k] = stale[Chart.defaults[k]]; });
+        Object.values(Chart.instances).forEach(function (c) { swapChart(c); c.update('none'); });
+      }
+      maps.forEach(function (m) {
+        m.eachLayer(function (l) { if (l.setStyle && l.options) { var s = pathStyle(l.options); if (Object.keys(s).length) l.setStyle(s); } });
+      });
+    });
+  })();
+  </script>
 </head>
 <body>
 
@@ -31,9 +125,17 @@
       </a>
 
       <div class="nav-section-label">Activity</div>
+      <a href="{{ url_for('dashboard.activities_page') }}"
+         class="nav-item {% if request.endpoint == 'dashboard.activities_page' %}active{% endif %}">
+        {% include 'icons/_list.svg' %} Activities
+      </a>
       <a href="{{ url_for('data.index') }}"
          class="nav-item {% if request.blueprint == 'data' %}active{% endif %}">
         {% include 'icons/_bars.svg' %} Analytics
+      </a>
+      <a href="{{ url_for('goals.index') }}"
+         class="nav-item {% if request.blueprint == 'goals' %}active{% endif %}">
+        {% include 'icons/_target.svg' %} Goals
       </a>
       <a href="{{ url_for('segments.index') }}"
          class="nav-item {% if request.blueprint == 'segments' %}active{% endif %}">
@@ -62,7 +164,7 @@
 
       <div class="nav-section-label">Health</div>
       <a href="{{ url_for('nutrition.index') }}"
-         class="nav-item {% if request.blueprint == 'nutrition' %}active{% endif %}">
+         class="nav-item {% if request.blueprint == 'nutrition' and request.endpoint not in ('nutrition.steps_page', 'nutrition.weight_graph_page', 'nutrition.weight_backfill_page') %}active{% endif %}">
         {% include 'icons/_leaf.svg' %} Nutrition
       </a>
       <a href="{{ url_for('workouts_ui.workouts_page') }}"
@@ -72,6 +174,10 @@
       <a href="{{ url_for('nutrition.steps_page') }}"
          class="nav-item {% if request.endpoint == 'nutrition.steps_page' %}active{% endif %}">
         {% include 'icons/_footprint.svg' %} Steps
+      </a>
+      <a href="{{ url_for('nutrition.weight_graph_page') }}"
+         class="nav-item {% if request.endpoint in ('nutrition.weight_graph_page', 'nutrition.weight_backfill_page') %}active{% endif %}">
+        {% include 'icons/_scale.svg' %} Weight
       </a>
 
       <div class="nav-section-label">System</div>
@@ -85,7 +191,11 @@
       </a>
       <a href="{{ url_for('import_rides.index') }}"
          class="nav-item {% if request.blueprint == 'import_rides' %}active{% endif %}">
-        {% include 'icons/_upload.svg' %} Import
+        {% include 'icons/_upload.svg' %} Import{% if reimport_advised %} <span class="nav-badge" title="Import your Strava export again">{{ reimport_advised }}</span>{% endif %}
+      </a>
+      <a href="{{ url_for('tasks.index') }}"
+         class="nav-item {% if request.blueprint == 'tasks' %}active{% endif %}">
+        {% include 'icons/_pulse.svg' %} Tasks{% if startup_unseen %} <span class="nav-badge">{{ startup_unseen }}</span>{% endif %}
       </a>
       <a href="{{ url_for('settings.index') }}"
          class="nav-item {% if request.blueprint == 'settings' %}active{% endif %}">
@@ -106,10 +216,22 @@
         <span class="hamburger-line"></span>
         <span class="hamburger-line"></span>
       </button>
-      <h1>{% block page_title %}{% endblock %}</h1>
-      <div class="topbar-actions">{% block topbar_actions %}{% endblock %}</div>
+      {# The way back is the page above this one, named before the title: Gear › Stumpjumper. A page sets it with {% block parent %}<a href="…">Gear</a>{% endblock %}. #}
+      <h1>{% if self.parent() | trim %}<span class="crumb">{% block parent %}{% endblock %}</span><span class="crumb-sep" aria-hidden="true">›</span>{% endif %}{% block page_title %}{% endblock %}</h1>
+      <div class="topbar-right">
+        <div class="import-pill" id="importPill" hidden>
+          <a href="{{ url_for('import_rides.index') }}" id="importPillText"></a>
+          <div class="import-pill-bar"><div id="importPillFill"></div></div>
+          <button type="button" id="importPillClose" aria-label="Dismiss" hidden>&times;</button>
+        </div>
+        <div class="topbar-actions">{% block topbar_actions %}{% endblock %}</div>
+      </div>
     </div>
     <div class="content">
+      {% if startup_unseen %}
+      <div class="flash flash-success" style="margin-bottom:1rem;">Headwind ran {{ startup_unseen }} start-up repair{{ 's' if startup_unseen != 1 }} on your data after the update.
+        <a href="{{ url_for('tasks.index') }}" style="color:var(--accent);">See what changed</a></div>
+      {% endif %}
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% for category, message in messages %}
           <div class="flash flash-{{ category }}">{{ message }}</div>
@@ -135,11 +257,38 @@
   }
   </script>
   {% block scripts %}{% endblock %}
+  {% if request.blueprint != 'import_rides' %}
+  <script>
+  // An import started on the Import page carries on in the background; show how it is getting on from every other page.
+  (function () {
+    var pill = document.getElementById('importPill'), text = document.getElementById('importPillText'),
+        fill = document.getElementById('importPillFill'), close = document.getElementById('importPillClose');
+    function poll() {
+      fetch('/import/progress').then(function (r) { return r.json(); }).then(function (d) {
+        if (!('running' in d)) { pill.hidden = true; return; }
+        pill.hidden = false;
+        pill.className = 'import-pill' + (d.error ? ' import-pill-error' : d.running ? '' : ' import-pill-done');
+        close.hidden = d.running;
+        if (d.error) text.textContent = 'Import failed: ' + d.error;
+        else if (d.running) text.textContent = d.total ? 'Importing ' + (d.done || 0) + ' / ' + d.total : 'Importing\u2026';
+        else text.textContent = '\u2713 Import done \u00b7 ' + (d.imported || 0) + ' imported';
+        fill.style.width = (d.running ? (d.total ? Math.round((d.done || 0) / d.total * 100) : 0) : 100) + '%';
+        if (d.running) setTimeout(poll, 2000);
+      }).catch(function () {});
+    }
+    close.addEventListener('click', function () {
+      pill.hidden = true;
+      fetch('/import/progress/dismiss', { method: 'POST' }).catch(function () {});
+    });
+    poll();
+  })();
+  </script>
+  {% endif %}
   <script>
   (function () {
     var tip = document.createElement('div');
     tip.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;display:none;'
-      + 'border-radius:50%;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.6);'
+      + 'border-radius:50%;overflow:hidden;box-shadow:0 4px 20px var(--shadow);'
       + 'border:2px solid var(--border);width:96px;height:96px;';
     var tipImg = document.createElement('img');
     tipImg.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
@@ -171,7 +320,7 @@
       var img = e.target;
       if (img.tagName !== 'IMG' || !img.src.includes('/avatars/')) return;
       var rid = img.getAttribute('data-rider-id');
-      if (rid) window.location = '/riders/' + rid;
+      if (rid) { e.preventDefault(); window.location = '/riders/' + rid; }   // the avatar can sit inside a link to the ride
     });
   })();
   </script>

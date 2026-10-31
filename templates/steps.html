@@ -4,13 +4,13 @@
 
 {% block head %}
 <link rel="manifest" href="/static/steps-manifest.json">
-<meta name="theme-color" content="#0d1b2a">
+<meta name="theme-color" content="#071525">
 <style>
   .st-card { background:var(--card-bg); border:1px solid var(--border); border-radius:14px; padding:1rem; margin-bottom:1rem; }
   .st-today { display:flex; align-items:baseline; gap:0.5rem; }
   .st-today b { font-size:2.4rem; font-weight:800; }
   .st-bar { height:10px; background:var(--border); border-radius:6px; overflow:hidden; margin:0.6rem 0 0.25rem; }
-  .st-bar > div { height:100%; background:linear-gradient(90deg,#10b981,#6ee7b7); }
+  .st-bar > div { height:100%; background:linear-gradient(90deg, var(--success), var(--success-text)); }
   .st-form { display:flex; gap:0.5rem; flex-wrap:wrap; align-items:end; }
   .st-form .form-group { flex:1; min-width:120px; margin:0; }
   .st-form input { width:100%; font-size:16px; min-height:46px; }
@@ -23,7 +23,7 @@
   .st-msg { font-size:0.85rem; margin-top:0.5rem; min-height:1.2em; }
   .st-chips { display:flex; gap:0.4rem; margin:0 0 0.6rem; }
   .st-chip { background:var(--border); border:none; color:inherit; border-radius:99px; padding:0.35rem 0.8rem; font-size:0.82rem; cursor:pointer; }
-  .st-chip.on { background:var(--success); color:#062b1f; font-weight:700; }
+  .st-chip.on { background:var(--success); color:var(--on-success); font-weight:700; }
 </style>
 {% endblock %}
 

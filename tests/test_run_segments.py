@@ -1,4 +1,5 @@
-"""Run segments: runs only match run segments, rides only ride segments; efforts/PRs span Workout and Activity. Throwaway DB."""
+"""Foot segments (run segments before 0.7.2): runs match them, rides never do, and a ride segment never matches a run. Throwaway DB.
+Walks and hikes on foot segments: tests/test_segment_families.py."""
 import json
 
 import pytest
@@ -30,7 +31,7 @@ def db(tmp_path):
 
 def add_run(db, wid, secs=1200, speed=3.0, day='2026-10-07', sport='Run'):
     st = line(secs, speed)
-    db.execute("INSERT INTO Workout (id,riderId,sport,startDateLocal,distance,movingTime,streams,source) VALUES (?,1,?,?,?,?,?,'android')", [wid, sport, f'{day}T10:00:00', secs * speed, secs, st])
+    db.execute("INSERT INTO Activity (id,riderId,sportType,startDateLocal,distance,movingTime,streams,source) VALUES (?,1,?,?,?,?,?,'android')", [wid, sport, f'{day}T10:00:00', secs * speed, secs, st])
     db.commit()
     workouts.refresh_derived(db, wid)
     db.commit()
@@ -53,7 +54,7 @@ def add_seg(db, sport, name='Seg', start_s=100, end_s=700, speed=3.0):
 
 
 def test_a_run_matches_a_run_segment_and_gets_a_pr(db):
-    sid = add_seg(db, 'run')
+    sid = add_seg(db, 'foot')
     add_run(db, 'wk_a')
     row = db.execute('SELECT elapsedSecs, isPR FROM SegmentEffort WHERE segmentId=? AND activityId=?', [sid, 'wk_a']).fetchone()
     assert row and abs(row['elapsedSecs'] - 600) <= 2 and row['isPR'] == 1
@@ -66,48 +67,50 @@ def test_a_run_never_matches_a_ride_segment(db):
 
 
 def test_a_ride_never_matches_a_run_segment(db):
-    sid = add_seg(db, 'run', speed=3.0)
+    sid = add_seg(db, 'foot', speed=3.0)
     add_ride(db, 'imp_r')
     segments.scan_all_activities(db)
     assert db.execute('SELECT COUNT(*) FROM SegmentEffort WHERE segmentId=?', [sid]).fetchone()[0] == 0
 
 
-def test_a_walk_has_no_segments(db):
-    sid = add_seg(db, 'run')
-    add_run(db, 'wk_w', sport='Walk')
+def test_a_swim_has_no_segments(db):
+    sid = add_seg(db, 'foot')
+    add_run(db, 'wk_w', sport='Swim')
     assert db.execute('SELECT COUNT(*) FROM SegmentEffort WHERE segmentId=?', [sid]).fetchone()[0] == 0
 
 
 def test_the_faster_run_takes_the_pr_and_deleting_it_hands_it_back(db):
-    sid = add_seg(db, 'run')
+    sid = add_seg(db, 'foot')
     add_run(db, 'wk_slow', speed=2.5, secs=1500, day='2026-10-01')
     add_run(db, 'wk_fast', speed=3.4, secs=1200, day='2026-10-07')
     pr = db.execute('SELECT activityId FROM SegmentEffort WHERE segmentId=? AND isPR=1', [sid]).fetchone()
     assert pr['activityId'] == 'wk_fast'
-    workouts.forget(db, 'wk_fast'); db.execute("DELETE FROM Workout WHERE id='wk_fast'"); db.commit()
+    workouts.forget(db, 'wk_fast'); db.execute("DELETE FROM Activity WHERE id='wk_fast'"); db.commit()
     pr = db.execute('SELECT activityId FROM SegmentEffort WHERE segmentId=? AND isPR=1', [sid]).fetchone()
     assert pr['activityId'] == 'wk_slow'
 
 
 def test_a_new_segment_scan_picks_up_existing_runs(db):
     add_run(db, 'wk_a')
-    sid = add_seg(db, 'run')
+    sid = add_seg(db, 'foot')
     segments.scan_all_activities(db, segment_ids=[sid])
     assert db.execute('SELECT COUNT(*) FROM SegmentEffort WHERE segmentId=?', [sid]).fetchone()[0] == 1
 
 
-def test_changing_a_run_to_a_walk_removes_its_efforts(db):
+def test_changing_a_run_to_a_walk_keeps_its_foot_efforts_but_not_its_run_best_times(db):
     from services import convert
-    sid = add_seg(db, 'run')
+    sid = add_seg(db, 'foot')
     add_run(db, 'wk_a')
     convert.change_sport(db, 'workout', 'wk_a', 'Walk'); db.commit()
+    assert db.execute('SELECT COUNT(*) FROM SegmentEffort WHERE segmentId=?', [sid]).fetchone()[0] == 1
+    assert db.execute('SELECT COUNT(*) FROM SportEffort WHERE activityId=?', ['wk_a']).fetchone()[0] == 0
+    convert.change_sport(db, 'workout', 'wk_a', 'Swim'); db.commit()
     assert db.execute('SELECT COUNT(*) FROM SegmentEffort WHERE segmentId=?', [sid]).fetchone()[0] == 0
-    assert db.execute('SELECT COUNT(*) FROM RunEffort WHERE runId=?', ['wk_a']).fetchone()[0] == 0
 
 
 def test_run_stats_gives_best_times_and_ignores_test_recordings(db):
     add_run(db, 'wk_a', secs=1800, speed=3.0)           # 5.4 km
-    db.execute("INSERT INTO Workout (id,riderId,sport,startDateLocal,distance,movingTime,streams,source) VALUES ('wk_tiny',1,'Run','2026-10-08T10:00:00',16,9,?, 'android')", [line(9)]); db.commit()
+    db.execute("INSERT INTO Activity (id,riderId,sportType,startDateLocal,distance,movingTime,streams,source) VALUES ('wk_tiny',1,'Run','2026-10-08T10:00:00',16,9,?, 'android')", [line(9)]); db.commit()
     out = run_stats.payloads(1)['nutrition_run_stats']
     assert out['runs'] == 1
     five_k = [b for b in out['bests'] if b['label'] == '5 km'][0]

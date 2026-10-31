@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{# One form for a bike and for shoes or other kit (routes/gear.bike_form, gear.kit_form): the same fields and "Default for" boxes, with a
+   bike's year and kit's "replace at" shown only where they apply. #}
+{% set is_bike = what == 'bike' %}
+{% set noun = 'bike' if is_bike else 'gear' %}
+{% block title %}{{ 'Edit ' ~ item.name if item else ('Add bike' if is_bike else 'Add gear') }}{% endblock %}
+{% block page_title %}{{ 'Edit ' ~ item.name if item else ('Add a bike' if is_bike else 'Add shoes or other gear') }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">{% endblock %}
+{% set back = (url_for('gear.bike', bike_id=item.id) if is_bike else url_for('gear.kit_page', kit_id=item.id)) if item else url_for('gear.index', rider=rid) %}
+{% block parent %}<a href="{{ back }}">{{ item.name if item else 'Gear' }}</a>{% endblock %}
+{% block topbar_actions %}<a class="btn btn-secondary" href="{{ back }}">Cancel</a>{% endblock %}
+{% block content %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+{% set unit = 'km' if units == 'metric' else 'miles' %}
+<div class="card" style="max-width:760px;">
+  <form method="POST" action="{{ url_for('gear.bike_save' if is_bike else 'gear.kit_save') }}" enctype="multipart/form-data" class="form-grid">
+    {% if item %}<input type="hidden" name="id" value="{{ item.id }}">{% endif %}
+    <input type="hidden" name="rider" value="{{ rid }}">
+    <label class="wide">Name<input name="name" required maxlength="80" value="{{ item.name if item else '' }}" placeholder="{{ 'e.g. Roubaix, Winter bike, Gravel' if is_bike else 'e.g. Road shoes, Trail shoes, Winter wetsuit' }}"></label>
+    <label>Type<select name="kind">{% for k, l in kinds %}<option value="{{ k }}" {{ 'selected' if kind == k }}>{{ l }}</option>{% endfor %}</select></label>
+    <label>Brand<input name="brand" maxlength="80" value="{{ item.brand or '' if item else '' }}"></label>
+    <label>Model<input name="model" maxlength="80" value="{{ item.model or '' if item else '' }}"></label>
+    {% if is_bike %}<label>Year<input name="year" type="number" min="1900" max="2100" value="{{ item.year or '' if item else '' }}"></label>{% endif %}
+    <label>Bought on (optional)<input name="boughtOn" type="date" value="{{ item.boughtOn or '' if item else '' }}"></label>
+    <label>{{ 'Already ridden' if is_bike else 'Already used' }} before Headwind ({{ unit }})<input name="start" type="number" min="0" step="1" value="{{ start_disp }}" placeholder="0"></label>
+    {% if not is_bike %}<label>Replace at ({{ unit }}, blank for never)<input name="replace" type="number" min="0" step="1" value="{{ replace_disp }}"></label>{% endif %}
+    {% if not retired %}
+    <fieldset class="wide">
+      <legend>Default for new {{ 'rides' if is_bike else 'activities' }}</legend>
+      <input type="hidden" name="defaults" value="1">
+      <div class="checks">
+        {% for key, label in sports %}
+        <label class="check" {% if taken.get(key) %}title="Now the default: {{ taken[key] }}"{% endif %}>
+          <input type="checkbox" name="sport" value="{{ key }}" {{ 'checked' if key in have }}> {{ label }}{% if taken.get(key) %} <span class="hint">({{ taken[key] }})</span>{% endif %}
+        </label>
+        {% endfor %}
+      </div>
+      <p class="hint" style="margin:.4rem 0 0;">{% if is_bike %}A new ride of a ticked kind is put on this bike automatically; "every other ride" means every ride without a default of its own.{% else %}A new activity of a ticked sport is put on this automatically.{% endif %}
+        A commute goes on its commute default whatever its sport. Ticking something another {{ 'bike' if is_bike else 'item' }} has takes it over.</p>
+    </fieldset>
+    {% endif %}
+    <label class="wide">Photo (optional)<input name="photo" type="file" accept="image/*"></label>
+    {% if item and item.photo %}<label class="check wide"><input type="checkbox" name="remove_photo" value="1"> Remove the photo</label>{% endif %}
+    <label class="wide">Notes<textarea name="notes" rows="3" maxlength="1000">{{ item.notes or '' if item else '' }}</textarea></label>
+    <div class="wide form-actions"><button class="btn btn-primary" type="submit">{{ 'Save' if item else 'Add' }}</button>
+      <span class="hint">{{ 'Distance adds up from the rides it is on' if is_bike else 'Distance and time add up from the activities it is on' }}, so moving one to other {{ 'bikes' if is_bike else 'gear' }} corrects both. Photos are resized and stored beside your database.</span></div>
+  </form>
+</div>
+{% endblock %}

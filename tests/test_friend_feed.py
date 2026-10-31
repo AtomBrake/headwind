@@ -5,6 +5,7 @@ import pytest
 from flask import Flask
 
 import database
+from services import feed_tokens
 
 TOKEN = 'feed-token-abc'
 
@@ -19,8 +20,7 @@ def client(tmp_path):
     with app.app_context():
         database.migrate_db()
         d = database.get_db()
-        d.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
-        d.execute("UPDATE Settings SET feedToken=? WHERE id=1", [TOKEN])
+        d.execute("INSERT INTO FeedToken (name, tokenHash) VALUES ('Friend', ?)", [feed_tokens._hash(TOKEN)])
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Rob', 1)")
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (2, 'Sam', 0)")       # a second rider living here
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (3, 'Alice', 0)")     # created by syncing a friend
@@ -49,3 +49,48 @@ def test_feed_never_reshares_a_friends_rides(client):
     resp = client.get('/api/feed?rider=Alice', headers={'X-Feed-Token': TOKEN})
     assert resp.status_code == 200
     assert _rides(resp) == []
+
+
+FEED_ENDPOINTS = ['/api/riders', '/api/feed', '/api/foods-feed', '/api/food-image/0000.jpg']
+
+
+@pytest.mark.parametrize('path', FEED_ENDPOINTS)
+def test_wrong_or_missing_token_is_refused(client, path):
+    assert client.get(path).status_code == 403
+    assert client.get(path, headers={'X-Feed-Token': 'wrong'}).status_code == 403
+    assert client.get(path, headers={'X-Feed-Token': TOKEN + 'x'}).status_code == 403
+    assert client.get(path, headers={'X-Feed-Token': 'café'}).status_code == 403     # non-ASCII must not 500
+
+
+@pytest.mark.parametrize('path', FEED_ENDPOINTS)
+def test_token_in_query_string_is_not_accepted(client, path):
+    # it would land in proxy access logs; friend instances send the header
+    assert client.get(path + '?token=' + TOKEN).status_code == 403
+
+
+def test_empty_token_never_matches(client):
+    assert client.get('/api/feed', headers={'X-Feed-Token': ''}).status_code == 403
+
+
+def test_second_sync_of_a_friend_waits_its_turn(monkeypatch):
+    """Two syncs of one friend at once only fight over SQLite's write lock (and lock out everything else), so the second
+    is refused while the first runs, and allowed again once it's done."""
+    import threading
+    from routes import friends
+    started, release = threading.Event(), threading.Event()
+
+    def slow(fid):
+        started.set()
+        release.wait(5)
+        return 3, None
+    monkeypatch.setattr(friends, '_do_sync_once', slow)
+    first = []
+    t = threading.Thread(target=lambda: first.append(friends._do_sync(7)))
+    t.start()
+    assert started.wait(5)
+    assert friends._do_sync(7) == (0, 'Already syncing')
+    release.set()
+    t.join(5)
+    assert first == [(3, None)]
+    monkeypatch.setattr(friends, '_do_sync_once', lambda fid: (1, None))
+    assert friends._do_sync(7) == (1, None)

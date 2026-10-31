@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Backfill Weight{% endblock %}
 {% block page_title %}Backfill Weight{% endblock %}
+{% block parent %}<a href="{{ url_for('nutrition.weight_graph_page') }}">Weight</a>{% endblock %}
 
 {% block head %}
 <style>
@@ -24,9 +25,6 @@
   #wbText { width: 100%; min-height: 120px; font-family: monospace; font-size: 0.85rem; resize: vertical; }
   .wb-file-row { display: flex; align-items: center; gap: 0.6rem; margin: 0.75rem 0; }
   .wb-table-wrap { overflow-x: auto; margin-top: 1rem; }
-  table.wb-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-  table.wb-table th { text-align: left; padding: 0.4rem 0.6rem; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; border-bottom: 1px solid var(--border); }
-  table.wb-table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
   tr.wb-error td { color: var(--danger); }
   tr.wb-duplicate td { color: var(--warning); }
   .wb-summary { margin: 0.75rem 0; font-size: 0.85rem; }
@@ -55,7 +53,7 @@
     </div>
   </div>
   <div style="margin-top:1rem;">
-    <button class="btn btn-primary" id="wbPreviewBtn" style="width:100%; justify-content:center;">Preview</button>
+    <button class="btn btn-primary btn-block" id="wbPreviewBtn">Preview</button>
   </div>
 </div>
 
@@ -63,7 +61,7 @@
   <div class="card-title">Preview</div>
   <div class="wb-summary" id="wbSummary"></div>
   <div class="wb-table-wrap">
-    <table class="wb-table">
+    <table class="table">
       <thead><tr><th>Date</th><th>Weight</th><th>Status</th></tr></thead>
       <tbody id="wbRows"></tbody>
     </table>

@@ -1,35 +1,47 @@
-"""Activities typed in by hand: a ride you forgot to record, a turbo session, a walk without GPS.
+"""Activities typed in by hand, or timed on the phone or the Watch with no track: a ride you forgot to record, a turbo session, a walk without
+GPS, a strength session, a pool swim.
 
-Walk / Run / Hike go to the Workout table and Ride / VirtualRide to Activity, the same split as everything recorded by a device. A manual ride has no
+Walk / Run / Hike / VirtualRun (an indoor run), Swim, Strength / HIIT / Yoga and Ride / VirtualRide are Activity rows like everything recorded by a device; the ride ones get a bike. A manual ride has no
 GPS track, so it has no map or best efforts, but it counts in the totals. If a real recording of the same ride arrives later (Garmin sync, phone
 upload) the duplicate logic keeps the recording and parks the typed-in copy.
 """
 import hashlib
 import json
+import math
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from services import duplicates
+from services import tz
+from services.sports import INDOOR_RUN, NO_DISTANCE, ON_FOOT, RIDES, is_ride
 
-LOCAL = ZoneInfo('Europe/London')
-WORKOUT_SPORTS = ('Walk', 'Run', 'Hike')
-RIDE_SPORTS = ('Ride', 'VirtualRide')
-SPORTS = RIDE_SPORTS + WORKOUT_SPORTS
+SPORTS = RIDES + ON_FOOT + (INDOOR_RUN, 'Swim') + NO_DISTANCE
+SOURCES = ('manual', 'ios', 'android')                # who made it: typed in, or timed by a phone app (its own recording, so not "manual")
 MAX_DURATION_S, MAX_DISTANCE_M, MAX_ELEV_M = 48 * 3600, 1_500_000, 20_000
 
 
 def _local_start(local_iso):
+    """(local wall-clock start, UTC start) as naive datetimes. A time with no offset is the server's home zone (the web form, older apps); one with
+    an offset (the iPhone sends its own) keeps the wall-clock time where it happened, as a recording's startDateLocal does."""
+    s = str(local_iso or '').strip()
     try:
-        dt = datetime.fromisoformat(str(local_iso)[:19])
+        dt = datetime.fromisoformat(s)
     except ValueError:
-        raise ValueError('that date and time are not valid')
+        try:
+            dt = datetime.fromisoformat(s[:19])
+        except ValueError:
+            raise ValueError('that date and time are not valid')
     if dt.tzinfo:
-        dt = dt.astimezone(LOCAL).replace(tzinfo=None)
-    if dt > datetime.now(LOCAL).replace(tzinfo=None) + timedelta(days=1):
+        local, utc = dt.replace(tzinfo=None), dt.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+    else:
+        local = dt.replace(microsecond=0)
+        utc = local.replace(tzinfo=tz.zone()).astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+    local, utc = local.replace(microsecond=0), utc.replace(microsecond=0)
+    if utc > datetime.now(ZoneInfo('UTC')).replace(tzinfo=None) + timedelta(days=1):
         raise ValueError('that is in the future')
-    if dt.year < 2000:
+    if local.year < 2000:
         raise ValueError('that date is too far in the past')
-    return dt
+    return local, utc
 
 
 def _num(v, name, lo=0, hi=None, required=False):
@@ -41,43 +53,49 @@ def _num(v, name, lo=0, hi=None, required=False):
         x = float(v)
     except (TypeError, ValueError):
         raise ValueError(f'{name} must be a number')
-    if x < lo or (hi is not None and x > hi):
+    if not math.isfinite(x) or x < lo or (hi is not None and x > hi):      # JSON's NaN passes every comparison
         raise ValueError(f'{name} is out of range')
     return x
 
 
-def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, calories=None, name=None, notes=None, client_id=None):
-    """Store one manual activity. Returns {'kind', 'id', 'created', 'duplicate'}; raises ValueError with a readable reason. Commits."""
+def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, calories=None, name=None, notes=None, client_id=None,
+           source='manual', avg_hr=None):
+    """Store one manual activity. Returns {'kind', 'id', 'created', 'duplicate'}; raises ValueError with a readable reason. Commits.
+    Strength, HIIT and Yoga need no distance. `source` is SOURCES; a phone's timed session also gives its average heart rate."""
     if sport not in SPORTS:
         raise ValueError('sport must be one of ' + ', '.join(SPORTS))
-    start = _local_start(local_iso)
+    if source not in SOURCES:
+        source = 'manual'
+    start, start_utc = _local_start(local_iso)
     secs = int(_num(duration_s, 'duration', 60, MAX_DURATION_S, required=True))
-    dist = _num(distance_m, 'distance', 0, MAX_DISTANCE_M, required=True)
+    dist = (0.0 if sport in NO_DISTANCE else _num(distance_m, 'distance', 0, MAX_DISTANCE_M, required=True)) or 0.0
+    hr = _num(avg_hr, 'heart rate', 25, 250)
     gain = _num(elev_m, 'elevation', 0, MAX_ELEV_M) or 0
     kcal = _num(calories, 'calories', 0, 20_000)
     name = (name or '').strip()[:80] or None
     notes = (notes or '').strip()[:1000] or None
     local = start.strftime('%Y-%m-%dT%H:%M:%S')
-    utc = start.replace(tzinfo=LOCAL).astimezone(ZoneInfo('UTC')).strftime('%Y-%m-%dT%H:%M:%S')
+    utc = start_utc.strftime('%Y-%m-%dT%H:%M:%S')
     key = client_id or f'{local}|{sport}|{round(dist)}|{secs}'
-    aid = ('man_' if sport in RIDE_SPORTS else 'wk_') + hashlib.sha1(f'{rider_id}|manual|{key}'.encode()).hexdigest()[:16]
+    aid = ('man_' if is_ride(sport) else 'wk_') + hashlib.sha1(f'{rider_id}|manual|{key}'.encode()).hexdigest()[:16]
     avg = dist / secs if secs else 0
     from services import goal_model
     kg = goal_model.current_weight_kg(rider_id) or 70.0
 
-    if sport in WORKOUT_SPORTS:
-        if db.execute('SELECT 1 FROM Workout WHERE id=?', [aid]).fetchone():
+    if not is_ride(sport):
+        if duplicates.exists_anywhere(db, aid):
             return {'kind': 'workout', 'id': aid, 'created': False, 'duplicate': None}
-        from services.workouts import estimate_calories
+        from services.workouts import estimate_calories, estimate_met_calories
         from services.calorie_adjust import pair as _kcal_pair
-        kcal_raw = None                                  # a number the user typed is theirs: never adjusted
+        kcal_raw = None                                  # a number the user typed (or the Watch measured) is theirs: never adjusted
         if kcal is None:
-            kcal_raw, kcal = _kcal_pair(estimate_calories(sport, dist, secs, gain, kg))
-        db.execute('''INSERT INTO Workout (id, riderId, sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain,
-                                           averageSpeed, calories, source, caloriesRaw) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                   [aid, rider_id, sport, name, utc, local, dist, secs, secs, gain, avg, kcal, 'manual', kcal_raw])
+            kcal_raw, kcal = _kcal_pair(estimate_calories(sport, dist, secs, gain, kg) or estimate_met_calories(sport, secs, kg))
+        db.execute('''INSERT INTO Activity (id, riderId, type, sportType, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain,
+                                            averageSpeed, averageHeartrate, calories, source, caloriesRaw, rawData) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
+                   [aid, rider_id, sport, sport, name, utc, local, dist, secs, secs, gain, avg, hr, kcal, source, kcal_raw])
+        dup = duplicates.resolve(db, aid)                # already recorded by a device? the recording wins over typed-in numbers
         db.commit()
-        return {'kind': 'workout', 'id': aid, 'created': True, 'duplicate': None}
+        return {'kind': 'workout', 'id': (dup or {}).get('kept', aid), 'created': True, 'duplicate': dup}
 
     if duplicates.exists_anywhere(db, aid):
         return {'kind': 'ride', 'id': aid, 'created': False, 'duplicate': None}

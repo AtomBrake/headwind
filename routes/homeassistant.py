@@ -1,9 +1,12 @@
 import json
+import logging
 
 from flask import Blueprint, jsonify, render_template, request
 
 from database import get_db, query_db
-from services import homeassistant as ha
+from services import homeassistant as ha, vault
+
+log = logging.getLogger(__name__)
 
 bp = Blueprint('homeassistant', __name__, url_prefix='/settings/home-assistant')
 
@@ -60,7 +63,7 @@ def save():
     db.execute('UPDATE Settings SET haUrl=?, haEntityMap=?, haSyncMinutes=?, haWeatherEntity=? WHERE id=1',
                [url, json.dumps(mappings), minutes, weather_entity])
     if token:
-        db.execute('UPDATE Settings SET haToken=? WHERE id=1', [token])
+        db.execute('UPDATE Settings SET haToken=? WHERE id=1', [vault.seal(token)])
     db.commit()
     if weather_entity:
         try:
@@ -78,6 +81,7 @@ def test():
     try:
         return jsonify({'ok': True, **ha.test(url, token)})
     except ha.HAError as e:
+        log.warning('Home Assistant test failed: %s', e)
         return jsonify({'error': str(e)}), 400
 
 
@@ -87,6 +91,7 @@ def entities():
     try:
         return jsonify(ha.list_entities(url, token))
     except ha.HAError as e:
+        log.warning('Home Assistant entity list failed: %s', e)
         return jsonify({'error': str(e)}), 400
 
 
@@ -96,4 +101,5 @@ def sync_now():
         days = int(request.form.get('days') or 0) or None
         return jsonify({'ok': True, **ha.sync(days=days)})
     except ha.HAError as e:
+        log.warning('Home Assistant sync failed: %s', e)
         return jsonify({'error': str(e)}), 400

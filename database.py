@@ -1,5 +1,141 @@
+import logging
+import os
 import sqlite3
 from flask import current_app, g
+
+
+def _merge_workouts(db):
+    """Once, on an install from before 0.7.0: copy every Workout row into Activity (its sport into type and sportType) and drop the old table.
+    An id in both tables is one recording (ids come from the source, or from a hash of it), so the Activity row stays. The copy and the drop are one
+    transaction, so a crash halfway leaves the old table as it was. Before anything changes, the whole database is copied to <database>.pre-0.7.0
+    (0.6 can't open a merged database, so going back means restoring that file). Commits.
+    Returns {'moved', 'same_id', 'copy'} or None when there is nothing to merge."""
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='Workout'").fetchone():
+        return None
+    copy = None
+    path = db.execute('PRAGMA database_list').fetchone()[2]
+    if path:                                            # '' for an in-memory database
+        copy = path + '.pre-0.7.0'
+        if not os.path.exists(copy):                    # a second attempt after a crash keeps the first, untouched, copy
+            db.commit()
+            out = sqlite3.connect(copy)
+            try:
+                db.backup(out)
+            finally:
+                out.close()
+    wcols = [r[1] for r in db.execute('PRAGMA table_info(Workout)').fetchall()]
+    acols = {r[1] for r in db.execute('PRAGMA table_info(Activity)').fetchall()}
+    same = [c for c in wcols if c in acols]
+    cols = same + ['type', 'sportType', 'rawData', 'updatedAt']
+    sel = [f'w.{c}' for c in same] + ['w.sport', 'w.sport', "'{}'", "COALESCE(w.createdAt, datetime('now'))" if 'createdAt' in wcols else "datetime('now')"]
+    same_id = db.execute('SELECT COUNT(*) FROM Workout w JOIN Activity a ON a.id = w.id').fetchone()[0]
+    moved = db.execute(f"INSERT OR IGNORE INTO Activity ({', '.join(cols)}) SELECT {', '.join(sel)} FROM Workout w").rowcount
+    db.execute('DROP VIEW IF EXISTS SegActivity')       # 0.6's reads the Workout table; migrate_db makes it again from Activity
+    db.execute('DROP TABLE Workout')
+    db.commit()
+    return {'moved': moved, 'same_id': same_id, 'copy': copy}
+
+
+def _drop_merge_leftovers(db):
+    """What 0.7.0 kept while the code moved over to one table: the Workout view and the old table, renamed WorkoutPreMerge (the whole database as it
+    was is still in <database>.pre-0.7.0). Returns the backup tables dropped. Does not commit."""
+    left = db.execute("SELECT type, name FROM sqlite_master WHERE (type='view' AND name='Workout') OR (type='table' AND name LIKE 'WorkoutPreMerge%')").fetchall()
+    for kind, name in left:                             # looked up first, so a start-up with nothing to drop writes nothing
+        db.execute(f'DROP {kind.upper()} "{name}"')
+    return [name for kind, name in left if kind == 'table']
+
+
+# Columns that can hold most of a megabyte, kept at the end of their table. SQLite stores a large row as a chain of overflow pages and reads its
+# columns in order, so reading any column that comes after a large one means reading the whole chain: `source` or `bikeId` for every activity read
+# every activity's GPS streams. A column added later with ALTER TABLE lands after these, and the next start moves it in front (heavy_last).
+HEAVY_COLUMNS = {
+    'Activity':    ['summaryPolyline', 'description', 'notes', 'aiKudos', 'rawData', 'streams', 'laps'],
+    'GarminDaily': ['hrStream', 'bodyBatteryStream'],
+}
+_HEAVY_BATCH = 50       # rows moved per commit: a big activity's streams are ~1 MB
+
+
+def _coldef(col, fks, one_pk):
+    _, name, typ, notnull, dflt, pk = col
+    s = f'"{name}" {typ}'.rstrip()
+    if pk and one_pk:
+        s += ' PRIMARY KEY'
+    if notnull:
+        s += ' NOT NULL'
+    if dflt is not None:
+        s += f' DEFAULT ({dflt})'
+    if name in fks:
+        s += f' REFERENCES {fks[name][0]}({fks[name][1]})'
+    return s
+
+
+def heavy_last(db, table, heavy):
+    """Rebuild `table` with the `heavy` columns (in that order) after every other one, when they aren't already. Rows move to <table>_new
+    _HEAVY_BATCH at a time, each batch one commit (the copy and the delete together), so a start-up stopped halfway carries on from there next
+    time and the file never holds two copies: the pages a batch frees take the next one. The swap at the end (drop the empty old table, rename,
+    indexes, triggers, the views over it) is one transaction. Returns the rows moved, or None when nothing needed doing. Commits."""
+    new = f'{table}_new'
+    cols = db.execute(f'PRAGMA table_info({table})').fetchall()
+    if not cols:
+        return None
+    names = [c[1] for c in cols]
+    heavy = [h for h in heavy if h in names]
+    resuming = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", [new]).fetchone()
+    if not resuming and names[len(names) - len(heavy):] == heavy:
+        return None
+    if not resuming:
+        fks = {r[3]: (r[2], r[4]) for r in db.execute(f'PRAGMA foreign_key_list({table})')}
+        order = [c for c in cols if c[1] not in heavy] + [c for h in heavy for c in cols if c[1] == h]
+        pk = [c[1] for c in sorted((c for c in cols if c[5]), key=lambda c: c[5])]
+        defs = [_coldef(c, fks, len(pk) == 1) for c in order] + ([f"PRIMARY KEY ({', '.join(pk)})"] if len(pk) > 1 else [])
+        db.execute(f"CREATE TABLE {new} ({', '.join(defs)})")
+        db.commit()
+    keep = [c[1] for c in db.execute(f'PRAGMA table_info({new})').fetchall()]
+    keep = ', '.join(f'"{c}"' for c in keep if c in names)
+    # Triggers on the old table would fire on every row moved (services/tracks.py drops a track summary on delete); its ensure_schema makes them
+    # again on the new table. Kept with the indexes and views, put back at the swap.
+    triggers = db.execute("SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name=?", [table]).fetchall()
+    for name, _ in triggers:
+        db.execute(f'DROP TRIGGER "{name}"')
+    db.commit()
+    log = logging.getLogger(__name__)
+    moved, total = 0, db.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+    while True:
+        ids = [r[0] for r in db.execute(f'SELECT rowid FROM {table} ORDER BY rowid LIMIT ?', [_HEAVY_BATCH])]
+        if not ids:
+            break
+        marks = ','.join('?' * len(ids))
+        db.execute(f'INSERT INTO {new} (rowid, {keep}) SELECT rowid, {keep} FROM {table} WHERE rowid IN ({marks})', ids)
+        db.execute(f'DELETE FROM {table} WHERE rowid IN ({marks})', ids)
+        db.commit()
+        moved += len(ids)
+        if moved % (_HEAVY_BATCH * 20) < _HEAVY_BATCH:
+            log.warning('%s: large columns moved to the end of the row, %d of %d rows', table, moved, total)
+    others = db.execute("SELECT type, name, sql FROM sqlite_master WHERE type IN ('index', 'trigger') AND tbl_name=? AND sql IS NOT NULL",
+                        [table]).fetchall()
+    views = db.execute("SELECT name, sql FROM sqlite_master WHERE type='view'").fetchall()   # any of them can read the table
+    db.execute('BEGIN IMMEDIATE')
+    for name, _ in views:
+        db.execute(f'DROP VIEW "{name}"')
+    db.execute(f'DROP TABLE {table}')
+    db.execute(f'ALTER TABLE {new} RENAME TO {table}')
+    for _, _, sql in others:
+        db.execute(sql)
+    for _, sql in triggers:
+        db.execute(sql)
+    for _, sql in views:
+        db.execute(sql)
+    db.commit()
+    db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+    return moved
+
+
+# Settings flags of the once-only start-up repairs in migrate_db, all set on a new database. Not garminHistoryDone or garminWeightsDone: those
+# are downloads still to do.
+_REPAIR_FLAGS = ('distanceBackfillDone', 'utcStartFixDone', 'awayStartRecheckDone', 'localZoneFixDone', 'workoutDupCheckDone', 'dupNameFixDone',
+                 'segmentFamiliesDone', 'segmentBikesMergedDone', 'movingTimeFixDone', 'segmentMatchFixDone', 'sportEffortsDone',
+                 'movingTimePausedDone', 'bestEffortsCleanDone', 'sensorTopSpeedDone', 'mmDistancesDone', 'stravaManualDone', 'sanityAllSportsDone',
+                 'liveParkedFixDone', 'strandedParkedFixDone')
 
 
 def migrate_db():
@@ -234,6 +370,12 @@ def migrate_db():
         ('aiKudos',         'TEXT'),
         ('aiKudosAt',       'TEXT'),
         ('caloriesRaw',     'REAL'),
+        ('originId',        'TEXT'),     # a ride that was a workout: the id it first came in with (services/origin.py)
+        ('steps',           'INTEGER'),  # walks, runs, hikes: from the phone or watch
+        ('source',          'TEXT'),     # how a walk, run, ... arrived: 'android', 'garmin', 'manual', 'converted', ... (was Workout.source)
+        ('commute',         'INTEGER'),  # 1 a commute, 0 the rider said it isn't, NULL never said (a Strava import may then tick it)
+        ('srcUpdatedAt',    'TEXT'),     # a friend's ride: their updatedAt for it once matched here, '' until then, NULL from before 0.7.6 (routes/friends.py)
+        ('laps',            'TEXT'),     # the device's laps and a pool swim's lengths, JSON (services/parser.fit_laps); NULL for one lap and no lengths
     ]:
         if col not in act_cols:
             db.execute(f'ALTER TABLE Activity ADD COLUMN {col} {defn}')
@@ -253,9 +395,11 @@ def migrate_db():
         ('mqttPassword',     'TEXT'),
         ('coachingGoals',    'TEXT'),
         ('coachPersonality', "TEXT DEFAULT 'default'"),
+        ('aiAutoAnalyse',    'INTEGER DEFAULT 0'),     # analyse each new ride as it's imported (services/auto_analyse.py)
         ('garminEmail',      'TEXT'),
-        ('garminPassword',   'TEXT'),
+        ('garminPassword',   'TEXT'),      # no longer kept: only an older install's, until services/garmin._client swaps it for tokens
         ('garminSyncHours',  'REAL DEFAULT 0.5'),
+        ('garminSignInNeeded',   'TEXT'),      # when Garmin stopped accepting the saved sign-in (services/garmin._client); NULL = fine
         ('feedToken',                'TEXT'),
         ('friendSyncInterval',       'INTEGER DEFAULT 15'),
         ('garminActivitySyncDate',   'TEXT'),
@@ -276,7 +420,35 @@ def migrate_db():
         ('garminLastOk',         'TEXT'),
         ('garminLastError',      'TEXT'),
         ('garminDeviceSync',     'TEXT'),
+        ('garminSweepAt',        'TEXT'),      # when the Garmin sync last read all its recent days (services/garmin.health_days)
+        ('garminChangesBefore',  'TEXT'),      # the older block the daily check for changes in Garmin reads next ends here (services/garmin_changes.run)
         ('garminFailCount',      'INTEGER DEFAULT 0'),
+        ('garminHistoryFrom',    'TEXT'),      # how far back to pull health history: NULL = not asked yet, 'all', 'none' or a YYYY-MM-DD
+        ('garminHistoryCursor',  'TEXT'),      # oldest day the history backfill has covered so far
+        ('garminHistoryDone',    'INTEGER DEFAULT 0'),
+        ('garminHistoryStatus',  'TEXT'),
+        ('garminHistoryRetryAt', 'TEXT'),      # after a rate limit or outage, don't try again before this (UTC ISO)
+        ('utcStartFixDone',      'INTEGER DEFAULT 0'),
+        ('awayStartRecheckDone', 'INTEGER DEFAULT 0'),
+        ('localZoneFixDone',     'INTEGER DEFAULT 0'),   # local times taken where each activity happened, Garmin's zoneless times read as UTC, pieces of rides matched (services/start_times.fix_local_zones)
+        ('workoutDupCheckDone',  'INTEGER DEFAULT 0'),   # walks, runs, ... checked once for duplicates after the merge (services/duplicates.recheck_workouts)   # duplicates re-checked on the UTC instant for rides recorded abroad (services/start_times.py)
+        ('dupNameFixDone',       'INTEGER DEFAULT 0'),   # merged activities given back the name chosen on the copy set aside (services/duplicates.recover_names)
+        ('segmentFamiliesDone',  'INTEGER DEFAULT 0'),   # segments split into ride / on foot, efforts and PRs picked again (services/segments.regroup)
+        ('segmentBikesMergedDone', 'INTEGER DEFAULT 0'), # 0.7.3's e-bike segments merged into the ride ones, PRs per pedal / e-bike (services/segments.merge_bikes)
+        ('movingTimeFixDone',      'INTEGER DEFAULT 0'), # moving times a broken lap timer made a few seconds, taken from the track (services/moving_time.repair)
+        ('segmentMatchFixDone',    'INTEGER DEFAULT 0'), # 0.7.7's matching fixes: loops cut again, tracks realigned, every segment matched again (services/segments.repair_matching)
+        ('sportEffortsDone',       'INTEGER DEFAULT 0'), # best times worked out for every run and swim already saved (services/sport_records.ensure)
+        ('movingTimePausedDone',   'INTEGER DEFAULT 0'), # moving times that counted the stops (auto-pause off) taken from the track (services/moving_time.repair_paused)
+        ('bestEffortsCleanDone',   'INTEGER DEFAULT 0'), # best times worked out again without GPS jumps and speed-sensor faults (services/best_efforts.rescan_clean)
+        ('sensorTopSpeedDone',     'INTEGER DEFAULT 0'), # top speeds from the GPS where the speed sensor went wrong (services/max_stats.fix_sensor_top_speed)
+        ('mmDistancesDone',        'INTEGER DEFAULT 0'), # distances an old Strava import stored in mm, of every sport (services/mm_distances.fix)
+        ('stravaManualDone',       'INTEGER DEFAULT 0'), # manual entries an old Strava import saved unmarked, marked and brought back (services/strava_manual.fix)
+        ('liveParkedFixDone',      'INTEGER DEFAULT 0'), # activities both live and set aside as a copy (a Strava export before 0.7.11), decided again (services/duplicates.repair_live_parked)
+        ('strandedParkedFixDone',  'INTEGER DEFAULT 0'), # copies left behind a deleted activity moved behind the live one of the same ride (services/duplicates.repair_stranded_parked)
+        ('sanityAllSportsDone',    'INTEGER DEFAULT 0'), # every sport checked once against the "looks wrong" limits, heart rate included (services/sanity.scan_every_sport)
+        ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
+        ('garminWeightsRetryAt', 'TEXT'),
+        ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
         ('haUrl',                'TEXT'),
         ('haToken',              'TEXT'),
         ('haEntityMap',          'TEXT'),
@@ -299,14 +471,25 @@ def migrate_db():
         ('nutritionWaterGoalMl', 'INTEGER DEFAULT 2500'),
         ('nutritionBmrKcal',     'INTEGER'),
         ('units',                "TEXT DEFAULT 'imperial'"),
+        ('appearance',           "TEXT DEFAULT 'auto'"),     # the web UI: auto (follows the device), light or dark (routes/settings.APPEARANCES)
         ('distanceBackfillDone', 'INTEGER DEFAULT 0'),
         ('nutritionWeightUnit',     "TEXT DEFAULT 'stlb'"),
         ('nutritionWeightEmaAlpha', 'REAL DEFAULT 0.1'),
         ('dietStartDate',           'TEXT'),
+        ('weightMilestoneLines',    'INTEGER DEFAULT 1'),    # 0 = the weight graph hides its every-stone / every-5-kg lines
         ('calorieAdjustPct',       'REAL DEFAULT 0'),
+        ('claudeKey',              'TEXT'),
+        ('claudeModel',            'TEXT'),
+        ('timeZone',               'TEXT'),     # IANA name; blank = the server's zone (services/tz.py)
+        ('birthDate',              'TEXT'),     # YYYY-MM-DD; replaces birthYear for the age (services/goal_model.profile)
+        ('birthDateGuessed',       'INTEGER DEFAULT 0'),    # 1 = filled in as 1 January from birthYear; the profile forms ask for the real date
     ]:
         if col not in settings_cols:
             db.execute(f'ALTER TABLE Settings ADD COLUMN {col} {defn}')
+    if 'timeZone' not in settings_cols:                 # an install from before the setting: keep the zone it has always used
+        db.execute("UPDATE Settings SET timeZone='Europe/London' WHERE id=1")
+    if 'birthDate' not in settings_cols:                # only the year was known: 1 January of it, until the real date is entered
+        db.execute("UPDATE Settings SET birthDate=printf('%04d-01-01', birthYear), birthDateGuessed=1 WHERE birthYear BETWEEN 1900 AND 2100")
 
     db.execute('''
         CREATE TABLE IF NOT EXISTS Friend (
@@ -340,6 +523,7 @@ def migrate_db():
         ('elevationGainM', 'REAL'),
         ('friendId',       'INTEGER REFERENCES Friend(id)'),
         ('sourceSegId',    'INTEGER'),
+        ('matchPending',   'INTEGER'),   # a friend's segment that is new or moved and not matched yet (routes/friends.py)
     ]:
         if col not in seg_cols:
             db.execute(f'ALTER TABLE Segment ADD COLUMN {col} {defn}')
@@ -442,10 +626,14 @@ def migrate_db():
             logDate   TEXT NOT NULL,
             weightKg  REAL NOT NULL,
             source    TEXT DEFAULT 'manual',
+            sourceDetail TEXT,
             createdAt TEXT DEFAULT (datetime('now')),
             UNIQUE(riderId, logDate)
         )
     ''')
+    # Garmin's own sourceType for a 'garmin' row (MANUAL = typed into Garmin Connect, anything else a scale); NULL for other sources
+    if 'sourceDetail' not in {r[1] for r in db.execute('PRAGMA table_info(WeightLog)').fetchall()}:
+        db.execute('ALTER TABLE WeightLog ADD COLUMN sourceDetail TEXT')
 
     db.execute('''
         CREATE TABLE IF NOT EXISTS FoodFavourite (
@@ -519,39 +707,48 @@ def migrate_db():
         )
     ''')
 
-    # Walks / runs / hikes recorded by the phone app. Deliberately NOT in Activity: ~100 queries (ride stats, badges, charts, HA
-    # sensors, segments, AI) assume every Activity is a ride, so keeping workouts separate leaves all of them correct by construction.
-    db.execute('''
-        CREATE TABLE IF NOT EXISTS Workout (
-            id                 TEXT PRIMARY KEY,
-            riderId            INTEGER NOT NULL,
-            sport              TEXT NOT NULL,
-            name               TEXT,
-            startDate          TEXT,
-            startDateLocal     TEXT NOT NULL,
-            distance           REAL, movingTime INTEGER, elapsedTime INTEGER,
-            totalElevationGain REAL, averageSpeed REAL, maxSpeed REAL, averageHeartrate REAL,
-            calories           REAL,
-            steps              INTEGER,
-            startLat REAL, startLng REAL,
-            streams            TEXT,
-            weatherSummary     TEXT,
-            source             TEXT,
-            createdAt          TEXT DEFAULT (datetime('now'))
-        )
-    ''')
-    # Segments are for rides or for runs. A run lives in Workout (phone) or Activity (Garmin), so segment queries read activities
-    # through this view and see both; it carries no streams (heavy), only what leaderboards need.
+    # Every activity, of every sport, is a row in Activity. Walks, runs, swims, ... used to have a table of their own (Workout); _merge_workouts
+    # moves an old install's rows across once. Ride is a view of the rides in Activity (services/sports.RIDE_SQL): about 80 queries read rides only.
     if 'sport' not in {r[1] for r in db.execute('PRAGMA table_info(Segment)').fetchall()}:
         db.execute("ALTER TABLE Segment ADD COLUMN sport TEXT DEFAULT 'ride'")
-    seg_view = '''CREATE VIEW SegActivity AS
-        SELECT id, name, riderId, startDateLocal, sportType, 'activity' AS kind FROM Activity
-        UNION ALL
-        SELECT id, name, riderId, startDateLocal, sport AS sportType, 'workout' AS kind FROM Workout'''
-    cur = db.execute("SELECT sql FROM sqlite_master WHERE type='view' AND name='SegActivity'").fetchone()
-    if not cur or ' '.join((cur[0] or '').split()) != ' '.join(seg_view.split()):      # only write when it is missing or has changed, so start-up never takes a write lock needlessly
-        db.execute('DROP VIEW IF EXISTS SegActivity')
-        db.execute(seg_view)
+    merged = _merge_workouts(db)
+    dropped = _drop_merge_leftovers(db)
+    if dropped:
+        import logging
+        logging.getLogger(__name__).warning('One table for every activity: dropped the Workout view and %s (kept by 0.7.0)', ', '.join(dropped))
+    from services.sports import RIDE_SQL
+    views = {
+        'Ride': f'CREATE VIEW Ride AS SELECT * FROM Activity WHERE {RIDE_SQL}',
+        # segment leaderboards: no streams (heavy), only what they need (bikeId: pedal or e-bike, services/sports.segment_class)
+        'SegActivity': f'''CREATE VIEW SegActivity AS SELECT id, name, riderId, startDateLocal, sportType, bikeId,
+            CASE WHEN {RIDE_SQL} THEN 'activity' ELSE 'workout' END AS kind FROM Activity''',
+    }
+    for name, sql in views.items():
+        cur = db.execute("SELECT sql FROM sqlite_master WHERE type='view' AND name=?", [name]).fetchone()
+        if not cur or ' '.join((cur[0] or '').split()) != ' '.join(sql.split()):      # only write when missing or changed, so start-up never takes a write lock needlessly
+            db.execute(f'DROP VIEW IF EXISTS {name}')
+            db.execute(sql)
+    # A change to anything a friend's feed shares moves updatedAt on, so the feed's manifest tells friends which rides to fetch again
+    # (routes/friends.py). Only a value that really changed: SQLite fires UPDATE OF for a column that was only rewritten. One that sets
+    # updatedAt itself is left alone. Not calories: the calorie setting (services/calorie_adjust) rewrites every activity's, and that would
+    # send every friend every ride again.
+    shared = ('name', 'type', 'sportType', 'startDate', 'startDateLocal', 'distance', 'movingTime', 'elapsedTime', 'totalElevationGain',
+              'averageSpeed', 'maxSpeed', 'averageHeartrate', 'maxHeartrate', 'averageWatts', 'weightedAvgWatts', 'averageCadence',
+              'startLat', 'startLng', 'streams', 'weatherTempC', 'weatherWindKph', 'weatherGustKph', 'weatherWindDir', 'weatherHumidity',
+              'weatherRainMm', 'weatherCode', 'weatherSummary', 'weatherWindRel', 'steps', 'riderId')
+    touch = (f"CREATE TRIGGER Activity_touch AFTER UPDATE OF {', '.join(shared)} ON Activity "
+             f"WHEN NEW.updatedAt IS OLD.updatedAt AND ({' OR '.join(f'NEW.{c} IS NOT OLD.{c}' for c in shared)}) "
+             "BEGIN UPDATE Activity SET updatedAt = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = NEW.id; END")
+    cur = db.execute("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='Activity_touch'").fetchone()
+    if not cur or ' '.join((cur[0] or '').split()) != ' '.join(touch.split()):
+        db.execute('DROP TRIGGER IF EXISTS Activity_touch')
+        db.execute(touch)
+    db.execute('CREATE INDEX IF NOT EXISTS idx_activity_rider_date ON Activity(riderId, startDateLocal)')
+    # SegmentEffort's own index starts with segmentId, so an activity's efforts (re-matching or deleting it, its page) scanned the whole table;
+    # the food and water logs are read by rider and day and had no index at all.
+    db.execute('CREATE INDEX IF NOT EXISTS idx_effort_activity ON SegmentEffort(activityId)')
+    db.execute('CREATE INDEX IF NOT EXISTS idx_foodlog_rider_date ON FoodLog(riderId, logDate)')
+    db.execute('CREATE INDEX IF NOT EXISTS idx_hydration_rider_date ON HydrationLog(riderId, logDate)')
     # Phone sensor recordings kept beside rides (see services/sensors.py): one row per recording, attached to the overlapping ride by time.
     db.execute('''
         CREATE TABLE IF NOT EXISTS RideSensor (
@@ -571,23 +768,28 @@ def migrate_db():
         )
     ''')
     db.execute('CREATE INDEX IF NOT EXISTS idx_ridesensor_ride ON RideSensor(rideId)')
-    db.execute('''
-        CREATE TABLE IF NOT EXISTS RunEffort (
-            runId      TEXT NOT NULL,
-            runDate    TEXT,
-            distanceM  REAL NOT NULL,
-            elapsedSecs INTEGER NOT NULL,
-            PRIMARY KEY (runId, distanceM)
-        )
-    ''')
-    if 'caloriesRaw' not in {r[1] for r in db.execute('PRAGMA table_info(Workout)').fetchall()}:
-        db.execute('ALTER TABLE Workout ADD COLUMN caloriesRaw REAL')
-    db.execute('CREATE INDEX IF NOT EXISTS idx_workout_rider_date ON Workout(riderId, startDateLocal)')
+    from services.sport_records import ensure_schema as _sport_records_schema      # run and swim best times (was RunEffort, runs only)
+    _sport_records_schema(db)
 
     from services.duplicates import ensure_schema as _dup_schema
     _dup_schema(db)
     from services.gear import ensure_schema as _gear_schema
     _gear_schema(db)
+    from services.kit import ensure_schema as _kit_schema                          # shoes and the other gear that isn't a bike
+    _kit_schema(db)
+    from services.strava_gear import ensure_schema as _strava_gear_schema
+    _strava_gear_schema(db)
+    from services.photos import ensure_schema as _photos_schema
+    _photos_schema(db)
+    db.commit()
+    # Every Activity column is there now: put the large ones last (heavy_last), then the track summaries and their triggers (services/tracks.py).
+    rebuilt = {t: heavy_last(db, t, cols) for t, cols in HEAVY_COLUMNS.items()}
+    from services.tracks import ensure_schema as _tracks_schema
+    _tracks_schema(db)
+    from services.data_version import ensure_schema as _data_version_schema
+    _data_version_schema(db)
+    from services.feed_tokens import ensure_schema as _feed_tokens_schema
+    _feed_tokens_schema(db)
 
     # One row per paired phone/app. Only a SHA-256 of the token is stored; the token itself is shown once at pairing time.
     db.execute('''
@@ -600,6 +802,9 @@ def migrate_db():
             revokedAt  TEXT
         )
     ''')
+    # A token a phone made for its Apple Watch (services/device_auth.create_child) names the phone's; revoking the phone revokes it too
+    if 'parentId' not in {r[1] for r in db.execute('PRAGMA table_info(DeviceToken)').fetchall()}:
+        db.execute('ALTER TABLE DeviceToken ADD COLUMN parentId INTEGER')
 
     # Phone-generated ids for queued offline writes, so a retried food/water log is applied once (see routes/nutrition.py log_food / add_water)
     db.execute('''
@@ -665,18 +870,293 @@ def migrate_db():
             db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {defn}')
     db.commit()
 
+    # A new database (no Settings row, no activities) has nothing older to repair: its row starts with every once-only repair done. Otherwise
+    # each repair returns early for want of the row, and the second start runs them all against the first import, which needed none of them.
+    # The wizard's upsert copes with the row being there; a restored backup brings its own.
+    if not db.execute('SELECT 1 FROM Settings WHERE id=1').fetchone() and not db.execute('SELECT 1 FROM Activity LIMIT 1').fetchone():
+        db.execute('INSERT INTO Settings (id) VALUES (1)')
+        db.execute(f"UPDATE Settings SET {', '.join(f'{f}=1' for f in _REPAIR_FLAGS)} WHERE id=1")
+        db.commit()
+
+    # Start-up repairs below record what they did for the Tasks page (services/tasks.py)
+    from services import tasks as _tasks, garmin_failures as _garmin_failures
+    _tasks.ensure_schema(db)
+    _garmin_failures.ensure_schema(db)
+    _tasks.close_orphans(db)
+    db.commit()
+    if rebuilt.get('Activity'):
+        _tasks.record(db, 'startup:heavy_last', 'Activities stored for faster pages',
+                      f"{rebuilt['Activity']:,} activit{'y' if rebuilt['Activity'] == 1 else 'ies'} rewritten with their GPS data at the end of the row, "
+                      "so lists and totals no longer read it")
+        db.commit()
+
     # ── Backfill corrupted distance data (mm vs m) ──────────────────
     settings = db.execute("SELECT distanceBackfillDone FROM Settings WHERE id=1").fetchone()
     if not settings or not settings[0]:
-        db.execute("""
+        n_mm = db.execute("""
             UPDATE Activity SET distance = distance / 1000
             WHERE distance > 500000
               AND (lower(sportType) LIKE '%walk%'
                 OR lower(sportType) LIKE '%hike%'
                 OR lower(sportType) LIKE '%run%')
-        """)
+        """).rowcount
         db.execute("UPDATE Settings SET distanceBackfillDone=1 WHERE id=1")
+        if settings and n_mm:
+            _tasks.record(db, 'startup:mm_distances', 'Walk, run and hike distances stored in mm', f'{n_mm} divided by 1,000')
         db.commit()
+    from services import mm_distances as _mm_distances
+    res = _mm_distances.fix(db)                 # before the duplicate checks below, which compare distances
+    if res:
+        from services import units as _units
+        _tasks.record(db, 'startup:mm_distances_all', 'Distances stored in millimetres',
+                      f"{len(res)} activit{'y' if len(res) == 1 else 'ies'} imported from a Strava export without a track had {'its' if len(res) == 1 else 'their'} "
+                      "distance stored 1,000 times too long, and now have the real one: "
+                      + '; '.join(f"{f[1] or f[0]} ({_units.fmt_dist(f[2], places=0)} → {_units.fmt_dist(f[3])})" for f in res[:5])
+                      + ('…' if len(res) > 5 else '') + '.')
+        db.commit()
+    from services import strava_manual as _strava_manual
+    res = _strava_manual.fix(db)                # also before the duplicate checks: a manual entry is never a recording, nor a whole with pieces
+    if res and (res['marked'] or res['restored']):
+        n, back = res['marked'], res['restored']
+        _tasks.record(db, 'startup:strava_manual', 'Manual entries from Strava',
+                      f"{n} activit{'y' if n == 1 else 'ies'} typed in on Strava (no track, and one duration for moving and elapsed time) "
+                      f"now count as manual entries, which the duplicate check never takes for a recording of a ride"
+                      + (f"; {len(back)} set aside as a copy of a ride {'is' if len(back) == 1 else 'are'} back as {'its' if len(back) == 1 else 'their'} own: "
+                         + '; '.join(b[1] or b[0] for b in back[:5]) + ('…' if len(back) > 5 else '') if back else '') + '.')
+        db.commit()
+
+    # ── Strava's "Virtual Ride", "E-Bike Ride", ... saved as Headwind's VirtualRide, EBikeRide, ...: one sport, not two, in the sport filter ──
+    from services import sport_fix as _sport_fix
+    res = _sport_fix.fix_spellings(db)
+    if res:
+        from services.sports import label as _sport_label, canonical as _canonical
+        n = sum(res.values())
+        _tasks.record(db, 'startup:strava_spellings', "Strava's names for sports",
+                      f"{n:,} activit{'y' if n == 1 else 'ies'} saved under Strava's name for a sport now {'has' if n == 1 else 'have'} Headwind's, "
+                      "so the sport filter lists each sport once: "
+                      + '; '.join(f"{c:,} {s} → {_canonical(s)} ({_sport_label(_canonical(s))})" for s, c in res.items()) + '.')
+        db.commit()
+
+    # ── Rides and runs in Zwift's made-up worlds saved as outdoor ones: indoor ones now; indoor activities' segment efforts gone ──
+    res = _sport_fix.fix_misfiled(db)
+    if res['moved'] or res['efforts']:
+        from services.sports import label as _sport_label
+        moved = res['moved']
+        _tasks.record(db, 'startup:zwift_misfiled', 'Zwift activities saved as outdoor ones',
+                      (f"{len(moved)} activit{'y' if len(moved) == 1 else 'ies'} starting in one of Zwift's made-up worlds (out at sea near the Solomon "
+                       "Islands) had been saved as outdoor ones, and now count as indoor: their best times are the indoor ones', their start time "
+                       "is on your clock, and they have no weather or segments: "
+                       + '; '.join(f"{m[1] or m[0]} ({_sport_label(m[2])} → {_sport_label(m[3])})" for m in moved[:5])
+                       + ('…' if len(moved) > 5 else '') + '. ' if moved else '')
+                      + (f"{res['efforts']} segment effort{'s' if res['efforts'] != 1 else ''} on indoor rides and runs removed: Zwift's roads "
+                         "aren't the segments' roads." if res['efforts'] else ''))
+        db.commit()
+
+    # ── Weather on virtual rides: looked up at the Zwift world's spot (Watopia is open sea near the Solomon Islands), never where the rider was ──
+    from services.sports import virtual_sql as _virtual_sql
+    n_wx = db.execute(f"""UPDATE Activity SET weatherTempC=NULL, weatherWindKph=NULL, weatherGustKph=NULL, weatherWindDir=NULL, weatherHumidity=NULL,
+                                  weatherRainMm=NULL, weatherCode=NULL, weatherSummary=NULL, weatherWindRel=NULL, weatherSource=NULL
+                          WHERE {_virtual_sql()} AND (weatherSummary IS NOT NULL OR weatherTempC IS NOT NULL)""").rowcount
+    if n_wx:
+        _tasks.record(db, 'startup:virtual_weather', 'Weather taken off Zwift activities',
+                      f"{n_wx} indoor ride{'s' if n_wx != 1 else ''} or run{'s' if n_wx != 1 else ''} had the weather of the Zwift world's spot on the "
+                      "globe (Watopia is out at sea near the Solomon Islands), not yours; it's gone, and indoor activities stay out of the weather analytics")
+        db.commit()
+
+    # ── Top speeds that are one GPS spike (old Garmin syncs): recomputed from the ride's streams, then re-checked ──
+    from services.max_stats import fix_spiky_max_speed
+    n_spiky = fix_spiky_max_speed(db)
+    if n_spiky:
+        _tasks.record(db, 'startup:spiky_top_speeds', 'Top speeds that were a GPS spike',
+                      f"{n_spiky} ride{'s' if n_spiky != 1 else ''} recomputed from their own GPS and speed data, and re-checked")
+        db.commit()
+    from services.start_times import fix_utc_starts
+    res = fix_utc_starts(db)
+    if res.get('ran') and (res['moved'] or db.execute('SELECT 1 FROM Activity LIMIT 1').fetchone()):     # a new, empty install has nothing to report
+        _tasks.record(db, 'startup:utc_starts', 'Start times of imported rides',
+                      f"{res['moved']} ride{'s' if res['moved'] != 1 else ''} moved from UTC to UK time; "
+                      f"{res['duplicates']} turned out to be a ride already here (the weaker copy was set aside)" if res['moved'] else 'Nothing needed moving')
+        db.commit()
+    if merged:
+        _tasks.record(db, 'startup:merge_workouts', 'Walks, runs and other workouts moved in with the rides',
+                      f"{merged['moved']} moved into one table of activities"
+                      + (f"; {merged['same_id']} already there under the same id (that copy kept)" if merged['same_id'] else '')
+                      + (f". The whole database as it was is in {merged['copy']}" if merged['copy'] else ''))
+        db.commit()
+    from services.duplicates import recheck_workouts
+    res = recheck_workouts(db)
+    if res.get('ran') and res['checked']:
+        _tasks.record(db, 'startup:workout_duplicates', 'Duplicates of walks, runs and other workouts',
+                      f"{res['checked']} checked; {res['duplicates']} turned out to be an activity already here (the weaker copy was set aside)")
+        db.commit()
+    from services.start_times import recheck_away_starts
+    res = recheck_away_starts(db)
+    if res.get('ran') and res['checked']:
+        _tasks.record(db, 'startup:away_starts', 'Duplicates of activities recorded in another time zone',
+                      f"{res['checked']} checked again on their real start time; "
+                      f"{res['duplicates']} turned out to be a ride already here (the weaker copy was set aside)")
+        db.commit()
+    from services.start_times import fix_local_zones
+    res = fix_local_zones(db)
+    if res.get('ran') and (res['moved'] or res['fragments'] or res['repointed']):
+        n = res['moved']
+        _tasks.record(db, 'startup:local_zones', 'Start times where each activity happened',
+                      f"{n:,} activit{'y' if n == 1 else 'ies'} moved to the local time where {'it' if n == 1 else 'they'} started (a Garmin activity with no "
+                      "time zone of its own had been read as home time, and every import used the home zone); their weather will be looked up again for "
+                      f"the right hour. Every activity was then checked for duplicates again: {res['duplicates']} turned out to be an activity already here, and {res['fragments']} "
+                      f"{'was a piece' if res['fragments'] == 1 else 'were pieces'} of a ride (a phone app with a speed sensor), so the weaker copy was "
+                      f"set aside. {res['bikes']} ride{'s' if res['bikes'] != 1 else ''} put on {'their' if res['bikes'] != 1 else 'its'} Strava bike and "
+                      f"{res['kit']} activit{'y' if res['kit'] == 1 else 'ies'} on {'their' if res['kit'] != 1 else 'its'} shoes"
+                      + (f"; {res['repointed']} cop{'y' if res['repointed'] == 1 else 'ies'} set aside moved to the activity kept in the end" if res['repointed'] else '')
+                      + '.')
+        db.commit()
+    from services.duplicates import recover_names
+    res = recover_names(db)
+    if res.get('ran') and res['checked']:
+        _tasks.record(db, 'startup:dup_names', 'Names of merged activities',
+                      f"{res['checked']} copies set aside checked; {res['renamed']} activit{'y' if res['renamed'] == 1 else 'ies'} "
+                      "took back the name chosen on the copy" if res['renamed'] else f"{res['checked']} copies set aside checked; no names needed changing")
+        db.commit()
+    from services.duplicates import repair_live_parked
+    res = repair_live_parked(db)
+    if res['ran'] and (res['decided'] or res['apart'] or res['orphans'] or res['discarded']):
+        n = len(res['decided'])
+        names = {r[0]: r[1] for r in db.execute(f"SELECT id, name FROM Activity WHERE id IN ({','.join('?' * n)})", [k for k, _, _ in res['decided']])} if n else {}
+        msg = ((f"{n} activit{'y was' if n == 1 else 'ies were'} saved twice: once as {'its' if n == 1 else 'their'} own and once set aside as a copy "
+                "of another recording (a Strava export imported before 0.7.11), so the session counted twice in every total. Each pair was "
+                "decided again as an import would, and the other recording set aside with its photos, commute and gear moved to the one kept: "
+                + '; '.join(names.get(k) or k for k, _, _ in res['decided'][:5]) + ('…' if n > 5 else '') + '. ' if n else '')
+               + (f"{len(res['apart'])} no longer match the recording they were set aside behind, and both are kept. " if res['apart'] else '')
+               + (f"{res['orphans']} had been set aside behind an activity since deleted, and stay as their own. " if res['orphans'] else '')
+               + (f"{res['discarded']} recording{'s' if res['discarded'] != 1 else ''} thrown away and imported again since "
+                  f"{'are' if res['discarded'] != 1 else 'is'} no longer remembered as thrown away." if res['discarded'] else ''))
+        _tasks.record(db, 'startup:live_parked', 'Activities counted twice', msg.strip())
+        db.commit()
+    from services.duplicates import repair_stranded_parked
+    res = repair_stranded_parked(db)
+    if res['ran'] and (res['moved'] or res['unmatched']):
+        n, left = len(res['moved']), res['unmatched']
+        msg = ((f"{n} recording{'s' if n != 1 else ''} set aside as a copy of an activity since deleted (most by deleting what was deleted in "
+                f"Garmin) {'were' if n != 1 else 'was'} out of sight; each now sits behind the activity of the same session that's still here, "
+                "where you can swap it in. " if n else '')
+               + (f"{len(left)} match{'' if len(left) != 1 else 'es'} nothing still here and {'are' if len(left) != 1 else 'is'} left as "
+                  f"{'they are' if len(left) != 1 else 'it is'}: " + '; '.join(f"{u[1] or u[0]}" for u in left[:5]) + ('…' if len(left) > 5 else '') + '.'
+                  if left else ''))
+        _tasks.record(db, 'startup:stranded_parked', 'Copies left behind deleted activities', msg.strip())
+        db.commit()
+    from services.segments import regroup as _regroup_segments
+    res = _regroup_segments(db)
+    if res.get('ran') and db.execute('SELECT 1 FROM Segment LIMIT 1').fetchone():
+        _tasks.record(db, 'startup:segment_families', 'Segments split into ride and on foot',
+                      f"{res['removed']} effort{'s' if res['removed'] != 1 else ''} by walks, hikes and indoor rides left the ride segments; "
+                      f"{res['foot']} new effort{'s' if res['foot'] != 1 else ''} on foot segments from {res['scanned']} walks, runs and hikes; "
+                      f"{res['prs_moved']} segment PR{'s' if res['prs_moved'] != 1 else ''} changed")
+        db.commit()
+    from services.segments import merge_bikes as _merge_bikes
+    res = _merge_bikes(db)
+    if res.get('ran') and db.execute('SELECT 1 FROM Segment LIMIT 1').fetchone():
+        _tasks.record(db, 'startup:segment_bikes', 'Bike and e-bike rides share segments',
+                      f"{res['merged']} e-bike segment{'s' if res['merged'] != 1 else ''} became ride segment{'s' if res['merged'] != 1 else ''}; "
+                      f"{res['found']} new effort{'s' if res['found'] != 1 else ''} from {res['scanned']} ride{'s' if res['scanned'] != 1 else ''}; "
+                      f"{res['prs_moved']} segment PR{'s' if res['prs_moved'] != 1 else ''} changed (pedal and e-bike PRs are kept apart)")
+        db.commit()
+    from services import moving_time as _moving_time
+    res = _moving_time.repair(db)
+    if res.get('fixed'):
+        n = len(res['fixed'])
+        _tasks.record(db, 'startup:moving_time', 'Moving times put right',
+                      f"{n} activit{'y' if n == 1 else 'ies'} whose device recorded a moving time of seconds for the whole ride (a Garmin that went flat "
+                      "or restarted) now take it from the track, as Strava does: "
+                      + '; '.join(f"{f[1] or f[0]} ({f[2]} s → {f[3] // 60} min)" for f in res['fixed'][:5]) + ('…' if n > 5 else '') + '.')
+        db.commit()
+    from services.segments import repair_matching as _repair_matching
+    res = _repair_matching(db)
+    if res.get('ran') and db.execute('SELECT 1 FROM Segment LIMIT 1').fetchone():
+        _tasks.record(db, 'startup:segment_matching', 'Segment times checked again',
+                      f"Every segment was matched again with the impossible-time fixes: {res['before']:,} efforts before, {res['after']:,} now; "
+                      f"{res['prs_moved']} segment PR{'s' if res['prs_moved'] != 1 else ''} changed. "
+                      f"{res['loops']} loop segment{'s' if res['loops'] != 1 else ''} cut again from the ride{'s' if res['loops'] != 1 else ''} "
+                      f"{'they were' if res['loops'] != 1 else 'it was'} made on. {res['realigned']} track{'s' if res['realigned'] != 1 else ''} "
+                      "whose GPS and times were out of step put right"
+                      + (f"; {res['misaligned']} more can't be put right here, and their segment times are left out until they're imported "
+                         "again from their files (the same Strava export or file: they're repaired as they come in)" if res['misaligned'] else '') + '.')
+        db.commit()
+    res = _moving_time.repair_paused(db)
+    if res.get('fixed'):
+        n, saved_h = len(res['fixed']), sum(f[2] - f[3] for f in res['fixed']) / 3600
+        _tasks.record(db, 'startup:moving_time_paused', 'Moving times without the stops',
+                      f"{n} activit{'y' if n == 1 else 'ies'} recorded with auto-pause off counted every stop as moving; they now take the moving time "
+                      f"from the track, as Strava does ({saved_h:,.0f} hours in all, so average speeds go up): "
+                      + '; '.join(f"{f[1] or f[0]} ({f[2] // 60} → {f[3] // 60} min)" for f in sorted(res['fixed'], key=lambda f: f[3] - f[2])[:5])
+                      + ('…' if n > 5 else '') + '.')
+        db.commit()
+    from services.max_stats import fix_sensor_top_speed as _fix_sensor_top_speed
+    res = _fix_sensor_top_speed(db)
+    if res:
+        from services import units as _units
+        _tasks.record(db, 'startup:sensor_top_speed', 'Top speeds from a faulty speed sensor',
+                      f"{len(res)} activit{'y' if len(res) == 1 else 'ies'} whose speed sensor logged far more distance than the GPS shows now take "
+                      "their top speed from the GPS: " + '; '.join(f"{f[1] or f[0]} ({_units.fmt_speed(f[2])} → {_units.fmt_speed(f[3])})"
+                                  for f in sorted(res, key=lambda f: f[3] - f[2])[:5])
+                      + ('…' if len(res) > 5 else '') + '.')
+        db.commit()
+    from services.best_efforts import rescan_clean as _rescan_clean
+    res = _rescan_clean(db)
+    if res.get('ran') and res['scanned']:
+        from services import units as _units
+        moved = '; '.join(f"{_units.localise(f'{mi:g} miles')}: {_mmss(old)} → {_mmss(new)}" for mi, old, new in res['changed'][:7])
+        _tasks.record(db, 'startup:best_efforts_clean', 'Best times without GPS jumps',
+                      f"Best times worked out again for {res['scanned']:,} rides, and for every run and swim, leaving out the stretches that can't be "
+                      "real (faster than 108 km/h on a bike, or the speed sensor's distance far ahead of the GPS). "
+                      + (f"Ride records that changed: {moved}." if moved else 'No ride record changed.'))
+        db.commit()
+    from services import sport_records as _sport_records
+    done = db.execute('SELECT sportEffortsDone FROM Settings WHERE id=1').fetchone()
+    n_efforts = _sport_records.ensure(db)              # every start: anything that came in without its best times; the first time, every run and swim
+    if done is not None and not done[0]:
+        db.execute('UPDATE Settings SET sportEffortsDone=1 WHERE id=1')
+        if n_efforts:
+            _tasks.record(db, 'startup:sport_efforts', 'Best times for runs and swims',
+                          f"Worked out for {n_efforts} run{'s' if n_efforts != 1 else ''} and swim{'s' if n_efforts != 1 else ''}: "
+                          "1 km to the marathon on foot, 100 m to 3.8 km in the water. They're on the Data page and your profile.")
+        db.commit()
+    from services import sanity as _sanity              # after the repairs above: a flag set before one put the ride right is out of date
+    res = _sanity.scan_every_sport(db)
+    if res['ran'] and res['flagged']:
+        n = len(res['flagged'])
+        _tasks.record(db, 'startup:sanity_all_sports', 'Activities that look wrong',
+                      f"Runs, walks, hikes and swims are now checked for what can't be real, and every sport for a heart rate no heart has and a "
+                      f"moving time of seconds against a real distance. {n} activit{'y' if n == 1 else 'ies'} flagged, left out of the speed charts "
+                      "until you look at them on the dashboard: " + '; '.join(f"{f[1] or f[0]} ({f[3]})" for f in res['flagged'][:5])
+                      + ('…' if n > 5 else '') + '.')
+        db.commit()
+    cleared = [r[1] for r in db.execute('SELECT id, name FROM Activity WHERE flagReason IS NOT NULL AND COALESCE(flagDismissed, 0) = 0').fetchall()
+               if _sanity.flag(db, r[0]) is None]
+    if cleared:
+        _tasks.record(db, 'startup:stale_flags', 'Rides that no longer look wrong',
+                      f"{len(cleared)} ride{'s' if len(cleared) != 1 else ''} flagged before a repair put {'them' if len(cleared) != 1 else 'it'} right "
+                      f"{'are' if len(cleared) != 1 else 'is'} off the list: " + '; '.join(n or '(no name)' for n in cleared[:5]) + ('…' if len(cleared) > 5 else '') + '.')
+    db.commit()
+    from services.reimport import ensure_schema as _reimport_schema
+    _reimport_schema(db)
+    from services.strava_export import ensure_schema as _strava_export_schema      # the Strava export kept for Import again
+    _strava_export_schema(db)
+    from services.sport_fix import ensure_schema as _sport_fix_schema
+    _sport_fix_schema(db)
+    from services.garmin_changes import ensure_schema as _garmin_changes_schema
+    _garmin_changes_schema(db)
+    from services.goals import ensure_schema as _goals_schema               # goals and friend challenges
+    _goals_schema(db)
+    from services.origin import backfill as _origin_backfill
+    _origin_backfill(db)
+    db.commit()
+
+
+def _mmss(secs):
+    if not secs:
+        return '—'
+    h, m, sec = secs // 3600, secs % 3600 // 60, secs % 60
+    return f'{h}:{m:02d}:{sec:02d}' if h else f'{m}:{sec:02d}'
 
 
 def get_db():
@@ -686,8 +1166,14 @@ def get_db():
             detect_types=sqlite3.PARSE_DECLTYPES,
             timeout=60,
         )
-        g.db.row_factory = sqlite3.Row
+        from services import vault
+        g.db.row_factory = vault.row_factory(current_app.config['DATABASE'])   # sqlite3.Row, with the saved keys and passwords decrypted
         g.db.execute('PRAGMA journal_mode = WAL')
+        # With WAL, NORMAL can't corrupt the database: a power cut can only lose the last commits, and it saves an fsync per commit (slow on
+        # an SD card). The sorts behind the badges and leaderboards use temporary tables, kept in memory; 8 MB of page cache per connection.
+        g.db.execute('PRAGMA synchronous = NORMAL')
+        g.db.execute('PRAGMA temp_store = MEMORY')
+        g.db.execute('PRAGMA cache_size = -8000')
     return g.db
 
 

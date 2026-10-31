@@ -89,3 +89,23 @@ struct Loaded<Value, Content: View>: View {
         }
     }
 }
+
+/// The cards of a dashboard tab: one column on a phone held upright (or the iPhone Duo's outer screen), side by side when there's room (a
+/// phone on its side, the Duo's inner screen). Follows the size class, never the screen's size, so unfolding mid-scroll just re-flows the
+/// cards and keeps every view's state.
+struct CardColumns<Content: View>: View {
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    var spacing: CGFloat = 16
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if sizeClass == .regular {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 340), spacing: spacing, alignment: .top)], alignment: .leading, spacing: spacing) {
+                content
+            }
+        } else {
+            VStack(spacing: spacing) { content }
+        }
+    }
+}
+

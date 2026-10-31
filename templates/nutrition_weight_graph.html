@@ -20,6 +20,13 @@
   #wgSvg { width: 100%; height: auto; display: block; }
   .wg-empty { text-align: center; color: var(--text-muted); padding: 2rem 0; }
   .wg-links { display: flex; gap: 0.5rem; margin-top: 1rem; }
+  .wg-table td { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .wg-table .num { text-align: right; }
+  .wg-table .loss { color: var(--success); }
+  .wg-table .gain { color: var(--danger); }
+  .wg-src { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; background: var(--border); color: var(--text-muted); }
+  .wg-src.scale { background: var(--accent); color: var(--on-accent); }
+  @media (max-width: 600px) { .wg-table .wg-trend { display: none; } }
 </style>
 {% endblock %}
 
@@ -34,9 +41,9 @@
 </div>
 
 <div class="wg-nav">
-  <button class="btn btn-secondary" id="wgPrev" style="padding:0.3rem 0.6rem;">&#8592;</button>
+  <button class="btn btn-secondary btn-sm" id="wgPrev">&#8592;</button>
   <div class="wg-nav-label" id="wgRangeLabel">—</div>
-  <button class="btn btn-secondary" id="wgNext" style="padding:0.3rem 0.6rem;">&#8594;</button>
+  <button class="btn btn-secondary btn-sm" id="wgNext">&#8594;</button>
 </div>
 
 <div class="wg-headline" id="wgHeadline" style="display:none;">
@@ -51,18 +58,27 @@
 </div>
 
 <div id="wgMetrics" style="display:none; margin-top:1rem;">
-  <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:0.5rem;">From the scale &middot; individual readings can be noisy, so watch the direction, not the number</div>
+  <div class="hint" style="margin-bottom:0.5rem;">From the scale &middot; individual readings can be noisy, so watch the direction, not the number</div>
   <div id="wgMetricCards" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:0.6rem;"></div>
 </div>
 
 <div style="font-size:0.75rem; color:var(--text-muted); margin:0.75rem 0;">
   <svg width="12" height="12" style="vertical-align:-1px;"><circle cx="6" cy="6" r="4" fill="var(--accent)" stroke="var(--card-bg)" stroke-width="1.5"/></svg> scale reading
   &nbsp; <svg width="12" height="12" style="vertical-align:-1px;"><circle cx="6" cy="6" r="4" fill="var(--text)" stroke="var(--card-bg)" stroke-width="1.5"/></svg> typed in
+  &nbsp; <label style="white-space:nowrap; cursor:pointer;"><input type="checkbox" id="wgMilestones" style="vertical-align:-2px;"> milestone lines</label>
+</div>
+
+<div class="card" id="wgLog" style="display:none; margin-top:1rem; overflow-x:auto;">
+  <div class="card-title">Weigh-ins <span id="wgLogCount" style="font-weight:400; color:var(--text-muted);"></span></div>
+  <table class="table table-compact wg-table">
+    <thead><tr><th>Date</th><th class="num">Weight</th><th class="num wg-trend">Trend</th><th class="num">Change</th><th>Source</th></tr></thead>
+    <tbody id="wgLogBody"></tbody>
+  </table>
 </div>
 
 <div class="wg-links">
-  <a href="/nutrition/weight/backfill" class="btn btn-secondary" style="text-decoration:none;">Backfill history</a>
-  <a href="/nutrition" class="btn btn-secondary" style="text-decoration:none;">&#8592; Back to day</a>
+  <a href="/nutrition/weight/backfill" class="btn btn-secondary">Backfill history</a>
+  <a href="/nutrition" class="btn btn-secondary">&#8592; Back to day</a>
 </div>
 {% endblock %}
 
@@ -70,11 +86,14 @@
 <script>
 const LB_PER_KG = 2.2046226218488;
 const PERIOD_DAYS = { W: 7, M: 30, '3M': 90, '6M': 182, Y: 365 };
-const MONTH_INITIALS = ['J','F','M','A','M','J','J','A','S','O','N','D'];
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAY_MS = 86400000;
 
 let period = 'M';
 let endDate = new Date(); endDate.setHours(12,0,0,0);
 let weightUnit = 'stlb';
+let weightSettings = {};
+let lastData = null;
 
 // the local calendar date — NOT toISOString(), which is UTC and flips the day for evening/after-midnight users
 function localIso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -125,6 +144,7 @@ async function loadGraph() {
   const r = await fetch(`/nutrition/api/weight/graph?period=${period}&end=${isoDate(endDate)}`);
   const data = await r.json();
   weightUnit = data.unit || weightUnit;
+  lastData = data;
   render(data);
   loadMetrics();
 }
@@ -165,6 +185,8 @@ function render(data) {
       ? `${new Date(data.periodStart).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})} – ${new Date(data.periodEnd).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'})}`
       : '—';
 
+  renderLog(raw);
+
   if (!raw.length && !trend.length) {
     svg.innerHTML = '';
     empty.style.display = '';
@@ -195,43 +217,127 @@ function render(data) {
   drawChart(raw, trend, data);
 }
 
+// WeightLog.source values; anything else (a newer client) is shown as stored
+const SOURCE_LABELS = { manual: 'Typed in', backfill: 'Backfill', homeassistant: 'Scale (Home Assistant)', garmin: 'Scale (Garmin)' };
+
+function sourceLabel(p) {
+  const src = p.source || 'manual';
+  if (src === 'garmin' && !p.scale) return 'Typed into Garmin';
+  return SOURCE_LABELS[src] || src;
+}
+
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
+
+function renderLog(raw) {
+  const box = document.getElementById('wgLog');
+  box.style.display = raw.length ? '' : 'none';
+  document.getElementById('wgLogCount').textContent = raw.length ? `· ${raw.length}` : '';
+  const thisYear = new Date().getFullYear();
+  document.getElementById('wgLogBody').innerHTML = raw.slice().reverse().map(p => {
+    const d = new Date(p.date + 'T12:00:00');
+    const opts = { weekday: 'short', day: 'numeric', month: 'short' };
+    if (d.getFullYear() !== thisYear) opts.year = 'numeric';
+    let change = '—', cls = '';
+    if (p.changeKg != null) {
+      change = fmtDeltaMain(Math.abs(p.changeKg) < 0.05 ? 0 : p.changeKg);
+      cls = p.changeKg <= -0.05 ? 'loss' : (p.changeKg >= 0.05 ? 'gain' : '');
+    }
+    return `<tr>
+      <td>${d.toLocaleDateString('en-GB', opts)}</td>
+      <td class="num">${fmtWeight(p.kg)}</td>
+      <td class="num wg-trend" style="color:var(--text-muted);">${p.trendKg != null ? fmtWeight(p.trendKg) : '—'}</td>
+      <td class="num ${cls}">${change}</td>
+      <td><span class="wg-src ${p.scale ? 'scale' : ''}">${esc(sourceLabel(p))}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+// Gridline step in the unit being shown (kg, or lb for stone): the smallest that leaves at most 6 gaps
+function tickStepKg(spanKg) {
+  const steps = weightUnit === 'kg' ? [0.2, 0.5, 1, 2, 5, 10, 20, 50] : [0.5, 1, 2, 3.5, 7, 14, 28, 70];
+  const toKg = weightUnit === 'kg' ? 1 : 1 / LB_PER_KG;
+  const step = steps.find(st => spanKg / (st * toKg) <= 6) || steps[steps.length - 1];
+  return step * toKg;
+}
+
+// x-axis labels to suit the span: days for a few weeks, months up to about a year and a half, then years
+function xLabels(start, end, plotW) {
+  const spanDays = (end - start) / DAY_MS;
+  const out = [];
+  if (spanDays <= 100) {
+    const every = spanDays <= 10 ? 1 : 7;
+    for (let t = end.getTime(); t >= start.getTime(); t -= every * DAY_MS) {   // count back from the newest day, so it is always labelled
+      const d = new Date(t);
+      out.push({ t, text: d.toLocaleDateString('en-GB', every === 1 ? { weekday: 'short', day: 'numeric', timeZone: 'UTC' } : { day: 'numeric', month: 'short', timeZone: 'UTC' }) });
+    }
+    return { labels: out, yearLines: false };
+  }
+  const pxPerMonth = plotW * 30.44 / spanDays;
+  if (pxPerMonth >= 32) {
+    const every = pxPerMonth >= 48 ? 1 : 2;
+    for (let d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1)); d <= end; d = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1))) {
+      if (d < start || d.getUTCMonth() % every) continue;   // odd months skipped, so January (the year) always shows
+      out.push({ t: d.getTime(), text: d.getUTCMonth() === 0 ? String(d.getUTCFullYear()) : MONTH_NAMES[d.getUTCMonth()], strong: d.getUTCMonth() === 0 });
+    }
+    return { labels: out, yearLines: false };
+  }
+  const pxPerYear = pxPerMonth * 12;
+  const every = Math.max(1, Math.ceil(40 / pxPerYear));
+  for (let y = start.getUTCFullYear() + 1; y <= end.getUTCFullYear(); y++) {
+    if (y % every) continue;
+    out.push({ t: Date.UTC(y, 0, 1), text: String(y) });
+  }
+  return { labels: out, yearLines: true };
+}
+
+// a gridline label: "13st" or "12st 3.5lb", "85" or "82.5"
+function fmtTick(kg, stepKg) {
+  if (weightUnit === 'kg') return kg.toFixed(stepKg < 1 ? 1 : 0);
+  const totalLb = Math.round(kgToLb(kg) * 2) / 2, stone = Math.floor(totalLb / 14), lb = totalLb - stone * 14;
+  return lb ? `${stone}st ${lb}lb` : `${stone}st`;
+}
+
 function drawChart(raw, trend, data) {
   const svg = document.getElementById('wgSvg');
   const W = 800, H = 420;
-  const padL = 20, padR = 56, padT = 16, padB = 36;
+  const padL = 20, padR = weightUnit === 'kg' ? 48 : 72, padT = 16, padB = 36;   // room for "13st 10.5lb"
   const plotW = W - padL - padR, plotH = H - padT - padB;
 
   const start = new Date(data.periodStart);
   const end   = new Date(data.periodEnd);
   const spanMs = Math.max(1, end - start);
 
-  const allKg = raw.map(p => p.kg).concat(trend.map(p => p.kg)).concat(data.stoneLines || []);
+  // fit the axis to what's in view; milestone lines show only if they land inside it
+  const allKg = raw.map(p => p.kg).concat(trend.map(p => p.kg));
   let minKg = Math.min(...allKg), maxKg = Math.max(...allKg);
-  if (minKg === maxKg) { minKg -= 1; maxKg += 1; }
-  const pad = (maxKg - minKg) * 0.12 || 1;
+  const MIN_SPAN_KG = 1;   // so a flat week doesn't blow 0.2 kg of scale noise up to full height
+  if (maxKg - minKg < MIN_SPAN_KG) { const mid = (minKg + maxKg) / 2; minKg = mid - MIN_SPAN_KG / 2; maxKg = mid + MIN_SPAN_KG / 2; }
+  const pad = (maxKg - minKg) * 0.08;
   minKg -= pad; maxKg += pad;
 
   const x = (d) => padL + ((new Date(d) - start) / spanMs) * plotW;
   const y = (kg) => padT + (1 - (kg - minKg) / (maxKg - minKg)) * plotH;
 
   let svgEls = [];
+  let overlay = [];   // labels drawn last, over the dots
 
-  // Gridlines (5 ticks) with weight labels on the right
-  const ticks = 5;
-  for (let i = 0; i <= ticks; i++) {
-    const kg = minKg + (maxKg - minKg) * (i / ticks);
-    const yy = y(kg);
+  // Gridlines on round weights, labelled on the right
+  const step = tickStepKg(maxKg - minKg);
+  for (let i = Math.ceil(minKg / step - 1e-9); i * step <= maxKg + 1e-9; i++) {
+    const kg = i * step, yy = y(kg).toFixed(1);
     svgEls.push(`<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" stroke="var(--border)" stroke-dasharray="3,4" stroke-width="1"/>`);
-    svgEls.push(`<text x="${W-padR+8}" y="${yy+4}" font-size="12" fill="var(--text-muted)">${fmtWeight(kg)}</text>`);
+    svgEls.push(`<text x="${W-padR+8}" y="${+yy+4}" font-size="12" fill="var(--text-muted)">${fmtTick(kg, step)}</text>`);
   }
 
-  // Stone milestone lines
-  (data.stoneLines || []).forEach((kg, i) => {
-    if (kg < minKg || kg > maxKg) return;
-    const yy = y(kg);
-    svgEls.push(`<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" stroke="var(--accent)" stroke-opacity="0.35" stroke-dasharray="1,3" stroke-width="1.5"/>`);
-    svgEls.push(`<text x="${padL+4}" y="${yy-4}" font-size="10" fill="var(--accent)" opacity="0.8">-${i+1}st</text>`);
-  });
+  // Milestone lines (every stone, or every 5 kg in metric), unless switched off
+  if (weightSettings.milestoneLines !== false) {
+    (data.milestones || []).forEach(m => {
+      if (m.kg < minKg || m.kg > maxKg) return;
+      const yy = y(m.kg).toFixed(1);
+      svgEls.push(`<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" stroke="var(--accent)" stroke-opacity="0.35" stroke-dasharray="1,3" stroke-width="1.5"/>`);
+      overlay.push(`<text x="${padL+4}" y="${yy-4}" font-size="10" fill="var(--accent)" stroke="var(--card-bg)" stroke-width="3" paint-order="stroke">${esc(m.label)}</text>`);
+    });
+  }
 
   // Diet start marker
   if (data.dietStartDate) {
@@ -239,42 +345,61 @@ function drawChart(raw, trend, data) {
     if (ds >= start && ds <= end) {
       const xx = x(ds);
       svgEls.push(`<line x1="${xx}" y1="${padT}" x2="${xx}" y2="${H-padB}" stroke="var(--warning)" stroke-dasharray="4,3" stroke-width="1.5"/>`);
-      svgEls.push(`<text x="${xx+4}" y="${padT+12}" font-size="10" fill="var(--warning)">Diet start</text>`);
+      overlay.push(`<text x="${xx+4}" y="${padT+12}" font-size="10" fill="var(--warning)" stroke="var(--card-bg)" stroke-width="3" paint-order="stroke">Diet start</text>`);
     }
   }
 
-  // Month initials along the bottom
-  const monthsShown = new Set();
-  let cursor = new Date(start.getFullYear(), start.getMonth(), 1);
-  while (cursor <= end) {
-    if (cursor >= start) {
-      const xx = x(cursor);
-      svgEls.push(`<text x="${xx}" y="${H-padB+18}" font-size="11" fill="var(--text-muted)" text-anchor="middle">${MONTH_INITIALS[cursor.getMonth()]}</text>`);
-    }
-    cursor = new Date(cursor.getFullYear(), cursor.getMonth()+1, 1);
-  }
-
-  // Trend line (smooth-ish polyline through daily EMA points)
-  if (trend.length > 1) {
-    const pts = trend.map(p => `${x(p.date).toFixed(1)},${y(p.kg).toFixed(1)}`).join(' ');
-    svgEls.push(`<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`);
-  } else if (trend.length === 1) {
-    svgEls.push(`<circle cx="${x(trend[0].date)}" cy="${y(trend[0].kg)}" r="4" fill="var(--accent)"/>`);
-  }
-
-  // Raw weigh-in dots
-  raw.forEach(p => {
-    const scale = p.source === 'homeassistant';
-    svgEls.push(`<circle cx="${x(p.date).toFixed(1)}" cy="${y(p.kg).toFixed(1)}" r="${scale ? 5 : 4}" fill="${scale ? 'var(--accent)' : 'var(--text)'}" stroke="var(--card-bg)" stroke-width="1.5"/>`);
+  // Dates along the bottom; over years, a faint line at each new year too
+  const { labels, yearLines } = xLabels(start, end, plotW);
+  labels.forEach(l => {
+    const xx = x(l.t);
+    if (xx < padL - 1 || xx > W - padR + 1) return;
+    if (yearLines) svgEls.push(`<line x1="${xx.toFixed(1)}" y1="${padT}" x2="${xx.toFixed(1)}" y2="${H-padB}" stroke="var(--border)" stroke-width="1"/>`);
+    svgEls.push(`<text x="${xx.toFixed(1)}" y="${H-padB+18}" font-size="11" fill="${l.strong ? 'var(--text)' : 'var(--text-muted)'}" text-anchor="middle">${l.text}</text>`);
   });
 
-  svg.innerHTML = svgEls.join('');
+  const trendEls = [];
+  if (trend.length > 1) {
+    const pts = trend.map(p => `${x(p.date).toFixed(1)},${y(p.kg).toFixed(1)}`).join(' ');
+    trendEls.push(`<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`);
+  } else if (trend.length === 1) {
+    trendEls.push(`<circle cx="${x(trend[0].date)}" cy="${y(trend[0].kg)}" r="4" fill="var(--accent)"/>`);
+  }
+
+  // Weigh-in dots. Spread out, they're full size and sit on the trend line; packed in (a year or more of
+  // daily readings), they shrink and fade behind it so the trend stays readable.
+  const pxPerDay = plotW / (spanMs / DAY_MS);
+  const dense = pxPerDay < 8 && raw.length > plotW / 10;
+  const dotEls = raw.map(p => {
+    const scale = p.scale, cx = x(p.date).toFixed(1), cy = y(p.kg).toFixed(1);
+    if (dense) {
+      const r = Math.max(1.4, Math.min(3, pxPerDay * 1.2));
+      return `<circle cx="${cx}" cy="${cy}" r="${r.toFixed(1)}" fill="${scale ? 'var(--accent)' : 'var(--text)'}" fill-opacity="0.35"/>`;
+    }
+    return `<circle cx="${cx}" cy="${cy}" r="${scale ? 5 : 4}" fill="${scale ? 'var(--accent)' : 'var(--text)'}" stroke="var(--card-bg)" stroke-width="1.5"/>`;
+  });
+  if (dense) svgEls.push(...dotEls, ...trendEls);
+  else svgEls.push(...trendEls, ...dotEls);
+
+  svg.innerHTML = svgEls.concat(overlay).join('');
 }
+
+const milestoneBox = document.getElementById('wgMilestones');
+milestoneBox.addEventListener('change', async () => {
+  weightSettings.milestoneLines = milestoneBox.checked;
+  if (lastData) render(lastData);
+  await fetch('/nutrition/api/weight/settings', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...weightSettings }),
+  });
+});
 
 // ── Init ──────────────────────────────────────────────────────────────
 (async () => {
   const ws = await (await fetch('/nutrition/api/weight/settings')).json();
+  weightSettings = ws;
   weightUnit = ws.unit || 'stlb';
+  milestoneBox.checked = ws.milestoneLines !== false;
   loadGraph();
 })();
 </script>

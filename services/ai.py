@@ -1,5 +1,10 @@
+import logging
+import time
+
 from openai import OpenAI
 from database import query_db
+
+log = logging.getLogger(__name__)
 
 PERSONALITIES = {
     'default': {
@@ -166,22 +171,129 @@ class AIUnavailable(Exception):
     """No AI provider configured — raised (not returned as text) so it is never stored as a real analysis."""
 
 
-def _get_client_and_model():
-    settings = query_db('SELECT * FROM Settings WHERE id=1', one=True)
-    provider = settings['aiProvider'] if settings else 'openai'
+CLAUDE_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']
+PROVIDER_NAMES = {'openai': 'OpenAI', 'claude': 'Claude', 'ollama': 'Ollama'}
+_CLAUDE_FALLBACK_MODELS = ('claude-opus-5-5', 'claude-sonnet-5-5')    # the ones that take fallbacks="default"
 
+
+def _blank(v):
+    return v in (None, '', 'None')    # a blank form field once got stored as the string 'None'
+
+
+class Chat:
+    """One configured AI provider. Messages use OpenAI's roles, with content either a string or a list of
+    {'type': 'text', 'text': ...} and {'type': 'image', 'media_type': ..., 'data': <base64>} parts.
+    Made once per job, so worker threads can share it without touching the database."""
+
+    def __init__(self, provider, model, key=None, url=None, timeout=None):
+        self.provider, self.model = provider, model
+        opts = {'timeout': timeout} if timeout else {}
+        if provider == 'claude':
+            import anthropic
+            self._client = anthropic.Anthropic(api_key=key, **opts)
+        elif provider == 'ollama':
+            self._client = OpenAI(api_key='ollama', base_url=f'{url}/v1', **opts)
+        else:
+            self._client = OpenAI(api_key=key, **opts)
+
+    @property
+    def name(self):
+        return PROVIDER_NAMES.get(self.provider, self.provider)
+
+    def __call__(self, messages, system=None, max_tokens=1000, temperature=None, json=False):
+        """Returns the reply text. json=True asks for a JSON object (the prompt must say so too). Each call is logged with its time."""
+        t0 = time.monotonic()
+        try:
+            reply = self._ask(messages, system, max_tokens, temperature, json)
+        except Exception as e:
+            log.warning('AI %s %s failed after %.1fs: %s: %s', self.name, self.model, time.monotonic() - t0, type(e).__name__, e)
+            raise
+        log.info('AI %s %s replied in %.1fs (%d characters)', self.name, self.model, time.monotonic() - t0, len(reply or ''))
+        return reply
+
+    def _ask(self, messages, system, max_tokens, temperature, json):
+        if self.provider == 'claude':
+            return self._claude(messages, system, json)
+        msgs = ([{'role': 'system', 'content': system}] if system else []) + [
+            {'role': m['role'], 'content': _openai_content(m['content'])} for m in messages]
+        kw = {'max_tokens': max_tokens}
+        if temperature is not None:
+            kw['temperature'] = temperature
+        if json:
+            kw['response_format'] = {'type': 'json_object'}
+        resp = self._client.chat.completions.create(model=self.model, messages=msgs, **kw)
+        return resp.choices[0].message.content or ''
+
+    def _claude(self, messages, system, json):
+        # Current Claude models always think and reject temperature, so neither max_tokens nor temperature
+        # carries over from the OpenAI call: the budget has to cover the thinking as well as the reply.
+        kw = {}
+        if system:
+            kw['system'] = system
+        if self.model in _CLAUDE_FALLBACK_MODELS:    # a safety decline is retried on another model, not lost
+            kw['betas'] = ['server-side-fallback-2026-07-01']
+            kw['fallbacks'] = 'default'
+        resp = self._client.beta.messages.create(
+            model=self.model, max_tokens=16000, output_config={'effort': 'medium'},
+            messages=[{'role': m['role'], 'content': _claude_content(m['content'])} for m in messages], **kw)
+        if resp.stop_reason == 'refusal':
+            raise RuntimeError('Claude declined this request.')
+        text = ''.join(b.text for b in resp.content if b.type == 'text')
+        return _json_only(text) if json else text
+
+
+def _openai_content(content):
+    if isinstance(content, str):
+        return content
+    return [{'type': 'image_url', 'image_url': {'url': f"data:{p['media_type']};base64,{p['data']}", 'detail': 'high'}}
+            if p['type'] == 'image' else p for p in content]
+
+
+def _claude_content(content):
+    if isinstance(content, str):
+        return content
+    return [{'type': 'image', 'source': {'type': 'base64', 'media_type': p['media_type'], 'data': p['data']}}
+            if p['type'] == 'image' else p for p in content]
+
+
+def _json_only(text):
+    """Claude has no JSON mode, and sometimes wraps the object in a ```json fence or a sentence."""
+    start, end = text.find('{'), text.rfind('}')
+    return text[start:end + 1] if start != -1 and end > start else text
+
+
+def make_chat(provider, openai_key=None, openai_model=None, claude_key=None, claude_model=None,
+              ollama_url=None, ollama_model=None, timeout=None):
+    """A Chat for these settings, or None when the chosen provider has no API key."""
+    provider = provider if provider in PROVIDER_NAMES else 'openai'
     if provider == 'ollama':
-        base  = (settings['ollamaUrl'] if settings else 'http://localhost:11434')
-        model = (settings['ollamaModel'] if settings else 'llama3.2')
-        return OpenAI(api_key='ollama', base_url=f'{base}/v1'), model
-    else:
-        key = (settings['openaiKey'] if settings else '') or ''
-        if not key or key == 'None':  # a blank form field once got stored as the string 'None'
-            return None, None
-        model = (settings['openaiModel'] if settings else '')
-        if not model or model == 'None':
-            model = 'gpt-4o'
-        return OpenAI(api_key=key), model
+        return Chat('ollama', ollama_model if not _blank(ollama_model) else 'llama3.2',
+                    url=ollama_url if not _blank(ollama_url) else 'http://localhost:11434', timeout=timeout)
+    if provider == 'claude':
+        if _blank(claude_key):
+            return None
+        return Chat('claude', claude_model if not _blank(claude_model) else CLAUDE_MODELS[0],
+                    key=claude_key, timeout=timeout)
+    if _blank(openai_key):
+        return None
+    return Chat('openai', openai_model if not _blank(openai_model) else 'gpt-4o', key=openai_key, timeout=timeout)
+
+
+def get_chat():
+    """The Chat from saved Settings, or None if the chosen provider isn't set up yet."""
+    s = query_db('SELECT * FROM Settings WHERE id=1', one=True)
+    if not s:
+        return None
+    s = dict(s)
+    return make_chat(s.get('aiProvider'), s.get('openaiKey'), s.get('openaiModel'), s.get('claudeKey'),
+                     s.get('claudeModel'), s.get('ollamaUrl'), s.get('ollamaModel'))
+
+
+def missing_key_message(purpose='to use AI features'):
+    """'Add a Claude API key in Settings …', naming whichever provider is chosen."""
+    s = query_db('SELECT aiProvider FROM Settings WHERE id=1', one=True)
+    provider = (s['aiProvider'] if s else None) or 'openai'
+    return f'Add {"a Claude" if provider == "claude" else "an OpenAI"} API key in Settings {purpose}.'
 
 
 def _format_receipts(receipts):
@@ -211,9 +323,9 @@ def _format_receipts(receipts):
 
 
 def generate_analysis(activity, personality_key=None):
-    client, model = _get_client_and_model()
-    if client is None:
-        raise AIUnavailable('Add an OpenAI API key in Settings to enable AI coaching.')
+    chat = get_chat()
+    if chat is None:
+        raise AIUnavailable(missing_key_message('to enable AI coaching'))
 
     settings = query_db('SELECT coachingGoals, coachPersonality FROM Settings WHERE id=1', one=True)
     goals = (settings['coachingGoals'] or '').strip() if settings else ''
@@ -231,16 +343,14 @@ def generate_analysis(activity, personality_key=None):
 
     from services.context import build_context, build_comparison_receipts, get_weather_line
 
-    dist_mi  = float(activity['distance'] or 0) / 1609.344
-    spd_mph  = float(activity['averageSpeed'] or 0) * 2.23694
-    elev_ft  = float(activity['totalElevationGain'] or 0) * 3.28084
+    from services import units                         # the coach reads every number in the rider's own units
     mins     = int(activity['movingTime'] or 0) // 60
 
     current = f'"{activity["name"]}" — {str(activity["startDateLocal"])[:10]}\n'
-    current += f'  Distance   : {dist_mi:.1f} mi\n'
+    current += f'  Distance   : {units.fmt_dist(activity["distance"])}\n'
     current += f'  Moving time: {mins} min\n'
-    current += f'  Avg speed  : {spd_mph:.1f} mph\n'
-    current += f'  Elevation  : {elev_ft:.0f} ft\n'
+    current += f'  Avg speed  : {units.fmt_speed(activity["averageSpeed"])}\n'
+    current += f'  Elevation  : {units.fmt_elev(activity["totalElevationGain"])}\n'
     if activity['averageWatts']:
         current += f'  Avg power  : {activity["averageWatts"]:.0f} W'
         if activity['weightedAvgWatts']:
@@ -277,7 +387,7 @@ def generate_analysis(activity, personality_key=None):
                 elif drift < -5:
                     hr_line += f' | HR fell {abs(drift):.0f}bpm first→last third (fading effort / pacing off)'
         except Exception:
-            pass
+            log.debug('HR drift for the AI prompt failed', exc_info=True)
 
         current += hr_line + '\n'
     if activity['averageCadence']:
@@ -346,7 +456,7 @@ REQUIRED — always write these three:
 🎯 Honest verdict — 1-2 sentences. Was this a good day, a poor day, or somewhere in between? Say it plainly.
 
 OPTIONAL — include only if you have something specific and non-obvious to say. Skip entirely otherwise:
-⛰️ Climbing — only if elevation > 800ft and the climbing meaningfully changes what the numbers mean
+⛰️ Climbing — only if elevation > CLIMB_LIMIT and the climbing meaningfully changes what the numbers mean
 🔥 Standout metric — only if there is a genuinely interesting power/HR/speed relationship worth explaining
 📈 Fitness reading — only if you can say something specific about adaptation or trajectory, not just "numbers are up"
 🌦️ Conditions — only if weather was a real factor that changes how the numbers should be read
@@ -364,16 +474,48 @@ RULES:
 - If no history exists: analyse the data alone and flag it
 - The final sentence must be specific to this ride — if it could apply to any ride on any day, rewrite it"""
 
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[
-            {'role': 'system', 'content': system_msg},
-            {'role': 'user',   'content': user_msg},
-        ],
-        max_tokens=1000,
-        temperature=0.7,
+    user_msg = user_msg.replace('CLIMB_LIMIT', units.fmt_elev(800 / units.FT_PER_M))      # 800 ft, in the rider's units
+    system_msg = units.localise(system_msg)      # its worked example ('a 13mph headwind ride') in the rider's units too
+
+    return chat([{'role': 'user', 'content': user_msg}], system=system_msg, max_tokens=1000, temperature=0.7)
+
+
+def ensure_weather(db, activity):
+    """The activity with its weather fetched and stored, when it has none yet (the analysis reads it). Commits."""
+    if activity['weatherSummary'] or not activity['startLat'] or not activity['startLng']:
+        return activity
+    try:
+        from services.weather import fetch_weather, save_weather
+        w = fetch_weather(
+            activity['startLat'],
+            activity['startLng'],
+            activity['startDateLocal'],
+            activity['streams'],
+            activity['sportType'],
+        )
+        if w:
+            save_weather(db, activity['id'], w)
+            db.commit()
+            return query_db('SELECT * FROM Activity WHERE id=?', [activity['id']], one=True)
+    except Exception:
+        log.warning('Weather fetch before the AI analysis failed', exc_info=True)
+    return activity
+
+
+def analyse_ride(db, activity, personality_key=None):
+    """Everything 'analyse this ride' does, for the ride page's button, the AI page's batch and the analysis of new rides
+    (services/auto_analyse.py): weather if it has none, the analysis, stored on the ride and in its RideMemory. Returns the text;
+    raises when there is no provider or it fails. Commits."""
+    activity = ensure_weather(db, activity)
+    text = generate_analysis(activity, personality_key=personality_key)
+    db.execute(
+        "UPDATE Activity SET aiKudos=?, aiKudosAt=datetime('now') WHERE id=?",
+        [text, activity['id']],
     )
-    return resp.choices[0].message.content or ''
+    db.commit()
+    from services.context import save_ride_memory
+    save_ride_memory(activity, text)
+    return text
 
 
 # backward-compat alias used by webhook.py

@@ -180,15 +180,15 @@ struct PhoneRideRecorderTests {
         #expect(recorder.recovered != nil)
 
         #expect(throws: AppError.self) {
-            try recorder.saveRecovered { (_: Data, _: RideSummary) throws(AppError) -> Void in
+            try recorder.saveRecovered { (_: Data?, _: RideSummary) throws(AppError) -> Void in
                 throw .storage(underlying: DiskFull())
             }
         }
         #expect(recorder.recovered != nil)
         #expect(journal.load()?.segments.first?.count == 10)
 
-        let kept = try recorder.saveRecovered { (gpx: Data, _: RideSummary) throws(AppError) -> Data in gpx }
-        #expect(!kept.isEmpty)
+        let kept = try recorder.saveRecovered { (gpx: Data?, _: RideSummary) throws(AppError) -> Data? in gpx }
+        #expect(kept?.isEmpty == false)
         #expect(recorder.recovered == nil)
         #expect(!journal.exists)
     }

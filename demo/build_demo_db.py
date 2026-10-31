@@ -308,8 +308,8 @@ def make_workouts(rng, db, rider_id, end_day, days):
             start = datetime(d.year, d.month, d.day, rng.choice([8, 9, 12, 17, 18]), rng.randint(0, 59))
             utc = start.replace(tzinfo=LONDON).astimezone(timezone.utc)
             kcal = round(dist / 1000 * (62 if sport != 'Run' else 85) * 0.9 + rng.uniform(-20, 20))
-            db.execute('INSERT INTO Workout (id, riderId, sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, averageSpeed, calories, steps, source) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                       [f'demo_wk_{n}', rider_id, sport, None, utc.strftime('%Y-%m-%dT%H:%M:%S'), start.strftime('%Y-%m-%dT%H:%M:%S'), dist, secs, secs + rng.randint(0, 300),
+            db.execute("INSERT INTO Activity (id, riderId, type, sportType, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, averageSpeed, calories, steps, source, rawData) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')",
+                       [f'demo_wk_{n}', rider_id, sport, sport, None, utc.strftime('%Y-%m-%dT%H:%M:%S'), start.strftime('%Y-%m-%dT%H:%M:%S'), dist, secs, secs + rng.randint(0, 300),
                         round(dist * rng.uniform(0.004, 0.02)), dist / secs, kcal, int(dist / 0.75) if sport != 'Run' else int(dist / 1.0), 'demo'])
             n += 1
     return n
@@ -602,7 +602,8 @@ def main():
     if chk.execute('SELECT COUNT(*) FROM Friend').fetchone()[0] or chk.execute('SELECT COUNT(*) FROM DeviceToken').fetchone()[0]:
         bad.append('friends/tokens present')
     st = chk.execute('SELECT * FROM Settings').fetchone()
-    for col in ('garminEmail', 'garminPassword', 'mqttHost', 'mqttPassword', 'aiApiKey', 'haToken', 'ntfyUrl'):
+    from services.vault import COLUMNS
+    for col in (*COLUMNS['Settings'], 'mqttHost', 'ntfyUrl'):
         if col in st.keys() and st[col]:
             bad.append(f'secret in Settings.{col}')
     if bad:
@@ -610,7 +611,9 @@ def main():
             print('AUDIT FAILED:', b)
         os.remove(out_db)
         sys.exit(2)
-    counts = {t: chk.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in ('Activity', 'BestEffort', 'Segment', 'SegmentEffort', 'FoodLog', 'WeightLog', 'GarminDaily', 'Workout', 'Bike', 'Part')}
+    counts = {t: chk.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in ('Activity', 'BestEffort', 'Segment', 'SegmentEffort', 'FoodLog', 'WeightLog', 'GarminDaily', 'Bike', 'Part')}
+    from services.sports import RIDE_SQL
+    counts['Workout'] = chk.execute(f'SELECT COUNT(*) FROM Activity WHERE NOT {RIDE_SQL}').fetchone()[0]       # walks, runs, ... (rows of Activity)
     size = os.path.getsize(out_db) / 1e6
     with open(os.path.join(args.out, 'REPORT.txt'), 'w') as f:
         f.write(f'built {datetime.now().isoformat(timespec="seconds")}\nprivacy zones: {len(zones)} (radius {args.zone_radius} m)\nrides kept {len(kept)}; dropped {dict(dropped)}\n'

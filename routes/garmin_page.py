@@ -20,7 +20,7 @@ def index():
     # Dates that have a ride (for chart markers)
     ride_dates = {
         r['d'] for r in query_db('''
-            SELECT DISTINCT date(startDateLocal) as d FROM Activity
+            SELECT DISTINCT date(startDateLocal) as d FROM Ride
             WHERE date(startDateLocal) >= date('now', ? || ' days')
         ''', [f'-{days}'])
     }

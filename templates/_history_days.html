@@ -1,0 +1,13 @@
+{# The days of the history tree on the dashboard and the Activities page (list_path), with their activities: the open month is drawn with the page, every other month is fetched
+   from /dashboard/history when it is opened (routes/dashboard.history), so the page doesn't carry every activity ever recorded.
+   Needs days (from _group_activities), sf and rider_query; on a "no gear" list, row_picker, gear_pickers and back_url give each row its picker. #}
+{% from '_activity_row.html' import activity_row, gear_row %}
+{% for day in days %}
+<div class="tree-day">
+  <div class="tree-day-header">
+    <a href="{{ list_path or '/dashboard' }}?{% if rider_query %}{{ rider_query }}&amp;{% endif %}from={{ day.from }}&amp;to={{ day.from }}#ride-history" class="dash-link">{{ day.label }}</a>
+    <span class="tree-meta">{{ day.count }} activit{% if day.count != 1 %}ies{% else %}y{% endif %} &middot; {{ day.dist | fmt_dist if sf.group else day.secs | fmt_duration }}</span>
+  </div>
+  <div>{% for a in day.activities %}{% if row_picker %}{{ gear_row(a, gear_pickers, back_url, date=false) }}{% else %}{{ activity_row(a, date=false) }}{% endif %}{% endfor %}</div>
+</div>
+{% endfor %}

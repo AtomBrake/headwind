@@ -1,0 +1,120 @@
+{% extends 'base.html' %}
+{# One page for a bike and for shoes or other kit (routes/gear.bike, gear.kit_page): the same head, figures, charts, assigning by date and
+   recent list for both, from the shared pieces in _gear.html. Only a bike has parts and a service log (_gear_parts.html). #}
+{% from '_activity_row.html' import activity_row %}
+{% from '_gear.html' import gear_ph, wear_bar, gear_chips %}
+{% set is_bike = item.what == 'bike' %}
+{% set st = item.stats %}
+{% block title %}{{ item.name }}{% endblock %}
+{% block page_title %}{{ item.name }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+{% block parent %}<a href="{{ url_for('gear.index', rider=item.rider) }}">Gear</a>{% endblock %}
+
+{% block content %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+
+<div class="gear-head">
+  <div class="big-ph">{{ gear_ph(item, 64) }}</div>
+  <div class="meta">
+    <div class="gear-title">{{ gear_chips(item, long=true) }}</div>
+    <h2>{{ item.name }}</h2>
+    <div class="hint">{{ item.sub }}{% if item.bought %}{{ ' · ' if item.sub }}bought {{ item.bought | fmt_date }}{% endif %}{% if item.strava %}{{ ' · ' if item.sub or item.bought }}Strava: {{ item.strava }}{% endif %}</div>
+    <div class="odo-big">{{ item.odometer | fmt_dist }}</div>
+    <div class="hint">{{ 'odometer' if is_bike else 'so far' }}{% if item.start %} (includes {{ item.start | fmt_dist }} before Headwind){% endif %}</div>
+    {% if item.wear %}{{ wear_bar(item.wear, 'max-width:320px;margin-top:.4rem;') }}<div class="hint">{{ item.wear.text }}</div>{% endif %}
+    {% if item.notes %}<p class="hint" style="margin:.5rem 0 0;">{{ item.notes }}</p>{% endif %}
+    <div class="gear-actions">
+      <a class="btn btn-secondary btn-sm" href="{{ item.urls.edit }}">Edit</a>
+      <form method="POST" action="{{ item.urls.retire }}">{% if item.retired %}<input type="hidden" name="undo" value="1">{% endif %}<button class="btn btn-secondary btn-sm">{{ 'Bring back' if item.retired else 'Retire' }}</button></form>
+      <form method="POST" action="{{ item.urls.delete }}" onsubmit="return confirm({{ ('Delete ' ~ item.name ~ '? Its ' ~ item.noun[1] ~ ' stay, but will have no ' ~ item.gear_word ~ (', and its parts and service log go with it' if is_bike else '') ~ '. Retire it instead to keep its history. This cannot be undone.') | tojson | forceescape }})"><button class="btn btn-danger btn-sm">Delete</button></form>
+    </div>
+  </div>
+</div>
+
+<div class="stats-grid" style="margin-bottom:1rem;">
+  <div class="stat-card"><div class="stat-value">{{ '{:,}'.format(item.n) }}</div><div class="stat-label">{{ item.noun[1] | capitalize }}</div></div>
+  <div class="stat-card"><div class="stat-value">{{ st.distance | fmt_dist }}</div><div class="stat-label">Distance on Headwind</div></div>
+  <div class="stat-card"><div class="stat-value">{{ st.moving | fmt_hours }}</div><div class="stat-label">Moving time</div></div>
+  {% if st.gain and item.sport | has_climbing %}<div class="stat-card"><div class="stat-value">{{ st.gain | fmt_elev }}</div><div class="stat-label">Climbing</div></div>{% endif %}
+  {% if st.avg_speed %}<div class="stat-card"><div class="stat-value">{{ st.avg_speed | fmt_rate(item.sport) }}</div><div class="stat-label">{{ item.rate_label }}</div></div>{% endif %}
+  {% if st.longest %}<div class="stat-card"><div class="stat-value">{{ st.longest | fmt_dist }}</div><div class="stat-label">Longest</div></div>{% endif %}
+  {% if st.first %}<div class="stat-card"><div class="stat-value" style="font-size:1rem;">{{ st.first | fmt_date }}</div><div class="stat-label">First used{% if st.last %} · last {{ st.last | fmt_date }}{% endif %}</div></div>{% endif %}
+</div>
+
+{% if st.by_year or st.by_sport | length > 1 %}
+<div class="gear-pair">
+  {% if st.by_year %}
+  <div class="card">
+    <div class="card-title">Distance by year</div>
+    <div style="height:190px;"><canvas id="yearChart"></canvas></div>
+  </div>
+  {% endif %}
+  {% if st.by_sport | length > 1 %}
+  <div class="card">
+    <div class="card-title">By sport</div>
+    {% for s in st.by_sport %}<div class="gear-line"><span>{{ s.sport | sport_icon }} {{ s.sport | sport_label }}</span><span class="hint">{{ '{:,}'.format(s.n) }} · {{ s.distance | fmt_dist }}</span></div>{% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if not item.retired %}
+<div class="card" id="assign" style="margin-bottom:1rem;">
+  <div class="card-title">Assign {{ item.noun[1] }} to {{ item.name }}</div>
+  <p class="hint" style="margin:.1rem 0 .6rem;">Pick a date range and every {{ item.noun[0] }} in it {% if not is_bike %}of the sports ticked {% endif %}goes on {{ 'this bike' if is_bike else item.name }}, so its figures include them.
+    {% if is_bike %}Or <a href="{{ url_for('gear.assign_page', rider=item.rider, bike=item.id) }}">pick individual days on the calendar</a>.{% endif %}</p>
+  {% if assign_sports %}
+  <div class="checks" style="margin-bottom:.6rem;">
+    {% for key, label, on in assign_sports %}<label class="check"><input type="checkbox" name="aSport" value="{{ key }}" {{ 'checked' if on }}> {{ label | sport_icon }} {{ label }}</label>{% endfor %}
+  </div>
+  {% endif %}
+  <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));align-items:end;">
+    <label>From<input type="date" id="bFrom" max="{{ today }}"></label>
+    <label>To<input type="date" id="bTo" max="{{ today }}"></label>
+    <label class="check"><input type="checkbox" id="bPresent"> ...to today</label>
+    <label class="check"><input type="checkbox" id="bOnlyUn" checked> Leave {{ item.noun[1] }} on other {{ 'bikes' if is_bike else 'gear' }} alone</label>
+  </div>
+  <div class="quick">
+    <button class="btn btn-secondary btn-sm" type="button" data-q="year">This year</button>
+    <button class="btn btn-secondary btn-sm" type="button" data-q="30">Last 30 days</button>
+    <button class="btn btn-secondary btn-sm" type="button" data-q="all">Everything with no {{ item.gear_word }}</button>
+  </div>
+  <div class="preview" id="bPreview">Choose a start date to see how many {{ item.noun[1] }} will move onto {{ item.name }}.</div>
+  <button class="btn btn-primary" type="button" id="bApply" disabled>Put these {{ item.noun[1] }} on {{ item.name }}</button>
+  <span class="hint" id="bResult" style="margin-left:.6rem;"></span>
+</div>
+{% endif %}
+
+{% if is_bike %}{% include '_gear_parts.html' %}{% endif %}
+
+<div class="card">
+  <div class="card-title" style="display:flex;justify-content:space-between;gap:.6rem;align-items:baseline;">
+    <span>Recent {{ item.noun[1] }}</span>
+    {% if item.n > recent | length %}<a class="hint" href="{{ item.urls.all }}">See all {{ '{:,}'.format(item.n) }}</a>{% endif %}
+  </div>
+  {% if recent %}
+  {% for a in recent %}{{ activity_row(a) }}{% endfor %}
+  {% else %}
+  <p class="hint">Nothing on {{ item.name }} yet. Assign {{ item.noun[1] }} by date above, pick it on {{ 'a ride' if is_bike else 'an activity' }}'s page, use "{{ 'Bike' if is_bike else 'Gear' }}…" in the Select bar on the Activities page, or make it a default on the Gear page.</p>
+  {% endif %}
+</div>
+
+<script>window.GEAR_ASSIGN = { what: {{ item.what | tojson }}, id: {{ item.id }}, name: {{ item.name | tojson }}, rider: {{ item.rider }}, today: {{ today | tojson }},
+  noun: {{ item.noun | list | tojson }} };</script>
+<script src="{{ url_for('static', filename='js/gear_assign_range.js') }}"></script>
+{% if st.by_year %}
+<script>
+  (function () {
+    const rows = {{ by_year | safe }}, noun = {{ item.noun | list | tojson }};
+    if (!window.Chart) return;
+    new Chart(document.getElementById('yearChart'), { type: 'bar',
+      data: { labels: rows.map(r => r.year), datasets: [{ data: rows.map(r => Math.round(UNITS.toDist(r.distance))), backgroundColor: cssVar('--accent'), borderRadius: 4, maxBarThickness: 64 }] },
+      options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y.toLocaleString() + ' ' + UNITS.dist + ' · ' + rows[c.dataIndex].n + ' ' + noun[rows[c.dataIndex].n === 1 ? 0 : 1] } } },
+        scales: { x: { ticks: { color: cssVar('--text-soft') }, grid: { display: false } }, y: { ticks: { color: cssVar('--text-soft') }, grid: { color: cssVar('--border') } } } } });
+  })();
+</script>
+{% endif %}
+{% endblock %}

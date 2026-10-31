@@ -10,15 +10,15 @@ strings during British Summer Time is how a 1-hour gap hid the first duplicate e
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from services import tz
 
 log = logging.getLogger(__name__)
-LOCAL = ZoneInfo('Europe/London')          # the app's home timezone everywhere else (workouts, goals, HA)
 UTC = timezone.utc
 
 OVERLAP_MIN = 0.60          # the two recordings must overlap for at least this share of the shorter one
 DIST_TOL = 0.15             # ...and agree on distance within 15% (different devices measure a ride a little differently)
 SEARCH_DAYS = 1
+CHOSEN = 'You chose to use the other recording.'     # the reason on a copy the rider set aside (swap), which nothing puts back by itself
 
 
 def ensure_schema(db):
@@ -34,6 +34,16 @@ def ensure_schema(db):
             parkedAt  TEXT DEFAULT (datetime('now'))
         )''')
     db.execute('CREATE INDEX IF NOT EXISTS idx_actdup_primary ON ActivityDuplicate(primaryId)')
+    cols = {r[1] for r in db.execute('PRAGMA table_info(ActivityDuplicate)').fetchall()}
+    if 'bikeId' not in cols:                            # the gear chosen on the copy (chosen_gear), checked against the one kept (services/merged_gear.py)
+        db.execute('ALTER TABLE ActivityDuplicate ADD COLUMN bikeId INTEGER')
+        db.execute('ALTER TABLE ActivityDuplicate ADD COLUMN kitId INTEGER')
+        db.execute('ALTER TABLE ActivityDuplicate ADD COLUMN gearChecked INTEGER')     # 1: the rider said the kept activity's gear is right
+        chosen = lambda col: f"""CASE WHEN json_extract(rowJson, '$.{col}Auto') IS NOT NULL
+                                          AND COALESCE(json_extract(rowJson, '$.{col}Id'), 0) = json_extract(rowJson, '$.{col}Auto') THEN NULL
+                                     ELSE NULLIF(json_extract(rowJson, '$.{col}Id'), 0) END"""
+        # chosen_gear for the copies already set aside, in SQL: a whole row each (streams and all) is too much to load into Python at start-up
+        db.execute(f"UPDATE ActivityDuplicate SET bikeId = {chosen('bike')}, kitId = {chosen('kit')} WHERE status='parked' AND json_valid(rowJson)")
 
 
 # ---------- time + matching (pure) ----------
@@ -45,23 +55,135 @@ def instant(value):
         dt = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
     except ValueError:
         return None
-    return (dt if dt.tzinfo else dt.replace(tzinfo=LOCAL)).astimezone(UTC)
+    return (dt if dt.tzinfo else dt.replace(tzinfo=tz.zone())).astimezone(UTC)
+
+
+def start_instant(row):
+    """The real start of an activity row/dict (UTC), or None. Every path that knows it stores the UTC instant in startDate and the local time in
+    startDateLocal (Garmin's startTimeGMT, FIT and Strava export times, a GPX with a 'Z', the phone app, manual entries), so startDate is the one
+    to trust: Garmin's local time is the clock where the ride happened, which on a trip abroad is not the home zone (a Vancouver walk read as
+    London time is 8 hours out and never overlaps its Strava copy). When the two are the same string it is a naive time saved in both (a file
+    with no zone): read that as home-zone local, which is also what a UTC time means whenever the home zone is on UTC. Except from Garmin:
+    startTimeGMT is always UTC, and Garmin puts that same time in startTimeLocal too when it had no zone for the activity (old uploads, phone
+    apps), so a Garmin row's two equal strings are UTC (read as UK time, a summer ride sat an hour before its Strava copy and both were kept)."""
+    keys = row.keys()
+    utc = row['startDate'] if 'startDate' in keys else None
+    local = row['startDateLocal'] if 'startDateLocal' in keys else None
+    if utc and (str(utc)[:19] != str(local or '')[:19] or str(row['id'] if 'id' in keys else '').startswith('garmin_')):
+        try:
+            dt = datetime.fromisoformat(str(utc).replace('Z', '+00:00'))
+            return (dt if dt.tzinfo else dt.replace(tzinfo=UTC)).astimezone(UTC)
+        except ValueError:
+            pass
+    return instant(local or utc)
 
 
 def span(row):
     """(start, end) instants of an activity row/dict, or None if it has no usable start."""
-    start = instant(row['startDateLocal'] if row['startDateLocal'] else row['startDate'])
+    start = start_instant(row)
     if not start:
         return None
     secs = max(int(row['elapsedTime'] or 0), int(row['movingTime'] or 0))
     return start, start + timedelta(seconds=secs)
 
 
-def same_ride(a, b):
-    """True if two activity rows are probably one ride captured by two devices."""
+FRAGMENT_SLACK_S = 120     # a fragment starts no earlier than this before the whole ride (and no later than its end)
+FRAGMENT_MAX = 0.5          # ...lasts at most this share of it, and has at least this share of itself inside it
+TRACK_AGREE_M = 1000        # two GPS tracks of one ride are this close at the same moment
+VIRTUAL_START_S = 600       # two virtual rides (a watch's "Indoor Cycling" and its Zwift copy) start this close...
+VIRTUAL_LENGTH_TOL = 0.20   # ...and last this nearly as long, whatever distance each made up
+
+
+def _get(row, key, default=None):
+    return row[key] if key in row.keys() else default
+
+
+def _virtual(row):
+    return 'virtual' in str(_get(row, 'sportType') or '').lower()
+
+
+def _secs(s):
+    return (s[1] - s[0]).total_seconds()
+
+
+def _haversine_m(p, q):
+    from math import asin, cos, radians, sin, sqrt
+    dlat, dlng = radians(q[0] - p[0]), radians(q[1] - p[1])
+    h = sin(dlat / 2) ** 2 + cos(radians(p[0])) * cos(radians(q[0])) * sin(dlng / 2) ** 2
+    return 2 * 6371000 * asin(min(1.0, sqrt(h)))
+
+
+def _timed_track(row):
+    """([seconds from the start], [[lat, lng]]) for the points with a position, or None when the row has no timed GPS track."""
+    try:
+        st = json.loads(row['streams']) if _get(row, 'streams') else {}
+        t, ll = (st.get('time') or {}).get('data') or [], (st.get('latlng') or {}).get('data') or []
+    except (ValueError, TypeError, AttributeError):
+        return None
+    if not t or len(t) != len(ll):
+        return None
+    pts = [(x, p) for x, p in zip(t, ll) if x is not None and p and p[0] is not None and p[1] is not None]
+    return ([x for x, _ in pts], [p for _, p in pts]) if len(pts) > 1 else None
+
+
+def _tracks_agree(part, whole, sp, sw):
+    """For a fragment with a GPS track inside a ride with one: True when, sampled at the same moments, the two are mostly in the same place. Two
+    tracks of one ride are; a ride that only seems to contain another (a device left recording, paused, until the next day's ride) is not.
+    True when either has no track to compare (a phone's speed-sensor recording, an indoor ride)."""
+    from bisect import bisect_left
+    a, b = _timed_track(part), _timed_track(whole)
+    if not a or not b:
+        return True
+    off = (sp[0] - sw[0]).total_seconds()                # the fragment's second 0 is the whole ride's second `off`
+    n = len(a[0])
+    checked = agree = 0
+    for i in sorted({round(k * (n - 1) / 8) for k in range(9)}):
+        when = a[0][i] + off
+        j = bisect_left(b[0], when)
+        j = min((k for k in (j - 1, j) if 0 <= k < len(b[0])), key=lambda k: abs(b[0][k] - when))
+        if abs(b[0][j] - when) > FRAGMENT_SLACK_S:
+            continue                                     # the whole ride was paused then
+        checked += 1
+        agree += _haversine_m(a[1][i], b[1][j]) <= TRACK_AGREE_M
+    return checked > 0 and agree * 2 >= checked
+
+
+def is_manual(row):
+    """Typed in by hand: Headwind's own manual entries ('man_' ids), and a Strava export's rows with no file (stored with source 'manual')."""
+    return str(_get(row, 'id', '')).startswith('man_') or _get(row, 'source') == 'manual'
+
+
+def fragment_of(part, whole):
+    """True if `part` is a piece of the ride `whole`: both rides, `part` starts during it (FRAGMENT_SLACK_S early at most), at least half of it
+    lies inside it, it lasts at most half as long, and where both have a GPS track they were in the same place. A phone app with a Garmin speed
+    sensor recorded bits of rides like this (0 m or only the wheel's distance, no GPS), often running on for a few minutes after the ride's
+    own device was stopped; a Zwift session inside the watch's "Indoor Cycling" is one too. Never inside a manual entry: its elapsed time is
+    whatever was typed (a 2.5 km top-up on Strava "lasting" 15 hours held that evening's 24 km ride)."""
+    from services.sports import is_ride
+    if not (is_ride(_get(part, 'sportType')) and is_ride(_get(whole, 'sportType'))) or is_manual(whole):
+        return False
+    sp, sw = span(part), span(whole)
+    if not sp or not sw or _secs(sw) <= 0:
+        return False
+    slack = timedelta(seconds=FRAGMENT_SLACK_S)
+    if sp[0] < sw[0] - slack or sp[0] > sw[1] or _secs(sp) > FRAGMENT_MAX * _secs(sw):
+        return False
+    if (min(sp[1], sw[1]) - max(sp[0], sw[0])).total_seconds() < FRAGMENT_MAX * _secs(sp):
+        return False                                     # mostly before or after it (a short ride just after another): not a piece of it
+    return _tracks_agree(part, whole, sp, sw)
+
+
+def same_ride(a, b, fragments=True):
+    """True if two activity rows are probably one ride captured by two devices. fragments=False leaves out fragment_of."""
     sa, sb = span(a), span(b)
     if not sa or not sb:
         return False
+    if fragments and (fragment_of(a, b) or fragment_of(b, a)):          # a piece of the other: distance and start can't agree, and needn't
+        return True
+    if _virtual(a) and _virtual(b):                     # a watch's indoor ride and Zwift's: each makes up its own distance, so only time counts
+        la, lb = _secs(sa), _secs(sb)
+        return (abs((sa[0] - sb[0]).total_seconds()) <= VIRTUAL_START_S and la > 0 and lb > 0
+                and abs(la - lb) <= VIRTUAL_LENGTH_TOL * max(la, lb))
     overlap = (min(sa[1], sb[1]) - max(sa[0], sb[0])).total_seconds()
     shorter = min((sa[1] - sa[0]).total_seconds(), (sb[1] - sb[0]).total_seconds())
     da, db_ = float(a['distance'] or 0), float(b['distance'] or 0)
@@ -75,17 +197,63 @@ def same_ride(a, b):
     return overlap >= OVERLAP_MIN * shorter
 
 
+# Names nobody chose: what Strava ("Morning Ride", "Lunch Weight Training"), Garmin ("London Cycling", "Indoor Rowing") and the importers
+# ("Imported Ride", "Ride Activity", "Garmin Activity") give an activity on their own, and Headwind's own "Morning walk" label.
+_PARTS_OF_DAY = {'morning', 'lunch', 'afternoon', 'evening', 'night'}
+_STRAVA_SPORTS = {'ride', 'run', 'walk', 'hike', 'swim', 'workout', 'training', 'yoga', 'pilates', 'row', 'ski', 'skate', 'paddling', 'climbing',
+                  'stepper', 'stair-stepper', 'elliptical', 'kayaking', 'canoeing', 'surfing', 'golf', 'crossfit', 'activity'}
+_GARMIN_SPORTS = {'cycling', 'biking', 'e-bike', 'running', 'walking', 'hiking', 'swimming', 'strength', 'cardio', 'yoga', 'pilates', 'rowing',
+                  'elliptical', 'stepper', 'hiit', 'breathwork', 'multisport', 'kayaking', 'paddling', 'climbing', 'skiing', 'snowboarding', 'training',
+                  'activity'}
+_BARE_SPORTS = {'ride', 'run', 'walk', 'hike', 'swim', 'workout', 'virtualride', 'new ride', 'imported ride'}
+
+
+def default_name(name):
+    """True if an activity's name is one a device, a service or an importer made up, not one the user chose."""
+    n = ' '.join(str(name or '').lower().split())
+    if not n or n in _BARE_SPORTS:
+        return True
+    words = n.split(' ')
+    if words[0] in _PARTS_OF_DAY and 2 <= len(words) <= 5 and words[-1] in _STRAVA_SPORTS:
+        return True
+    return len(words) <= 5 and words[-1] in _GARMIN_SPORTS          # "<where> <sport>", or the sport alone
+
+
+def _name_rank(name):
+    """2 = a name someone chose, 1 = a made-up one, 0 = none at all."""
+    return 0 if not str(name or '').strip() else (1 if default_name(name) else 2)
+
+
+def _take_better_name(db, primary_id, kept_name, other_name):
+    """Give the kept activity the other copy's name if that one ranks higher ("Box Hill loop" on the phone copy beats Garmin's "London Cycling").
+    True if it changed. Does not commit."""
+    if _name_rank(other_name) <= _name_rank(kept_name):
+        return False
+    db.execute('UPDATE Activity SET name=? WHERE id=?', [other_name, primary_id])
+    return True
+
+
+def chosen_gear(row):
+    """(bikeId, kitId) an activity was put on by the rider, the phone, a file upload or a Strava export: not the default it was given (gear._auto),
+    which says nothing about what was used. What a copy set aside is checked by against the activity kept (services/merged_gear.py)."""
+    from services.gear import _auto
+    keys = row.keys()
+    pick = lambda col: row[col + 'Id'] if col + 'Id' in keys and row[col + 'Id'] and not _auto(row[col + 'Id'], _get(row, col + 'Auto')) else None
+    return pick('bike'), pick('kit')
+
+
 def source_label(row):
-    return 'Garmin' if str(row['id']).startswith('garmin_') else ('Manual entry' if str(row['id']).startswith('man_') else 'Phone or file')
+    return 'Garmin' if str(row['id']).startswith('garmin_') else ('Manual entry' if is_manual(row) else 'Phone or file')
 
 
 def quality(row):
     """(score, reasons) for how much a recording is worth keeping. Higher wins; a tie keeps the one already stored."""
     s, why = 0, []
     rid = str(row['id'])
+    manual = is_manual(row)
     if rid.startswith('garmin_'):
         s += 40; why.append('recorded on a Garmin device')
-    if rid.startswith('man_'):
+    if manual:
         s -= 50; why.append('typed in by hand')
     if row['averageHeartrate']:
         s += 20; why.append('has heart rate')
@@ -93,26 +261,92 @@ def quality(row):
         s += 10; why.append('has power')
     if row['averageCadence']:
         s += 5; why.append('has cadence')
-    pts = 0
+    pts, alt = 0, False
     try:
-        pts = len(((json.loads(row['streams']) if row['streams'] else {}).get('latlng') or {}).get('data') or [])
+        st = json.loads(row['streams']) if row['streams'] else {}
+        pts = len((st.get('latlng') or {}).get('data') or [])
+        alt = any(a is not None for a in (st.get('altitude') or {}).get('data') or [])
     except (ValueError, TypeError, AttributeError):
         pass
     s += min(10, pts // 500)
-    if pts == 0 and not rid.startswith('man_'):
+    if pts == 0 and not manual:
         s -= 5; why.append('no GPS track')
+    if alt:                                             # an old Garmin copy of a run kept no elevation; the file re-uploaded later did
+        s += 3; why.append('has elevation')
     return s, why
 
 
+def _gps_points(row):
+    try:
+        return len(((json.loads(row['streams']) if row['streams'] else {}).get('latlng') or {}).get('data') or [])
+    except (ValueError, TypeError, AttributeError):
+        return 0
+
+
+def _whole_beats_fragment(existing, new):
+    """(whole, fragment, reason) when one is a fragment of the other (fragment_of) with no GPS track, or well short of its distance (more than
+    DIST_TOL): the whole ride is kept whatever recorded the piece, or the totals would lose the rest of the ride. None otherwise: two recordings
+    of the same distance (a ride inside one whose stops ran its time on) and the better recording wins as usual. (Zwift inside a watch's
+    indoor ride is settled before this, by _app_beats_watch.)"""
+    for part, whole in ((new, existing), (existing, new)):
+        if not fragment_of(part, whole):
+            continue
+        dp, dw = float(part['distance'] or 0), float(whole['distance'] or 0)
+        no_gps, short = _gps_points(part) == 0, dw > 0 and dp < (1 - DIST_TOL) * dw
+        if no_gps or short:
+            mins = max(1, round(_secs(span(part)) / 60))
+            what = 'with no GPS track' if no_gps else f'with {round(100 * dp / dw)}% of its distance'
+            reason = (f'Kept the whole ride: the other recording is only a {mins}-minute piece of it, {what} '
+                      '(a phone app or sensor that recorded part of the ride, or a device that stopped early).')
+            if _gps_points(whole) == 0 and not no_gps:  # the totals need the whole ride, but the map, profile and segments are on the piece
+                reason += (' This ride has no GPS track and the piece has one: its map, elevation profile and segment efforts are on the '
+                           'other recording. View it, or keep both if you would rather have the track than the right totals.')
+            return whole, part, reason
+    return None
+
+
+def _app_beats_watch(existing, new):
+    """(app copy, watch copy, reason) for two virtual rides where one has the app's route (Zwift's track) and the other has none (a watch's
+    "Indoor Cycling"): the app's recording is kept, whatever the watch scores, unless it has no distance or no length. A Zwift ride inside a
+    longer watch session (a warm-up, then a race) is kept too; the watch session goes. None for any other pair."""
+    for app, watch in ((new, existing), (existing, new)):
+        s = span(app)
+        if (_virtual(app) and _virtual(watch) and _gps_points(app) > 0 and _gps_points(watch) == 0
+                and float(app['distance'] or 0) > 0 and s and _secs(s) > 0):
+            return app, watch, ('Kept the Zwift (or other app) recording: it has the route, and the distance the app rode or ran; a watch '
+                                'counts an indoor ride\'s or treadmill run\'s distance its own way.')
+    return None
+
+
+def _tie_break(a, b):
+    """(winner, loser, why) for two recordings of equal quality, the same whichever was saved first, so an upgraded database and a fresh import
+    of the same activities keep the same one: the longer distance (what the totals count; the shorter one usually missed part of the ride, and
+    distance is the figure an upstream database and a Strava export agree on), then the more GPS points, then the earlier upload (the lower id:
+    the original, not a copy uploaded again)."""
+    da, db_ = round(float(a['distance'] or 0)), round(float(b['distance'] or 0))
+    if da != db_:
+        return (a, b, 'the longer of the two') if da > db_ else (b, a, 'the longer of the two')
+    pa, pb = _gps_points(a), _gps_points(b)
+    if pa != pb:
+        return (a, b, 'the more detailed track') if pa > pb else (b, a, 'the more detailed track')
+    ia, ib = str(a['id']), str(b['id'])
+    older = (len(ia), ia) < (len(ib), ib) if ia.isdigit() and ib.isdigit() else ia < ib
+    return (a, b, 'the first one uploaded') if older else (b, a, 'the first one uploaded')
+
+
 def pick_winner(existing, new):
-    """Returns (winner, loser, reason_text). `existing` wins ties."""
+    """Returns (winner, loser, reason_text). A tie in quality is broken by _tie_break, not by which came first."""
+    piece = _app_beats_watch(existing, new) or _whole_beats_fragment(existing, new)
+    if piece:
+        return piece
     se, we = quality(existing)
     sn, wn = quality(new)
-    if sn > se:
-        winner, loser, why = new, existing, wn
+    if sn != se:
+        winner, loser, why = (new, existing, wn) if sn > se else (existing, new, we)
     else:
-        winner, loser, why = existing, new, we
-    reason = ('Kept the ' + source_label(winner) + ' recording (' + ', '.join(why) + ').') if why else ('Kept the ' + source_label(winner) + ' recording (the one already saved).')
+        winner, loser, tie = _tie_break(existing, new)
+        why = (we if winner is existing else wn) + [tie]
+    reason = 'Kept the ' + source_label(winner) + ' recording (' + ', '.join(why) + ').'
     return winner, loser, reason
 
 
@@ -122,16 +356,16 @@ def _kept_both_partners(db, act_id):
     return {r['id'] for r in rows} | {r['primaryId'] for r in rows}
 
 
-def find_duplicates(db, row, exclude_ids=()):
-    """Other activities by the same rider that look like the same ride."""
+def find_duplicates(db, row, exclude_ids=(), fragments=True):
+    """Other activities by the same rider that look like the same ride (fragments: see same_ride)."""
     s = span(row)
     if not s:
         return []
-    day = s[0].astimezone(LOCAL).date()
+    day = s[0].astimezone(tz.zone()).date()
     lo, hi = (day - timedelta(days=SEARCH_DAYS)).isoformat(), (day + timedelta(days=SEARCH_DAYS + 1)).isoformat()
     cands = db.execute("SELECT * FROM Activity WHERE riderId=? AND id<>? AND substr(startDateLocal,1,10) BETWEEN ? AND ?", [row['riderId'], row['id'], lo, hi]).fetchall()
     skip = set(exclude_ids) | _kept_both_partners(db, row['id'])
-    return [c for c in cands if c['id'] not in skip and same_ride(row, c)]
+    return [c for c in cands if c['id'] not in skip and same_ride(row, c, fragments)]
 
 
 def _drop_derived(db, act_id):
@@ -140,15 +374,22 @@ def _drop_derived(db, act_id):
     db.execute('DELETE FROM SegmentEffort WHERE activityId=?', [act_id])
     db.execute('DELETE FROM BestEffort WHERE activityId=?', [act_id])
     db.execute('DELETE FROM RideMemory WHERE rideId=?', [act_id])
+    db.execute('DELETE FROM SportEffort WHERE activityId=?', [act_id])
     return seg_ids
 
 
 def rebuild_derived(db, act_id):
-    """Best efforts + segment efforts + PRs for one ride (after it has been restored as the main recording)."""
+    """Best efforts + segment efforts + PRs for one activity (after it has been restored as the main recording). A run, walk, ... gets its own
+    (run best times, run segments) instead."""
     from services.best_efforts import save_best_efforts
     from services.segments import scan_activity_against_segments, _refresh_prs
+    from services.sports import is_ride
     row = db.execute('SELECT * FROM Activity WHERE id=?', [act_id]).fetchone()
     if not row:
+        return
+    if not is_ride(row['sportType']):
+        from services import workouts
+        workouts.refresh_derived(db, act_id)
         return
     seg_ids = _drop_derived(db, act_id)
     save_best_efforts(db, row['id'], row['startDateLocal'], row['streams'])
@@ -169,11 +410,22 @@ def park(db, loser_id, primary_id, reason):
     ensure_schema(db)
     winner = db.execute('SELECT * FROM Activity WHERE id=?', [primary_id]).fetchone()
     if winner:                                          # never lose something the user typed / chose on the ride that is being parked
-        for col in ('notes', 'description', 'bikeId'):
-            if col in row.keys() and row[col] and not winner[col]:
+        from services.sports import is_ride
+        for col in ('notes', 'description') + (('bikeId',) if is_ride(winner['sportType']) else ('kitId',)):      # a ride has a bike, the rest kit
+            if col in row.keys() and col in winner.keys() and row[col] and not winner[col]:
                 db.execute(f'UPDATE Activity SET {col}=? WHERE id=?', [row[col], primary_id])
-    db.execute('INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson) VALUES (?,?,?,?,?,?,?)',
-               [loser_id, primary_id, row['riderId'], source_label(row), reason, 'parked', json.dumps(dict(row))])
+        if 'commute' in row.keys() and row['commute'] is not None and winner['commute'] is None:
+            db.execute('UPDATE Activity SET commute=? WHERE id=?', [row['commute'], primary_id])
+            from services import gear
+            gear.regear(db, primary_id)
+        _take_better_name(db, primary_id, winner['name'], row['name'])
+        from services import photos
+        photos.move(db, loser_id, primary_id)
+    db.execute('INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson, bikeId, kitId) VALUES (?,?,?,?,?,?,?,?,?)',
+               [loser_id, primary_id, row['riderId'], source_label(row), reason, 'parked', json.dumps(dict(row)), *chosen_gear(row)])
+    # Copies set aside under this one now hang off the one kept: a copy set aside under a copy that is itself set aside was lost to everything
+    # that follows primaryId to a live activity (the Strava bike or shoes of the copy, services/strava_gear._rides)
+    db.execute("UPDATE ActivityDuplicate SET primaryId=? WHERE primaryId=? AND status='parked' AND id<>?", [primary_id, loser_id, primary_id])
     seg_ids = _drop_derived(db, loser_id)
     db.execute('DELETE FROM Activity WHERE id=?', [loser_id])
     for sid in seg_ids:
@@ -227,14 +479,68 @@ def tombstone(db, act_id, rider_id):
                [act_id, '', rider_id, 'deleted', 'deleted by you', 'deleted', '{}'])
 
 
-def delete_activity(db, act_id):
-    """The one place a ride is deleted (web button, phone app): derived data, parked duplicates of it, then a tombstone. Does not commit."""
+def _drop_photos(db, act_ids):
+    from flask import current_app
+    from services import photos
+    photos.delete_for(db, act_ids, current_app.config['DATABASE'])
+
+
+def _overlap_s(a, b):
+    sa, sb = span(a), span(b)
+    return (min(sa[1], sb[1]) - max(sa[0], sb[0])).total_seconds() if sa and sb else 0
+
+
+def _match_for(db, row, exclude_ids=()):
+    """The live activity a copy set aside is the same ride as (same_ride), the one it overlaps most when there are several, or None."""
+    cands = find_duplicates(db, row, exclude_ids)
+    return max(cands, key=lambda c: _overlap_s(row, c)) if cands else None
+
+
+def settle_parked(db, act_id, by_garmin=False):
+    """Before an activity is deleted: the copies set aside behind it, which nothing would show any more. One that is the same ride as another live
+    activity moves behind that one. Otherwise, when the activity was deleted in Garmin (by_garmin: only Garmin's record went, not the session), the
+    copy comes back as its own activity, as an import of it alone would have saved it; when the rider deleted it, the copy is discarded with it (its
+    id stays remembered, so no sync brings it back). Returns the id now standing for the session when one does (where the photos can go), else
+    None. Does not commit."""
+    ensure_schema(db)
+    stands = None
+    for d in db.execute("SELECT id, rowJson FROM ActivityDuplicate WHERE primaryId=? AND status='parked' AND id<>? ORDER BY parkedAt",
+                        [act_id, act_id]).fetchall():
+        try:
+            row = json.loads(d['rowJson'] or '{}')
+        except (TypeError, ValueError):
+            row = {}
+        other = _match_for(db, row, (act_id,)) if row else None
+        if other:
+            db.execute('UPDATE ActivityDuplicate SET primaryId=? WHERE id=?', [other['id'], d['id']])
+            log.warning('Delete of %s: its copy %s moved behind %s, the same ride', act_id, d['id'], other['id'])
+            stands = stands or other['id']
+        elif by_garmin and row:
+            _restore(db, d['id'])
+            db.execute('DELETE FROM ActivityDuplicate WHERE id=?', [d['id']])
+            rebuild_derived(db, d['id'])
+            log.warning('Delete of %s (deleted in Garmin): its copy %s is back as its own activity', act_id, d['id'])
+            stands = stands or d['id']
+        else:
+            discard(db, d['id'])
+            log.warning('Delete of %s: its copy %s discarded with it', act_id, d['id'])
+    return stands
+
+
+def delete_activity(db, act_id, by_garmin=False):
+    """The one place a ride is deleted (web button, phone app, deleted in Garmin): derived data, the copies set aside behind it (settle_parked),
+    then a tombstone. by_garmin: deleted because Garmin deleted it, so its photos go to the copy that now stands for the session. Does not commit."""
     from services.segments import _refresh_prs
     row = db.execute('SELECT id, riderId FROM Activity WHERE id=?', [act_id]).fetchone()
     if not row:
         return False
+    stands = settle_parked(db, act_id, by_garmin)
     seg_ids = _drop_derived(db, act_id)
     db.execute('DELETE FROM Activity WHERE id=?', [act_id])
+    if by_garmin and stands:
+        from services import photos
+        photos.move(db, act_id, stands)                 # most came from the copy set aside behind it, when it was merged
+    _drop_photos(db, [act_id])
     db.execute('UPDATE RideSensor SET rideKind=NULL, rideId=NULL WHERE rideId=?', [act_id])      # the phone's sensor recording stays, waiting for another ride
     db.execute("UPDATE ActivityDuplicate SET primaryId='' WHERE primaryId=? AND status='kept_both'", [act_id])
     for sid in seg_ids:
@@ -274,9 +580,9 @@ def swap(db, dup_id):
     if not row:
         return None
     db.execute('DELETE FROM ActivityDuplicate WHERE id=?', [dup_id])
+    _insert_row(db, row)                                # live first: park() hands the bike, kit, commute, notes and photos to the one kept
     if db.execute('SELECT 1 FROM Activity WHERE id=?', [old_primary]).fetchone():
-        park(db, old_primary, dup_id, 'You chose to use the other recording.')
-    _insert_row(db, row)
+        park(db, old_primary, dup_id, CHOSEN)
     others = db.execute("SELECT id FROM ActivityDuplicate WHERE primaryId=? AND id<>?", [old_primary, old_primary]).fetchall()
     for o in others:                                    # anything else parked under the old main now hangs off the new one
         db.execute('UPDATE ActivityDuplicate SET primaryId=? WHERE id=?', [dup_id, o['id']])
@@ -294,7 +600,178 @@ def keep_both(db, dup_id):
     return dup_id
 
 
+def recheck_parked(db, primary_id):
+    """After an activity's times or distance change (an import's figures taken on the Import page, reimport.resolve): every copy set aside
+    behind it is checked against it again, and one that is no longer the same ride comes back as its own activity, as an import of both would
+    have kept it. Strava's elapsed time for a ride trimmed on Strava, say, takes away the hour a device ran on that held the next ride. A copy
+    the rider set aside (CHOSEN) stays where it is. Returns [(id, name)] brought back. Does not commit."""
+    kept = db.execute('SELECT * FROM Activity WHERE id=?', [primary_id]).fetchone()
+    if not kept:
+        return []
+    back = []
+    for d in db.execute("SELECT id, reason, rowJson FROM ActivityDuplicate WHERE primaryId=? AND status='parked'", [primary_id]).fetchall():
+        if d['reason'] == CHOSEN:
+            continue
+        try:
+            row = json.loads(d['rowJson'])
+        except (TypeError, ValueError):
+            continue
+        if not row or same_ride(row, kept):
+            continue
+        _restore(db, d['id'])
+        db.execute('DELETE FROM ActivityDuplicate WHERE id=?', [d['id']])     # never a duplicate after all: as if both had been imported
+        rebuild_derived(db, d['id'])
+        back.append((d['id'], row.get('name')))
+    if back:
+        rebuild_derived(db, primary_id)                 # PRs are worked out across both again
+    return back
+
+
 def discard(db, dup_id):
     """Delete a parked recording for good. Its id stays remembered (so a Garmin re-sync does not bring it back)."""
     n = db.execute("UPDATE ActivityDuplicate SET rowJson='{}', status='discarded' WHERE id=? AND status='parked'", [dup_id]).rowcount
     return bool(n)
+
+
+def recover_names(db):
+    """Run once (Settings.dupNameFixDone): before park() looked at names, a merge kept the kept recording's own name even when it was made up
+    (Garmin's "London Cycling") and the copy set aside had one the user chose. That copy is still whole in rowJson, so its name is taken back by
+    the same rule. Discarded copies have no data left; friends' activities are left alone. Commits. Returns {'checked', 'renamed', 'ran'}."""
+    ensure_schema(db)
+    s = db.execute('SELECT dupNameFixDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['dupNameFixDone']:
+        return {'checked': 0, 'renamed': 0, 'ran': False}
+    # Only the ids go through the sort: rowJson is a whole activity with its streams, and sorting every parked copy at once filled the disk
+    # (SQLite's temporary sort) on a large install. Each copy is read on its own below.
+    rows = db.execute("""SELECT d.id, d.primaryId FROM ActivityDuplicate d JOIN Activity a ON a.id=d.primaryId
+                          WHERE d.status='parked' AND a.riderId NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)
+                          ORDER BY d.parkedAt""").fetchall()
+    renamed = set()
+    for r in rows:
+        row_json = db.execute('SELECT rowJson FROM ActivityDuplicate WHERE id=?', [r['id']]).fetchone()
+        try:
+            other = json.loads(row_json['rowJson']).get('name')
+        except (ValueError, TypeError, AttributeError):
+            continue
+        kept = db.execute('SELECT name FROM Activity WHERE id=?', [r['primaryId']]).fetchone()
+        if _take_better_name(db, r['primaryId'], kept['name'], other):
+            renamed.add(r['primaryId'])
+    db.execute('UPDATE Settings SET dupNameFixDone=1 WHERE id=1')
+    db.commit()
+    if renamed:
+        log.warning('Duplicates: %d merged activit%s took back the name chosen on the copy set aside', len(renamed), 'y' if len(renamed) == 1 else 'ies')
+    return {'checked': len(rows), 'renamed': len(renamed), 'ran': True}
+
+
+def repair_live_parked(db):
+    """Run once (Settings.liveParkedFixDone): a Strava export imported before 0.7.11 saved again an activity already set aside as a copy of another
+    (routes/import_rides now skips those), so the copy is live AND parked, and the session counts twice in every total. Each such pair is decided
+    again, by the rule an import uses (pick_winner, and the better name with it), between the two live rows as they are now: the loser is set aside
+    with its row as it is today (rowJson from before the import is older than the live row), its photos, commute, bike, kit and notes go to the one
+    kept (park), and the one kept gets its best and segment efforts again. A copy the rider chose to set aside (CHOSEN) stays behind the one they
+    chose; a pair that is no longer the same ride (same_ride) is kept apart, as an import of both would have. A copy live while the activity it was
+    parked behind is gone just loses its parked row. Also drops the 'discarded' rows of activities live again since (re-imported): their data was
+    already gone ('{}'), and an import skips only an id that isn't live. Friends' activities are left alone. Commits.
+    Returns {'ran', 'decided': [(kept, set aside, reason)], 'apart': [(id, id)], 'orphans': n, 'discarded': n}."""
+    ensure_schema(db)
+    s = db.execute('SELECT liveParkedFixDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['liveParkedFixDone']:
+        return {'ran': False, 'decided': [], 'apart': [], 'orphans': 0, 'discarded': 0}
+    from services import origin
+    origin.backfill(db)                                 # matches a converted activity to its first id through every remembered id: before any go
+    friends = 'SELECT riderId FROM Friend WHERE riderId IS NOT NULL'
+    ids = [r[0] for r in db.execute(f"""SELECT d.id FROM ActivityDuplicate d JOIN Activity a ON a.id = d.id
+                                         WHERE d.status='parked' AND a.riderId NOT IN ({friends}) ORDER BY d.parkedAt""").fetchall()]
+    decided, apart, orphans = [], [], 0
+    for dup_id in ids:
+        d = db.execute("SELECT primaryId, reason FROM ActivityDuplicate WHERE id=? AND status='parked'", [dup_id]).fetchone()
+        live = db.execute('SELECT * FROM Activity WHERE id=?', [dup_id]).fetchone()
+        if not d or not live:                           # set aside again by an earlier pair: decided already
+            continue
+        kept = db.execute('SELECT * FROM Activity WHERE id=?', [d['primaryId']]).fetchone() if d['primaryId'] != dup_id else None
+        db.execute('DELETE FROM ActivityDuplicate WHERE id=?', [dup_id])       # live: decided again below, as if both had just come in
+        if not kept:
+            orphans += 1
+            continue
+        if d['reason'] == CHOSEN:
+            winner, loser, reason = kept, live, CHOSEN
+        elif not same_ride(live, kept):
+            apart.append((dup_id, kept['id']))
+            continue
+        else:
+            winner, loser, reason = pick_winner(kept, live)
+        name = winner['name']
+        park(db, loser['id'], winner['id'], reason)    # takes the better name, the photos, commute, bike or kit and notes; fresh rowJson
+        rebuild_derived(db, winner['id'])
+        now = db.execute('SELECT name FROM Activity WHERE id=?', [winner['id']]).fetchone()['name']
+        decided.append((winner['id'], loser['id'], reason))
+        log.warning('Duplicates: %s was live and set aside as a copy of %s; kept %s%s, set aside %s (%s)', dup_id, kept['id'], winner['id'],
+                    f' (renamed "{name}" to "{now}")' if now != name else '', loser['id'], reason)
+    for a, b in apart:
+        log.warning('Duplicates: %s was live and set aside as a copy of %s, which it no longer matches: both kept', a, b)
+    if orphans:
+        log.warning('Duplicates: %d live activit%s had a parked row behind an activity that is gone: the row dropped', orphans, 'y' if orphans == 1 else 'ies')
+    discarded = db.execute(f"""DELETE FROM ActivityDuplicate WHERE status='discarded' AND id IN (SELECT id FROM Activity
+                                WHERE riderId NOT IN ({friends}))""").rowcount
+    if discarded:
+        log.warning('Duplicates: %d discarded cop%s live again since: the stale rows dropped', discarded, 'y' if discarded == 1 else 'ies')
+    db.execute('UPDATE Settings SET liveParkedFixDone=1 WHERE id=1')
+    db.commit()
+    return {'ran': True, 'decided': decided, 'apart': apart, 'orphans': orphans, 'discarded': discarded}
+
+
+def repair_stranded_parked(db):
+    """Run once (Settings.strandedParkedFixDone), after repair_live_parked: before settle_parked, a delete (most often Import's "delete everything
+    deleted in Garmin") left the copies set aside behind the activity pointing at an id that's gone, where nothing shows them. Each moves behind the live
+    activity it is the same ride as (same_ride; the one it overlaps most, if several). One that matches nothing is left as it is and listed: nothing
+    is guessed. Friends' activities are left alone. Commits. Returns {'ran', 'moved': [(id, new primary)], 'unmatched': [(id, name, old primary)]}."""
+    ensure_schema(db)
+    s = db.execute('SELECT strandedParkedFixDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['strandedParkedFixDone']:
+        return {'ran': False, 'moved': [], 'unmatched': []}
+    ids = [r[0] for r in db.execute("""SELECT id FROM ActivityDuplicate WHERE status='parked'
+                                        AND id NOT IN (SELECT id FROM Activity) AND primaryId NOT IN (SELECT id FROM Activity)
+                                        AND COALESCE(riderId, -1) NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL) ORDER BY parkedAt""")]
+    moved, unmatched = [], []
+    for dup_id in ids:                                  # one at a time: rowJson is a whole activity with its streams
+        d = db.execute('SELECT primaryId, rowJson FROM ActivityDuplicate WHERE id=?', [dup_id]).fetchone()
+        try:
+            row = json.loads(d['rowJson'] or '{}')
+        except (TypeError, ValueError):
+            row = {}
+        other = _match_for(db, row) if row.get('riderId') is not None else None
+        if other:
+            db.execute('UPDATE ActivityDuplicate SET primaryId=? WHERE id=?', [other['id'], dup_id])
+            moved.append((dup_id, other['id']))
+        else:
+            unmatched.append((dup_id, row.get('name'), d['primaryId']))
+    db.execute('UPDATE Settings SET strandedParkedFixDone=1 WHERE id=1')
+    db.commit()
+    if moved:
+        log.warning('Duplicates: %d cop%s set aside behind a deleted activity moved behind the live one of the same ride: %s', len(moved),
+                    'y' if len(moved) == 1 else 'ies', ', '.join(f'{a} -> {b}' for a, b in moved))
+    for a, name, was in unmatched:
+        log.warning('Duplicates: %s (%s), set aside behind %s, which is gone, matches no live activity: left as it is', a, name, was)
+    return {'ran': True, 'moved': moved, 'unmatched': unmatched}
+
+
+def recheck_workouts(db):
+    """Run once (Settings.workoutDupCheckDone), after walks, runs, ... moved in with the rides: the duplicate check never compared a workout with
+    anything, so a Garmin run and its Strava copy were both kept. Checks every non-ride activity once; the weaker copy is set aside (not deleted).
+    Friends' activities are left alone. Commits. Returns {'checked', 'duplicates', 'ran'}."""
+    from services.sports import RIDE_SQL
+    s = db.execute('SELECT workoutDupCheckDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['workoutDupCheckDone']:
+        return {'checked': 0, 'duplicates': 0, 'ran': False}
+    ids = [r[0] for r in db.execute(f"""SELECT id FROM Activity WHERE NOT {RIDE_SQL}
+                                         AND riderId NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL) ORDER BY startDateLocal""").fetchall()]
+    found = 0
+    for act_id in ids:
+        if db.execute('SELECT 1 FROM Activity WHERE id=?', [act_id]).fetchone():      # may have been set aside already as another's twin
+            if resolve(db, act_id):
+                found += 1
+    db.execute('UPDATE Settings SET workoutDupCheckDone=1 WHERE id=1')
+    db.commit()
+    if found:
+        log.warning('Duplicates: %d walk(s), run(s), ... turned out to be an activity already here', found)
+    return {'checked': len(ids), 'duplicates': found, 'ran': True}

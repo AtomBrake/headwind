@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+{% block title %}Bikes from Strava{% endblock %}
+{% block page_title %}Bikes from Strava{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">{% endblock %}
+{% block parent %}<a href="{{ url_for('gear.index', rider=rid) }}">Gear</a>{% endblock %}
+{% block topbar_actions %}
+  {% if riders %}<form method="GET" style="display:inline;"><select name="rider" onchange="this.form.submit()">{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>{% endif %}
+{% endblock %}
+{% block content %}
+{% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+{% if done %}<div class="gear-note"><div>{{ done }}</div><a class="btn btn-secondary btn-sm" href="{{ url_for('gear.index', rider=rid) }}">See your bikes</a></div>{% endif %}
+
+{% if not rows %}
+<div class="card" style="text-align:center;padding:2rem 1rem;">
+  <p class="hint" style="max-width:520px;margin:0 auto 1rem;">No bikes from Strava yet. Import your Strava data export (it has <code>bikes.csv</code> and the bike on every ride in <code>activities.csv</code>) and the bikes appear here to match.</p>
+  <a class="btn btn-primary" href="{{ url_for('import_rides.index') }}">Import a Strava export</a>
+</div>
+{% else %}
+<p class="hint" style="margin-top:0;max-width:760px;">Your Strava export says which bike rode each ride. Match each Strava bike to one of your bikes here, add it as a new bike, or leave it out
+  (a loan or hire bike: its rides get no bike). Saving puts each ride on its bike, and the next export you import follows the same matches.
+  Shoes are left alone for now.</p>
+<form method="POST" action="{{ url_for('gear.strava_save') }}">
+  <input type="hidden" name="rider" value="{{ rid }}">
+  <div class="card" style="overflow-x:auto;">
+    <table class="table">
+      <thead><tr><th>Strava bike</th><th>Rides</th><th>Match to</th><th>Kind</th><th>Retired</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+      {% set i = loop.index0 %}
+      <tr class="sb-row">
+        <td><input type="hidden" name="name" value="{{ r.name }}"><strong>{{ r.name }}</strong>
+          {% if r.status == 'new' %} <span class="chip soon">to match</span>{% endif %}
+          {% if r.brand or r.model %}<div class="hint">{{ [r.brand, r.model] | select | join(' ') }}</div>{% endif %}</td>
+        <td>{% if r.rides %}{{ '{:,}'.format(r.rides) }}
+          <div class="hint">{{ r.first[:4] }}{% if r.last[:4] != r.first[:4] %}–{{ r.last[:4] }}{% endif %}{% if r.elsewhere %} · {{ '{:,}'.format(r.elsewhere) }} on another bike{% endif %}</div>
+          {% else %}<span class="hint">none</span>{% endif %}</td>
+        <td><select name="match_{{ i }}" class="sb-match" style="width:auto;min-width:12rem;">
+            <option value="new" {{ 'selected' if r.choice == 'new' }}>Add as a new bike</option>
+            {% if bikes %}<optgroup label="Your bikes">{% for b in bikes %}<option value="{{ b.id }}" {{ 'selected' if r.choice == b.id | string }}>{{ b.name }}{% if b.archived %} (retired){% endif %}</option>{% endfor %}</optgroup>{% endif %}
+            <option value="ignore" {{ 'selected' if r.choice == 'ignore' }}>Leave out (its rides get no bike)</option>
+          </select></td>
+        <td><select name="kind_{{ i }}" class="sb-new" style="width:auto;">{% for k, label in kinds %}<option value="{{ k }}" {{ 'selected' if k == r.kind }}>{{ label }}</option>{% endfor %}</select></td>
+        <td><label class="sb-new" title="Retired bikes keep their rides and mileage but leave the Gear page and can't be the default"><input type="checkbox" name="retired_{{ i }}" value="1" {{ 'checked' if r.retire }}> retired</label></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if elsewhere %}
+  <label class="check" style="margin:.2rem 0 1rem;max-width:760px;">
+    <input type="checkbox" name="replace" value="1">
+    <span>Also change the bike on the {{ '{:,}'.format(elsewhere) }} ride{{ 's' if elsewhere != 1 }} that are on a different bike here than in Strava.
+      <span class="hint">Leave this off to keep bikes you set yourself. Turn it on if those rides only have your default bike because they were imported before their Strava bike was known.</span></span>
+  </label>
+  {% endif %}
+  <button class="btn btn-primary">Save and put the rides on their bikes</button>
+  <p class="hint">Kind and retired apply to new bikes only. If you have no default bike yet, the most recently ridden bike that isn't retired becomes it.</p>
+</form>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// The kind and retired boxes only mean something for a bike being added.
+document.querySelectorAll('.sb-row').forEach(row => {
+  const sel = row.querySelector('.sb-match');
+  const sync = () => row.querySelectorAll('.sb-new').forEach(el => { el.style.visibility = sel.value === 'new' ? 'visible' : 'hidden'; });
+  sel.addEventListener('change', sync);
+  sync();
+});
+</script>
+{% endblock %}

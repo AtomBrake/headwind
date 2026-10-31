@@ -11,10 +11,12 @@ A heavy or missed ride day never changes the goal; as weight falls, BMR falls an
 
 Macros follow: protein by body weight, fat as a share of calories, carbs take the remainder.
 """
+import logging
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
 
 from database import get_db, query_db
+
+log = logging.getLogger(__name__)
 
 DEFAULT_RIDE_KCAL_WEEK = 3500   # net calories from a typical week of riding (about 2 rides)
 FLOOR_X_BMR = 1.1
@@ -30,7 +32,21 @@ KCAL_PER_LB_WEEK = 500
 
 
 def _today():
-    return datetime.now(ZoneInfo('Europe/London')).date()
+    from services import tz
+    return tz.today()
+
+
+def age_on(birth, day):
+    """Whole years from a date of birth (a date) to day: one more on the birthday itself. Someone born on 29 February has it on 1 March."""
+    return day.year - birth.year - ((day.month, day.day) < (birth.month, birth.day))
+
+
+def parse_birth_date(v):
+    """A date from 'YYYY-MM-DD', or None."""
+    try:
+        return date.fromisoformat(str(v)[:10]) if v else None
+    except ValueError:
+        return None
 
 
 def _or_default(v, default):
@@ -39,12 +55,15 @@ def _or_default(v, default):
 
 
 def profile():
-    s = query_db('SELECT sex, birthYear, heightCm, lossLbPerWeek, stepGoal, goalAuto, rideKcalWeek, rideGoalWeek FROM Settings WHERE id=1', one=True)
+    s = query_db('SELECT sex, birthDate, birthDateGuessed, birthYear, heightCm, lossLbPerWeek, stepGoal, goalAuto, rideKcalWeek, rideGoalWeek FROM Settings WHERE id=1', one=True)
     s = dict(s) if s else {}
+    born = parse_birth_date(s.get('birthDate'))
     by = s.get('birthYear')
     return {
         'sex': s.get('sex') or '',
-        'age': (_today().year - by) if by else None,
+        'age': age_on(born, _today()) if born else ((_today().year - by) if by else None),
+        'birth_date': born.isoformat() if born else None,
+        'birth_date_guessed': bool(born and s.get('birthDateGuessed')),     # 1 January of the year the old age field gave: ask for the real date
         'height_cm': s.get('heightCm'),
         'activity': activity_from_steps(s.get('stepGoal') or 8000),
         'loss_lb_week': _or_default(s.get('lossLbPerWeek'), 1.5),
@@ -132,26 +151,31 @@ def auto_update():
             from services.mqtt import push_update_nutrition
             push_update_nutrition()
         except Exception:
-            pass
+            log.warning('Home Assistant nutrition update after the goal changed failed', exc_info=True)
         return pl
     return None
 
 
 def day_burn(rider_id, date_iso):
-    """Estimated calories burned on a day: everyday movement (BMR x activity) plus that day's detected activities
-    (Garmin/imported rides), net of the resting burn during them. Returns (kcal, source_label) or None if the
+    """Estimated calories burned on a day: everyday movement (BMR x activity) plus that day's activities of every sport
+    (rides, walks, runs, ...), net of the resting burn during them. Returns (kcal, source_label) or None if the
     profile isn't filled in yet (callers then fall back to the old BMR/Garmin rules)."""
     p = profile()
     kg = current_weight_kg(rider_id)
     if not (p['sex'] and p['age'] and p['height_cm'] and kg):
         return None
     bmr = bmr_mifflin(kg, p['height_cm'], p['age'], p['sex'])
-    rides = query_db('SELECT calories, movingTime FROM Activity WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL',
-                     [rider_id, date_iso])
-    net = sum(max(0.0, (r['calories'] or 0) - bmr * (r['movingTime'] or 0) / 86400) for r in rides)
-    from services import workouts
-    wnet = workouts.net_calories_on(rider_id, date_iso, bmr)          # recorded walks / runs count too
-    return int(round(bmr * p['activity'] + net + wnet)), ('daily burn + activity' if (rides or wnet) else 'est. daily burn')
+    acts = query_db('SELECT calories, movingTime FROM Activity WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL',     # every sport
+                    [rider_id, date_iso])
+    net = sum(max(0.0, (r['calories'] or 0) - bmr * (r['movingTime'] or 0) / 86400) for r in acts)
+    return int(round(bmr * p['activity'] + net)), ('daily burn + activity' if acts else 'est. daily burn')
+
+
+def activity_calories(rider_id, date_iso):
+    """Gross kcal of the day's activities, every sport (rides, walks, runs, swims, ...), as the watch or the estimate gave them."""
+    r = query_db('SELECT COALESCE(SUM(calories), 0) AS t FROM Activity WHERE riderId=? AND date(startDateLocal)=? AND calories IS NOT NULL',
+                 [rider_id, date_iso], one=True)
+    return int(r['t']) if r else 0
 
 
 APPLY_DRIFT = 20   # kcal — auto_update only rewrites the saved goal when the plan has moved this far
@@ -195,7 +219,7 @@ def plan_status(rider_id=None):
         from services import insights
         rate = insights.weight_rate_kg_per_week(rider_id)
     except Exception:
-        pass
+        log.debug('Weight rate for the goal model failed', exc_info=True)
     loss_lb_wk = round(-rate * LB, 2) if rate is not None else None
     for d in downs:
         d['days'] = round(d['away_lb'] / loss_lb_wk * 7) if loss_lb_wk and loss_lb_wk > 0.05 else None

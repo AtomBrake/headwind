@@ -6,6 +6,9 @@ import UIKit
 /// Records a ride, walk, run or hike with the iPhone's GPS. Keeps running with the screen locked (UIBackgroundModes: location,
 /// started from the foreground with When-In-Use permission), journals every fix so a crash loses nothing,
 /// and reports live position to the server's /api/v1/live for Home Assistant, as the Android app does.
+///
+/// A sport without GPS (an indoor ride, a treadmill, strength, HIIT, yoga) is a timer: no location at all, and a note in the journal every
+/// `sessionNoteInterval` so a crash keeps all but the last few seconds.
 @MainActor
 @Observable
 final class PhoneRideRecorder {
@@ -33,10 +36,12 @@ final class PhoneRideRecorder {
     private var onScreen = false
     private var lastLivePost = Date.distantPast
     private var liveTask: Task<Void, Never>?
+    private var noteTask: Task<Void, Never>?
     /// Set by the app: posts JSON to /api/v1/live. Nil (e.g. in previews) skips live updates.
     var postLive: ((LiveUpdate) async -> Void)?
 
     static let livePostInterval: TimeInterval = 15
+    static let sessionNoteInterval: Duration = .seconds(30)
 
     init(journal: RideJournal = .standard, choices: RecordChoices = RecordChoices()) {
         self.journal = journal
@@ -88,15 +93,30 @@ final class PhoneRideRecorder {
     /// `bike` is the one to ride on (Bike.pick of the picker's choice); ignored on foot.
     func start(bike: Int? = nil) {
         guard state == .idle, recovered == nil else { return }
-        if authorization == .notDetermined { feed.manager.requestWhenInUseAuthorization() }
         tracker = RideTracker()
         bikeId = sport.isRide ? bike : nil
         let now = Date()
         clock.start(at: now)
         journal.begin(start: now, sport: sport, bikeId: bikeId)
         state = .recording
-        feed.start(background: true)
+        if sport.usesGPS {
+            if authorization == .notDetermined { feed.manager.requestWhenInUseAuthorization() }
+            feed.start(background: true)
+        } else {
+            feed.stop()                     // a timer needs no location, and shouldn't keep the GPS on
+            noteTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: Self.sessionNoteInterval)
+                    self?.noteSession()
+                }
+            }
+        }
         sendLive(force: true)
+    }
+
+    private func noteSession() {
+        guard state != .idle, !sport.usesGPS else { return }
+        journal.note(.init(at: .now, active: clock.elapsed()))
     }
 
     func pause() {
@@ -104,6 +124,7 @@ final class PhoneRideRecorder {
         state = .paused
         tracker.pause()
         clock.pause()
+        noteSession()
     }
 
     func resume() {
@@ -111,14 +132,21 @@ final class PhoneRideRecorder {
         state = .recording
         tracker.resume()
         clock.resume()
-        journal.newSegment()
+        if sport.usesGPS { journal.newSegment() }
     }
 
-    /// Hands the ride, as GPX plus its summary, to `keep` (which stores it), and only once that succeeds stops
-    /// recording and clears the journal. Throws, and keeps recording, if there's no usable track yet or `keep`
-    /// fails, so the user can retry or discard rather than lose the ride.
-    func finish<T>(into keep: (Data, RideSummary) throws(AppError) -> T) throws(AppError) -> T {
+    /// Hands the ride, as GPX plus its summary (the summary alone for a timed-only session), to `keep` (which stores it), and only once that
+    /// succeeds stops recording and clears the journal. Throws, and keeps recording, if there's no usable track yet (or under a minute of a
+    /// session) or `keep` fails, so the user can retry or discard rather than lose the ride.
+    func finish<T>(into keep: (Data?, RideSummary) throws(AppError) -> T) throws(AppError) -> T {
         guard state != .idle, let start = clock.startedAt else { throw .rideTooShort }
+        guard sport.usesGPS else {
+            let elapsed = clock.elapsed()
+            guard elapsed >= RideSummary.minimumSession else { throw .sessionTooShort }
+            let kept = try keep(nil, .session(start: start, elapsed: elapsed, sport: sport, bikeId: bikeId))
+            endRecording()
+            return kept
+        }
         guard tracker.pointCount >= 2 else { throw .rideTooShort }
         let summary = RideSummary(start: start, tracker: tracker, elapsed: clock.elapsed(), sport: sport, bikeId: bikeId)
         let kept = try keep(GPXWriter.gpx(segments: tracker.segments, summary: summary), summary)
@@ -132,16 +160,16 @@ final class PhoneRideRecorder {
 
     /// Like `finish(into:)` for the recovered ride: it stays recovered, journal and all, unless `keep` succeeds.
     /// One with too little track to save, as `finish` would refuse, is discarded.
-    func saveRecovered<T>(into keep: (Data, RideSummary) throws(AppError) -> T) throws(AppError) -> T {
+    func saveRecovered<T>(into keep: (Data?, RideSummary) throws(AppError) -> T) throws(AppError) -> T {
         guard let r = recovered else { throw .rideTooShort }
-        let t = RideTracker(segments: r.segments)
-        guard t.pointCount >= 2 else {
-            discardRecovered()
-            throw .rideTooShort
+        let summary = RideJournal.summary(of: r)
+        if r.session == nil {
+            guard RideTracker(segments: r.segments).pointCount >= 2 else {
+                discardRecovered()
+                throw .rideTooShort
+            }
         }
-        let end = t.lastPoint?.time ?? r.start
-        let summary = RideSummary(start: r.start, tracker: t, elapsed: end.timeIntervalSince(r.start), sport: r.sport, bikeId: r.bikeId)
-        let kept = try keep(GPXWriter.gpx(segments: r.segments, summary: summary), summary)
+        let kept = try keep(r.session == nil ? GPXWriter.gpx(segments: r.segments, summary: summary) : nil, summary)
         recovered = nil
         journal.clear()
         return kept
@@ -155,6 +183,8 @@ final class PhoneRideRecorder {
     /// Back to the foreground feed if the Record screen is still showing, so the map keeps following; off otherwise.
     private func endRecording() {
         state = .idle
+        noteTask?.cancel()
+        noteTask = nil
         journal.clear()
         if onScreen { feed.start(background: false) } else { feed.stop() }
         sendLive(force: true)
@@ -163,7 +193,7 @@ final class PhoneRideRecorder {
     private func received(_ locations: [CLLocation]) {
         guard let latest = locations.last else { return }
         lastLocation = latest
-        guard state == .recording else { return }
+        guard state == .recording, sport.usesGPS else { return }
         for location in locations where location.timestamp >= (clock.startedAt ?? .distantPast) {
             let point = RidePoint(location)
             if tracker.add(point) { journal.append(point) }

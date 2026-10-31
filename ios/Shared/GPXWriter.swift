@@ -1,8 +1,8 @@
 import Foundation
 
 /// Writes a recording as GPX 1.1 in the shape services/parser.py reads: one <trk> whose type is the sport's
-/// (Sport.gpxType, e.g. "cycling", mapped to Ride), a <trkseg> per stretch between pauses, and heart rate in the Garmin TrackPointExtension
-/// (the parser looks for any element named "hr").
+/// (Sport.gpxType, e.g. "cycling", mapped to Ride), a <trkseg> per stretch between pauses, heart rate and cadence in the Garmin
+/// TrackPointExtension and power as <power> beside it (the parser looks for any element named "hr", "cad" and "power").
 enum GPXWriter {
     static func gpx(segments: [[RidePoint]], name: String, type: String = "cycling", creator: String = "Headwind iOS") -> Data {
         let iso = ISO8601DateFormatter()
@@ -25,8 +25,16 @@ enum GPXWriter {
                 out += "      <trkpt lat=\"\(coordinate(p.lat))\" lon=\"\(coordinate(p.lon))\">"
                 if let ele = p.ele { out += "<ele>\(String(format: "%.1f", ele))</ele>" }
                 out += "<time>\(iso.string(from: p.time))</time>"
-                if let hr = p.hr {
-                    out += "<extensions><gpxtpx:TrackPointExtension><gpxtpx:hr>\(hr)</gpxtpx:hr></gpxtpx:TrackPointExtension></extensions>"
+                if p.hr != nil || p.power != nil || p.cadence != nil {
+                    out += "<extensions>"
+                    if let power = p.power { out += "<power>\(power)</power>" }
+                    if p.hr != nil || p.cadence != nil {
+                        out += "<gpxtpx:TrackPointExtension>"
+                        if let hr = p.hr { out += "<gpxtpx:hr>\(hr)</gpxtpx:hr>" }
+                        if let cad = p.cadence { out += "<gpxtpx:cad>\(cad)</gpxtpx:cad>" }
+                        out += "</gpxtpx:TrackPointExtension>"
+                    }
+                    out += "</extensions>"
                 }
                 out += "</trkpt>\n"
             }

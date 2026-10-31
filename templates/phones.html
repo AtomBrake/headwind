@@ -10,14 +10,14 @@
   .ph-row { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.6rem 0; border-top:1px solid var(--border); font-size:0.9rem; }
   .ph-row small { color:var(--text-muted); display:block; }
   #phResult { display:none; text-align:center; }
-  #phResult img { width:220px; height:220px; background:#fff; padding:6px; border-radius:10px; }
+  #phResult img { width:220px; height:220px; background:var(--white); padding:6px; border-radius:10px; }
   #phResult code { display:block; word-break:break-all; font-size:0.72rem; background:var(--border); padding:0.5rem; border-radius:6px; margin-top:0.5rem; text-align:left; }
 </style>
 {% endblock %}
 {% block content %}
 <div class="ph-card">
   <div style="font-weight:600;margin-bottom:0.3rem">Get the Android app <span style="font-weight:400;color:var(--text-muted);font-size:0.8rem">(work in progress)</span></div>
-  <a class="btn btn-secondary" href="/phones/app" style="min-height:44px;display:inline-flex;align-items:center">Download &amp; install instructions</a>
+  <a class="btn btn-secondary" href="/phones/app" style="min-height:44px;">Download &amp; install instructions</a>
 </div>
 <div class="ph-card">
   <div style="font-weight:600;margin-bottom:0.6rem">Pair a phone</div>
@@ -39,8 +39,8 @@
   {% if not devices %}<p style="color:var(--text-muted);font-size:0.9rem">None yet.</p>{% endif %}
   {% for d in devices %}
   <div class="ph-row"><div>{{ d.name }}{% if d.revokedAt %} <span style="color:var(--danger)">(revoked)</span>{% endif %}
-    <small>added {{ d.createdAt[:10] | fmt_date }} · {{ ('last used ' ~ d.lastUsedAt[:16]) if d.lastUsedAt else 'never used' }}</small></div>
-    {% if not d.revokedAt %}<button class="btn btn-secondary" onclick="revoke({{ d.id }})">Revoke</button>{% endif %}</div>
+    <small>added {{ d.createdAt | fmt_date }} · {{ ('last used ' ~ (d.lastUsedAt | fmt_when)) if d.lastUsedAt else 'never used' }}</small></div>
+    {% if not d.revokedAt %}<button class="btn btn-danger-quiet btn-sm" onclick="revoke({{ d.id }})">Revoke</button>{% endif %}</div>
   {% endfor %}
 </div>
 {% endblock %}

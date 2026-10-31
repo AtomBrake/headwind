@@ -43,9 +43,11 @@ ALLOWED_WRITES = {
     'gear.api_assign', 'gear.bike_archive', 'gear.bike_default', 'gear.bike_delete', 'gear.part_add', 'gear.bike_photo', 'gear.service_add', 'gear.bike_save',
     'gear.set_default', 'gear.log_delete', 'gear.part_edit', 'gear.ride_bike',
     # rides / workouts: label things, change type, add or remove manual activities (deleting real rides stays disabled)
-    'rides.save_notes', 'rides.scan_segments', 'rides.change_sport', 'rides.resolve_duplicate',
+    'rides.save_notes', 'rides.set_commute', 'rides.scan_segments', 'rides.change_sport', 'rides.resolve_duplicate',
     'workouts_ui.workouts_new', 'workouts_ui.workouts_delete', 'workouts_ui.workouts_sport',
     'route_builder.save_route', 'route_builder.delete_route',
+    # goals (challenges stay off: they go out on the friends feed)
+    'goals.add_goal', 'goals.delete_goal',
 }
 # refused even for GET: third-party proxies, whole-database download, public peer/token endpoints, bulk or outbound work
 DENIED_ENDPOINTS = {
@@ -197,7 +199,7 @@ def counter_gif(n, scale=2):
 # ---------------------------------------------------------------- keeping the data fresh
 # (table, columns, kind): 'd' = YYYY-MM-DD, 'dt' = YYYY-MM-DDTHH:MM:SS. Moving everything by WHOLE WEEKS keeps weekdays, so "Sunday rides" stay Sundays.
 DATE_COLUMNS = [
-    ('Activity', ('startDate', 'startDateLocal'), 'dt'), ('Workout', ('startDate', 'startDateLocal'), 'dt'),
+    ('Activity', ('startDate', 'startDateLocal'), 'dt'),          # every sport (workouts are Activity rows too)
     ('BestEffort', ('activityDate',), 'd'), ('SegmentEffort', ('activityDate',), 'd'),
     ('FoodLog', ('logDate',), 'd'), ('HydrationLog', ('logDate',), 'd'), ('WeightLog', ('logDate',), 'd'), ('BodyMetric', ('logDate',), 'd'),
     ('GarminDaily', ('date',), 'd'), ('Part', ('installedOn', 'retiredOn'), 'd'), ('ServiceLog', ('date',), 'd'), ('Bike', ('boughtOn',), 'd'),

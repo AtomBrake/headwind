@@ -45,15 +45,15 @@
         <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:0.6rem;">Monthly load</div>
         <div style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:1.25rem;">
           {% for m in monthly %}
-          <div style="display:grid; grid-template-columns:60px 1fr auto; gap:0.6rem; align-items:center; padding:0.5rem 0.75rem; background:#0d1f2d; border-radius:6px;">
+          <div style="display:grid; grid-template-columns:60px 1fr auto; gap:0.6rem; align-items:center; padding:0.5rem 0.75rem; background:var(--inset-bg); border-radius:6px;">
             <div style="font-size:0.75rem; color:var(--text-muted);">{{ m.label }}</div>
-            <div style="background:#163352; border-radius:3px; height:5px; overflow:hidden;">
+            <div style="background:var(--border); border-radius:3px; height:5px; overflow:hidden;">
               <div style="height:100%; width:{{ m.bar_pct }}%; background:var(--accent); border-radius:3px;"></div>
             </div>
             <div style="text-align:right; min-width:80px;">
               <span style="font-size:0.8125rem; font-weight:600; color:var(--text);">{{ m.cnt }}</span>
               <span style="font-size:0.75rem; color:var(--text-muted);"> rides</span>
-              <div style="font-size:0.7rem; color:var(--text-muted);">{{ m.total_dist }} mi · {{ m.avg_spd }} mph</div>
+              <div style="font-size:0.7rem; color:var(--text-muted);">{{ m.total_dist }} {{ U.dist }} · {{ m.avg_spd }} {{ U.speed }}</div>
             </div>
           </div>
           {% endfor %}
@@ -67,7 +67,7 @@
             fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
           {% for m in monthly %}
           <circle cx="{{ m.spark_x }}" cy="{{ m.spark_y }}" r="3" fill="var(--accent)"/>
-          <text x="{{ m.spark_x }}" y="{{ m.spark_y - 7 }}" text-anchor="middle" font-size="8" fill="#e2e8f0">{{ m.avg_spd }}</text>
+          <text x="{{ m.spark_x }}" y="{{ m.spark_y - 7 }}" text-anchor="middle" font-size="8" style="fill:var(--text)">{{ m.avg_spd }}</text>
           {% endfor %}
         </svg>
         {% endif %}
@@ -78,10 +78,10 @@
         <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:0.6rem;">Recent memories in context</div>
         <div style="display:flex; flex-direction:column; gap:0.4rem;">
           {% for r in recent %}
-          <div style="display:grid; grid-template-columns:auto 1fr; gap:0.75rem; align-items:start; padding:0.6rem 0.75rem; background:#0d1f2d; border-radius:6px;">
+          <div style="display:grid; grid-template-columns:auto 1fr; gap:0.75rem; align-items:start; padding:0.6rem 0.75rem; background:var(--inset-bg); border-radius:6px;">
             <div style="text-align:right; min-width:72px;">
               <div style="font-size:0.75rem; font-weight:600; color:var(--text); white-space:nowrap;">{{ r.rideDate | fmt_date }}</div>
-              <div style="font-size:0.7rem; color:var(--text-muted);">{{ r.distanceMi | round(1) }} mi</div>
+              <div style="font-size:0.7rem; color:var(--text-muted);">{{ ((r.distanceMi or 0) * 1609.344) | fmt_dist }}</div>
             </div>
             <div>
               <div style="font-size:0.8125rem; font-weight:500; color:var(--text); margin-bottom:0.2rem;">{{ r.rideName }}</div>
@@ -96,13 +96,33 @@
   </div>
   {% endif %}
 
+  <!-- New rides analysed as they're imported (services/auto_analyse.py) -->
+  <form method="POST" action="{{ url_for('ai_page.save_auto_analyse') }}" class="card" style="margin:0;">
+    <div class="card-title">Analyse New Rides</div>
+    <p class="hint" style="margin-bottom:1rem;">
+      Write coaching notes for each new ride as soon as it arrives from Garmin, the phone app or an import, using the coach personality you last chose on a ride.
+      Only rides from the last {{ recent_days }} days: use Bulk Analysis below for older ones. Each analysis is a call to your AI provider.
+    </p>
+    {% set auto_on = settings and settings.aiAutoAnalyse %}
+    {% if missing_key %}
+    <p style="font-size:0.875rem; margin-bottom:1rem; color:var(--warning);">{{ missing_key }}{% if auto_on %} Until then new rides aren't analysed.{% endif %}</p>
+    {% endif %}
+    <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+      <label class="check" style="margin:0;">
+        <input type="checkbox" name="auto" value="1" {% if auto_on %}checked{% endif %} {% if not ai_ready and not auto_on %}disabled{% endif %}>
+        Analyse new rides automatically
+      </label>
+      <button type="submit" class="btn btn-secondary" {% if not ai_ready and not auto_on %}disabled{% endif %}>Save</button>
+    </div>
+  </form>
+
   <!-- Goals + Bulk Analysis side by side -->
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; align-items:start;">
 
     <!-- Coaching goals -->
     <form method="POST" action="{{ url_for('ai_page.save_goals') }}" class="card" style="margin:0;">
       <div class="card-title">Coaching Goals</div>
-      <p style="color:var(--text-muted); font-size:0.875rem; margin-bottom:1rem;">
+      <p class="hint" style="margin-bottom:1rem;">
         Tell the AI what you're training for. Injected into every coaching analysis so feedback stays relevant to your objectives.
       </p>
       <div class="form-group">
@@ -115,24 +135,24 @@
     <!-- Bulk analysis -->
     <div class="card" style="margin:0;">
       <div class="card-title">Bulk Analysis</div>
-      <p style="color:var(--text-muted); font-size:0.875rem; margin-bottom:1.25rem;">
+      <p class="hint" style="margin-bottom:1.25rem;">
         Generate AI coaching notes for multiple rides at once. Builds ride memories for richer future context.
       </p>
 
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-bottom:0.75rem;">
-        <div class="form-group" style="margin:0;">
+      <div class="form-grid">
+        <div class="form-group">
           <label>From</label>
           <input type="date" id="bulkFrom">
         </div>
-        <div class="form-group" style="margin:0;">
+        <div class="form-group">
           <label>To</label>
           <input type="date" id="bulkTo">
         </div>
       </div>
 
       <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:1rem; flex-wrap:wrap;">
-        <label style="display:flex; align-items:center; gap:0.4rem; cursor:pointer; font-size:0.8125rem; color:var(--text-muted);">
-          <input type="checkbox" id="bulkForce" style="accent-color:var(--accent);">
+        <label class="check" style="margin:0;">
+          <input type="checkbox" id="bulkForce">
           Re-analyse existing
         </label>
         <span id="bulkCountLabel" style="font-size:0.8125rem; color:var(--text-muted);"></span>
@@ -150,13 +170,13 @@
           <span id="bulkStatusText" style="font-size:0.8125rem; color:var(--text-muted);">Starting…</span>
           <span id="bulkCounter" style="font-size:0.8125rem; color:var(--text-muted); font-variant-numeric:tabular-nums;"></span>
         </div>
-        <div style="background:#163352; border-radius:4px; height:6px; overflow:hidden;">
+        <div style="background:var(--border); border-radius:4px; height:6px; overflow:hidden;">
           <div id="bulkBar" style="height:100%; background:var(--accent); width:0%; transition:width 0.3s;"></div>
         </div>
         <div id="bulkLog" style="margin-top:0.75rem; font-size:0.8125rem; color:var(--text-muted); max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:0.2rem;"></div>
       </div>
 
-      <div id="bulkDone" style="display:none; margin-top:1rem; padding:0.65rem 0.875rem; border-radius:6px; background:#0d2a1a; border:1px solid #14532d; color:#86efac; font-size:0.875rem;"></div>
+      <div id="bulkDone" style="display:none; margin-top:1rem; padding:0.65rem 0.875rem; border-radius:6px; background:var(--success-soft); border:1px solid var(--success-line); color:var(--success-text); font-size:0.875rem;"></div>
     </div>
 
   </div>
@@ -180,15 +200,12 @@
 
   // Tooltip
   var tip = document.createElement('div');
-  tip.style.cssText = 'position:fixed;background:#0d1f2d;border:1px solid #1e4060;border-radius:6px;padding:0.4rem 0.65rem;font-size:0.75rem;color:#e2e8f0;pointer-events:none;display:none;z-index:999;max-width:200px;line-height:1.4;';
+  tip.style.cssText = 'position:fixed;background:var(--inset-bg);border:1px solid var(--border-strong);border-radius:6px;padding:0.4rem 0.65rem;font-size:0.75rem;color:var(--text);pointer-events:none;display:none;z-index:999;max-width:200px;line-height:1.4;';
   document.body.appendChild(tip);
 
-  // Speed colour: slow = #2d5a7b (muted blue), fast = #fc4c02 (strava orange)
+  // Speed colour: slow is muted, fast is the accent
   function speedColor(pct) {
-    var r = Math.round(45  + (pct / 100) * (252 - 45));
-    var g = Math.round(90  + (pct / 100) * (76  - 90));
-    var b = Math.round(123 + (pct / 100) * (2   - 123));
-    return 'rgb(' + r + ',' + g + ',' + b + ')';
+    return 'color-mix(in srgb, var(--accent) ' + Math.round(pct) + '%, var(--text-muted))';
   }
 
   // Baseline
@@ -199,7 +216,7 @@
   var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
   line.setAttribute('x1', PAD); line.setAttribute('x2', W - PAD);
   line.setAttribute('y1', base); line.setAttribute('y2', base);
-  line.setAttribute('stroke', '#1e4060'); line.setAttribute('stroke-width', '1');
+  line.style.stroke = 'var(--border-strong)'; line.setAttribute('stroke-width', '1');
   svg.appendChild(line);
 
   dots.forEach(function(d) {
@@ -214,7 +231,7 @@
     circle.setAttribute('cx', cx);
     circle.setAttribute('cy', cy);
     circle.setAttribute('r', d.size);
-    circle.setAttribute('fill', speedColor(d.spd_pct));
+    circle.style.fill = speedColor(d.spd_pct);
     circle.setAttribute('opacity', '0.85');
     circle.style.cursor = 'pointer';
 
@@ -223,7 +240,7 @@
       strong.textContent = d.name;
       tip.replaceChildren(strong, document.createElement('br'),
         document.createTextNode(d.date), document.createElement('br'),
-        document.createTextNode(d.dist + ' mi · ' + d.speed + ' mph'));
+        document.createTextNode(d.dist + ' ' + UNITS.dist + ' · ' + d.speed + ' ' + UNITS.speed));
       tip.style.display = 'block';
     });
     circle.addEventListener('mousemove', function(e) {
@@ -239,7 +256,7 @@
     var t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     t.setAttribute('x', x); t.setAttribute('y', H - 2);
     t.setAttribute('text-anchor', anchor);
-    t.setAttribute('font-size', '9'); t.setAttribute('fill', '#4d7d95');
+    t.setAttribute('font-size', '9'); t.style.fill = 'var(--text-muted)';
     t.textContent = text;
     svg.appendChild(t);
   }
@@ -317,7 +334,7 @@ function startBulk() {
       var log = document.getElementById('bulkLog');
       var row = document.createElement('div');
       row.textContent = '✗ ' + d.name;
-      row.style.color = 'var(--danger,#ef4444)';
+      row.style.color = 'var(--danger)';
       log.appendChild(row);
       log.scrollTop = log.scrollHeight;
     } else if (d.type === 'done') {

@@ -2,8 +2,8 @@ import Foundation
 import Observation
 import UIKit
 
-/// A finished recording kept on the phone: its GPX, headline numbers (with its sport and bike), where it came from and
-/// whether it reached the server.
+/// A finished recording kept on the phone: its GPX (none for a timed-only session), headline numbers (with its sport and bike), where it came
+/// from, whether it reached the server, and photos waiting to go up with it.
 struct SavedRide: Codable, Identifiable, Equatable {
     enum Source: String, Codable { case phone, watch }
     /// `rejected`: the server refused the recording itself (it can't read it, or it's too large), so it isn't retried by itself.
@@ -15,38 +15,31 @@ struct SavedRide: Codable, Identifiable, Equatable {
     var status: Status
     /// Why the last upload failed, or the server's note (e.g. "Already on the server").
     var message: String?
-    /// Activity id on the server once uploaded.
+    /// Activity id on the server once uploaded, and its kind there ('ride' or 'workout').
     var serverId: String?
+    var serverKind: String?
+    /// Photos added on the phone that haven't reached the server yet (file names in RideStore's photo folder for this ride).
+    var pendingPhotos: [String]?
+
+    init(id: UUID, summary: RideSummary, source: Source, status: Status, message: String? = nil, serverId: String? = nil) {
+        self.id = id
+        self.summary = summary
+        self.source = source
+        self.status = status
+        self.message = message
+        self.serverId = serverId
+    }
 
     var name: String { GPXWriter.rideName(summary) }
     var filename: String { "\(id.uuidString).gpx" }
-}
-
-/// POST /api/v1/rides reply (routes/api_v1.py upload_ride), or /workouts (post_workout), whose activity is under `workout`.
-private struct UploadReply: Decodable, Sendable {
-    var status: String
-    var ride: Ride?
-    var workout: Ride?
-    var serverId: String? { (ride ?? workout)?.id }
-    /// /rides says "imported", /workouts "created"; anything else was already there.
-    var isNew: Bool { status == "imported" || status == "created" }
-
-    struct Ride: Decodable, Sendable {
-        var id: String?
-
-        /// The id is informational: accept a string or a number, and never fail the whole reply over it.
-        init(from decoder: Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
-            id = (try? c.decode(String.self, forKey: .id)) ?? (try? c.decode(Int.self, forKey: .id)).map(String.init)
-        }
-
-        private enum CodingKeys: String, CodingKey { case id }
-    }
+    /// A GPS recording has a GPX file; a timed-only session is its summary alone.
+    var hasTrack: Bool { summary.sport.usesGPS }
+    var kind: String { Uploader.kind(of: summary, reply: serverKind) }
 }
 
 /// Every finished ride is written here first, then uploaded. Uploads that fail (offline, server down) stay
 /// pending and are retried when the app comes back to the foreground or another ride finishes. Ride uploads
-/// are idempotent on the server (content-addressed id + near-duplicate guard), so a retry after a dropped
+/// are idempotent on the server (content-addressed id + near-duplicate guard; client_id for the rest), so a retry after a dropped
 /// reply can't create a second copy.
 @MainActor
 @Observable
@@ -85,11 +78,25 @@ final class RideStore {
         return ride
     }
 
-    /// Takes ownership of a GPX file (moved, not copied), e.g. one that arrived from the Watch. If it can't be
-    /// stored, the file is left where it was.
+    /// A timed-only session (strength, an indoor ride, a pool swim from the Watch): nothing but its summary. `id` is the Watch's own for one
+    /// that came from there, so its direct upload and this one are the same recording to the server.
     @discardableResult
-    func adopt(file: URL, summary: RideSummary, source: SavedRide.Source) throws(AppError) -> SavedRide {
-        let ride = SavedRide(id: UUID(), summary: summary, source: source, status: .pending)
+    func addSession(summary: RideSummary, source: SavedRide.Source, id: UUID = UUID()) throws(AppError) -> SavedRide {
+        if let existing = rides.first(where: { $0.id == id }) { return existing }
+        let ride = SavedRide(id: id, summary: summary, source: source, status: .pending)
+        try insert(ride)
+        return ride
+    }
+
+    /// Takes ownership of a GPX file (moved, not copied), e.g. one that arrived from the Watch. If it can't be
+    /// stored, the file is left where it was. A ride already here under the same id (sent twice) keeps the first copy.
+    @discardableResult
+    func adopt(file: URL, summary: RideSummary, source: SavedRide.Source, id: UUID = UUID()) throws(AppError) -> SavedRide {
+        if let existing = rides.first(where: { $0.id == id }) {
+            try? FileManager.default.removeItem(at: file)
+            return existing
+        }
+        let ride = SavedRide(id: id, summary: summary, source: source, status: .pending)
         do {
             try FileManager.default.moveItem(at: file, to: fileURL(ride))
         } catch {
@@ -118,13 +125,66 @@ final class RideStore {
 
     func delete(_ ride: SavedRide) {
         try? FileManager.default.removeItem(at: fileURL(ride))
+        try? FileManager.default.removeItem(at: photoFolder(ride.id))
         rides.removeAll { $0.id == ride.id }
         try? save()
     }
 
-    func gpxURL(for ride: SavedRide) -> URL { fileURL(ride) }
+    /// The GPX to share, or nil for a timed-only session, which has none.
+    func gpxURL(for ride: SavedRide) -> URL? { ride.hasTrack ? fileURL(ride) : nil }
 
-    /// Upload everything not yet on the server, oldest first. Safe to call often: a call made mid-upload
+    // MARK: - Photos
+
+    /// Keep a photo (already a shrunk JPEG: see PhotoPrep) with the ride, to go up once the ride is on the server. Never holds the ride up.
+    func addPhoto(_ jpeg: Data, to ride: SavedRide, using session: Session) async throws(AppError) {
+        let folder = photoFolder(ride.id)
+        let name = "\(UUID().uuidString).jpg"
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try jpeg.write(to: folder.appending(path: name), options: .atomic)
+        } catch {
+            throw .storage(underlying: error)
+        }
+        update(ride.id) { $0.pendingPhotos = ($0.pendingPhotos ?? []) + [name] }
+        if let latest = rides.first(where: { $0.id == ride.id }), latest.status == .uploaded {
+            await uploadPhotos(of: latest, using: session)
+        }
+    }
+
+    /// Each waiting photo of an uploaded ride, one request each. One that fails stays for the next pass; one the server refuses is dropped.
+    private func uploadPhotos(of ride: SavedRide, using session: Session) async {
+        guard let serverId = ride.serverId, let names = ride.pendingPhotos, !names.isEmpty else { return }
+        let folder = photoFolder(ride.id)
+        for name in names {
+            guard !Task.isCancelled else { return }
+            let file = folder.appending(path: name)
+            guard let data = try? Data(contentsOf: file) else {
+                update(ride.id) { $0.pendingPhotos?.removeAll { $0 == name } }
+                continue
+            }
+            do throws(AppError) {
+                _ = try await session.call { client async throws(AppError) in
+                    try await client.upload("rides/\(ride.kind)/\(serverId)/photos", file: data, filename: name, mimeType: "image/jpeg",
+                                            fields: ["client_id": String(name.dropLast(4))], as: Ignored.self)
+                }
+            } catch {
+                // Offline or the server down: the rest wait for the next pass. Unreadable, too many, or the activity gone: drop it.
+                guard error.isRejection || error.isNotFound else { return }
+            }
+            try? FileManager.default.removeItem(at: file)
+            update(ride.id) { $0.pendingPhotos?.removeAll { $0 == name } }
+        }
+    }
+
+    func pendingPhotoURLs(for ride: SavedRide) -> [URL] {
+        (ride.pendingPhotos ?? []).map { photoFolder(ride.id).appending(path: $0) }
+    }
+
+    private func photoFolder(_ id: UUID) -> URL { directory.appending(path: "Photos", directoryHint: .isDirectory).appending(path: id.uuidString) }
+
+    // MARK: - Upload
+
+    /// Upload everything not yet on the server, oldest first, then any photos waiting. Safe to call often: a call made mid-upload
     /// returns at once, and the running upload picks up any ride added since it started.
     func uploadPending(using session: Session) async {
         guard session.pairing != nil else { return }
@@ -161,25 +221,32 @@ final class RideStore {
                 guard await upload(ride, using: session) else { return }   // offline: don't burn through the rest
             }
         } while uploadAgain && !Task.isCancelled
+        for ride in rides where ride.status == .uploaded && !(ride.pendingPhotos ?? []).isEmpty {
+            guard !Task.isCancelled else { return }
+            await uploadPhotos(of: ride, using: session)
+        }
     }
 
     /// Returns false if the phone looks offline or the upload was cancelled, so the caller stops.
     private func upload(_ queued: SavedRide, using session: Session) async -> Bool {
         let ride = rides.first { $0.id == queued.id } ?? queued   // the latest copy: its bike may have changed since the pass began
-        guard let data = try? Data(contentsOf: fileURL(ride)) else {
-            update(ride.id) { $0.status = .failed; $0.message = "The recording file is missing." }
-            return true
+        var gpx: Data?
+        if ride.hasTrack {
+            guard let data = try? Data(contentsOf: fileURL(ride)) else {
+                update(ride.id) { $0.status = .failed; $0.message = "The recording file is missing." }
+                return true
+            }
+            gpx = data
         }
         update(ride.id) { $0.status = .uploading; $0.message = nil }
-        let (path, fields) = Self.destination(ride)
         do throws(AppError) {
-            let reply = try await session.call { client async throws(AppError) in
-                try await client.upload(path, file: data, filename: "\(ride.name).gpx", mimeType: "application/gpx+xml",
-                                        fields: fields, as: UploadReply.self)
+            let reply = try await session.call { [gpx] client async throws(AppError) in
+                try await Uploader.upload(summary: ride.summary, id: ride.id, name: ride.name, gpx: gpx, with: client)
             }
             update(ride.id) {
                 $0.status = .uploaded
                 $0.serverId = reply.serverId
+                $0.serverKind = reply.kind
                 $0.message = reply.isNew ? nil : "Already on the server"
             }
             return true
@@ -193,14 +260,9 @@ final class RideStore {
         }
     }
 
-    /// Rides to /rides, with the chosen bike; walks, runs and hikes to /workouts with their sport. The ride's id is the client_id
-    /// there, so a retry after a dropped reply finds the first upload (as /rides does by content).
+    /// Where a recording goes (Uploader.destination), kept here for the tests.
     nonisolated static func destination(_ ride: SavedRide) -> (path: String, fields: [String: String]) {
-        let s = ride.summary
-        if s.sport.isRide {
-            return ("rides", s.bikeId.map { ["bike_id": String($0)] } ?? [:])
-        }
-        return ("workouts", ["sport": s.sport.rawValue, "name": ride.name, "client_id": ride.id.uuidString, "source": "ios"])
+        Uploader.destination(summary: ride.summary, id: ride.id, name: ride.name)
     }
 
     /// Put a ride on another bike. Before upload it's only noted here and goes up with the ride; after, the server is told
