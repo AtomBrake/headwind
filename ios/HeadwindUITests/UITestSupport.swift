@@ -19,7 +19,7 @@ extension XCTestCase {
 
         if app.tabBars.buttons["Settings"].waitForExistence(timeout: 3) {
             app.tabBars.buttons["Settings"].tap()
-            app.buttons["Unpair this phone"].tap()
+            scrollTo(app.buttons["Unpair this phone"], in: app).tap()
             app.buttons["Unpair"].firstMatch.tap()
         }
 
@@ -37,6 +37,13 @@ extension XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Calories"].waitForExistence(timeout: 10), "Today didn't load after pairing")
         return app
+    }
+
+    /// Swipes up until the element exists: a List only makes the rows on screen, so one further down isn't there to find.
+    @discardableResult
+    func scrollTo(_ element: XCUIElement, in app: XCUIApplication, swipes: Int = 6) -> XCUIElement {
+        for _ in 0..<swipes where !element.waitForExistence(timeout: 1) { app.swipeUp() }
+        return element
     }
 
     func snapshot(_ app: XCUIApplication, _ name: String) {

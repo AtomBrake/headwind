@@ -113,12 +113,15 @@ struct SensorsView: View {
                 }
             }
             LabeledContent("Circumference") {
-                TextField("mm", value: Binding(get: { sensors.wheelMillimetres }, set: { sensors.setWheel(millimetres: $0) }),
-                          format: .number.grouping(.never))
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(maxWidth: 90)
-                Text("mm").foregroundStyle(.secondary)
+                // One HStack: LabeledContent stacks several views one above the other.
+                HStack(spacing: 4) {
+                    TextField("mm", value: Binding(get: { sensors.wheelMillimetres }, set: { sensors.setWheel(millimetres: $0) }),
+                              format: .number.grouping(.never))
+                        .keyboardType(.numberPad)
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: 90)
+                    Text("mm").foregroundStyle(.secondary)
+                }
             }
         } header: {
             Text("Wheel")
@@ -130,7 +133,7 @@ struct SensorsView: View {
     /// RSSI in dBm as 0…1 for the signal bars.
     static func signal(_ rssi: Int) -> Double {
         switch rssi {
-        case -60...: 1
+        case (-60)...: 1
         case -75 ..< -60: 2.0 / 3
         case -90 ..< -75: 1.0 / 3
         default: 0
