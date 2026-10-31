@@ -15,10 +15,13 @@
 			</array>
 		</dict>
 	</array>
-	<!-- Keeps GPS recording while the screen is locked during a ride (started from the foreground). -->
+	<!-- location: keeps GPS recording while the screen is locked during a ride (started from the foreground).
+	     bluetooth-central: keeps the Bluetooth sensors' readings coming with the screen locked, and lets iOS hand their connections back
+	     (SensorManager's restore identifier) if it ends the app mid-ride. -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
+		<string>bluetooth-central</string>
 	</array>
 </dict>
 </plist>
