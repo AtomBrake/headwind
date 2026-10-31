@@ -57,6 +57,8 @@
 <script>
 const fmt = n => (n == null ? '–' : Number(n).toLocaleString('en-GB'));
 const $ = id => document.getElementById(id);
+const SOURCES = [['manual','Manual'],['phone','Phone'],['watch','Watch'],['health','Apple Health'],['garmin','Garmin']];
+const sourceParts = x => SOURCES.filter(([k]) => x[k] != null).map(([k, l]) => l + ' ' + fmt(x[k]));
 async function load() {
   const d = await (await fetch('/nutrition/api/steps')).json();
   $('stGoal').textContent = fmt(d.goal);
@@ -65,10 +67,10 @@ async function load() {
   const t = d.days[0];
   $('stToday').textContent = fmt(t.best);
   $('stBar').style.width = Math.min(100, t.best / d.goal * 100) + '%';
-  const srcs = [['manual','Manual'],['phone','Phone'],['watch','Watch'],['garmin','Garmin']].filter(([k]) => t[k] != null).map(([k, l]) => l + ' ' + fmt(t[k]));
+  const srcs = sourceParts(t);
   $('stSrc').textContent = srcs.length ? srcs.join(' · ') : 'No steps logged today yet';
   $('stList').innerHTML = d.days.map(x => {
-    const parts = [['manual','Manual'],['phone','Phone'],['watch','Watch'],['garmin','Garmin']].filter(([k]) => x[k] != null).map(([k, l]) => l + ' ' + fmt(x[k])).join(' · ');
+    const parts = sourceParts(x).join(' · ');
     const dt = new Date(x.date + 'T12:00:00').toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
     return `<div class="st-row"><div>${dt}<small>${parts || 'nothing logged'}</small></div>
       <div style="display:flex;align-items:center;gap:0.4rem"><span class="st-num ${x.best >= d.goal ? 'st-hit' : ''}">${fmt(x.best || null)}${x.best >= d.goal ? ' ✓' : ''}</span>
