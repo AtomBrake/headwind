@@ -35,7 +35,7 @@ Self-hosted training analytics for cycling, running, swimming and every other sp
 - [Configuration](#configuration)
 - [Integrations](#integrations) — Garmin · Home Assistant / MQTT · AI coaching · Friends · Notifications
 - [Nutrition in depth](#nutrition-in-depth)
-- [Putting it on the internet safely](#putting-it-on-the-internet-safely)
+- [Putting it on the internet safely](#putting-it-on-the-internet-safely) — [Cloudflare Tunnel (recommended)](#recommended-cloudflare-tunnel) · [other proxies](#other-reverse-proxies)
 - [Backups, updates and your data](#backups-updates-and-your-data)
 - [Privacy and telemetry](#privacy-and-telemetry)
 - [Security notes](#security-notes)
@@ -546,6 +546,8 @@ Sign in with `admin` and that password, then change it under **Settings**. To ch
 
 Data lives in `./data` (database, avatars, food photos, generated login) and `./garmin_tokens`, next to your `docker-compose.yml`, so it survives restarts and upgrades.
 
+To reach it from outside your home, at an HTTPS address, add a Cloudflare Tunnel: see [Putting it on the internet safely](#recommended-cloudflare-tunnel).
+
 Images are published for **amd64 and arm64** on Docker Hub: `lordmerchant99/headwind` (tags: `latest`, `0.1.0-beta`).
 
 ### Raspberry Pi
@@ -720,13 +722,93 @@ When a new ride syncs, Headwind can notify you through **Home Assistant** (compa
 
 Headwind has a login, throttling and cross-site protections, but it is a **single shared admin account guarding years of health and location data**. If you expose it:
 
-1. **Use HTTPS.** Always. Put it behind a reverse proxy or tunnel — e.g. [Caddy](https://caddyserver.com), nginx, Cloudflare Tunnel or Tailscale Serve.
+1. **Use HTTPS.** Always. The recommended way is a [Cloudflare Tunnel](#recommended-cloudflare-tunnel), below.
 2. **Set `SESSION_COOKIE_SECURE=true`** once you're on HTTPS.
 3. **Use a strong password** (the generated one is fine) — never `admin/admin`.
-4. Prefer **a VPN** (Tailscale/WireGuard) over opening it to the world if you can.
+4. **Don't forward a port on your router.** A tunnel doesn't need one.
 5. Remember the **phone app only talks to HTTPS** servers.
 
-A minimal Caddyfile:
+If only you need to reach it, a VPN (Tailscale or WireGuard) is fine too. Friends' sync, though, needs an address their servers can reach, so it won't work over a VPN.
+
+### Recommended: Cloudflare Tunnel
+
+A [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) puts Headwind at an HTTPS address such as `https://headwind.example.com` without opening a port on your router. A small `cloudflared` container makes an outbound connection to Cloudflare, and Cloudflare sends your visitors down it. HTTPS certificates are handled for you, your home IP address isn't published, and it works behind CGNAT. It's free; you need a domain whose DNS is on Cloudflare (a free Cloudflare account is enough).
+
+**1. Create the tunnel.** In the [Cloudflare dashboard](https://dash.cloudflare.com) open **Zero Trust → Networks → Tunnels** and choose **Create a tunnel → Cloudflared**. Give it a name (e.g. `headwind`). On the install step choose **Docker**. The command shown ends `--token eyJ…`: copy that token. You don't need to run the command, because the compose file below runs `cloudflared` for you.
+
+**2. Add a public hostname** for the tunnel (Cloudflare's menus may call it a *published application route*):
+
+| Field | Value |
+|---|---|
+| Subdomain | `headwind` (or any name you like) |
+| Domain | your domain, e.g. `example.com` |
+| Service type | `HTTP` |
+| URL | `headwind:5001` |
+
+`headwind:5001` is the Headwind container's name and port on the Docker network that both containers share. Cloudflare creates the DNS record for you.
+
+**3. Put the token and address in `.env`** next to `docker-compose.yml`:
+
+```bash
+TUNNEL_TOKEN=eyJ...the token from step 1...
+APP_URL=https://headwind.example.com
+```
+
+The token lets anyone run your tunnel, so keep `.env` private and don't commit it anywhere.
+
+**4. Use a compose file that runs both containers.** Replace `docker-compose.yml` with this:
+
+```yaml
+services:
+  headwind:
+    image: lordmerchant99/headwind:latest
+    container_name: headwind
+    # No "ports:" here. cloudflared reaches Headwind over the Docker network, so the tunnel is the only way in.
+    volumes:
+      - ./data:/data
+      - ./garmin_tokens:/app/.garmin_tokens
+    environment:
+      - DATABASE_URL=/data/bike.db
+      - SECRET_KEY=${SECRET_KEY:-}
+      - APP_USERNAME=${APP_USERNAME:-admin}
+      - APP_PASSWORD=${APP_PASSWORD:-}
+      - APP_URL=${APP_URL}                # https://headwind.example.com, from .env
+      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-true}   # the login cookie only travels over HTTPS
+      - TZ=${TZ:-}
+      - LOG_LEVEL=${LOG_LEVEL:-}
+      - TELEMETRY=${TELEMETRY:-}
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: headwind-cloudflared
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}      # from .env
+    depends_on:
+      - headwind
+    restart: unless-stopped
+```
+
+**5. Start it:**
+
+```bash
+docker compose up -d
+docker logs headwind-cloudflared    # look for "Registered tunnel connection"
+```
+
+Open `https://headwind.example.com` and sign in. In the dashboard the tunnel should now show as **Healthy**.
+
+Things to know:
+
+- **Sign-in throttling still sees each visitor's own address.** `cloudflared` connects to Headwind from a private Docker address, which Headwind trusts by default, and passes the visitor's address in `X-Forwarded-For`. Leave `TRUSTED_PROXIES` unset.
+- **Uploads through Cloudflare are limited to 100 MB** on the free plan, and a Strava export zip is often bigger. To import one, open the port on your home network for a while: add `ports: ["5001:5001"]` to the `headwind` service, put `SESSION_COOKIE_SECURE=false` in `.env` (or the login cookie won't be sent over plain HTTP), run `docker compose up -d`, and import at `http://<server-ip>:5001`. Then undo both changes and run `docker compose up -d` again.
+- **Cloudflare Access** (Zero Trust's sign-in page) can add a second login in front of Headwind, but the phone app and friends' sync can't get past it. If you turn it on, those stop working.
+- To pair the phone app, `APP_URL` must be the `https://` address, because the pairing QR code is built from it.
+
+### Other reverse proxies
+
+Any HTTPS reverse proxy works: [Caddy](https://caddyserver.com), nginx, Tailscale Serve. A minimal Caddyfile:
 
 ```
 headwind.example.com {
@@ -804,7 +886,7 @@ A native Kotlin/Jetpack Compose companion — nutrition logging with barcode sca
 | **Port 5001 is in use** | Change the left side of `ports` in `docker-compose.yml`, e.g. `"5002:5001"`. |
 | **Garmin asks you to sign in again after every restart** | The `garmin_tokens` folder must be a persistent volume; check it's mounted and writable. |
 | **Garmin sync finds nothing** | Make sure activity sync is enabled in Settings → Garmin and the account matches the one you connected. Failed rides are retried on the next sync. |
-| **Phone app can't pair** | It needs an **HTTPS** address. Put Headwind behind a TLS proxy/tunnel and set `APP_URL` to that address. |
+| **Phone app can't pair** | It needs an **HTTPS** address. Put Headwind behind a [Cloudflare Tunnel](#recommended-cloudflare-tunnel) or another TLS proxy and set `APP_URL` to that address. |
 | **Home Assistant sensors missing** | Check the MQTT broker settings, that discovery is enabled in HA, and that no other Headwind uses the same `HEADWIND_MQTT_PREFIX`. |
 | **Map is blank** | Your browser needs to reach the tile and CDN hosts listed under [Privacy](#privacy-and-telemetry). |
 | **Windows SmartScreen warning** | The build is unsigned. More info → Run anyway, or use Docker. |
