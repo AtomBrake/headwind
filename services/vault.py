@@ -22,7 +22,8 @@ KEY_FILE = '.secrets_key'
 COLUMNS = {
     # feedToken: the shared feed token from before per-friend tokens. services/feed_tokens.py moves it to a FeedToken row and the column is
     # dropped, so it's only ever found in an old copy of the database (seal_copies) or in a restore not yet migrated.
-    'Settings': ('openaiKey', 'claudeKey', 'haToken', 'mqttPassword', 'garminEmail', 'garminPassword', 'feedToken'),
+    'Settings': ('openaiKey', 'claudeKey', 'haToken', 'mqttPassword', 'garminEmail', 'garminPassword', 'feedToken', 'thunderforestKey',
+                 'osMapsKey'),
     'Friend':   ('token',),
 }
 # Secrets nothing reads any more: emptied wherever they're found, and dropped from the live database (database._drop_dead_secrets).
@@ -35,6 +36,8 @@ LABELS = {
     'claudeKey':      'the Claude API key (Settings → AI)',
     'haToken':        'the Home Assistant token (Home Assistant page)',
     'mqttPassword':   'the MQTT password (Settings → MQTT)',
+    'thunderforestKey': 'the Thunderforest API key (Settings → Maps)',
+    'osMapsKey':      'the OS Maps API key (Settings → Maps)',
     'garminEmail':    'the Garmin sign-in (Settings → Garmin Connect)',
     'garminPassword': 'the Garmin sign-in (Settings → Garmin Connect)',
     'feedToken':      'the shared feed token from before per-friend tokens (Friends: give each friend a code of their own)',

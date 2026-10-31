@@ -81,7 +81,7 @@ def _stream_series(streams, key, dist_key='distance', transform=None):
         v = raw[i]
         values.append(round(transform(v) if transform else v, 2))
         labels.append(round(units.dist(dist[i]), 2) if i < len(dist) else i)      # distance along the ride, in the rider's unit
-    return {'values': values, 'labels': labels}
+    return {'values': values, 'labels': labels, 'idx': list(range(0, len(raw), step))}   # idx: each point's place in the streams, for the map
 
 
 @bp.route('/<rid>')
@@ -110,6 +110,7 @@ def detail(rid):
     # matching algorithm uses, so segment snap coordinates are always consistent.
     # Fall back to the summary polyline for older activities without a stream.
     coords = (streams.get('latlng') or {}).get('data') or []
+    coords_from_stream = bool(coords)                 # the charts' points are then places in the same streams (their idx)
     if not coords and activity['summaryPolyline']:
         try:
             import polyline as pl
@@ -117,6 +118,10 @@ def detail(rid):
         except Exception:
             log.warning('Activity summary polyline would not decode', exc_info=True)
     zwift_world = _zwift_world(activity['sportType'], coords)
+    # Distance along the track at each point, for the map's distance markers: the distance stream when it matches the points; the page
+    # works it out from the points otherwise
+    dist_raw = (streams.get('distance') or {}).get('data') or []
+    dist_raw = [round(d, 1) if d is not None else None for d in dist_raw] if coords_from_stream and len(dist_raw) == len(coords) else None
 
     from services import units, activity_detail
     detail = activity_detail.for_activity(activity, streams)      # splits, pool lengths, ski runs, laps: what fits the sport
@@ -279,7 +284,7 @@ def detail(rid):
     return render_template('ride.html', friend=friend, kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, zwift_world=zwift_world, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
                            file_climb=file_climb, file_moving=file_moving, elapsed_fix=elapsed_fix, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
                            charts=charts, has_memory=memory_count > 0, ai_pending=_auto_analyse.is_pending(activity['id']),
-                           seg_efforts=seg_efforts, alt_raw=alt_raw,
+                           seg_efforts=seg_efforts, alt_raw=alt_raw, coords_from_stream=coords_from_stream, dist_raw=dist_raw,
                            co_riders=co_riders, seg_rivals=seg_rivals,
                            seg_trends=seg_trends, rival_trends=rival_trends,
                            elev_loss_m=elev_loss_m,

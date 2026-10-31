@@ -4,8 +4,7 @@
 {% block page_title %}Route Planner{% endblock %}
 
 {% block head %}
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  {% include '_maps.html' %}
   <style>
     #plannerWrap { position: relative; }
     #plannerMap  { height: calc(100vh - 130px); width: 100%; border-radius: 10px; cursor: crosshair; }
@@ -122,15 +121,6 @@
 
     #exportSpinner { display: none; font-size: 0.78rem; color: var(--text-muted); text-align: center; }
 
-    .layer-btn {
-      font-size: 0.72rem; padding: 0.18rem 0.45rem;
-      border-radius: 999px; border: 1px solid var(--border-strong);
-      background: transparent; color: var(--text-muted);
-      cursor: pointer; transition: background 0.12s, color 0.12s, border-color 0.12s;
-      white-space: nowrap;
-    }
-    .layer-btn:hover  { background: var(--raised-bg); color: var(--text); }
-    .layer-btn.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
   </style>
 {% endblock %}
 
@@ -139,13 +129,6 @@
   <div id="routePanel">
 
     <div class="panel-hint">Click the map to add waypoints &middot; drag to adjust</div>
-
-    <div style="display:flex; gap:0.3rem; flex-wrap:wrap;">
-      <button class="layer-btn"        id="layer-dark"     onclick="setLayer('dark',     this)">Dark</button>
-      <button class="layer-btn"        id="layer-light"    onclick="setLayer('light',    this)">Light</button>
-      <button class="layer-btn"        id="layer-sat"      onclick="setLayer('sat',      this)">Satellite</button>
-      <button class="layer-btn"        id="layer-satlabel" onclick="setLayer('satlabel', this)">Sat + Labels</button>
-    </div>
 
     <div class="panel-divider"></div>
 
@@ -201,40 +184,7 @@ var map = L.map('plannerMap', { zoomControl: false })
 
 L.control.zoom({ position: 'topright' }).addTo(map);
 
-var TILE_DEFS = {
-  // CARTO's free basemaps now need an API key: dark/light use Esri's keyless gray canvases (zoom 16 native, scaled beyond)
-  dark:     [{ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',      opts: { attribution: '&copy; Esri, HERE, Garmin', maxNativeZoom: 16, maxZoom: 19 } },
-             { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', opts: { maxNativeZoom: 16, maxZoom: 19 } }],
-  light:    [{ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',     opts: { attribution: '&copy; Esri, HERE, Garmin', maxNativeZoom: 16, maxZoom: 19 } },
-             { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', opts: { maxNativeZoom: 16, maxZoom: 19 } }],
-  sat:      [{ url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',                  opts: { attribution: '&copy; Esri', maxZoom: 19 } }],
-  satlabel: [
-    { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',                  opts: { maxZoom: 19 } },
-    { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', opts: { maxZoom: 19 } },
-  ],
-};
-
-var activeTileLayers = [];
-var currentLayerKey  = 'dark';
-
-function setLayer(key, btn) {
-  activeTileLayers.forEach(function(l) { map.removeLayer(l); });
-  activeTileLayers = [];
-  (TILE_DEFS[key] || TILE_DEFS.dark).forEach(function(def) {
-    activeTileLayers.push(L.tileLayer(def.url, def.opts).addTo(map));
-  });
-  // Keep markers and polyline on top (markers is declared further down and is still undefined on the first, start-up call)
-  (markers || []).forEach(function(m) { m.addTo(map); });
-  if (polyline) polyline.addTo(map);
-  currentLayerKey = key;
-  document.querySelectorAll('.layer-btn').forEach(function(b) { b.classList.remove('active'); });
-  if (btn) btn.classList.add('active');
-}
-
-// Start on the grey map that matches the page, and follow the page when it flips between light and dark (unless on satellite)
-function schemeLayer() { var k = document.documentElement.dataset.scheme === 'light' ? 'light' : 'dark'; setLayer(k, document.getElementById('layer-' + k)); }
-schemeLayer();
-addEventListener('schemechange', function () { if (currentLayerKey === 'dark' || currentLayerKey === 'light') schemeLayer(); });
+HWMap.attach(map, { page: 'routes', base: 'scheme' });      // starts on the grey that matches the page
 
 // ── State ─────────────────────────────────────────────────────────
 var waypoints  = [];   // [{lat, lng}, ...]

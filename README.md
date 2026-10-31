@@ -96,12 +96,12 @@ Lifetime totals, a 12-week performance chart you can flip between distance, elev
 <img src="docs/screenshots/dashboard.jpg" alt="Dashboard" width="900">
 
 ### Activity detail
-Satellite map, elevation + heart-rate and cadence charts, weather at the start (temperature, wind speed/direction and a headwind / tailwind / crosswind call computed from your route bearing), and effort comparison. Each page fits its sport: pace and splits for runs, sets and SWOLF for a pool swim, each run of a ski day, laps from your device. **Same route** ranks this activity against every other time you've done the same start, finish and roads, the same way round, and a Zwift ride or run is drawn over its Zwift world's map alone, with no weather (it wasn't done outside).
+A map with a picker for its type (satellite, grey, topographic, cycling) and switches for direction arrows, distance markers and wind arrows; hovering a chart marks the spot on the map, and the cursor on the map's track shows on every chart. Elevation + heart-rate and cadence charts, weather at the start (temperature, wind speed/direction and a headwind / tailwind / crosswind call computed from your route bearing), and effort comparison. Each page fits its sport: pace and splits for runs, sets and SWOLF for a pool swim, each run of a ski day, laps from your device. **Same route** ranks this activity against every other time you've done the same start, finish and roads, the same way round, and a Zwift ride or run is drawn over its Zwift world's map alone, with no weather (it wasn't done outside).
 
 <img src="docs/screenshots/ride-detail.jpg" alt="Ride detail" width="900">
 
 ### Heatmap
-Everywhere you've been, filterable by date range and sport, with HD export (3440×1440). Show your own activities, one friend's, or everyone's together, each in their own colour; Zwift rides and runs are left out unless you include them, and drawn over their Zwift world's map.
+Everywhere you've been, filterable by date range and sport, on any of the map types, with HD export (3440×1440). Show your own activities, one friend's, or everyone's together, each in their own colour; Zwift rides and runs are left out unless you include them, and drawn over their Zwift world's map.
 
 <img src="docs/screenshots/heatmap.jpg" alt="Heatmap" width="900">
 
@@ -207,9 +207,9 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 
 <img src="docs/screenshots/heatmap.jpg" alt="GPS heatmap of everywhere you've ridden, filterable by date range and sport." width="800">
 
-**The same heatmap on satellite imagery (also Dark, Light and Satellite + labels, with HD export).**
+**The same heatmap on satellite imagery (also Dark, Light, topographic and cycling maps, with HD export).**
 
-<img src="docs/screenshots/heatmap-satellite.jpg" alt="The same heatmap on satellite imagery (also Dark, Light and Satellite + labels, with HD export)." width="800">
+<img src="docs/screenshots/heatmap-satellite.jpg" alt="The same heatmap on satellite imagery (also Dark, Light, topographic and cycling maps, with HD export)." width="800">
 
 **Analytics: best efforts, climbing records, speed trend, monthly distance, distribution, weather scatters, and more.**
 
@@ -452,7 +452,8 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - **Upload endpoint** — `POST /import/api/upload-ride` with an `X-Upload-Token` header (set `RIDE_UPLOAD_TOKEN`) lets a script, a Pi attached to a bike computer, or an automation push GPX files in.
 
 ### Activity pages and analytics
-- Satellite map, speed/elevation/heart-rate/power/cadence streams, wind overlay, co-rider badges.
+- Map, speed/elevation/heart-rate/power/cadence streams, wind overlay, co-rider badges. Hovering a chart marks the spot on the map, and the map's cursor on the track shows on the charts.
+- **Map types** — every map (activities, segments, heatmap, route planner, road roughness) has a picker: Esri satellite, satellite + labels, dark, light and topographic, OpenTopoMap (contours, paths and tracks) and CyclOSM (surfaces, MTB trail grades), with Waymarked Trails' mountain bike and cycle routes over any of them. Thunderforest's OpenCycleMap and Outdoors, and Ordnance Survey's Outdoor map of Great Britain, join it once you save your own free key under **Settings → Maps**. On an activity, direction arrows, distance markers every mile or km (fewer when zoomed out) and the wind arrows each have their own switch. Each kind of map remembers your choice in the browser.
 - **Pages that fit the sport** — pace and splits per mile or km on foot; pace per 100 m, sets, strokes and SWOLF for swims; each run of a ski day with vertical descent; no climb on the water; laps from your device for any sport.
 - **Same route** — the other times you've done this activity's route (same start, finish and roads, same way round, same kind of activity), ranked by moving time, compared with the last 20 and charted. The AI coach gets the same comparison.
 - **Zwift rides and runs** are matched to one of Zwift's worlds and drawn over its map alone, with no satellite map around it, on the activity page (in the iPhone app too) and when comparing its recordings. A ride or run that starts in one of Zwift's made-up worlds (Watopia, Makuri Islands, France, Crit City) counts as a Zwift one whatever its file called it, and Garmin's virtual and treadmill runs come in as indoor runs. Indoor rides and runs have no segments.
@@ -644,7 +645,7 @@ Windows-build only: `HEADWIND_HOST`, `HEADWIND_DATA`, `HEADWIND_NO_TRAY`.
 
 ### Settings inside the app
 
-The Garmin sign-in, the MQTT broker, Home Assistant URL/token and mappings, AI provider/key/model, coaching personality and goals, display units, home time zone, appearance (Auto, Light or Dark), your login details, backups and the **calorie burn adjustment** (a percentage taken off every burn estimate as it is pulled in, kept reversible; see the changelog) are all configured under **Settings** — not in `.env`. Calorie and macro goals live under **Nutrition → Goals**, and friend-sync is under **Friends → Auto-Sync**.
+The Garmin sign-in, the MQTT broker, Home Assistant URL/token and mappings, AI provider/key/model, the optional map keys, coaching personality and goals, display units, home time zone, appearance (Auto, Light or Dark), your login details, backups and the **calorie burn adjustment** (a percentage taken off every burn estimate as it is pulled in, kept reversible; see the changelog) are all configured under **Settings** — not in `.env`. Calorie and macro goals live under **Nutrition → Goals**, and friend-sync is under **Friends → Auto-Sync**.
 
 ### Data and volumes
 
@@ -824,7 +825,7 @@ Behind a proxy Headwind trusts one `X-Forwarded-*` hop, but only from a loopback
 
 ## Backups, updates and your data
 
-- **Backup:** **Settings → Backup & Restore → Download** gives one zip: the database, rider avatars, food photos, gear photos and activity photos. It deliberately excludes the Garmin token files, the kept Strava export, your generated login/key files and `.env`. The keys and passwords saved in Settings (AI, MQTT, Home Assistant, friends' feed tokens, the Garmin email) stay encrypted in it, and the key to them (`.secrets_key`) is left out, so a backup shared by mistake doesn't give them away. Tick **Include the secrets key** to put it in (the file is then named `headwind-backup-with-secrets.zip`), so a restore on another server keeps them; anyone else with that zip can read them too. The rest of your data (rides with GPS, health, food) is in it as it is, so store it accordingly.
+- **Backup:** **Settings → Backup & Restore → Download** gives one zip: the database, rider avatars, food photos, gear photos and activity photos. It deliberately excludes the Garmin token files, the kept Strava export, your generated login/key files and `.env`. The keys and passwords saved in Settings (AI, maps, MQTT, Home Assistant, friends' feed tokens, the Garmin email) stay encrypted in it, and the key to them (`.secrets_key`) is left out, so a backup shared by mistake doesn't give them away. Tick **Include the secrets key** to put it in (the file is then named `headwind-backup-with-secrets.zip`), so a restore on another server keeps them; anyone else with that zip can read them too. The rest of your data (rides with GPS, health, food) is in it as it is, so store it accordingly.
 - **Restore:** **Settings → Backup & Restore → Restore** (or from the setup wizard on a fresh install). The uploaded database is checked for integrity, migrated and smoke-tested **before** anything live is touched; your current database is kept as `bike.db.pre-restore`; the swap itself is atomic. A backup this version can't use is rejected with "Nothing was changed". Restored on another server, the backup's saved keys and passwords can't be read: Headwind lists which to enter again. To keep them, restore a backup made with **Include the secrets key** (they're encrypted again with the new server's own key), or copy `.secrets_key` from beside the old database to beside the new one and restart.
 - **Copies made before an upgrade or a restore** (`bike.db.pre-0.7.0`, `bike.db.pre-restore`) stay beside the database. Their saved keys and passwords are encrypted at start, as the database's are, so restoring one on the same server keeps them; going back to an older Headwind with one means entering them again.
 - **Updating (Docker):** `docker compose pull && docker compose up -d`. Migrations run automatically at start-up. Take a backup first on a beta.
@@ -843,7 +844,7 @@ Behind a proxy Headwind trusts one `X-Forwarded-*` hop, but only from a loopback
 | Open-Meteo | Weather, elevation | Ride start coordinates + time |
 | Open Food Facts | Food search/barcodes | The barcode or search text |
 | Zwift's CDN (`cdn.zwift.com`) | A Zwift world's map, fetched by the server the first time it's drawn | A request for the map image |
-| Esri / map tile hosts | Map tiles in your browser | Normal tile requests (your browser's IP) |
+| Map tile hosts: Esri, OpenTopoMap, CyclOSM (OpenStreetMap France), Waymarked Trails, and Thunderforest or Ordnance Survey if you save a key | Map tiles in your browser, for the map type you pick; the heatmap's HD export fetches the screen's tiles through the server (Thunderforest's straight from your browser) | Normal tile requests (your browser's IP, or the server's for an export); your Thunderforest or OS key with theirs |
 | CDNs (unpkg, jsDelivr) | Chart/map libraries in your browser | Normal asset requests |
 | Your AI provider (if configured) | Coaching, photo estimates | Ride summaries / the image you submit |
 | Your MQTT broker / Home Assistant (if configured) | Automation | Sensor values / notifications |
@@ -961,7 +962,7 @@ Other smoke scripts: `smoke_client_ops`, `smoke_api_v1`, `smoke_recipes_sync`, `
 
 ## Acknowledgements and licence
 
-Headwind stands on a lot of generous open data and software: [Open Food Facts](https://openfoodfacts.org), [Open-Meteo](https://open-meteo.com), [OpenStreetMap](https://www.openstreetmap.org) contributors, [Esri](https://www.esri.com) imagery, [Leaflet](https://leafletjs.com), [Chart.js](https://www.chartjs.org), [Flask](https://flask.palletsprojects.com), [garminconnect](https://github.com/cyberjunky/python-garminconnect), [fitparse](https://github.com/dtcooper/python-fitparse), [gpxpy](https://github.com/tkrajina/gpxpy), [paho-mqtt](https://github.com/eclipse/paho.mqtt.python) and [Home Assistant](https://www.home-assistant.io).
+Headwind stands on a lot of generous open data and software: [Open Food Facts](https://openfoodfacts.org), [Open-Meteo](https://open-meteo.com), [OpenStreetMap](https://www.openstreetmap.org) contributors, [Esri](https://www.esri.com) imagery, [OpenTopoMap](https://opentopomap.org), [CyclOSM](https://www.cyclosm.org), [Waymarked Trails](https://waymarkedtrails.org), [Leaflet](https://leafletjs.com), [Chart.js](https://www.chartjs.org), [Flask](https://flask.palletsprojects.com), [garminconnect](https://github.com/cyberjunky/python-garminconnect), [fitparse](https://github.com/dtcooper/python-fitparse), [gpxpy](https://github.com/tkrajina/gpxpy), [paho-mqtt](https://github.com/eclipse/paho.mqtt.python) and [Home Assistant](https://www.home-assistant.io).
 
 Released under the [MIT licence](LICENSE). If Headwind is useful to you, [a coffee](https://buymeacoffee.com/lordmerchant) is always appreciated.
 
