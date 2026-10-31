@@ -2,6 +2,7 @@ import json
 
 from flask import Blueprint, render_template, request
 from database import query_db
+from services import health, tz
 
 bp = Blueprint('garmin_page', __name__)
 
@@ -10,12 +11,9 @@ bp = Blueprint('garmin_page', __name__)
 def index():
     days = int(request.args.get('days', 60))
 
-    rows = query_db('''
-        SELECT date, restingHR, hrv, hrvBalanced, sleepHours, sleepScore, bodyBattery, steps, stressScore
-        FROM GarminDaily
-        WHERE date >= date('now', ? || ' days')
-        ORDER BY date ASC
-    ''', [f'-{days}'])
+    # Garmin's figure for a day where it has one, else what the owner's iPhone sent from Apple Health (services/health)
+    owner = query_db('SELECT id FROM Rider ORDER BY isDefault DESC, id LIMIT 1', one=True)
+    rows = health.recovery_days(owner['id'] if owner else None, tz.today().isoformat(), days - 1)[::-1]
 
     # Dates that have a ride (for chart markers)
     ride_dates = {
@@ -26,8 +24,8 @@ def index():
     }
 
     # Build day-by-day series covering the full range (gaps → null)
-    from datetime import date, timedelta
-    start = date.today() - timedelta(days=days - 1)
+    from datetime import timedelta
+    start = tz.today() - timedelta(days=days - 1)
     date_index = {r['date']: r for r in rows}
 
     labels, rhr, battery, sleep, steps, stress, has_ride = [], [], [], [], [], [], []
@@ -70,4 +68,6 @@ def index():
         today_hr_stream=today_hr_stream,
         today_bb_stream=today_bb_stream,
         today_intraday_date=today_intraday_date,
+        source_label=' and '.join(name for key, name in (('garmin', 'Garmin'), (health.SOURCE, 'Apple Health'))
+                                  if any(key in (r['source'] or '') for r in rows)),
     )

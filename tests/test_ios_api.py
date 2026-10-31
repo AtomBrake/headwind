@@ -219,6 +219,15 @@ def test_apple_health_feeds_the_ai_recovery_context(phone):
     assert block.startswith('Apple Health recovery data') and 'SDNN' in block and 'resting HR 50bpm' in block
 
 
+def test_apple_health_fills_the_recovery_page(phone):
+    d = tz.today().isoformat()
+    assert 'No recovery data yet' in phone.web.get('/recovery').get_data(as_text=True)
+    post_health(phone, [{'date': d, 'metric': 'resting_hr', 'value': 52}, {'date': d, 'metric': 'hrv_sdnn', 'value': 41}])
+    page = phone.web.get('/recovery').get_data(as_text=True)
+    assert 'No recovery data yet' not in page and 'From Apple Health' in page and '52 bpm' in page and 'SDNN' in page
+    assert 'batteryChart"' not in page and 'stressChart"' not in page               # Apple Health has neither
+
+
 def test_forgetting_apple_health(phone):
     d = tz.today().isoformat()
     post_health(phone, [{'date': d, 'metric': 'steps', 'value': 9000}, {'date': d, 'metric': 'weight_kg', 'value': 80}])
