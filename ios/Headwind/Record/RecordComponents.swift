@@ -41,6 +41,7 @@ private struct IdleControls: View {
     var recorder: PhoneRideRecorder
     var bikes: [Bike]
     var onStart: () -> Void
+    @Environment(Router.self) private var router
 
     var body: some View {
         VStack(spacing: 8) {
@@ -71,8 +72,17 @@ private struct IdleControls: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(.regularMaterial, in: Capsule())
+                } else if recorder.hasSensors {
+                    Label("Timed: no GPS. \(recorder.sport.isRide ? "Heart rate, power, cadence and distance" : "Heart rate") from your sensors.",
+                          systemImage: "timer")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(.regularMaterial, in: Capsule())
                 } else {
-                    Label("Timed: no GPS. Record it on your Watch for heart rate and calories.", systemImage: "timer")
+                    Label("Timed: no GPS. Record it on your Watch, or pair sensors, for heart rate.", systemImage: "timer")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -80,6 +90,7 @@ private struct IdleControls: View {
                         .padding(.vertical, 4)
                         .background(.regularMaterial, in: Capsule())
                 }
+                SensorsChip { router.show(.sensors) }
             }
         }
     }
@@ -128,6 +139,7 @@ struct RideStatsPanel: View {
                     .font(.system(size: recorder.sport.usesGPS ? 44 : 72, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .accessibilityIdentifier("ride-elapsed")
+                let live = recorder.liveSensors(at: context.date)
                 if recorder.sport.usesGPS {
                     Grid(horizontalSpacing: 12, verticalSpacing: 10) {
                         GridRow {
@@ -141,6 +153,23 @@ struct RideStatsPanel: View {
                             Stat(value: units.elevation(metres: recorder.tracker.elevationGain), caption: "Climbing")
                         }
                     }
+                    if let live {
+                        SensorStatsRow(readings: live, isRide: recorder.sport.isRide)
+                    }
+                } else if let live {
+                    // A timed session with sensors: what they say, and an indoor ride's distance by sensor.
+                    SensorStatsRow(readings: live, isRide: recorder.sport.isRide)
+                    if recorder.sport.isRide {
+                        Grid(horizontalSpacing: 12, verticalSpacing: 10) {
+                            GridRow {
+                                Stat(value: live.speed.map { units.speed(metresPerSecond: $0) } ?? "–", caption: "Speed")
+                                Stat(value: units.distance(metres: recorder.session.distance), caption: "Distance")
+                            }
+                        }
+                    }
+                    if recorder.state == .paused {
+                        Text("Paused").font(.headline).foregroundStyle(.secondary)
+                    }
                 } else {
                     // A timer: nothing else to show from the phone alone.
                     Text(recorder.state == .paused ? "Paused" : recorder.sport.title)
@@ -151,6 +180,53 @@ struct RideStatsPanel: View {
             .padding(16)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
+    }
+}
+
+/// Live heart rate, 3 s power and cadence from the phone's sensors; a dash for one that has nothing to say (out of range, not paired).
+struct SensorStatsRow: View {
+    var readings: SensorReadings
+    var isRide: Bool
+
+    var body: some View {
+        Grid(horizontalSpacing: 12, verticalSpacing: 10) {
+            GridRow {
+                Stat(value: readings.heartRate.map { "\($0) bpm" } ?? "–", caption: "Heart rate")
+                if isRide {
+                    Stat(value: readings.power.map { "\($0) W" } ?? "–", caption: "Power (3 s)")
+                    Stat(value: readings.cadence.map { "\($0) rpm" } ?? "–", caption: "Cadence")
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Before Start, with sensors paired: how many are connected, opening the Sensors screen.
+struct SensorsChip: View {
+    @Environment(SensorManager.self) private var sensors
+    var open: () -> Void
+
+    var body: some View {
+        if sensors.hasPaired {
+            Button(action: open) {
+                Label(label, systemImage: sensors.connectedCount > 0 ? "sensor.fill" : "sensor")
+                    .font(.caption)
+                    .foregroundStyle(sensors.connectedCount > 0 ? .green : .secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(.regularMaterial, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("sensors-chip")
+        }
+    }
+
+    private var label: String {
+        let n = sensors.paired.count, on = sensors.connectedCount
+        if sensors.radio == .off { return "Bluetooth is off" }
+        if on == n { return n == 1 ? "\(sensors.paired[0].name) connected" : "\(n) sensors connected" }
+        return on == 0 ? "Looking for your sensors…" : "\(on) of \(n) sensors connected"
     }
 }
 
@@ -211,22 +287,18 @@ struct RideSummaryGrid: View {
 
     var body: some View {
         if !summary.sport.usesGPS {
-            // A timed session: its time, and what the Watch measured.
+            // A timed session: its time, and what the Watch or the phone's sensors measured.
+            let distance = summary.sport.hasDistance && summary.distance > 0
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 14) {
                 GridRow {
                     Stat(value: Units.duration(seconds: summary.movingTime), caption: "Time")
-                    if summary.sport.hasDistance, summary.distance > 0 {
+                    if distance {
                         Stat(value: units.distance(metres: summary.distance, sport: summary.sport), caption: "Distance")
                     } else {
                         Stat(value: summary.averageHeartRate.map { "\($0) bpm" } ?? "–", caption: "Avg heart rate")
                     }
                 }
-                if let kcal = summary.calories {
-                    GridRow {
-                        Stat(value: Units.whole(kcal), caption: "Active calories")
-                        Color.clear.frame(height: 1)
-                    }
-                }
+                statRows((distance ? heartRate : []) + sensorStats + (summary.calories.map { [(Units.whole($0), "Active calories")] } ?? []))
             }
         } else {
             trackGrid
@@ -244,15 +316,31 @@ struct RideSummaryGrid: View {
                      caption: Units.rateCaption(summary.sport, average: true))
                 Stat(value: units.elevation(metres: summary.elevationGain), caption: "Climbing")
             }
-            if let hr = summary.averageHeartRate {
-                GridRow {
-                    Stat(value: "\(hr) bpm", caption: "Avg heart rate")
-                    if let power = summary.averagePower {
-                        Stat(value: "\(power) W", caption: "Avg power")
-                    } else {
-                        Color.clear.frame(height: 1)
-                    }
-                }
+            statRows(heartRate + sensorStats)
+        }
+    }
+
+    private var heartRate: [(String, String)] {
+        summary.averageHeartRate.map { [("\($0) bpm", "Avg heart rate")] } ?? []
+    }
+
+    private var sensorStats: [(String, String)] {
+        var stats: [(String, String)] = []
+        if let power = summary.averagePower { stats.append(("\(power) W", "Avg power")) }
+        if let cadence = summary.averageCadence { stats.append(("\(cadence) rpm", "Avg cadence")) }
+        return stats
+    }
+}
+
+/// Stats (value, caption) two to a row, for a Grid of two columns.
+private func statRows(_ stats: [(String, String)]) -> some View {
+    ForEach(Array(stride(from: 0, to: stats.count, by: 2)), id: \.self) { i in
+        GridRow {
+            Stat(value: stats[i].0, caption: stats[i].1)
+            if i + 1 < stats.count {
+                Stat(value: stats[i + 1].0, caption: stats[i + 1].1)
+            } else {
+                Color.clear.frame(height: 1)
             }
         }
     }

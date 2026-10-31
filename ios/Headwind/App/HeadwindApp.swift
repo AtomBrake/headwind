@@ -5,6 +5,8 @@ struct HeadwindApp: App {
     @State private var session: Session
     @State private var store: RideStore
     @State private var recorder: PhoneRideRecorder
+    /// Made at launch so it can reconnect paired sensors, and take back the connections if iOS relaunches the app for them mid-ride.
+    @State private var sensors: SensorManager
     /// Made at launch, not lazily: iOS may start the app in the background just to deliver a Watch ride.
     @State private var watch: WatchBridge
     /// Made at launch too: HealthKit's background delivery only keeps waking the app if its observer queries are set up every launch.
@@ -15,7 +17,8 @@ struct HeadwindApp: App {
     init() {
         let session = Session()
         let store = RideStore()
-        let recorder = PhoneRideRecorder()
+        let sensors = SensorManager()
+        let recorder = PhoneRideRecorder(sensors: sensors)
         let watch = WatchBridge(store: store)
         let health = HealthSync()
         health.observe(using: session)
@@ -29,6 +32,7 @@ struct HeadwindApp: App {
         _session = State(initialValue: session)
         _store = State(initialValue: store)
         _recorder = State(initialValue: recorder)
+        _sensors = State(initialValue: sensors)
         _watch = State(initialValue: watch)
         _health = State(initialValue: health)
     }
@@ -39,6 +43,7 @@ struct HeadwindApp: App {
                 .environment(session)
                 .environment(store)
                 .environment(recorder)
+                .environment(sensors)
                 .environment(watch)
                 .environment(health)
                 .environment(recordRouter)
