@@ -9,7 +9,7 @@ A native SwiftUI companion for a Headwind server. It uses the same phone API and
 | Record | Map (or a clock for a timed sport), live stats, start / pause / finish any sport the phone records, on a chosen bike; list of recordings, their upload status, bike and waiting photos | `POST /api/v1/rides`, `/workouts`, `/activities`, `/rides/ride/<id>/bike`, `/rides/<kind>/<id>/photos`, `/live` |
 | Activities | Every activity of every sport, paged, searchable and filtered by sport; each with its map, stats, charts and photos (add, delete), and delete | `GET /api/v1/rides`, `/rides/<kind>/<id>`, `/photos/<name>` |
 | Overview | A card per sport group for week / month / year / all time, a 12-week chart of one sport by distance or every sport by time, latest recovery (Garmin's or Apple Health's) | `GET /api/v1/overview` |
-| Settings | Paired server, rider, units, Apple Health (what to send, how far back), unpair | `GET /api/v1/ping`, `POST /api/v1/health/days`, `GET`/`DELETE /api/v1/health` |
+| Settings | Paired server, rider, units, Bluetooth sensors (pair, forget, battery, wheel size), Apple Health (what to send, how far back), unpair | `GET /api/v1/ping`, `POST /api/v1/health/days`, `GET`/`DELETE /api/v1/health` |
 
 **Apple Watch:** recording only. Start, pause and end any sport on the wrist with heart rate, calories and, where it has them, GPS,
 speed or pace, distance, climbing, power and cadence. On Apple Watch Ultra the Action button starts and pauses it.
@@ -21,12 +21,13 @@ speed or pace, distance, climbing, power and cadence. On Apple Watch Ultra the A
 | Ride, E-bike ride | GPS track | ✓ | ✓ | `/rides`, with its bike |
 | Run, Walk, Hike | GPS track | ✓ | ✓ | `/workouts` |
 | Open water swim | GPS track | | ✓ (water lock) | `/workouts` as a Swim |
-| Indoor ride | Time (Watch: heart rate, calories, a paired speed sensor's distance) | ✓ | ✓ | `/activities` as VirtualRide, with its bike |
+| Indoor ride | Time (Watch: heart rate, calories, a paired speed sensor's distance; iPhone: its Bluetooth sensors' heart rate, power, cadence and a trainer's or wheel sensor's distance) | ✓ | ✓ | `/activities` as VirtualRide, with its bike |
 | Treadmill run | Time (Watch: distance from its steps) | ✓ | ✓ | `/activities` as VirtualRun |
 | Pool swim | Time, lengths (pool length chosen on the Watch) | | ✓ (water lock) | `/activities` as a Swim |
 | Strength, HIIT, Yoga | Time (Watch: heart rate, calories) | ✓ | ✓ | `/activities` |
 
-On the phone a timed sport is a stopwatch: no GPS, so no battery spent on it. A session must last a minute to be kept.
+On the phone a timed sport is a stopwatch: no GPS, so no battery spent on it, plus whatever its Bluetooth sensors measure. A session must last a
+minute to be kept.
 
 ## Recording rides
 
@@ -51,6 +52,15 @@ On the phone a timed sport is a stopwatch: no GPS, so no battery spent on it. A 
   resumes; the Action and side buttons together pause and resume too. `HeadwindWatch/WorkoutIntents.swift`.
 - **Power and cadence:** a power meter or cadence sensor paired in the Watch's Bluetooth settings feeds the workout
   (watchOS 10), and is recorded on every point (`<power>` and `gpxtpx:cad` in the GPX, which the server's parser reads).
+- **Bluetooth sensors on the iPhone:** for riding without the Watch. Pair them on the Sensors screen (Settings → Sensors, or
+  the sensor button on the Record tab): heart rate straps, power meters, speed and cadence sensors and smart trainers (Bluetooth
+  FTMS), Bluetooth LE only. Each shows its connection, battery and live reading; paired ones are remembered on this phone and
+  connect while the Record tab is open and while recording, reconnecting by themselves if one drops. Heart rate, power (as a 3 s
+  average) and cadence go on every GPS point and in the GPX; a run takes only heart rate. A timed session takes a sample every
+  second, journalled, and an indoor ride takes its distance from the trainer, or from a wheel sensor and the wheel's size (2105 mm
+  unless set on the Sensors screen). Bluetooth is asked for only when the Sensors screen first opens. `Headwind/Sensors/`, with the
+  GATT parsing in `Shared/GATT.swift` and `Shared/SensorReadings.swift`. Not yet: a timed session's power and cadence on the server
+  (`/activities` takes average heart rate only), and controlling a smart trainer.
 - **Uploads:** every ride is saved on the phone first, then uploaded as GPX through the server's normal import
   (best efforts, segment matching, weather); a timed session as its summary. Failed uploads, e.g. when offline, retry
   when the app is next opened. The server ignores duplicates, so a retry can't create a second copy.
@@ -99,7 +109,8 @@ Planned next:
 
 1. Food logging with barcode scan
 2. Widgets
-3. Bluetooth sensors on the iPhone (power, cadence, speed, heart rate strap, a smart trainer), for riding without the Watch
+3. Smart trainers on the iPhone: an indoor ride uploaded as a file with its power, cadence and distance, then ERG, resistance and
+   gradient simulation through Fitness Machine control
 
 Later:
 
@@ -168,7 +179,8 @@ xcodebuild test -project ios/Headwind.xcodeproj -scheme Headwind -destination 'p
 
 The unit tests cover pairing links, decoding, formatting, and the recording maths: distance, moving time, GPS-jump
 rejection, climbing, pauses, GPX output (with power and cadence), journal recovery (timed sessions too), where each sport
-uploads to, the Watch's ids, and Apple Health's sleep merging. The decoding tests use JSON captured from a real
+uploads to, the Watch's ids, Apple Health's sleep merging, and the Bluetooth sensors: GATT parsing, counters wrapping, 3 s power,
+combining sensors, distance by sensor and a timed session's samples. The decoding tests use JSON captured from a real
 server in `HeadwindTests/Fixtures/`. If an endpoint's shape changes, refresh those files and the tests show what
 the app no longer understands.
 
@@ -190,7 +202,7 @@ ios/
   Headwind.xcodeproj
   Config/                  Info.plists (URL scheme, background modes) and the Watch's HealthKit entitlements
   Shared/                  compiled into both apps: sports, ride tracker, GPX writer, crash journal, ride summary, units,
-                           API client and pairing, upload routing
+                           API client and pairing, upload routing, Bluetooth sensor parsing and readings
   Headwind/
     App/                   entry point, root view, tabs
     Core/                  API client, models, Keychain, session, shared views
@@ -198,6 +210,7 @@ ios/
     Activities/            every activity from the server, and one in detail with its photos
     Health/                Apple Health reader (HealthSync)
     Record/                iPhone recorder, recordings store and upload queue, Watch link, Record tab
+    Sensors/               Bluetooth sensors: CoreBluetooth manager and the Sensors screen
   HeadwindWatch/           Watch app: HealthKit workout + GPS recorder, iPhone link and direct upload, Action button intents, screens
   HeadwindTests/           Swift Testing unit tests
   HeadwindUITests/         end-to-end iPhone tests against a live server

@@ -42,9 +42,17 @@ struct RideSummary: Codable, Equatable, Sendable {
 
     /// A timed-only session: moving for all the time recorded.
     static func session(start: Date, elapsed: TimeInterval, sport: Sport, distance: Double = 0, averageHeartRate: Int? = nil,
-                        calories: Double? = nil, bikeId: Int? = nil) -> RideSummary {
+                        calories: Double? = nil, bikeId: Int? = nil, averagePower: Int? = nil, averageCadence: Int? = nil) -> RideSummary {
         RideSummary(start: start, distance: distance, movingTime: elapsed, elapsedTime: elapsed, elevationGain: 0,
-                    averageHeartRate: averageHeartRate, sport: sport, bikeId: bikeId, calories: calories)
+                    averageHeartRate: averageHeartRate, sport: sport, bikeId: bikeId, calories: calories,
+                    averagePower: averagePower, averageCadence: averageCadence)
+    }
+
+    /// A timed session recorded on the phone, with what its Bluetooth sensors measured (distance by a wheel sensor or trainer, for an indoor ride).
+    static func session(start: Date, elapsed: TimeInterval, sport: Sport, track: SessionTrack, bikeId: Int? = nil) -> RideSummary {
+        .session(start: start, elapsed: elapsed, sport: sport, distance: sport.hasDistance ? track.distance : 0,
+                 averageHeartRate: track.averageHeartRate, bikeId: bikeId, averagePower: track.averagePower,
+                 averageCadence: track.averageCadence)
     }
 
     /// Recordings saved before the sport was chosen have none: they're rides. Calories, power and cadence came later still.

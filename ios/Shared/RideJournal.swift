@@ -4,9 +4,11 @@ import Foundation
 /// doesn't lose the ride. On the next launch the recorder finds the journal and offers to save what was there.
 ///
 /// A timed-only session (strength, a pool swim) has no fixes, so its journal notes the time now and then instead, and what the Watch measured.
+/// On the phone with Bluetooth sensors, a timed session also journals a sample of their readings every second.
 ///
 /// Format: JSON Lines, one event per line: {"start":…,"sport":"Run","bike":3}, {"p":{point}}, {"seg":true} (a resume after pause),
-/// {"tick":…,"active":…,"dist":…,"kcal":…,"hr":…} (a timed session's progress: the time, the active seconds so far, and the Watch's figures).
+/// {"tick":…,"active":…,"dist":…,"kcal":…,"hr":…} (a timed session's progress: the time, the active seconds so far, and the Watch's figures),
+/// {"s":{"t":…,"hr":…,"w":…,"cad":…,"v":…,"d":…}} (a timed session's sensor sample).
 struct RideJournal {
     /// What a journal holds after a crash. A journal from before the sport was chosen has none: it's a ride.
     struct Recovered: Equatable {
@@ -16,6 +18,8 @@ struct RideJournal {
         var segments: [[RidePoint]]
         /// A timed-only session's last progress note.
         var session: SessionProgress?
+        /// A timed session's sensor samples, from the phone.
+        var samples: [SessionSample] = []
     }
 
     /// How far a timed-only session had got.
@@ -42,6 +46,7 @@ struct RideJournal {
         var p: RidePoint?
         var seg: Bool?
         var tick: SessionProgress?
+        var s: SessionSample?
     }
 
     private static let encoder: JSONEncoder = {
@@ -70,6 +75,8 @@ struct RideJournal {
 
     func note(_ progress: SessionProgress) { write(Event(tick: progress)) }
 
+    func append(_ sample: SessionSample) { write(Event(s: sample)) }
+
     func clear() { try? FileManager.default.removeItem(at: url) }
 
     /// The recorded ride, or nil if there's no journal or it has fewer than two fixes: one point isn't a track, and the server
@@ -79,6 +86,7 @@ struct RideJournal {
         var head = Event()
         var segments: [[RidePoint]] = [[]]
         var progress: SessionProgress?
+        var samples: [SessionSample] = []
         for line in data.split(separator: UInt8(ascii: "\n")) {
             // A crash mid-write can leave a truncated last line; skip anything that doesn't parse.
             guard let event = try? Self.decoder.decode(Event.self, from: Data(line)) else { continue }
@@ -86,12 +94,13 @@ struct RideJournal {
             if let p = event.p { segments[segments.count - 1].append(p) }
             if event.seg == true, !(segments.last?.isEmpty ?? true) { segments.append([]) }
             if let tick = event.tick { progress = tick }
+            if let sample = event.s { samples.append(sample) }
         }
         segments.removeAll { $0.isEmpty }
         let sport = Sport(stored: head.sport)
         if !sport.usesGPS {
             guard let start = head.start, let progress, progress.active >= RideSummary.minimumSession else { return nil }
-            return Recovered(start: start, sport: sport, bikeId: head.bike, segments: [], session: progress)
+            return Recovered(start: start, sport: sport, bikeId: head.bike, segments: [], session: progress, samples: samples)
         }
         guard let first = segments.first?.first, segments.joined().count >= 2 else { return nil }
         return Recovered(start: head.start ?? first.time, sport: sport, bikeId: head.bike, segments: segments)
@@ -100,6 +109,13 @@ struct RideJournal {
     /// The summary of a recovered ride or session, ready to save.
     static func summary(of r: Recovered) -> RideSummary {
         if let s = r.session {
+            guard r.samples.isEmpty else {
+                // The phone's sensors: their averages, and the distance as far as the last sample.
+                let track = SessionTrack(samples: r.samples)
+                var summary = RideSummary.session(start: r.start, elapsed: s.active, sport: r.sport, track: track, bikeId: r.bikeId)
+                summary.distance = max(summary.distance, s.distance ?? 0)
+                return summary
+            }
             return .session(start: r.start, elapsed: s.active, sport: r.sport, distance: s.distance ?? 0, averageHeartRate: s.heartRate,
                             calories: s.calories, bikeId: r.bikeId)
         }

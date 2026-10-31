@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(Session.self) private var session
     @Environment(HealthSync.self) private var health
+    @Environment(SensorManager.self) private var sensors
     @State private var confirmUnpair = false
     @State private var confirmRemoveHealth = false
     @State private var healthError: AppError?
@@ -17,6 +18,19 @@ struct SettingsView: View {
                     if let server = session.pairing?.server {
                         Link("Open Headwind in Safari", destination: server)
                     }
+                }
+
+                Section {
+                    NavigationLink {
+                        SensorsView()
+                    } label: {
+                        LabeledContent("Bluetooth sensors", value: sensorsSummary)
+                    }
+                    .accessibilityIdentifier("settings-sensors")
+                } header: {
+                    Text("Sensors")
+                } footer: {
+                    Text("Heart rate straps, power meters, speed and cadence sensors and smart trainers, for recording on the phone without the Watch.")
                 }
 
                 if HealthSync.isAvailable {
@@ -53,6 +67,14 @@ struct SettingsView: View {
             } message: { e in
                 Text(e.localizedDescription)
             }
+        }
+    }
+
+    private var sensorsSummary: String {
+        switch sensors.paired.count {
+        case 0: "None"
+        case 1: sensors.paired[0].name
+        case let n: "\(n) paired"
         }
     }
 

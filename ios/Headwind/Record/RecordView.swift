@@ -13,6 +13,7 @@ struct RecordView: View {
                 .navigationDestination(for: Route.self) { route in
                     switch route {
                     case .recordings: RecordingsView()
+                    case .sensors: SensorsView()
                     }
                 }
         }
@@ -51,6 +52,12 @@ private struct RecordScreen: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { router.show(.sensors) } label: {
+                    Label("Sensors", systemImage: "sensor")
+                }
+                .accessibilityIdentifier("sensors")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { router.show(.recordings) } label: {
                     Label("Recordings", systemImage: "list.bullet")

@@ -9,6 +9,10 @@ import UIKit
 ///
 /// A sport without GPS (an indoor ride, a treadmill, strength, HIIT, yoga) is a timer: no location at all, and a note in the journal every
 /// `sessionNoteInterval` so a crash keeps all but the last few seconds.
+///
+/// Paired Bluetooth sensors (`SensorFeed`) add heart rate, power and cadence to each GPS point. A timed session takes a sample of them every
+/// second instead (`SessionTrack`), journalled like the points, and an indoor ride its distance from a trainer or wheel sensor. A sport that
+/// isn't a ride takes only heart rate from them.
 @MainActor
 @Observable
 final class PhoneRideRecorder {
@@ -28,30 +32,51 @@ final class PhoneRideRecorder {
     private(set) var chosenBike: Int?
     /// The bike the recording in progress is on.
     private(set) var bikeId: Int?
+    /// A timed session's sensor samples (empty without sensors).
+    private(set) var session = SessionTrack()
 
     private let feed = LocationFeed()
     private let journal: RideJournal
     private let choices: RecordChoices
+    /// The phone's Bluetooth sensors; nil records without them (previews).
+    private let sensors: (any SensorFeed)?
+    @ObservationIgnored private var sensorDistance = DistanceFollower()
+    @ObservationIgnored private var lastSample = Date.distantPast
+    @ObservationIgnored private var lastNote = Date.distantPast
     /// Whether the Record screen is showing, so finishing a ride goes back to the map's foreground feed rather than off.
     private var onScreen = false
     private var lastLivePost = Date.distantPast
     private var liveTask: Task<Void, Never>?
-    private var noteTask: Task<Void, Never>?
+    private var tickTask: Task<Void, Never>?
     /// Set by the app: posts JSON to /api/v1/live. Nil (e.g. in previews) skips live updates.
     var postLive: ((LiveUpdate) async -> Void)?
 
     static let livePostInterval: TimeInterval = 15
-    static let sessionNoteInterval: Duration = .seconds(30)
+    static let sessionNoteInterval: TimeInterval = 30
+    static let sampleInterval: TimeInterval = 1
 
-    init(journal: RideJournal = .standard, choices: RecordChoices = RecordChoices()) {
+    init(journal: RideJournal = .standard, choices: RecordChoices = RecordChoices(), sensors: (any SensorFeed)? = nil) {
         self.journal = journal
         self.choices = choices
+        self.sensors = sensors
         sport = choices.sport
         chosenBike = choices.bikeId
         authorization = feed.manager.authorizationStatus
         recovered = journal.load()
         feed.onLocations = { [weak self] in self?.received($0) }
         feed.onAuthorization = { [weak self] in self?.authorization = $0 }
+        // Bluetooth wakes a backgrounded app for each reading, where a timer alone wouldn't run: sample from there too.
+        sensors?.onReading = { [weak self] in self?.tick() }
+    }
+
+    /// Whether there are sensors to read (paired, if not necessarily connected).
+    var hasSensors: Bool { sensors?.hasPaired ?? false }
+
+    /// What the sensors say now, as far as it suits the sport: a run takes a strap's heart rate, not a trainer's power. Nil with none paired.
+    func liveSensors(at date: Date = .now) -> SensorReadings? {
+        guard let sensors, sensors.hasPaired else { return nil }
+        let r = sensors.readings(at: date)
+        return sport.isRide ? r : r.heartRateOnly
     }
 
     var isRecording: Bool { state != .idle }
@@ -67,12 +92,14 @@ final class PhoneRideRecorder {
     func warmUp() {
         if authorization == .notDetermined { feed.manager.requestWhenInUseAuthorization() }
         onScreen = true
+        sensors?.use(.recordScreen)
         guard state == .idle else { return }
         feed.start(background: false)
     }
 
     func coolDown() {
         onScreen = false
+        sensors?.stopUsing(.recordScreen)
         if state == .idle { feed.stop() }
     }
 
@@ -94,29 +121,54 @@ final class PhoneRideRecorder {
     func start(bike: Int? = nil) {
         guard state == .idle, recovered == nil else { return }
         tracker = RideTracker()
+        session = SessionTrack()
+        sensorDistance = DistanceFollower()
         bikeId = sport.isRide ? bike : nil
         let now = Date()
         clock.start(at: now)
+        lastSample = .distantPast
+        lastNote = now
         journal.begin(start: now, sport: sport, bikeId: bikeId)
         state = .recording
+        sensors?.use(.recording)
         if sport.usesGPS {
             if authorization == .notDetermined { feed.manager.requestWhenInUseAuthorization() }
             feed.start(background: true)
         } else {
             feed.stop()                     // a timer needs no location, and shouldn't keep the GPS on
-            noteTask = Task { [weak self] in
+            tickTask = Task { [weak self] in
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: Self.sessionNoteInterval)
-                    self?.noteSession()
+                    try? await Task.sleep(for: .seconds(Self.sampleInterval))
+                    self?.tick()
                 }
             }
         }
         sendLive(force: true)
     }
 
-    private func noteSession() {
+    /// A timed session's second: a sample of the sensors, and every `sessionNoteInterval` a progress note. Called by a timer in the foreground
+    /// and on each sensor reading (in the background too), so it checks the time itself.
+    func tick(at now: Date = .now) {
+        guard state == .recording, !sport.usesGPS else { return }
+        if now.timeIntervalSince(lastSample) >= Self.sampleInterval * 0.95 { sample(at: now) }
+        if now.timeIntervalSince(lastNote) >= Self.sessionNoteInterval { noteSession(at: now) }
+    }
+
+    private func sample(at now: Date) {
+        guard let r = liveSensors(at: now) else { return }
+        let distance = sensorDistance.update(r)
+        guard !r.isEmpty else { return }
+        lastSample = now
+        let sample = SessionSample(time: now, hr: r.heartRate, power: r.power, cadence: r.cadence, speed: r.speed,
+                                   distance: sport.hasDistance ? distance : nil)
+        if session.add(sample) { journal.append(sample) }
+    }
+
+    private func noteSession(at now: Date = .now) {
         guard state != .idle, !sport.usesGPS else { return }
-        journal.note(.init(at: .now, active: clock.elapsed()))
+        lastNote = now
+        journal.note(.init(at: now, active: clock.elapsed(at: now), distance: session.distance > 0 ? session.distance : nil,
+                           heartRate: session.averageHeartRate))
     }
 
     func pause() {
@@ -124,6 +176,7 @@ final class PhoneRideRecorder {
         state = .paused
         tracker.pause()
         clock.pause()
+        sensorDistance.pause()      // distance ridden while paused isn't the session's
         noteSession()
     }
 
@@ -143,7 +196,7 @@ final class PhoneRideRecorder {
         guard sport.usesGPS else {
             let elapsed = clock.elapsed()
             guard elapsed >= RideSummary.minimumSession else { throw .sessionTooShort }
-            let kept = try keep(nil, .session(start: start, elapsed: elapsed, sport: sport, bikeId: bikeId))
+            let kept = try keep(nil, .session(start: start, elapsed: elapsed, sport: sport, track: session, bikeId: bikeId))
             endRecording()
             return kept
         }
@@ -183,8 +236,9 @@ final class PhoneRideRecorder {
     /// Back to the foreground feed if the Record screen is still showing, so the map keeps following; off otherwise.
     private func endRecording() {
         state = .idle
-        noteTask?.cancel()
-        noteTask = nil
+        tickTask?.cancel()
+        tickTask = nil
+        sensors?.stopUsing(.recording)
         journal.clear()
         if onScreen { feed.start(background: false) } else { feed.stop() }
         sendLive(force: true)
@@ -194,8 +248,9 @@ final class PhoneRideRecorder {
         guard let latest = locations.last else { return }
         lastLocation = latest
         guard state == .recording, sport.usesGPS else { return }
+        let r = liveSensors()
         for location in locations where location.timestamp >= (clock.startedAt ?? .distantPast) {
-            let point = RidePoint(location)
+            let point = RidePoint(location, hr: r?.heartRate, power: r?.power, cadence: r?.cadence)
             if tracker.add(point) { journal.append(point) }
         }
         sendLive()
@@ -210,8 +265,8 @@ final class PhoneRideRecorder {
         let update = LiveUpdate(
             state: state == .idle ? "idle" : "riding",   // services/live.py's state, whatever the sport
             lat: l?.coordinate.latitude, lng: l?.coordinate.longitude,
-            speed_mps: state == .recording ? tracker.currentSpeed : 0,
-            distance_m: tracker.distance, elapsed_s: Int(clock.elapsed()),
+            speed_mps: state == .recording ? (sport.usesGPS ? tracker.currentSpeed : session.latest?.speed ?? 0) : 0,
+            distance_m: sport.usesGPS ? tracker.distance : session.distance, elapsed_s: Int(clock.elapsed()),
             alt_m: l.flatMap { $0.verticalAccuracy >= 0 ? $0.altitude : nil },
             accuracy_m: l?.horizontalAccuracy,
             sport: sport.rawValue,
