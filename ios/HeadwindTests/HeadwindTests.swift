@@ -123,3 +123,39 @@ struct UnitsTests {
 }
 
 private final class BundleMarker {}
+
+struct FriendLinkTests {
+    let code = "hwfc_eyJ1IjoiaHR0cHM6Ly9zYW0uZXhhbXBsZSIsInQiOiJod2ZfYWJjIn0"
+
+    @Test func readsTheCodeAndTheLinkInTheQR() {
+        // services/feed_tokens.py: share_code, and share_link = "headwind://friend?c=" + code
+        #expect(FriendLink.code(in: code) == code)
+        #expect(FriendLink.code(in: "  \(code)\n") == code)
+        #expect(FriendLink.code(in: "headwind://friend?c=\(code)") == code)
+    }
+
+    @Test func refusesWhatIsntOne() {
+        #expect(FriendLink.code(in: "hwf_aFeedTokenNotACode0123456789") == nil)
+        #expect(FriendLink.code(in: "headwind://pair?u=https%3A%2F%2Fa.example&t=hw_x") == nil)
+        #expect(FriendLink.code(in: "headwind://friend?c=nonsense") == nil)
+        #expect(FriendLink.code(in: "hwfc_") == nil)
+    }
+
+    @Test func aFriendLinkIsntTakenForPairing() async {
+        let session = await Session(store: MemoryPairingStore())
+        await session.handle(url: URL(string: "headwind://friend?c=\(code)")!)
+        #expect(await session.pendingFriendCode == code)
+        #expect(await session.pendingLink == nil)
+    }
+
+    @Test func quickRangesLeaveTheEndOpen() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Europe/London")!
+        let now = cal.date(from: DateComponents(year: 2026, month: 10, day: 31, hour: 23, minute: 30))!
+        let picked = cal.date(from: DateComponents(year: 2026, month: 3, day: 1, hour: 0, minute: 10))!
+        #expect(ShareRange.all.window(since: picked, until: nil, now: now, calendar: cal) == (nil, nil))
+        #expect(ShareRange.month.window(since: picked, until: nil, now: now, calendar: cal) == ("2026-09-30", nil))
+        #expect(ShareRange.today.window(since: picked, until: nil, now: now, calendar: cal) == ("2026-10-31", nil))
+        #expect(ShareRange.custom.window(since: picked, until: now, now: now, calendar: cal) == ("2026-03-01", "2026-10-31"))
+    }
+}

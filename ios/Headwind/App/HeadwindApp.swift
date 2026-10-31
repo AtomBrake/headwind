@@ -170,5 +170,13 @@ struct MainTabs: View {
             }
         }
         .task { await session.refreshInfo() }
+        .sheet(item: Binding(get: { session.pendingFriendCode.map(FriendCode.init) }, set: { session.pendingFriendCode = $0?.id })) {
+            AddFriendView(initialCode: $0.id)
+        }
     }
+}
+
+/// A friend's code waiting to be added, as a sheet's item.
+private struct FriendCode: Identifiable {
+    let id: String
 }

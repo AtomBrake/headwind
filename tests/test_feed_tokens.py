@@ -174,3 +174,43 @@ def test_a_friends_new_token_can_be_swapped_in(app):
     c.post('/friends/7/token', data={'token': '  hwf_new  '})
     with app.app_context():
         assert database.query_db('SELECT token FROM Friend WHERE id=7', one=True)[0] == 'hwf_new'
+
+
+# ── share codes: the address and the token in one string, and as a headwind://friend link in a QR code ──
+
+def test_a_new_token_comes_with_a_share_code_and_qr(app):
+    made = _make(app)
+    assert made['code'].startswith('hwfc_') and made['link'] == 'headwind://friend?c=' + made['code']
+    assert made['qr'].startswith('data:image/png;base64,')
+    assert made['url'] == 'http://localhost'
+    assert feed_tokens.parse_share_code(made['code']) == ('http://localhost', made['token'])
+    assert feed_tokens.parse_share_code(made['link']) == ('http://localhost', made['token'])
+    with app.app_context():
+        assert feed_tokens.lookup(feed_tokens.parse_share_code(made['code'])[1])['name'] == 'Sam'
+
+
+def test_the_code_carries_an_https_app_url_and_not_a_plain_http_one(app):
+    app.config['APP_URL'] = 'https://bike.example.com/'
+    assert _make(app)['url'] == 'https://bike.example.com'
+    app.config['APP_URL'] = 'http://localhost:5000'
+    assert _make(app)['url'] == 'http://localhost'
+
+
+@pytest.mark.parametrize('text', [
+    '', 'hwf_justatoken', 'hwfc_', 'hwfc_!!!notbase64', 'hwfc_' + 'bm90IGpzb24',         # 'not json'
+    feed_tokens.share_code('ftp://x.example', 'hwf_abc'),                                # not http(s)
+    feed_tokens.share_code('https://x.example', 'hw_phonetoken'),                        # a phone token, not a feed token
+    'headwind://pair?c=' + feed_tokens.share_code('https://x.example', 'hwf_abc'),       # a pairing link
+])
+def test_what_isnt_a_share_code(text):
+    assert feed_tokens.parse_share_code(text) is None
+
+
+def test_probing_with_a_code_returns_its_address_and_token(app, monkeypatch):
+    seen = []
+    monkeypatch.setattr('routes.friends.probe_riders', lambda url, token: (seen.append((url, token)), ([{'name': 'Sam', 'isDefault': 1}], None))[1])
+    code = feed_tokens.share_code('https://sam.example/', 'hwf_samstoken')
+    got = app.test_client().post('/friends/probe', json={'code': code}).get_json()
+    assert got == {'riders': [{'name': 'Sam', 'isDefault': 1}], 'url': 'https://sam.example', 'token': 'hwf_samstoken'}
+    assert seen == [('https://sam.example', 'hwf_samstoken')]
+    assert 'error' in app.test_client().post('/friends/probe', json={'code': 'hwf_samstoken'}).get_json()

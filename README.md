@@ -503,8 +503,8 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - Mileage is always **computed from your rides**, so fixing a ride's bike fixes every part. Photos are included in backups. See [docs/GEAR.md](docs/GEAR.md).
 
 ### Social (peer-to-peer)
-- Add a friend's Headwind by URL + feed token; their activities (rides, runs, walks, any sport), segments and shared foods sync directly into your database. No central server.
-- **One feed token per friend**, each with its own date range (all, past 6 months, past month, from today), so you can cut one person off without touching the others.
+- Add a friend's Headwind with the code they made for you: paste it on the Friends page, or scan their QR code with the iPhone app. Their activities (rides, runs, walks, any sport), segments and shared foods sync directly into your database. No central server.
+- **One code per friend**, made on the Friends page or in the iPhone app, each choosing what it shares (activities, segments, foods) and the date range (all, past 6 months, past month, from today, or your own dates), so you can cut one person off without touching the others. A code holds your address and that friend's feed token; a Headwind that doesn't read codes can still be given the address and token separately.
 - A friend's activities are shown, never changed, on your instance. The heatmap shows yours, one friend's or everyone's together.
 - **Challenges** — a race over set dates, sent to the friends you invite.
 - Auto-sync every 15 minutes by default (off / 15 / 30 / 60 / 120). Only new or changed activities are fetched, and edits and deletions reach your friends at their next sync.
@@ -693,8 +693,9 @@ The Garmin sign-in, the MQTT broker, Home Assistant URL/token and mappings, AI p
 - The same key powers the optional food-photo estimate and screenshot import in the nutrition tracker.
 
 ### Friends (peer-to-peer)
-1. On each instance open **Friends** and make a feed token for the other person (one per friend, with the date range it shares).
-2. On your instance add a friend: enter their URL and **Their Feed Token**, then pick the rider to follow.
+1. On each instance open **Friends**, enter the other person's name, choose what they see and press **Create Code** (or, in the iPhone app, Settings → **Share with a friend**). It shows a QR code and a code starting `hwfc_`, once. Send it privately: anyone with it can read what it shares.
+2. The other person scans the QR code with the Headwind iPhone app (Settings → **Add a friend**, or the Camera app), or pastes the code into **Friends → Add a Friend**, then picks the rider to follow.
+   The code carries your address: `APP_URL` when it's https, otherwise the address your browser used. If that's a home-network address the page warns you, since a friend's server can't reach it; set `APP_URL` to your public https address first.
 3. Their activities and segments sync into your database; segments you both have appear on shared leaderboards, and their activities can be shown on the heatmap.
 4. To race, start a **challenge** on the Goals page and invite them; it reaches them on the feed.
 

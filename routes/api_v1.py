@@ -15,6 +15,8 @@
   POST /api/v1/health/days  Apple Health's daily figures from the iPhone (JSON {days: [{date, metric, value}]}), GET /api/v1/health what's stored,
                             DELETE /api/v1/health forgets it all (services/health.py)
   POST /api/v1/devices/watch   a token of its own for the phone's Apple Watch (services/device_auth.create_child)
+  POST /api/v1/friends/tokens  a feed token for a friend, with its share code (services/feed_tokens.py), for the app to show as a QR code;
+                            POST /api/v1/friends/probe {code} who a friend's code connects to, POST /api/v1/friends {code, rider, name} adds them
 The nutrition endpoints the app also uses (/nutrition/api/log, /water, /search, /lookup/<barcode> ...) accept the same token.
 """
 import logging
@@ -832,6 +834,56 @@ def watch_token():
     if not made:
         return jsonify({'error': 'only a paired phone can do this'}), 403
     return jsonify({'token': made[0], 'name': name}), 201
+
+
+@bp.route('/friends/tokens', methods=['POST'])
+def friend_token():
+    """A feed token for one friend, as on the Friends page: JSON {name, rides, segments, foods (true when left out), since, until
+    ('YYYY-MM-DD' or empty), server_url (the address the phone paired with, which a friend can reach)}. Returns the token once, with
+    its share code and the headwind://friend link for the app to show as a QR code."""
+    from routes.friends import new_token, share_url
+    d = request.get_json(silent=True) or {}
+    name = (d.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': "Enter your friend's name"}), 400
+    url = (d.get('server_url') or '').strip().rstrip('/')
+    if not url.startswith(('https://', 'http://')):
+        url = share_url()
+    scope = {'shareRides': d.get('rides', True), 'shareSegments': d.get('segments', True), 'shareFoods': d.get('foods', True),
+             'sinceDate': d.get('since'), 'untilDate': d.get('until')}
+    return jsonify(new_token(name, scope, url)), 201
+
+
+@bp.route('/friends/probe', methods=['POST'])
+def friend_probe():
+    """What a friend's share code (or its headwind://friend link) connects to: JSON {code} -> {url, riders: [{name, isDefault}]}."""
+    from routes.friends import probe_riders
+    from services import feed_tokens
+    shared = feed_tokens.parse_share_code((request.get_json(silent=True) or {}).get('code'))
+    if not shared:
+        return jsonify({'error': "That isn't a friend code from Headwind."}), 400
+    riders, error = probe_riders(*shared)
+    if error:
+        return jsonify({'error': error}), 502
+    return jsonify({'url': shared[0], 'riders': [{'name': r.get('name'), 'isDefault': bool(r.get('isDefault'))} for r in riders]})
+
+
+@bp.route('/friends', methods=['POST'])
+def friend_add():
+    """Add a friend from their share code, as Add & Sync on the Friends page: JSON {code, rider (the name picked from probe, empty for
+    their default), name (how they're shown here)}. The first sync runs in the background."""
+    from routes.friends import add_friend
+    from services import feed_tokens
+    d = request.get_json(silent=True) or {}
+    shared = feed_tokens.parse_share_code(d.get('code'))
+    if not shared:
+        return jsonify({'error': "That isn't a friend code from Headwind."}), 400
+    rider = (d.get('rider') or '').strip()
+    name = (d.get('name') or '').strip()[:60] or rider
+    if not name:
+        return jsonify({'error': 'Enter a name to show them as'}), 400
+    rider = None if rider in ('', 'Default rider') else rider
+    return jsonify({'id': add_friend(name, shared[0], shared[1], rider), 'name': name}), 201
 
 
 @bp.route('/rides/<kind>/<rid>/sport', methods=['POST'])

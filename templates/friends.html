@@ -24,6 +24,7 @@
   .fr-edit { grid-template-columns:auto 9.5rem 9.5rem auto; }
   .fr-edit .fr-quick { grid-column:2 / -1; }
   .fr-connect { grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto; justify-content:stretch; }
+  .fr-code { grid-template-columns:minmax(0,1fr) auto; justify-content:stretch; }
 
   .fr-table { width:100%; border-collapse:collapse; font-size:0.85rem; }
   .fr-table th { padding:0.5rem; text-align:left; font-size:0.75rem; font-weight:600; color:var(--text-muted); border-bottom:1px solid var(--border); }
@@ -42,8 +43,15 @@
   .fr-x { background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:1.1rem; line-height:1; padding:0.2rem 0.4rem; }
   .fr-x:hover { color:var(--danger); }
 
-  .fr-new-token { margin-top:1rem; padding:0.9rem; border:1px solid var(--border); border-radius:8px; }
-  .fr-new-token code { background:var(--field-bg); border:1px solid var(--border); border-radius:6px; padding:0.5rem 0.9rem; font-size:0.9rem; flex:1; word-break:break-all; }
+  .fr-new-token { margin-top:1rem; padding:0.9rem; border:1px solid var(--border); border-radius:8px; display:flex; gap:1.25rem; align-items:flex-start; flex-wrap:wrap; }
+  .fr-new-token img { width:200px; height:200px; flex:none; background:var(--white); padding:6px; border-radius:10px; }
+  .fr-new-token > div { flex:1 1 18rem; min-width:0; display:flex; flex-direction:column; gap:0.6rem; font-size:0.85rem; }
+  .fr-copy { display:flex; align-items:center; gap:0.75rem; }
+  .fr-copy code { background:var(--field-bg); border:1px solid var(--border); border-radius:6px; padding:0.5rem 0.9rem; font-size:0.8rem; flex:1; min-width:0; word-break:break-all; }
+  .fr-new-token details { font-size:0.8rem; }
+  .fr-new-token details .fr-copy { margin-top:0.5rem; }
+  .fr-new-token .flash { margin:0; }
+  .fr-or { margin:1rem 0 0.75rem; font-size:0.8rem; color:var(--text-muted); }
 
   @media (max-width: 900px) {
     .fr-token { grid-template-columns:1fr 1fr; }
@@ -75,8 +83,8 @@
 <div class="card fr-card" id="feed-tokens">
   <div class="card-title">Who Can Read Your Feed</div>
   <p class="fr-intro">
-    Give each friend their own token, so you can choose what they see and revoke one person without touching the others.
-    A token is shown once — lose it and make a new one.
+    Give each friend their own code, so you can choose what they see and revoke one person without touching the others.
+    It holds your address and a token for them, and is shown once — lose it and make a new one.
   </p>
 
   <form id="token-form" class="fr-grid fr-token">
@@ -92,7 +100,7 @@
     </div>
     <label class="fr-field">Activities from <input name="sinceDate" type="date"></label>
     <label class="fr-field">to <input name="untilDate" type="date"></label>
-    <button type="submit" class="btn btn-primary" style="white-space:nowrap;">Create Token</button>
+    <button type="submit" class="btn btn-primary" style="white-space:nowrap;">Create Code</button>
     <div class="fr-quick">
       <button type="button" class="btn btn-secondary btn-sm" data-range="all">All activities</button>
       <button type="button" class="btn btn-secondary btn-sm" data-range="6">Past 6 months</button>
@@ -102,11 +110,27 @@
   </form>
 
   <div id="new-token" class="fr-new-token" style="display:none;">
-    <div style="font-size:0.85rem; margin-bottom:0.5rem;">Token for <b id="new-token-name"></b> — copy it now, it won't be shown again:</div>
-    <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
-      <code id="new-token-value"></code>
-      <button type="button" class="btn btn-secondary" onclick="copyToken(document.getElementById('new-token-value').textContent, this)">Copy</button>
-      <button type="button" class="btn btn-secondary" onclick="location.reload()">Done</button>
+    <img id="new-token-qr" alt="QR code for your friend">
+    <div>
+      <div>Code for <b id="new-token-name"></b> — send it now, it won't be shown again. They scan the QR code with the Headwind
+        app on their iPhone, or paste the code into Friends → Add a Friend on their Headwind.</div>
+      <div class="fr-copy">
+        <code id="new-token-code"></code>
+        <button type="button" class="btn btn-secondary" onclick="copyToken(document.getElementById('new-token-code').textContent, this)">Copy</button>
+      </div>
+      <div class="hint">It connects to <code id="new-token-url"></code>. Anyone with the code can read what it shares, so send it privately.</div>
+      <div id="new-token-warn" class="flash flash-warning" hidden>
+        That address only works on your home network, so your friend's Headwind won't reach it. Set <code>APP_URL</code> in this
+        instance's env file to the https address you reach Headwind on from outside, restart, and make a new code.
+      </div>
+      <details>
+        <summary>Their Headwind doesn't take codes? Send the address and token instead</summary>
+        <div class="fr-copy"><code id="new-token-addr"></code>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="copyToken(document.getElementById('new-token-addr').textContent, this)">Copy</button></div>
+        <div class="fr-copy"><code id="new-token-value"></code>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="copyToken(document.getElementById('new-token-value').textContent, this)">Copy</button></div>
+      </details>
+      <div><button type="button" class="btn btn-secondary" onclick="location.reload()">Done</button></div>
     </div>
   </div>
 
@@ -176,9 +200,16 @@
 <!-- Add a friend -->
 <div class="card fr-card">
   <div class="card-title">Add a Friend</div>
-  <p class="fr-intro">Ask your friend for their Headwind address and a feed token they made for you.</p>
+  <p class="fr-intro">Ask your friend for a code: they make one for you under Who Can Read Your Feed on their Headwind.</p>
 
-  <!-- Step 1: connect -->
+  <!-- Step 1: connect, with a code or with the address and token -->
+  <div class="fr-grid fr-code">
+    <label class="fr-field">Their code
+      <input id="probe-code" type="text" placeholder="hwfc_…" autocomplete="off">
+    </label>
+    <button type="button" onclick="probeInstance('code')" class="btn btn-secondary probe-btn" style="white-space:nowrap;">Connect</button>
+  </div>
+  <p class="fr-or">Or, from a Headwind that doesn't make codes, their address and a feed token:</p>
   <div class="fr-grid fr-connect">
     <label class="fr-field"><span>Their Headwind address <span class="hint">(just the address, no path)</span></span>
       <input id="probe-url" type="url" placeholder="e.g. https://sam.example.com">
@@ -186,7 +217,7 @@
     <label class="fr-field">Their feed token
       <input id="probe-token" type="text" placeholder="hwf_…" autocomplete="off">
     </label>
-    <button id="probe-btn" type="button" onclick="probeInstance()" class="btn btn-secondary" style="white-space:nowrap;">Connect</button>
+    <button type="button" onclick="probeInstance('token')" class="btn btn-secondary probe-btn" style="white-space:nowrap;">Connect</button>
   </div>
 
   <div id="probe-error" class="flash flash-error" style="display:none; margin:0.75rem 0 0;"></div>
@@ -321,34 +352,53 @@ document.getElementById('token-form').addEventListener('submit', function(e) {
     .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
     .then(function(d) {
       document.getElementById('new-token-name').textContent = form.elements.name.value;
+      document.getElementById('new-token-qr').src = d.qr;
+      document.getElementById('new-token-code').textContent = d.code;
+      document.getElementById('new-token-url').textContent = d.url;
+      document.getElementById('new-token-addr').textContent = d.url;
       document.getElementById('new-token-value').textContent = d.token;
-      document.getElementById('new-token').style.display = 'block';
+      document.getElementById('new-token-warn').hidden = !homeOnly(d.url);
+      document.getElementById('new-token').style.display = 'flex';
       form.reset();
     })
     .catch(function(err) { alert('Could not create the token: ' + err.message); });
 });
 
-function probeInstance() {
-  var url   = document.getElementById('probe-url').value.trim().replace(/\/+$/, '');
-  var token = document.getElementById('probe-token').value.trim();
-  var btn   = document.getElementById('probe-btn');
+// An address a friend's instance can't reach from outside: plain http, or a local name or private IP.
+function homeOnly(url) {
+  var host;
+  try { host = new URL(url).hostname; } catch (e) { return true; }
+  return !url.startsWith('https://') || host === 'localhost' || host.endsWith('.local')
+      || /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host);
+}
+
+function probeInstance(via) {
+  var body  = via === 'code'
+    ? {code: document.getElementById('probe-code').value.trim()}
+    : {url: document.getElementById('probe-url').value.trim().replace(/\/+$/, ''), token: document.getElementById('probe-token').value.trim()};
+  var btns  = document.querySelectorAll('.probe-btn');
+  var btn   = btns[via === 'code' ? 0 : 1];
   var errEl = document.getElementById('probe-error');
-  if (!url) { errEl.textContent = 'Enter a URL first'; errEl.style.display = 'block'; return; }
+  if (!(body.code || body.url)) {
+    errEl.textContent = via === 'code' ? 'Paste their code first' : 'Enter a URL first';
+    errEl.style.display = 'block';
+    return;
+  }
 
   btn.textContent = 'Connecting…';
-  btn.disabled = true;
+  btns.forEach(function(b) { b.disabled = true; });
   errEl.style.display = 'none';
   document.getElementById('add-form').style.display = 'none';
 
   fetch('/friends/probe', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({url: url, token: token})
+    body: JSON.stringify(body)
   })
   .then(r => r.json())
   .then(data => {
     btn.textContent = 'Connect';
-    btn.disabled = false;
+    btns.forEach(function(b) { b.disabled = false; });
     if (data.error) {
       errEl.textContent = data.error;
       errEl.style.display = 'block';
@@ -376,13 +426,13 @@ function probeInstance() {
       }
     };
 
-    document.getElementById('form-url').value = url;
-    document.getElementById('form-token').value = token;
+    document.getElementById('form-url').value = data.url;
+    document.getElementById('form-token').value = data.token;
     document.getElementById('add-form').style.display = 'block';
   })
   .catch(function(e) {
     btn.textContent = 'Connect';
-    btn.disabled = false;
+    btns.forEach(function(b) { b.disabled = false; });
     errEl.textContent = 'Connection failed: ' + e.message;
     errEl.style.display = 'block';
   });

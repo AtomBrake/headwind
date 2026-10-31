@@ -3,6 +3,7 @@ import VisionKit
 
 /// Full-screen QR scanner (VisionKit's DataScanner). Calls `onCode` once with the first QR payload it reads.
 struct QRScannerSheet: View {
+    var title = "Scan pairing code"
     var onCode: (String) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -22,7 +23,7 @@ struct QRScannerSheet: View {
                     )
                 }
             }
-            .navigationTitle("Scan pairing code")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }

@@ -6,7 +6,7 @@ import urllib.parse
 import urllib.request
 import urllib.error
 
-from flask import Blueprint, Response, abort, jsonify, redirect, render_template, request, stream_with_context, url_for
+from flask import Blueprint, Response, abort, current_app, jsonify, redirect, render_template, request, stream_with_context, url_for
 
 log = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ from database import get_db, query_db
 from services.segments import scan_activity_against_segments, scan_all_activities, _refresh_prs, seg_sport
 from services.limits import bounded_lines
 from services.peer_http import open_peer
-from services import feed_tokens, sports, vault
+from services import feed_tokens, qr, sports, vault
 
 bp = Blueprint('friends', __name__)
 
@@ -187,11 +187,27 @@ def set_sync_interval():
     return redirect(url_for('friends.index'))
 
 
+def share_url():
+    """The address a friend's instance reaches us on: APP_URL when it's https, else the one this browser used (often a LAN
+    address, which the page warns about)."""
+    app_url = (current_app.config.get('APP_URL') or '').rstrip('/')
+    return app_url if app_url.startswith('https://') else request.host_url.rstrip('/')
+
+
+def new_token(name, form, url):
+    """Make a feed token and its share code. Returned once: only the token's hash is kept."""
+    token, tid = feed_tokens.create(name, form)
+    code = feed_tokens.share_code(url, token)
+    link = feed_tokens.share_link(code)
+    return {'id': tid, 'token': token, 'url': url, 'code': code, 'link': link}
+
+
 @bp.route('/friends/tokens', methods=['POST'])
 def create_token():
-    """Returns the new token once, as JSON (only its hash is kept)."""
-    token, tid = feed_tokens.create(request.form.get('name'), request.form)
-    return jsonify({'id': tid, 'token': token})
+    """Returns the new token once, as JSON, with its share code and QR."""
+    made = new_token(request.form.get('name'), request.form, share_url())
+    made['qr'] = qr.data_url(made['link'])
+    return jsonify(made)
 
 
 @bp.route('/friends/tokens/<int:tid>', methods=['POST'])
@@ -208,32 +224,40 @@ def revoke_token(tid):
 
 @bp.route('/friends/probe', methods=['POST'])
 def probe():
-    """Fetch the rider list from a remote instance to populate the Add Friend dropdown."""
-    data  = request.get_json(silent=True) or {}
-    url   = (data.get('url')   or '').strip().rstrip('/')
+    """Fetch the rider list from a remote instance to populate the Add Friend dropdown. Takes the address and token, or a
+    share code (then the address and token it holds come back too, for the Add form)."""
+    data = request.get_json(silent=True) or {}
+    url = (data.get('url') or '').strip().rstrip('/')
     token = (data.get('token') or '').strip()
+    if data.get('code'):
+        shared = feed_tokens.parse_share_code(data['code'])
+        if not shared:
+            return jsonify({'error': "That isn't a friend code from Headwind. It starts hwfc_ (or headwind://friend)."})
+        url, token = shared
     if not url:
         return jsonify({'error': 'URL required'}), 400
+    riders, error = probe_riders(url, token)
+    return jsonify({'error': error} if error else {'riders': riders, 'url': url, 'token': token})
 
-    probe_url = url + '/api/riders'
-    headers   = {'User-Agent': 'Headwind/1.0'}
+
+def probe_riders(url, token):
+    """(riders, None) from the friend's /api/riders, or (None, why not)."""
+    headers = {'User-Agent': 'Headwind/1.0'}
     if token:
         headers['X-Feed-Token'] = token
-
     try:
-        resp = open_peer(probe_url, headers, timeout=10)
-        riders = json.loads(resp.read())
-        return jsonify({'riders': riders})
+        resp = open_peer(url + '/api/riders', headers, timeout=10)
+        return json.loads(resp.read()), None
     except urllib.error.HTTPError as e:
         if e.code == 403:
-            return jsonify({'error': 'Invalid token — check the feed token and try again'})
+            return None, 'Invalid token — check the feed token and try again'
         if e.code == 404:
             # Older instance without /api/riders — return a synthetic default entry
-            return jsonify({'riders': [{'id': None, 'name': 'Default rider', 'isDefault': 1}]})
-        return jsonify({'error': f'HTTP {e.code} from remote instance'})
+            return [{'id': None, 'name': 'Default rider', 'isDefault': 1}], None
+        return None, f'HTTP {e.code} from remote instance'
     except Exception as e:
         log.warning('Fetching riders from a friend failed', exc_info=True)
-        return jsonify({'error': f'Could not connect: {e}'})
+        return None, f'Could not connect: {e}'
 
 
 @bp.route('/friends/add', methods=['POST'])
@@ -243,20 +267,21 @@ def add():
     token      = (request.form.get('token')      or '').strip()
     rider_name = (request.form.get('riderName')  or '').strip() or None
 
-    if not name or not url:
-        return redirect(url_for('friends.index'))
-
-    db = get_db()
-    db.execute('INSERT INTO Friend (name, url, token, riderName) VALUES (?,?,?,?)',
-               [name, url, vault.seal(token), rider_name])
-    db.commit()
-    fid = db.execute('SELECT last_insert_rowid()').fetchone()[0]
-
-    # Large initial syncs can take minutes — run in background so the browser doesn't hang
-    from flask import current_app
-    app = current_app._get_current_object()
-    threading.Thread(target=_bg_sync, args=(app, fid), daemon=True).start()
+    if name and url:
+        add_friend(name, url, token, rider_name)
     return redirect(url_for('friends.index'))
+
+
+def add_friend(name, url, token, rider_name):
+    """Store the friend and start their first sync. Returns the Friend id."""
+    db = get_db()
+    cur = db.execute('INSERT INTO Friend (name, url, token, riderName) VALUES (?,?,?,?)',
+                     [name, url, vault.seal(token), rider_name])
+    db.commit()
+    # Large initial syncs can take minutes — run in background so the browser doesn't hang
+    app = current_app._get_current_object()
+    threading.Thread(target=_bg_sync, args=(app, cur.lastrowid), daemon=True).start()
+    return cur.lastrowid
 
 
 def _bg_sync(app, friend_id):

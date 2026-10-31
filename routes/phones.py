@@ -1,13 +1,10 @@
 """Pair a phone with this instance: create a device token, show it once as a QR code (and text), list / revoke paired phones."""
-import base64
-import io
 import os
 
-import qrcode
 from flask import Blueprint, current_app, jsonify, render_template, request, send_file
 from urllib.parse import quote
 
-from services import device_auth
+from services import device_auth, qr
 
 bp = Blueprint('phones', __name__, url_prefix='/phones')
 
@@ -33,11 +30,7 @@ def create():
                                  "and set APP_URL in this instance's env file to it so this box is pre-filled next time."}), 400
     token, did = device_auth.create(d.get('name') or 'Phone')
     link = f"headwind://pair?u={quote(url, safe='')}&t={token}"
-    img = qrcode.make(link, box_size=8, border=2)
-    buf = io.BytesIO()
-    img.save(buf, format='PNG')
-    return jsonify({'id': did, 'token': token, 'server_url': url, 'link': link,
-                    'qr': 'data:image/png;base64,' + base64.b64encode(buf.getvalue()).decode()})
+    return jsonify({'id': did, 'token': token, 'server_url': url, 'link': link, 'qr': qr.data_url(link)})
 
 
 @bp.route('/<int:device_id>/revoke', methods=['POST'])
