@@ -20,17 +20,27 @@ MAX_DURATION_S, MAX_DISTANCE_M, MAX_ELEV_M = 48 * 3600, 1_500_000, 20_000
 
 
 def _local_start(local_iso):
+    """(local wall-clock start, UTC start) as naive datetimes. A time with no offset is the server's home zone (the web form, older apps); one with
+    an offset (the iPhone sends its own) keeps the wall-clock time where it happened, as a recording's startDateLocal does."""
+    s = str(local_iso or '').strip()
     try:
-        dt = datetime.fromisoformat(str(local_iso)[:19])
+        dt = datetime.fromisoformat(s)
     except ValueError:
-        raise ValueError('that date and time are not valid')
+        try:
+            dt = datetime.fromisoformat(s[:19])
+        except ValueError:
+            raise ValueError('that date and time are not valid')
     if dt.tzinfo:
-        dt = dt.astimezone(tz.zone()).replace(tzinfo=None)
-    if dt > tz.now().replace(tzinfo=None) + timedelta(days=1):
+        local, utc = dt.replace(tzinfo=None), dt.astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+    else:
+        local = dt.replace(microsecond=0)
+        utc = local.replace(tzinfo=tz.zone()).astimezone(ZoneInfo('UTC')).replace(tzinfo=None)
+    local, utc = local.replace(microsecond=0), utc.replace(microsecond=0)
+    if utc > datetime.now(ZoneInfo('UTC')).replace(tzinfo=None) + timedelta(days=1):
         raise ValueError('that is in the future')
-    if dt.year < 2000:
+    if local.year < 2000:
         raise ValueError('that date is too far in the past')
-    return dt
+    return local, utc
 
 
 def _num(v, name, lo=0, hi=None, required=False):
@@ -55,7 +65,7 @@ def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, 
         raise ValueError('sport must be one of ' + ', '.join(SPORTS))
     if source not in SOURCES:
         source = 'manual'
-    start = _local_start(local_iso)
+    start, start_utc = _local_start(local_iso)
     secs = int(_num(duration_s, 'duration', 60, MAX_DURATION_S, required=True))
     dist = (0.0 if sport in NO_DISTANCE else _num(distance_m, 'distance', 0, MAX_DISTANCE_M, required=True)) or 0.0
     hr = _num(avg_hr, 'heart rate', 25, 250)
@@ -64,7 +74,7 @@ def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, 
     name = (name or '').strip()[:80] or None
     notes = (notes or '').strip()[:1000] or None
     local = start.strftime('%Y-%m-%dT%H:%M:%S')
-    utc = start.replace(tzinfo=tz.zone()).astimezone(ZoneInfo('UTC')).strftime('%Y-%m-%dT%H:%M:%S')
+    utc = start_utc.strftime('%Y-%m-%dT%H:%M:%S')
     key = client_id or f'{local}|{sport}|{round(dist)}|{secs}'
     aid = ('man_' if is_ride(sport) else 'wk_') + hashlib.sha1(f'{rider_id}|manual|{key}'.encode()).hexdigest()[:16]
     avg = dist / secs if secs else 0

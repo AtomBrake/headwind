@@ -24,9 +24,13 @@ private let start = Date(timeIntervalSince1970: 1_760_000_000)
 
 struct SportTests {
     @Test func gpxTypesAreWhatTheServerParserMaps() {
-        // services/parser.py _SPORT_MAP: cycling → Ride, ebike → EBikeRide, running → Run, walking → Walk, hiking → Hike
-        #expect(Sport.allCases.map(\.gpxType) == ["cycling", "ebike", "running", "walking", "hiking"])
-        #expect(Sport.allCases.map(\.rawValue) == ["Ride", "EBikeRide", "Run", "Walk", "Hike"])
+        // services/parser.py _SPORT_MAP: cycling → Ride, ebike → EBikeRide, running → Run, walking → Walk, hiking → Hike, swimming → Swim
+        let gps = Sport.allCases.filter(\.usesGPS)
+        #expect(gps.map(\.gpxType) == ["cycling", "ebike", "running", "walking", "hiking", "swimming"])
+        #expect(gps.map(\.serverSport) == ["Ride", "EBikeRide", "Run", "Walk", "Hike", "Swim"])
+        // The timed-only ones are services/manual_activity.SPORTS
+        #expect(Sport.allCases.filter { !$0.usesGPS }.map(\.serverSport) == ["VirtualRide", "VirtualRun", "Swim", "Strength", "HIIT", "Yoga"])
+        #expect(!Sport.phoneSports.contains(.poolSwim) && !Sport.phoneSports.contains(.openWaterSwim))
         let gpx = String(decoding: GPXWriter.gpx(segments: [track(seconds: 2)],
                                                  summary: RideSummary(start: start, distance: 5, movingTime: 1, elapsedTime: 1, elevationGain: 0, sport: .ebike)),
                          as: UTF8.self)
@@ -135,7 +139,8 @@ struct SportStorageTests {
         journal.begin(start: points[0].time, sport: .hike)
         for p in points { journal.append(p) }
         let recorder = PhoneRideRecorder(journal: journal, choices: RecordChoices(defaults: tempDefaults()))
-        let (gpx, summary) = try recorder.saveRecovered { (gpx: Data, s: RideSummary) throws(AppError) -> (Data, RideSummary) in (gpx, s) }
+        let (file, summary) = try recorder.saveRecovered { (gpx: Data?, s: RideSummary) throws(AppError) -> (Data?, RideSummary) in (gpx, s) }
+        let gpx = try #require(file)
         #expect(summary.sport == .hike)
         #expect(String(decoding: gpx, as: UTF8.self).contains("<type>hiking</type>"))
         #expect(String(decoding: gpx, as: UTF8.self).contains("Hike</name>"))
@@ -211,5 +216,79 @@ struct SwitchServerTests {
         }
         #expect(session.pairing == current)
         #expect(store.pairing == current)
+    }
+}
+
+struct TimedSessionTests {
+    @MainActor
+    @Test func aStrengthSessionIsATimerThatNeedsAMinute() throws {
+        let recorder = PhoneRideRecorder(journal: tempJournal(), choices: RecordChoices(defaults: tempDefaults()))
+        recorder.choose(sport: .strength)
+        recorder.start()
+        #expect(recorder.isRecording)
+        #expect(throws: AppError.self) {
+            try recorder.finish { (_: Data?, _: RideSummary) throws(AppError) -> Void in }
+        }
+        #expect(recorder.isRecording)     // too short: still going, nothing lost
+        recorder.discard()
+    }
+
+    @Test func aSessionsJournalKeepsItsProgress() throws {
+        let journal = tempJournal()
+        defer { journal.clear() }
+        journal.begin(start: start, sport: .poolSwim)
+        journal.note(.init(at: start.addingTimeInterval(1800), active: 1750, distance: 1200, calories: 300, heartRate: 128))
+        let r = try #require(journal.load())
+        let s = RideJournal.summary(of: r)
+        #expect(s.sport == .poolSwim && s.movingTime == 1750 && s.distance == 1200 && s.calories == 300 && s.averageHeartRate == 128)
+    }
+
+    @Test func aSessionGoesToActivitiesWithItsOffset() {
+        let body = Uploader.sessionBody(summary: .session(start: start, elapsed: 3600, sport: .yoga, calories: 150), id: UUID(), name: "Yoga")
+        #expect(body.sport == "Yoga" && body.duration_s == 3600 && body.distance_m == nil && body.calories == 150)
+        #expect(ISO8601DateFormatter().date(from: body.start) == start)
+    }
+
+    @Test func powerAndCadenceGoInTheGPX() {
+        let points = track(seconds: 3).map { var p = $0; p.power = 210; p.cadence = 88; p.hr = 140; return p }
+        let gpx = String(decoding: GPXWriter.gpx(segments: [points], name: "x"), as: UTF8.self)
+        #expect(gpx.contains("<power>210</power>") && gpx.contains("<gpxtpx:cad>88</gpxtpx:cad>") && gpx.contains("<gpxtpx:hr>140</gpxtpx:hr>"))
+        var t = RideTracker()
+        for p in points { t.add(p) }
+        #expect(t.averagePower == 210 && t.averageCadence == 88)
+    }
+
+    @Test func swimsReadPer100Metres() {
+        #expect(Units(system: "metric").swimPace(metresPerSecond: 100.0 / 112) == "1:52 /100m")
+        #expect(Units(system: "metric").rate(metresPerSecond: 1, sport: .poolSwim).hasSuffix("/100m"))
+        #expect(Units.rateCaption(.openWaterSwim) == "Pace")
+    }
+}
+
+@MainActor
+struct WatchRecordingTests {
+    @Test func aWatchRideKeepsItsIdSoItsUploadedOnce() throws {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "store-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = RideStore(directory: dir)
+        let id = UUID()
+        let summary = RideSummary.session(start: start, elapsed: 1200, sport: .poolSwim, distance: 800)
+        let first = try store.addSession(summary: summary, source: .watch, id: id)
+        let again = try store.addSession(summary: summary, source: .watch, id: id)   // the Watch sent it twice
+        #expect(first.id == id && again.id == id && store.rides.count == 1)
+        #expect(store.gpxURL(for: first) == nil && !first.hasTrack && first.kind == "workout")
+        #expect(RideStore.destination(first).fields["client_id"] == id.uuidString)
+    }
+}
+
+struct HealthSleepTests {
+    @Test func overlappingSleepIsCountedOnceAndDatedToTheMorning() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Europe/London")!
+        let d = { (day: Int, h: Int, m: Int) in cal.date(from: DateComponents(year: 2026, month: 10, day: day, hour: h, minute: m))! }
+        // The Watch and a sleep app both recorded the same night, overlapping; then a nap the next afternoon.
+        let nights = HealthSync.nights([(d(19, 23, 0), d(20, 3, 0)), (d(20, 2, 0), d(20, 6, 30)), (d(20, 14, 0), d(20, 14, 30))], calendar: cal)
+        #expect(nights == [HealthDay(date: "2026-10-20", metric: "sleep_hours", value: 8.0)])
+        #expect(HealthSync.clientID(UUID(uuidString: "E621E1F8-C36C-495A-93FC-0C247A3E6E5F")!) == "ah_e621e1f8-c36c-495a-93fc-0c247a3e6e5f")
     }
 }

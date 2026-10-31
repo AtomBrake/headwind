@@ -44,7 +44,8 @@ private struct IdleControls: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            if recorder.authorization == .denied || recorder.authorization == .restricted {
+            if recorder.sport.usesGPS && (recorder.authorization == .denied || recorder.authorization == .restricted) {
+                SportAndBikePicker(recorder: recorder, bikes: bikes)   // a timed sport needs no location, so let one be picked
                 Label("Location access is off. Allow it in Settings to record rides.", systemImage: "location.slash")
                     .font(.callout)
                     .padding(12)
@@ -62,13 +63,23 @@ private struct IdleControls: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .accessibilityIdentifier("start-ride")
-                Label(recorder.gpsReady ? "GPS ready" : "Waiting for GPS…",
-                      systemImage: recorder.gpsReady ? "location.fill" : "location")
-                    .font(.caption)
-                    .foregroundStyle(recorder.gpsReady ? .green : .secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
-                    .background(.regularMaterial, in: Capsule())
+                if recorder.sport.usesGPS {
+                    Label(recorder.gpsReady ? "GPS ready" : "Waiting for GPS…",
+                          systemImage: recorder.gpsReady ? "location.fill" : "location")
+                        .font(.caption)
+                        .foregroundStyle(recorder.gpsReady ? .green : .secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(.regularMaterial, in: Capsule())
+                } else {
+                    Label("Timed: no GPS. Record it on your Watch for heart rate and calories.", systemImage: "timer")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(.regularMaterial, in: Capsule())
+                }
             }
         }
     }
@@ -82,7 +93,7 @@ private struct SportAndBikePicker: View {
     var body: some View {
         HStack(spacing: 8) {
             Picker("Sport", selection: Binding(get: { recorder.sport }, set: { recorder.choose(sport: $0) })) {
-                ForEach(Sport.allCases) { sport in
+                ForEach(Sport.phoneSports) { sport in
                     Label(sport.title, systemImage: sport.systemImage).tag(sport)
                 }
             }
@@ -114,20 +125,27 @@ struct RideStatsPanel: View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             VStack(spacing: 10) {
                 Text(Units.clock(seconds: recorder.clock.elapsed(at: context.date)))
-                    .font(.system(size: 44, weight: .semibold, design: .rounded))
+                    .font(.system(size: recorder.sport.usesGPS ? 44 : 72, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .accessibilityIdentifier("ride-elapsed")
-                Grid(horizontalSpacing: 12, verticalSpacing: 10) {
-                    GridRow {
-                        Stat(value: units.distance(metres: recorder.tracker.distance), caption: "Distance")
-                        Stat(value: units.rate(metresPerSecond: recorder.tracker.currentSpeed, sport: recorder.sport),
-                             caption: Units.rateCaption(recorder.sport))
+                if recorder.sport.usesGPS {
+                    Grid(horizontalSpacing: 12, verticalSpacing: 10) {
+                        GridRow {
+                            Stat(value: units.distance(metres: recorder.tracker.distance), caption: "Distance")
+                            Stat(value: units.rate(metresPerSecond: recorder.tracker.currentSpeed, sport: recorder.sport),
+                                 caption: Units.rateCaption(recorder.sport))
+                        }
+                        GridRow {
+                            Stat(value: units.rate(metresPerSecond: recorder.tracker.averageSpeed, sport: recorder.sport),
+                                 caption: Units.rateCaption(recorder.sport, average: true))
+                            Stat(value: units.elevation(metres: recorder.tracker.elevationGain), caption: "Climbing")
+                        }
                     }
-                    GridRow {
-                        Stat(value: units.rate(metresPerSecond: recorder.tracker.averageSpeed, sport: recorder.sport),
-                             caption: Units.rateCaption(recorder.sport, average: true))
-                        Stat(value: units.elevation(metres: recorder.tracker.elevationGain), caption: "Climbing")
-                    }
+                } else {
+                    // A timer: nothing else to show from the phone alone.
+                    Text(recorder.state == .paused ? "Paused" : recorder.sport.title)
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(16)
@@ -192,9 +210,33 @@ struct RideSummaryGrid: View {
     var units: Units
 
     var body: some View {
+        if !summary.sport.usesGPS {
+            // A timed session: its time, and what the Watch measured.
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 14) {
+                GridRow {
+                    Stat(value: Units.duration(seconds: summary.movingTime), caption: "Time")
+                    if summary.sport.hasDistance, summary.distance > 0 {
+                        Stat(value: units.distance(metres: summary.distance, sport: summary.sport), caption: "Distance")
+                    } else {
+                        Stat(value: summary.averageHeartRate.map { "\($0) bpm" } ?? "–", caption: "Avg heart rate")
+                    }
+                }
+                if let kcal = summary.calories {
+                    GridRow {
+                        Stat(value: Units.whole(kcal), caption: "Active calories")
+                        Color.clear.frame(height: 1)
+                    }
+                }
+            }
+        } else {
+            trackGrid
+        }
+    }
+
+    private var trackGrid: some View {
         Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 14) {
             GridRow {
-                Stat(value: units.distance(metres: summary.distance), caption: "Distance")
+                Stat(value: units.distance(metres: summary.distance, sport: summary.sport), caption: "Distance")
                 Stat(value: Units.duration(seconds: summary.movingTime), caption: "Moving time")
             }
             GridRow {
@@ -205,7 +247,11 @@ struct RideSummaryGrid: View {
             if let hr = summary.averageHeartRate {
                 GridRow {
                     Stat(value: "\(hr) bpm", caption: "Avg heart rate")
-                    Color.clear.frame(height: 1)
+                    if let power = summary.averagePower {
+                        Stat(value: "\(power) W", caption: "Avg power")
+                    } else {
+                        Color.clear.frame(height: 1)
+                    }
                 }
             }
         }

@@ -25,37 +25,28 @@ private struct RecordScreen: View {
     @Environment(RideStore.self) private var store
     @Environment(WatchBridge.self) private var watch
     @Environment(Router.self) private var router
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var confirmFinish = false
     @State private var justSaved: SavedRide.ID?
     @State private var error: AppError?
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            RideMap(recorder: recorder)
-
-            VStack(spacing: 12) {
-                if let recovered = recorder.recovered, !recorder.isRecording {
-                    RecoveredBanner(start: recovered.start, sport: recovered.sport, save: { save(recovered: true) },
-                                    discard: recorder.discardRecovered)
+        // Narrow (a phone upright, the iPhone Duo's outer screen): the controls over the map. Wide (on its side, the Duo open): beside it.
+        // The recording lives in PhoneRideRecorder, not here, so switching between the two mid-ride loses nothing.
+        Group {
+            if sizeClass == .regular {
+                HStack(spacing: 0) {
+                    backdrop
+                    ScrollView { panel.padding(16) }
+                        .frame(width: 380)
+                        .background(Color(.systemGroupedBackground))
                 }
-                if let watchError = watch.lastError {
-                    Label("A ride from your Watch couldn't be saved: \(watchError.localizedDescription)", systemImage: "applewatch.slash")
-                        .font(.caption)
-                        .padding(10)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            } else {
+                ZStack(alignment: .bottom) {
+                    backdrop
+                    panel.padding(16)
                 }
-                if session.pairing == nil {
-                    Label("Not paired with a server. This ride stays on the phone until you pair again.", systemImage: "link.badge.plus")
-                        .font(.caption)
-                        .padding(10)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-                if recorder.isRecording {
-                    RideStatsPanel(recorder: recorder, units: session.units)
-                }
-                RecordControls(recorder: recorder, bikes: session.bikes, onStart: startRide) { confirmFinish = true }
             }
-            .padding(16)
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -81,10 +72,43 @@ private struct RecordScreen: View {
         }
         .sheet(item: savedRideBinding) { ride in
             RideSavedSheet(rideID: ride.id)
-                .presentationDetents([.medium])
+                .presentationDetents([.medium, .large])
         }
         .onAppear { recorder.warmUp() }
         .onDisappear { recorder.coolDown() }
+    }
+
+    @ViewBuilder private var backdrop: some View {
+        if recorder.sport.usesGPS {
+            RideMap(recorder: recorder)
+        } else {
+            TimerBackdrop(sport: recorder.sport)
+        }
+    }
+
+    private var panel: some View {
+        VStack(spacing: 12) {
+            if let recovered = recorder.recovered, !recorder.isRecording {
+                RecoveredBanner(start: recovered.start, sport: recovered.sport, save: { save(recovered: true) },
+                                discard: recorder.discardRecovered)
+            }
+            if let watchError = watch.lastError {
+                Label("A ride from your Watch couldn't be saved: \(watchError.localizedDescription)", systemImage: "applewatch.slash")
+                    .font(.caption)
+                    .padding(10)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+            if session.pairing == nil {
+                Label("Not paired with a server. This ride stays on the phone until you pair again.", systemImage: "link.badge.plus")
+                    .font(.caption)
+                    .padding(10)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
+            if recorder.isRecording {
+                RideStatsPanel(recorder: recorder, units: session.units)
+            }
+            RecordControls(recorder: recorder, bikes: session.bikes, onStart: startRide) { confirmFinish = true }
+        }
     }
 
     private var title: String {
@@ -111,8 +135,9 @@ private struct RecordScreen: View {
     /// on disk, so a failure is shown and nothing is thrown away. Returns whether it was stored.
     @discardableResult
     private func save(recovered: Bool, announce: Bool = true) -> Bool {
-        let keep = { (gpx: Data, summary: RideSummary) throws(AppError) -> SavedRide in
-            try store.add(gpx: gpx, summary: summary, source: .phone)
+        let keep = { (gpx: Data?, summary: RideSummary) throws(AppError) -> SavedRide in
+            if let gpx { return try store.add(gpx: gpx, summary: summary, source: .phone) }
+            return try store.addSession(summary: summary, source: .phone)
         }
         do throws(AppError) {
             let ride = recovered ? try recorder.saveRecovered(into: keep) : try recorder.finish(into: keep)
@@ -150,5 +175,23 @@ private struct RideMap: View {
         let points = recorder.tracker.points
         let step = max(1, points.count / 2000)
         return stride(from: 0, to: points.count, by: step).map { points[$0].coordinate }
+    }
+}
+
+/// Behind a timed session's clock, where the map would be: the sport's figure, large and faint.
+private struct TimerBackdrop: View {
+    var sport: Sport
+
+    var body: some View {
+        ZStack {
+            Color(.systemGroupedBackground)
+            Image(systemName: sport.systemImage)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 220, maxHeight: 220)
+                .foregroundStyle(Color.accentColor.opacity(0.12))
+                .accessibilityHidden(true)
+        }
+        .ignoresSafeArea(edges: .bottom)
     }
 }

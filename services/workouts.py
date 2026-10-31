@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from database import get_db, query_db
 from services import tz
-from services.sports import INDOOR_RUN, ON_FOOT as SPORTS, RIDE_SQL
+from services.sports import INDOOR_RUN, NO_DISTANCE, ON_FOOT as SPORTS, RIDE_SQL, WORKOUTS
 
 log = logging.getLogger(__name__)
 # A workout as the phone API and the Workouts page have always seen it (before 0.7 it had a table of its own, with `sport` for sportType)
@@ -59,8 +59,9 @@ def _local(iso, lat=None, lng=None, sport=None):
     return tz.local_at(dt, lat, lng, sport), dt.astimezone(ZoneInfo('UTC')).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
-def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=None, source='android'):
-    """Parse a GPX recording and store it. Returns (workout dict, created: bool) or raises ValueError with a readable reason."""
+def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=None, source='android', calories=None):
+    """Parse a GPX recording and store it. Returns (workout dict, created: bool) or raises ValueError with a readable reason. `sport` is any sport
+    with a track that isn't a ride (an open-water swim from the Watch, say); `calories` the device's own figure, kept as it is, else an estimate."""
     from services.parser import parse_gpx
     try:
         act = parse_gpx(data, stopped_speed=0.2, smooth_gain=True)     # on foot: a slow stroll is still moving, and phone GPS altitude is noisy
@@ -68,7 +69,8 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
         raise ValueError(f'that is not a readable GPX file ({type(e).__name__})')
     if not act or not act.get('startDateLocal'):
         raise ValueError('could not read a timed track from that GPX file')
-    sport = sport if sport in SPORTS else (act.get('sportType') if act.get('sportType') in SPORTS else 'Walk')
+    tracked = tuple(s for s in WORKOUTS if s not in NO_DISTANCE)
+    sport = sport if sport in tracked else (act.get('sportType') if act.get('sportType') in tracked else 'Walk')
     local, utc = _local(act['startDateLocal'], act.get('startLat'), act.get('startLng'), sport)
     key = client_id or f"{local}|{round(act.get('distance') or 0)}"
     wid = 'wk_' + hashlib.sha1(f'{rider_id}|{key}'.encode()).hexdigest()[:16]
@@ -82,7 +84,10 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
     kg = goal_model.current_weight_kg(rider_id) or 70.0
     dist, secs, gain = act.get('distance') or 0, int(act.get('movingTime') or 0), act.get('totalElevationGain') or 0
     from services.calorie_adjust import pair as _kcal_pair
-    kcal_raw, kcal = _kcal_pair(estimate_calories(sport, dist, secs, gain, kg))     # global burn adjustment, applied as the figure is made
+    if calories is not None and 0 < calories <= 20_000:
+        kcal_raw, kcal = None, round(calories)         # the Watch measured it: not adjusted, as a figure typed in isn't
+    else:
+        kcal_raw, kcal = _kcal_pair(estimate_calories(sport, dist, secs, gain, kg) or estimate_met_calories(sport, secs, kg))     # global burn adjustment, applied as the figure is made
     weather = None
     if act.get('startLat') is not None:
         try:

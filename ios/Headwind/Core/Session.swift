@@ -56,8 +56,8 @@ final class Session {
     }
 
     /// Every screen loads through here so a revoked token sends the user back to pairing, wherever it's noticed.
-    func load<T: Decodable & Sendable>(_ path: String, as type: T.Type = T.self) async throws(AppError) -> T {
-        try await call { client async throws(AppError) in try await client.get(path, as: type) }
+    func load<T: Decodable & Sendable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type = T.self) async throws(AppError) -> T {
+        try await call { client async throws(AppError) in try await client.get(path, query: query, as: type) }
     }
 
     func call<T: Sendable>(_ request: (APIClient) async throws(AppError) -> T) async throws(AppError) -> T {

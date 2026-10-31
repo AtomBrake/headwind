@@ -2,20 +2,32 @@ import CoreLocation
 import Foundation
 import HealthKit
 import Observation
+import WatchKit
 
-/// Records a ride, run, walk or hike on the Watch. A HealthKit workout session of the matching type keeps the app running
-/// with the wrist down and supplies heart rate; Core Location supplies the track. When it ends it's saved to Apple Health
-/// (with its route) and handed to the iPhone as GPX, heart rate on every point, for upload to Headwind.
+/// Records any sport on the Watch. A HealthKit workout session of the matching type keeps the app running with the wrist down and supplies
+/// heart rate, calories and (from sensors paired with the Watch) power and cadence; Core Location supplies the track for the GPS sports.
+/// When it ends it's saved to Apple Health (with its route) and handed to the iPhone, as GPX with heart rate on every point, or for a
+/// timed-only session (strength, an indoor ride, a pool swim) as its summary: time, HealthKit's distance, calories and average heart rate.
+///
+/// One instance, `shared`, so the Action button's intents (WorkoutIntents.swift) drive the same recording the screens show.
 @MainActor
 @Observable
 final class WorkoutManager: NSObject {
     enum State: Equatable { case idle, starting, recording, paused, saving, finished }
 
+    static let shared = WorkoutManager(phone: PhoneLink())
+
     private(set) var state: State = .idle
     private(set) var tracker = RideTracker()
     private(set) var clock = ActiveClock()
     private(set) var heartRate: Int?
+    private(set) var averageHeartRate: Int?
     private(set) var activeEnergy: Double = 0
+    /// Watts and rpm, latest, from a power meter or cadence sensor paired with the Watch.
+    private(set) var power: Int?
+    private(set) var cadence: Int?
+    /// HealthKit's distance for the sport: what a timed-only session reports (lengths swum, a treadmill's steps), since it has no track.
+    private(set) var healthDistance: Double = 0
     private(set) var lastSummary: RideSummary?
     /// Whether the last finished ride was handed to the phone link, for the summary's "Sent to iPhone".
     private(set) var lastSent = false
@@ -28,6 +40,8 @@ final class WorkoutManager: NSObject {
     private(set) var chosenBike: Int?
     /// The bike the recording in progress is on.
     private(set) var bikeId: Int?
+    /// The pool's length for a pool swim, in metres.
+    private(set) var poolLength: Double
 
     private let healthStore = HKHealthStore()
     private var session: HKWorkoutSession?
@@ -36,12 +50,14 @@ final class WorkoutManager: NSObject {
     private let location = CLLocationManager()
     private let journal = RideJournal.standard
     private let choices = RecordChoices()
+    private var noteTask: Task<Void, Never>?
     let phone: PhoneLink
 
     init(phone: PhoneLink) {
         self.phone = phone
         sport = choices.sport
         chosenBike = choices.bikeId
+        poolLength = choices.poolLength
         super.init()
         location.delegate = self
         location.desiredAccuracy = kCLLocationAccuracyBest
@@ -55,9 +71,11 @@ final class WorkoutManager: NSObject {
     func requestAuthorization() async {
         let share: Set<HKSampleType> = [HKQuantityType.workoutType(), HKSeriesType.workoutRoute()]
         let read: Set<HKObjectType> = [HKQuantityType(.heartRate), HKQuantityType(.activeEnergyBurned),
-                                       HKQuantityType(.distanceCycling), HKQuantityType(.distanceWalkingRunning)]
+                                       HKQuantityType(.distanceCycling), HKQuantityType(.distanceWalkingRunning),
+                                       HKQuantityType(.distanceSwimming), HKQuantityType(.cyclingPower), HKQuantityType(.cyclingCadence),
+                                       HKQuantityType(.cyclingSpeed)]
         try? await healthStore.requestAuthorization(toShare: share, read: read)
-        if location.authorizationStatus == .notDetermined { location.requestWhenInUseAuthorization() }
+        if sport.usesGPS, location.authorizationStatus == .notDetermined { location.requestWhenInUseAuthorization() }
     }
 
     /// Locked once recording: a ride can't become a run halfway.
@@ -73,6 +91,15 @@ final class WorkoutManager: NSObject {
         choices.bikeId = bike
     }
 
+    func choose(poolLength: Double) {
+        guard !isActive, state != .saving, poolLength >= 10, poolLength <= 100 else { return }
+        self.poolLength = poolLength
+        choices.poolLength = poolLength
+    }
+
+    /// The bike a ride starts on: the picker's choice if it's still the rider's, else the server's default.
+    var bikeToRide: Int? { Bike.pick(chosenBike, from: phone.bikes) }
+
     /// `bike` is the one to ride on (Bike.pick of the picker's choice); ignored on foot.
     func start(bike: Int? = nil) async {
         guard state == .idle || state == .finished else { return }
@@ -87,9 +114,7 @@ final class WorkoutManager: NSObject {
         state = .starting
         await requestAuthorization()
 
-        let config = HKWorkoutConfiguration()
-        config.activityType = sport.workoutType
-        config.locationType = .outdoor
+        let config = configuration(for: sport)
         var started: HKWorkoutSession?
         do {
             let session = try HKWorkoutSession(healthStore: healthStore, configuration: config)
@@ -100,21 +125,28 @@ final class WorkoutManager: NSObject {
             builder.delegate = self
             self.session = session
             self.builder = builder
-            routeBuilder = HKWorkoutRouteBuilder(healthStore: healthStore, device: nil)
+            routeBuilder = sport.usesGPS ? HKWorkoutRouteBuilder(healthStore: healthStore, device: nil) : nil
 
             let now = Date()
             tracker = RideTracker()
             bikeId = sport.isRide ? bike : nil
             clock.start(at: now)
             heartRate = nil
+            averageHeartRate = nil
+            power = nil
+            cadence = nil
             activeEnergy = 0
+            healthDistance = 0
             journal.begin(start: now, sport: sport, bikeId: bikeId)
             session.startActivity(with: now)
             try await builder.beginCollection(at: now)
             // The session can fail or end while collection starts, and has then already been cleaned up or finished.
             guard self.session === session, state == .starting else { return }
-            location.startUpdatingLocation()
+            if sport.usesGPS { location.startUpdatingLocation() }
+            if sport.isSwim { WKInterfaceDevice.current().enableWaterLock() }
+            if !sport.usesGPS { startNotes() }
             state = .recording
+            await ActionButton.donateNextAction()
         } catch {
             guard self.session === started else { return }
             self.error = .health(underlying: error)
@@ -122,6 +154,23 @@ final class WorkoutManager: NSObject {
             self.session?.end()
             reset()
         }
+    }
+
+    /// What Apple Health records it as, where, and for a pool swim the pool's length so the Watch can count lengths.
+    private func configuration(for sport: Sport) -> HKWorkoutConfiguration {
+        let config = HKWorkoutConfiguration()
+        config.activityType = sport.workoutType
+        config.locationType = sport.usesGPS ? .outdoor : .indoor
+        switch sport {
+        case .poolSwim:
+            config.swimmingLocationType = .pool
+            config.lapLength = HKQuantity(unit: .meter(), doubleValue: poolLength)
+        case .openWaterSwim:
+            config.swimmingLocationType = .openWater
+        default:
+            break
+        }
+        return config
     }
 
     func pause() {
@@ -132,6 +181,10 @@ final class WorkoutManager: NSObject {
     func resume() {
         guard state == .paused else { return }
         session?.resume()
+    }
+
+    func togglePause() {
+        state == .paused ? resume() : pause()
     }
 
     func end() {
@@ -147,20 +200,22 @@ final class WorkoutManager: NSObject {
         lastSummary = nil
     }
 
-    /// Keeps the recovered ride, journal and all, if it can't be handed to the phone. One with too little track to save, as
+    /// Keeps the recovered ride, journal and all, if it can't be handed to the phone. One with too little to save, as
     /// finishWorkout would refuse, is discarded.
     func saveRecovered() {
         guard let r = recovered else { return }
-        let t = RideTracker(segments: r.segments)
-        guard t.pointCount >= 2 else {
+        if r.session == nil, RideTracker(segments: r.segments).pointCount < 2 {
             discardRecovered()
             error = .rideTooShort
             return
         }
-        let end = t.lastPoint?.time ?? r.start
+        let summary = RideJournal.summary(of: r)
         do throws(AppError) {
-            try send(segments: r.segments, summary: RideSummary(start: r.start, tracker: t, elapsed: end.timeIntervalSince(r.start),
-                                                                 sport: r.sport, bikeId: r.bikeId))
+            if r.session == nil {
+                try send(segments: r.segments, summary: summary)
+            } else {
+                try phone.send(session: summary)
+            }
             recovered = nil
             journal.clear()
         } catch {
@@ -183,8 +238,15 @@ final class WorkoutManager: NSObject {
         let routeBuilder = self.routeBuilder
         state = .saving
         clock.pause(at: end)
+        noteTask?.cancel()
+        noteTask = nil
         location.stopUpdatingLocation()
-        let summary = RideSummary(start: start, tracker: tracker, elapsed: clock.elapsed(at: end), sport: sport, bikeId: bikeId)
+        let elapsed = clock.elapsed(at: end)
+        let kcal = activeEnergy > 0 ? activeEnergy : nil
+        let summary = sport.usesGPS
+            ? RideSummary(start: start, tracker: tracker, elapsed: elapsed, sport: sport, bikeId: bikeId, calories: kcal)
+            : .session(start: start, elapsed: elapsed, sport: sport, distance: healthDistance, averageHeartRate: averageHeartRate,
+                       calories: kcal, bikeId: bikeId)
         do {
             try await builder.endCollection(at: end)
             if let workout = try await builder.finishWorkout(), tracker.pointCount >= 2 {
@@ -194,9 +256,14 @@ final class WorkoutManager: NSObject {
             // Health couldn't save it; the ride still goes to Headwind. A session failure's error is kept.
             self.error = self.error ?? .health(underlying: error)
         }
-        if tracker.pointCount >= 2 {
+        let keep = sport.usesGPS ? tracker.pointCount >= 2 : elapsed >= RideSummary.minimumSession
+        if keep {
             do throws(AppError) {
-                try send(segments: tracker.segments, summary: summary)
+                if sport.usesGPS {
+                    try send(segments: tracker.segments, summary: summary)
+                } else {
+                    try phone.send(session: summary)
+                }
                 lastSent = true
                 journal.clear()
             } catch {
@@ -205,7 +272,7 @@ final class WorkoutManager: NSObject {
                 recovered = journal.load()
             }
         } else {
-            error = error ?? .rideTooShort
+            error = error ?? (sport.usesGPS ? .rideTooShort : .sessionTooShort)
             journal.clear()
         }
         lastSummary = summary
@@ -221,11 +288,30 @@ final class WorkoutManager: NSObject {
 
     private func reset() {
         location.stopUpdatingLocation()
+        noteTask?.cancel()
+        noteTask = nil
         session = nil
         builder = nil
         routeBuilder = nil
         state = .idle
         journal.clear()
+    }
+
+    /// A timed-only session has no fixes to journal, so its progress is noted every 30 s instead.
+    private func startNotes() {
+        noteTask?.cancel()
+        noteTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                self?.noteSession()
+            }
+        }
+    }
+
+    private func noteSession() {
+        guard isActive, !sport.usesGPS else { return }
+        journal.note(.init(at: .now, active: clock.elapsed(), distance: healthDistance > 0 ? healthDistance : nil,
+                           calories: activeEnergy > 0 ? activeEnergy : nil, heartRate: averageHeartRate))
     }
 
     // MARK: - Events (hopped onto the main actor by the delegate methods below)
@@ -237,11 +323,12 @@ final class WorkoutManager: NSObject {
             state = .recording
             tracker.resume()
             clock.resume(at: date)
-            journal.newSegment()
+            if sport.usesGPS { journal.newSegment() }
         case .paused where state == .recording:
             state = .paused
             tracker.pause()
             clock.pause(at: date)
+            noteSession()
         case .ended:
             Task { await finishWorkout(at: date) }
         default:
@@ -265,11 +352,11 @@ final class WorkoutManager: NSObject {
     }
 
     private func received(_ locations: [CLLocation]) {
-        guard state == .recording else { return }
+        guard state == .recording, sport.usesGPS else { return }
         let fresh = locations.filter { $0.timestamp >= (clock.startedAt ?? .distantPast) }
         var kept: [CLLocation] = []
         for loc in fresh {
-            let point = RidePoint(loc, hr: heartRate)
+            let point = RidePoint(loc, hr: heartRate, power: power, cadence: cadence)
             if tracker.add(point) {
                 journal.append(point)
                 kept.append(loc)
@@ -282,11 +369,22 @@ final class WorkoutManager: NSObject {
     }
 
     private func collected(_ statistics: [HKQuantityType: HKStatistics]) {
-        if let hr = statistics[HKQuantityType(.heartRate)]?.mostRecentQuantity() {
-            heartRate = Int(hr.doubleValue(for: HKUnit.count().unitDivided(by: .minute())).rounded())
+        let perMinute = HKUnit.count().unitDivided(by: .minute())
+        if let hr = statistics[HKQuantityType(.heartRate)] {
+            if let latest = hr.mostRecentQuantity() { heartRate = Int(latest.doubleValue(for: perMinute).rounded()) }
+            if let avg = hr.averageQuantity() { averageHeartRate = Int(avg.doubleValue(for: perMinute).rounded()) }
         }
         if let energy = statistics[HKQuantityType(.activeEnergyBurned)]?.sumQuantity() {
             activeEnergy = energy.doubleValue(for: .kilocalorie())
+        }
+        if let watts = statistics[HKQuantityType(.cyclingPower)]?.mostRecentQuantity() {
+            power = Int(watts.doubleValue(for: .watt()).rounded())
+        }
+        if let rpm = statistics[HKQuantityType(.cyclingCadence)]?.mostRecentQuantity() {
+            cadence = Int(rpm.doubleValue(for: perMinute).rounded())
+        }
+        if let type = sport.distanceType, let d = statistics[type]?.sumQuantity() {
+            healthDistance = d.doubleValue(for: .meter())
         }
     }
 }
@@ -317,17 +415,5 @@ extension WorkoutManager: HKLiveWorkoutBuilderDelegate {
 extension WorkoutManager: CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         Task { @MainActor in self.received(locations) }
-    }
-}
-
-private extension Sport {
-    /// What Apple Health records it as. There's no e-bike type: an e-bike ride is cycling.
-    var workoutType: HKWorkoutActivityType {
-        switch self {
-        case .ride, .ebike: .cycling
-        case .run: .running
-        case .walk: .walking
-        case .hike: .hiking
-        }
     }
 }
