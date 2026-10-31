@@ -99,7 +99,9 @@ Planned next:
 
 1. Food logging with barcode scan
 2. Widgets
-3. Bluetooth sensors on the iPhone (power, cadence, speed, heart rate strap, a smart trainer), for riding without the Watch
+3. Bluetooth sensors on the iPhone (power, cadence, speed, heart rate strap, a smart trainer), for riding without the Watch.
+   Started: the readings are parsed (`Shared/SensorParsing.swift`) and the sensor manager connects paired sensors and puts heart
+   rate, power and cadence on the iPhone's points (`Headwind/Sensors/`); the Sensors screen to pair them comes next.
 
 Later:
 
@@ -198,6 +200,7 @@ ios/
     Activities/            every activity from the server, and one in detail with its photos
     Health/                Apple Health reader (HealthSync)
     Record/                iPhone recorder, recordings store and upload queue, Watch link, Record tab
+    Sensors/               Bluetooth LE sensors (SensorManager), their readings combined (SensorHub), paired sensors
   HeadwindWatch/           Watch app: HealthKit workout + GPS recorder, iPhone link and direct upload, Action button intents, screens
   HeadwindTests/           Swift Testing unit tests
   HeadwindUITests/         end-to-end iPhone tests against a live server
