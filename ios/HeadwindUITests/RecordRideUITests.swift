@@ -19,6 +19,7 @@ final class RecordRideUITests: XCTestCase {
         let app = launchPaired(server: server, token: token)
         app.tabBars.buttons["Record"].tap()
         XCTAssertTrue(app.staticTexts["GPS ready"].waitForExistence(timeout: 15), "No GPS fix")
+        choose(app, "sport-picker", "Ride")     // the last sport chosen is remembered, perhaps by another test
         snapshot(app, "r1-ready")
 
         app.buttons["start-ride"].tap()

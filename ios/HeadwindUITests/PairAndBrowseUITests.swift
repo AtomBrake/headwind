@@ -22,11 +22,17 @@ final class PairAndBrowseUITests: XCTestCase {
         snapshot(app, "3-today-scrolled")
 
         app.tabBars.buttons["Overview"].tap()
-        XCTAssertTrue(app.staticTexts["Riding"].waitForExistence(timeout: 10), "Overview didn't load")
+        // A card per sport group ("Rides", "On foot") once the server has activities, or "Riding" on an empty one: both show a distance.
+        XCTAssertTrue(app.staticTexts["Distance"].firstMatch.waitForExistence(timeout: 10), "Overview didn't load")
         snapshot(app, "4-overview")
 
         app.tabBars.buttons["Settings"].tap()
-        XCTAssertTrue(app.buttons["Unpair this phone"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Sensors"].waitForExistence(timeout: 5))
+        app.buttons["settings-sensors"].tap()
+        XCTAssertTrue(app.staticTexts["Tyre"].waitForExistence(timeout: 5), "Sensors screen didn't open")
+        snapshot(app, "6-sensors")
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(scrollTo(app.buttons["Unpair this phone"], in: app).exists)
         snapshot(app, "5-settings")
     }
 }
