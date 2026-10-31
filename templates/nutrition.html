@@ -1159,7 +1159,8 @@ function fmtDateLabel(d) {
   if (ds === isoDate(yd)) return 'Yesterday';
   return d.toLocaleDateString('en-GB', {day:'numeric',month:'short'});
 }
-function escHtml(s) { const d=document.createElement('div'); d.appendChild(document.createTextNode(s||'')); return d.innerHTML; }
+// Escapes quotes too: it is used inside attribute values (title="…") as well as text
+function escHtml(s) { return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
 
 // ── Date nav ──────────────────────────────────────────────────────────
 document.getElementById('prevDay').addEventListener('click', () => { currentDate.setDate(currentDate.getDate()-1); loadDay(); });
