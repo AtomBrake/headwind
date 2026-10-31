@@ -8,7 +8,10 @@ enum PhotoPrep {
     static let maxSide: CGFloat = 1600
 
     static func jpeg(from data: Data, quality: CGFloat = 0.84) -> Data? {
-        guard let image = UIImage(data: data) else { return nil }
+        UIImage(data: data).flatMap { jpeg(from: $0, quality: quality) }
+    }
+
+    static func jpeg(from image: UIImage, quality: CGFloat = 0.84) -> Data? {
         let size = image.size
         let scale = min(1, maxSide / max(size.width, size.height, 1))
         let target = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
@@ -19,6 +22,36 @@ enum PhotoPrep {
             image.draw(in: CGRect(origin: .zero, size: target))     // draws upright, whatever the original's orientation
         }
         return resized.jpegData(compressionQuality: quality)
+    }
+}
+
+/// A photo taken now with the camera (UIImagePickerController; the camera permission is NSCameraUsageDescription, shared with the QR scanner).
+/// Calls `onImage` with the picture, or nothing when cancelled; either way the caller closes it.
+struct CameraPicker: UIViewControllerRepresentable {
+    var onImage: (UIImage?) -> Void
+
+    static var isAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(onImage: onImage) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let onImage: (UIImage?) -> Void
+        init(onImage: @escaping (UIImage?) -> Void) { self.onImage = onImage }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            onImage(info[.originalImage] as? UIImage)
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { onImage(nil) }
     }
 }
 

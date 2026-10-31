@@ -1,21 +1,17 @@
 import Charts
 import MapKit
-import PhotosUI
 import SwiftUI
 
-/// One activity from the server (GET /api/v1/rides/<kind>/<id>): its map, the numbers that suit its sport, its charts and its photos.
-/// Photos are added from the library with PhotosPicker, which needs no photo-library permission: only the pictures picked are shared.
+/// One activity from the server (GET /api/v1/rides/<kind>/<id>): its map, the numbers that suit its sport, its charts and its photos
+/// (PhotosCard, which adds, deletes, orders and captions them).
 struct ActivityDetailView: View {
     var item: ActivityItem
     var onDelete: (String) -> Void
     @Environment(Session.self) private var session
     @State private var detail: ActivityDetail?
     @State private var error: AppError?
-    @State private var picked: [PhotosPickerItem] = []
-    @State private var adding = 0
     @State private var actionError: AppError?
     @State private var confirmDelete = false
-    @State private var viewing: ActivityDetail.Photo?
 
     var body: some View {
         Loaded(value: detail, error: error, retry: load) { d in
@@ -40,7 +36,8 @@ struct ActivityDetailView: View {
                         ForEach(charts(d), id: \.title) { chart in
                             Card(title: chart.title) { SeriesChart(points: chart.points, tint: chart.tint) }
                         }
-                        PhotosCard(photos: d.photos ?? [], adding: adding, picked: $picked, viewing: $viewing, delete: delete)
+                        PhotosCard(path: "rides/\(item.kind)/\(item.id)/photos",
+                                   photos: Binding(get: { detail?.photos ?? [] }, set: { detail?.photos = $0 }))
                         if let notes = [d.description, d.notes].compactMap({ $0?.isEmpty == false ? $0 : nil }).first {
                             Card(title: "Notes") { Text(notes) }
                         }
@@ -84,19 +81,6 @@ struct ActivityDetailView: View {
         } message: { e in
             Text(e.localizedDescription)
         }
-        .sheet(item: $viewing) { photo in
-            NavigationStack {
-                AuthedImage(path: photo.url, contentMode: .fit)
-                    .navigationTitle(photo.caption ?? "Photo")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { viewing = nil } } }
-            }
-        }
-        .onChange(of: picked) { _, items in
-            guard !items.isEmpty else { return }
-            picked = []
-            Task { await add(items) }
-        }
         .task { await load() }
     }
 
@@ -128,40 +112,6 @@ struct ActivityDetailView: View {
             error = nil
         } catch {
             self.error = error
-        }
-    }
-
-    /// Each picked picture as a shrunk JPEG, one request each, then the activity again for its photos.
-    private func add(_ items: [PhotosPickerItem]) async {
-        adding += items.count
-        for choice in items {
-            defer { adding = max(0, adding - 1) }
-            guard let raw = try? await choice.loadTransferable(type: Data.self), let jpeg = PhotoPrep.jpeg(from: raw) else {
-                actionError = .validationError(message: "That picture couldn't be read.")
-                continue
-            }
-            do throws(AppError) {
-                _ = try await session.call { client async throws(AppError) in
-                    try await client.upload("rides/\(item.kind)/\(item.id)/photos", file: jpeg, filename: "photo.jpg", mimeType: "image/jpeg",
-                                            fields: ["client_id": choice.itemIdentifier ?? UUID().uuidString], as: Ignored.self)
-                }
-            } catch {
-                actionError = error
-            }
-        }
-        await load()
-    }
-
-    private func delete(_ photo: ActivityDetail.Photo) {
-        Task {
-            do throws(AppError) {
-                _ = try await session.call { client async throws(AppError) in
-                    try await client.delete("rides/\(item.kind)/\(item.id)/photos/\(photo.id)", as: Ignored.self)
-                }
-                await load()
-            } catch {
-                actionError = error
-            }
         }
     }
 
@@ -246,44 +196,5 @@ private struct SeriesChart: View {
         }
         .chartXAxis(.hidden)
         .frame(height: 140)
-    }
-}
-
-private struct PhotosCard: View {
-    var photos: [ActivityDetail.Photo]
-    var adding: Int
-    @Binding var picked: [PhotosPickerItem]
-    @Binding var viewing: ActivityDetail.Photo?
-    var delete: (ActivityDetail.Photo) -> Void
-
-    var body: some View {
-        Card(title: "Photos") {
-            if photos.isEmpty && adding == 0 {
-                Text("No photos yet.").foregroundStyle(.secondary)
-            }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 90), spacing: 6)], spacing: 6) {
-                ForEach(photos) { photo in
-                    Button { viewing = photo } label: {
-                        AuthedImage(path: photo.thumbUrl)
-                            .frame(minWidth: 90, minHeight: 90)
-                            .frame(maxWidth: .infinity)
-                            .aspectRatio(1, contentMode: .fit)
-                            .clipped()
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        Button("Delete photo", systemImage: "trash", role: .destructive) { delete(photo) }
-                    }
-                    .accessibilityLabel(photo.caption ?? "Photo")
-                }
-                ForEach(0..<adding, id: \.self) { _ in
-                    ProgressView().frame(width: 90, height: 90)
-                }
-            }
-            PhotosPicker(selection: $picked, maxSelectionCount: 10, matching: .images, photoLibrary: .shared()) {
-                Label("Add photos", systemImage: "photo.badge.plus")
-            }
-        }
     }
 }

@@ -9,7 +9,8 @@
                             same pipeline as the web's single-file import (best efforts, segment matching, MQTT, weather)
   POST /api/v1/rides/ride/<id>/bike   change a ride's bike (JSON {bike_id: id or null})
   POST /api/v1/activities  a session with no track (JSON), timed on the phone or the Watch or typed in: strength, a pool swim, an indoor ride
-  POST /api/v1/rides/<kind>/<id>/photos   add one photo (multipart: file); DELETE .../photos/<pid>; GET /api/v1/photos/<name> serves one
+  POST /api/v1/rides/<kind>/<id>/photos   add one photo (multipart: file); DELETE .../photos/<pid>; GET /api/v1/photos/<name> serves one;
+                            POST .../photos/order puts them in order (JSON {ids}); PATCH .../photos/<pid> sets a caption (JSON {caption})
   POST /api/v1/health/days  Apple Health's daily figures from the iPhone (JSON {days: [{date, metric, value}]}), GET /api/v1/health what's stored,
                             DELETE /api/v1/health forgets it all (services/health.py)
   POST /api/v1/devices/watch   a token of its own for the phone's Apple Watch (services/device_auth.create_child)
@@ -546,7 +547,7 @@ def add_photo(kind, rid):
     if db.execute('SELECT COUNT(*) FROM ActivityPhoto WHERE activityId=?', [str(rid)]).fetchone()[0] >= MAX_PHOTOS:
         return jsonify({'error': f'an activity can have at most {MAX_PHOTOS} photos'}), 413
     try:
-        photos.save(db, rid, data, current_app.config['DATABASE'], caption=(request.form.get('caption') or '')[:200] or None,
+        photos.save(db, rid, data, current_app.config['DATABASE'], caption=(request.form.get('caption') or '')[:photos.MAX_CAPTION] or None,
                     source_key=_photo_key(rid, request.form.get('client_id')), position=photos.next_position(db, rid))
     except ValueError as e:
         return jsonify({'error': str(e)}), 413 if len(data) > photos.MAX_BYTES else 422
@@ -569,6 +570,37 @@ def remove_photo(kind, rid, pid):
     gone = photos.delete(db, pid, rid, current_app.config['DATABASE'])
     db.commit()
     return jsonify({'deleted': gone, 'photos': _photo_list(rid)}), (200 if gone else 404)
+
+
+@bp.route('/rides/<kind>/<rid>/photos/order', methods=['POST'])
+def order_photos(kind, rid):
+    """The activity's photos in a new order: JSON {ids: [...]}, every photo exactly once, or 400. The first is the cover."""
+    from services import photos
+    if kind not in ('ride', 'workout') or not _own_activity(rid):
+        return jsonify({'error': 'not found'}), 404
+    db = get_db()
+    try:
+        photos.reorder(db, rid, (request.get_json(silent=True) or {}).get('ids'))
+    except ValueError as e:
+        return jsonify({'error': str(e), 'photos': _photo_list(rid)}), 400
+    db.commit()
+    return jsonify({'photos': _photo_list(rid)})
+
+
+@bp.route('/rides/<kind>/<rid>/photos/<int:pid>', methods=['PATCH'])
+def caption_photo(kind, rid, pid):
+    """A photo's caption: JSON {caption}, an empty one clears it."""
+    from services import photos
+    if kind not in ('ride', 'workout') or not _own_activity(rid):
+        return jsonify({'error': 'not found'}), 404
+    body = request.get_json(silent=True) or {}
+    if 'caption' not in body or not isinstance(body['caption'], (str, type(None))):
+        return jsonify({'error': 'caption (text, or empty to clear it) is required'}), 400
+    db = get_db()
+    if not photos.set_caption(db, pid, rid, body['caption']):
+        return jsonify({'error': 'not found'}), 404
+    db.commit()
+    return jsonify({'photos': _photo_list(rid)})
 
 
 @bp.route('/photos/<name>')
