@@ -751,6 +751,8 @@ def delete(rid):
                '(SELECT id FROM Activity WHERE riderId=?)', [rid])          # their run and swim best times
     from services import photos
     photos.delete_for(db, [r[0] for r in db.execute('SELECT id FROM Activity WHERE riderId=?', [rid])], current_app.config['DATABASE'])
+    from services import recently_deleted                                         # nothing of theirs to restore any more
+    recently_deleted.empty(db, [b['id'] for b in recently_deleted.listing(db) if b['riderId'] == rid], current_app.config['DATABASE'])
     from services import strava_export
     strava_export.forget(db, current_app.config['DATABASE'], rid)                 # their Strava export kept for Import again
     strava_export.forget_read(db, rid)

@@ -207,7 +207,7 @@
     {% if deleted | length > 1 %}
     <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
       <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id='deleted', choice='delete') }}" style="margin:0;"
-            onsubmit="return confirm('Delete all {{ deleted | length }} here too? Their notes, photos and segment times go with them.')">
+            onsubmit="return confirm('Delete all {{ deleted | length }} here too? They go to Recently deleted on this page for {{ bin_days }} days.')">
         <button class="btn btn-danger-quiet btn-sm">Delete all here</button></form>
       <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id='deleted', choice='keep') }}" style="margin:0;">
         <button class="btn btn-secondary btn-sm">Keep all here</button></form>
@@ -222,7 +222,7 @@
       {% if c.parked %}<br><span style="color:var(--text-muted);">Another recording of it is set aside behind it: open it to use that one instead.</span>{% endif %}
     </span>
     <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='delete') }}" style="margin:0;"
-          onsubmit="return confirm('Delete this activity here too? Its notes, photos and segment times go with it.')">
+          onsubmit="return confirm('Delete this activity here too? It goes to Recently deleted on this page for {{ bin_days }} days.')">
       <button class="btn btn-danger-quiet btn-sm">Delete here</button></form>
     <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='keep') }}" style="margin:0;">
       <button class="btn btn-secondary btn-sm">Keep here</button></form>
@@ -292,7 +292,7 @@
     <summary style="font-weight:600; font-size:0.875rem; cursor:pointer;">Deleted here, still in Garmin ({{ garmin_deleted | length }})</summary>
     <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-top:0.25rem;">
       <p class="hint" style="margin:0; flex:1; min-width:14rem;">You deleted these here, or left them out above, so no sync brings them in. Bring one back and
-        it comes as Garmin has it: notes, photos and gear chosen here went when it was deleted.</p>
+        it comes as Garmin has it, unless it's still in Recently deleted below: then it comes back as it was here.</p>
       {% if garmin_deleted | length > 1 %}
       <form method="POST" action="{{ url_for('garmin.missing_resolve', gid='all', choice='restore') }}" style="margin:0;"
             onsubmit="if (!confirm('Bring back all {{ garmin_deleted | length }} from Garmin?')) return false; this.querySelector('button').disabled = true;">
@@ -311,6 +311,28 @@
     {% endfor %}
   </details>
   {% endif %}
+</div>
+{% endif %}
+
+{% if binned %}
+<div class="card" id="deleted" style="margin-top:1.25rem;">
+  <div class="card-title">Recently deleted ({{ binned | length }})</div>
+  <p class="hint" style="margin:0.25rem 0 0;">Deleted activities are kept for {{ bin_days }} days. Restore one and it comes back as it was, with its
+    notes, photos, gear and segment times. After that only its id is kept, so no sync brings it back.</p>
+  {% for b in binned %}
+  <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;">
+    <span style="flex:1; min-width:12rem;">
+      {{ b.startDateLocal | fmt_date }} · {{ b.name or (b.sportType | sport_label) }}
+      <span style="color:var(--text-muted);"> · {{ b.sportType | sport_label }}{% if b.distance %} · {{ b.distance | fmt_dist }}{% endif %}{% if riders | length > 1 and b.riderName %} · {{ b.riderName }}{% endif %}</span>
+      <br><span style="color:var(--text-muted);">Deleted {{ b.deletedAt | fmt_date }}; kept until {{ b.until | fmt_date }}</span>
+    </span>
+    <form method="POST" action="{{ url_for('import_rides.deleted_resolve', act_id=b.id, choice='restore') }}" style="margin:0;">
+      <button class="btn btn-secondary btn-sm">Restore</button></form>
+    <form method="POST" action="{{ url_for('import_rides.deleted_resolve', act_id=b.id, choice='empty') }}" style="margin:0;"
+          onsubmit="return confirm('Delete this activity now? Its notes, photos and segment times go for good. This cannot be undone.')">
+      <button class="btn btn-danger-quiet btn-sm">Delete now</button></form>
+  </div>
+  {% endfor %}
 </div>
 {% endif %}
 {% endblock %}

@@ -41,7 +41,7 @@
       {% if not is_workout %}<a href="{{ url_for('rides.export_gpx', rid=activity.id) }}">Download GPX</a>{% endif %}
       {% for l in source_links %}<a href="{{ l.url }}" target="_blank" rel="noopener">Open on {{ l.name }} ↗</a>{% endfor %}
       {% if not friend %}
-      <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=activity.id) if is_workout else url_for('rides.delete', rid=activity.id) }}" onsubmit="return confirm('{{ 'Delete this activity? Its photos and notes go with it. This cannot be undone.' if is_workout else 'Delete this activity? Its photos, notes and segment times go with it, and a later sync or import will not bring it back. This cannot be undone.' }}')">
+      <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=activity.id) if is_workout else url_for('rides.delete', rid=activity.id) }}" onsubmit="return confirm('Delete this activity? It goes to Recently deleted on the Import page for 30 days, to restore from there, and no sync brings it back.')">
         <button type="submit" class="danger">Delete</button>
       </form>
       {% endif %}
@@ -67,7 +67,7 @@
     {% if elapsed_fix %}<button class="btn btn-secondary" onclick="useElapsedTime()"
       title="The file's timestamps are broken; start to finish gives {{ (activity.distance / elapsed_fix) | fmt_rate(activity.sportType) }}">Use the elapsed time ({{ elapsed_fix | fmt_duration }})</button>{% endif %}
     <button class="btn btn-secondary" onclick="dismissFlag()">It's right, keep it</button>
-    <form method="POST" action="/rides/{{ activity.id }}/delete" onsubmit="return confirm('Delete this activity? Its photos, notes and segment times go with it, and a later sync or import will not bring it back. This cannot be undone.')" style="margin:0;"><button class="btn btn-danger-quiet" type="submit">Delete the {{ 'activity' if is_workout else 'ride' }}</button></form>
+    <form method="POST" action="/rides/{{ activity.id }}/delete" onsubmit="return confirm('Delete this activity? It goes to Recently deleted on the Import page for 30 days, to restore from there, and no sync brings it back.')" style="margin:0;"><button class="btn btn-danger-quiet" type="submit">Delete the {{ 'activity' if is_workout else 'ride' }}</button></form>
   </div>
 </div>
 {% endif %}
@@ -166,7 +166,7 @@ function typeChanged(sel) {
   {% endif %}
   <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
     {% for choice, label in ((('delete', 'Delete it here too'), ('keep', 'Keep it')) if gc.kind == 'deleted' else (('garmin', "Use Garmin's"), ('keep', 'Keep as it is here'))) %}
-    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=activity.id, choice=choice) }}"{% if choice == 'delete' %} onsubmit="return confirm('Delete this activity here too? Its notes, photos and segment times go with it.')"{% endif %}>
+    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=activity.id, choice=choice) }}"{% if choice == 'delete' %} onsubmit="return confirm('Delete this activity here too? It goes to Recently deleted on the Import page for 30 days.')"{% endif %}>
       <input type="hidden" name="back" value="ride"><button class="btn btn-secondary" type="submit">{{ label }}</button></form>
     {% endfor %}
   </div>

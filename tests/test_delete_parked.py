@@ -1,13 +1,13 @@
 """Deleting an activity settles the copies set aside behind it (services/duplicates.settle_parked): behind another live recording of the same ride,
-back as their own when only Garmin's record was deleted, discarded with a delete the rider made. And the run-once repair for copies an older delete
-left behind an id that's gone. Throwaway DB."""
+back as their own when only Garmin's record was deleted, in the bin with it for a delete the rider made (discarded when the bin is emptied). And the
+run-once repair for copies an older delete left behind an id that's gone. Throwaway DB."""
 import json
 
 import pytest
-from flask import Flask
+from flask import Flask, current_app
 
 import database
-from services import duplicates, garmin_changes, photos, workouts
+from services import duplicates, garmin_changes, photos, recently_deleted, workouts
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ def _live(db):
     return sorted(r[0] for r in db.execute('SELECT id FROM Activity'))
 
 
-def test_a_delete_of_your_own_moves_a_copy_behind_its_twin_and_discards_the_rest(db):
+def test_a_delete_of_your_own_moves_a_copy_behind_its_twin_and_bins_the_rest_with_it(db):
     _add(db, 'garmin_1', 'Box Hill loop')
     _add(db, 'garmin_2', 'Box Hill loop', dist=12100.0)                  # Garmin's double upload of it, kept apart on purpose
     db.execute("INSERT INTO ActivityDuplicate (id, primaryId, riderId, status, rowJson) VALUES ('garmin_2', 'garmin_1', 1, 'kept_both', '{}')")
@@ -59,9 +59,13 @@ def test_a_delete_of_your_own_moves_a_copy_behind_its_twin_and_discards_the_rest
     db.commit()
     assert duplicates.delete_activity(db, 'garmin_1')
     assert _live(db) == ['garmin_2']
+    assert _dups(db) == {'111': ('garmin_2', 'parked'), '222': ('garmin_1', 'parked'), 'garmin_2': ('garmin_1', 'kept_both')}     # in the bin with it
+    assert db.execute('SELECT COUNT(*) FROM ActivityPhoto').fetchone()[0] == 1          # yours, in the bin with it
+    assert duplicates.is_deleted(db, 'garmin_1')
+    assert recently_deleted.empty(db, ['garmin_1'], current_app.config['DATABASE']) == 1
     assert _dups(db) == {'111': ('garmin_2', 'parked'), '222': ('garmin_1', 'discarded'), 'garmin_2': ('', 'kept_both')}
     assert db.execute("SELECT rowJson FROM ActivityDuplicate WHERE id='222'").fetchone()[0] == '{}'
-    assert db.execute('SELECT COUNT(*) FROM ActivityPhoto').fetchone()[0] == 0          # yours, deleted with it
+    assert db.execute('SELECT COUNT(*) FROM ActivityPhoto').fetchone()[0] == 0
     assert duplicates.is_deleted(db, 'garmin_1')
 
 
@@ -83,7 +87,7 @@ def test_deleting_a_walk_settles_its_copies_too(db):
     _set_aside(db, '222', 'garmin_1', 'Phone walk', sport='Walk')
     db.commit()
     assert workouts.delete(db, 'garmin_1', 1)
-    assert _dups(db) == {'222': ('garmin_1', 'discarded')}
+    assert _dups(db) == {'222': ('garmin_1', 'parked')}                       # in the bin with it
 
 
 def test_copies_left_behind_a_deleted_activity_move_behind_their_twin_once(db):

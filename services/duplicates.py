@@ -473,16 +473,11 @@ def is_deleted(db, act_id):
 
 
 def tombstone(db, act_id, rider_id):
-    """Remember that the user deleted this ride (only the id, none of its data). Does not commit."""
+    """Remember that the user doesn't want this activity (only the id, none of its data): one left out on the Import page. One deleted here goes in
+    the bin instead (services/recently_deleted.put), whole, and is cut down to this after its days there. Does not commit."""
     ensure_schema(db)
     db.execute("INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson) VALUES (?,?,?,?,?,?,?)",
                [act_id, '', rider_id, 'deleted', 'deleted by you', 'deleted', '{}'])
-
-
-def _drop_photos(db, act_ids):
-    from flask import current_app
-    from services import photos
-    photos.delete_for(db, act_ids, current_app.config['DATABASE'])
 
 
 def _overlap_s(a, b):
@@ -499,9 +494,9 @@ def _match_for(db, row, exclude_ids=()):
 def settle_parked(db, act_id, by_garmin=False):
     """Before an activity is deleted: the copies set aside behind it, which nothing would show any more. One that is the same ride as another live
     activity moves behind that one. Otherwise, when the activity was deleted in Garmin (by_garmin: only Garmin's record went, not the session), the
-    copy comes back as its own activity, as an import of it alone would have saved it; when the rider deleted it, the copy is discarded with it (its
-    id stays remembered, so no sync brings it back). Returns the id now standing for the session when one does (where the photos can go), else
-    None. Does not commit."""
+    copy comes back as its own activity, as an import of it alone would have saved it; when the rider deleted it, the copy stays set aside behind
+    it and goes in the bin with it (services/recently_deleted.py): restored with it, or discarded when the bin is emptied (its id stays remembered,
+    so no sync brings it back). Returns the id now standing for the session when one does (where the photos can go), else None. Does not commit."""
     ensure_schema(db)
     stands = None
     for d in db.execute("SELECT id, rowJson FROM ActivityDuplicate WHERE primaryId=? AND status='parked' AND id<>? ORDER BY parkedAt",
@@ -522,16 +517,18 @@ def settle_parked(db, act_id, by_garmin=False):
             log.warning('Delete of %s (deleted in Garmin): its copy %s is back as its own activity', act_id, d['id'])
             stands = stands or d['id']
         else:
-            discard(db, d['id'])
-            log.warning('Delete of %s: its copy %s discarded with it', act_id, d['id'])
+            log.warning('Delete of %s: its copy %s goes in the bin with it', act_id, d['id'])
     return stands
 
 
 def delete_activity(db, act_id, by_garmin=False):
     """The one place a ride is deleted (web button, phone app, deleted in Garmin): derived data, the copies set aside behind it (settle_parked),
-    then a tombstone. by_garmin: deleted because Garmin deleted it, so its photos go to the copy that now stands for the session. Does not commit."""
+    then into the bin, whole, with its photos (services/recently_deleted.py); its id is remembered as deleted from then on. by_garmin: deleted
+    because Garmin deleted it, so its photos go to the copy that now stands for the session. An activity kept apart from this one ('kept_both')
+    still points at it, so the pair stays apart if it is restored. Does not commit."""
     from services.segments import _refresh_prs
-    row = db.execute('SELECT id, riderId FROM Activity WHERE id=?', [act_id]).fetchone()
+    from services import recently_deleted
+    row = db.execute('SELECT * FROM Activity WHERE id=?', [act_id]).fetchone()
     if not row:
         return False
     stands = settle_parked(db, act_id, by_garmin)
@@ -540,12 +537,10 @@ def delete_activity(db, act_id, by_garmin=False):
     if by_garmin and stands:
         from services import photos
         photos.move(db, act_id, stands)                 # most came from the copy set aside behind it, when it was merged
-    _drop_photos(db, [act_id])
     db.execute('UPDATE RideSensor SET rideKind=NULL, rideId=NULL WHERE rideId=?', [act_id])      # the phone's sensor recording stays, waiting for another ride
-    db.execute("UPDATE ActivityDuplicate SET primaryId='' WHERE primaryId=? AND status='kept_both'", [act_id])
     for sid in seg_ids:
         _refresh_prs(db, sid)
-    tombstone(db, act_id, row['riderId'])
+    recently_deleted.put(db, row)
     return True
 
 

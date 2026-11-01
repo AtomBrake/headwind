@@ -201,19 +201,16 @@ def forget(db, wid):
 
 
 def delete(db, wid, rider_id):
-    """Delete one of this rider's workouts with everything derived from it. One that came from Garmin is remembered (only its id), so the next sync
-    does not bring it back. Returns True if it existed. Does not commit."""
-    if not db.execute(f'SELECT 1 FROM Activity WHERE id=? AND riderId=? AND NOT {RIDE_SQL}', [wid, rider_id]).fetchone():
+    """Delete one of this rider's workouts with everything derived from it. It goes in the bin, whole, with its photos (services/recently_deleted.py),
+    and its id is remembered, so the next sync does not bring it back. Returns True if it existed. Does not commit."""
+    row = db.execute(f'SELECT * FROM Activity WHERE id=? AND riderId=? AND NOT {RIDE_SQL}', [wid, rider_id]).fetchone()
+    if not row:
         return False
-    from services import duplicates
-    duplicates.settle_parked(db, wid)                  # the copies set aside behind it: behind another recording of it, or discarded with it
+    from services import duplicates, recently_deleted
+    duplicates.settle_parked(db, wid)                  # the copies set aside behind it: behind another recording of it, or in the bin with it
     forget(db, wid)
     db.execute('DELETE FROM Activity WHERE id=?', [wid])
-    from flask import current_app
-    from services import photos
-    photos.delete_for(db, [wid], current_app.config['DATABASE'])
-    if str(wid).startswith('garmin_'):
-        duplicates.tombstone(db, wid, rider_id)
+    recently_deleted.put(db, row)
     return True
 
 

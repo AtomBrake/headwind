@@ -29,15 +29,44 @@ def index():
     from services import reimport, strava_gear
     from services import strava_export
     from services.rider_mode import owner_rider_id
-    from services import garmin_changes, tasks
+    from services import garmin_changes, recently_deleted, tasks
     riders = query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name ASC')
     return render_template('import.html', riders=riders, changes=reimport.pending(get_db()), problems=reimport.problems(get_db()),
+                           binned=recently_deleted.listing(get_db()), bin_days=recently_deleted.DAYS,
                            garmin_changes=garmin_changes.pending(get_db()), garmin_check=tasks.last(get_db(), garmin_changes.TASK),
                            garmin_missing=garmin_changes.not_here(get_db()), garmin_deleted=garmin_changes.not_here(get_db(), deleted=True),
                            garmin_full=bool(query_db("SELECT 1 FROM Settings WHERE id=1 AND garminSyncMode='full'", one=True)),
                            strava_pending=strava_gear.pending(get_db(), owner_rider_id()),
                            kept=strava_export.kept(get_db(), current_app.config['DATABASE']),
                            advice=strava_export.advice(get_db(), current_app.config['DATABASE']))
+
+
+@bp.route('/import/deleted/<path:act_id>/<choice>', methods=['POST'])
+def deleted_resolve(act_id, choice):
+    """Recently deleted (services/recently_deleted.py): 'restore' puts one back as it was; 'empty' deletes it for good now (its id stays
+    remembered, so no sync brings it back)."""
+    from flask import abort, flash, redirect, url_for
+    from services import recently_deleted
+    db = get_db()
+    if choice == 'restore':
+        kept = recently_deleted.restore(db, act_id)
+        if kept:
+            row = db.execute('SELECT name, sportType FROM Activity WHERE id=?', [kept]).fetchone()
+            from services.sports import label
+            what = (row['name'] or label(row['sportType'])) if row else 'the activity'
+            flash(f'Restored {what}.' if kept == act_id else
+                  f'Restored, and set aside as another recording of {what}, which arrived while it was deleted.', 'success')
+            try:
+                from services.mqtt import push_update
+                push_update(background=True)             # the Home Assistant totals take it back now, not at the next ride
+            except Exception:
+                log.warning('Home Assistant update after a restore failed', exc_info=True)
+    elif choice == 'empty':
+        recently_deleted.empty(db, [act_id], current_app.config['DATABASE'])
+        db.commit()
+    else:
+        abort(400)
+    return redirect(url_for('import_rides.index') + '#deleted')
 
 
 @bp.route('/import/problems/clear', methods=['POST'])
@@ -635,9 +664,10 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
         cropped = act.get('cropped', False)              # kept on the act: accepting it on the Import page takes Strava's 0 m climb as a figure
         if not already and not filename and _unpark_manual(db, act_id):
             already = True                              # a manual entry set aside behind a ride it isn't a copy of: back as its own activity
-        if not already and db.execute("SELECT 1 FROM ActivityDuplicate WHERE id=? AND status IN ('parked', 'discarded')", [act_id]).fetchone():
-            # set aside as a copy of another activity (or thrown away): adding it again would undo that, and a "use the other recording"
-            # choice with it. Its photos and commute go on the activity kept in its place. (Read all the same, for a clock that was out above.)
+        if not already and db.execute("SELECT 1 FROM ActivityDuplicate WHERE id=? AND status IN ('parked', 'discarded', 'deleted')", [act_id]).fetchone():
+            # set aside as a copy of another activity (or thrown away, or deleted here: Recently deleted on this page puts it back): adding it
+            # again would undo that, and a "use the other recording" choice with it. Its photos and commute go on the activity kept in its
+            # place. (Read all the same, for a clock that was out above.)
             kept_for = db.execute("""SELECT a.id FROM ActivityDuplicate d JOIN Activity a ON a.id = d.primaryId
                                      WHERE d.id=? AND d.status='parked'""", [act_id]).fetchone()
             if kept_for:
