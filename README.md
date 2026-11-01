@@ -549,6 +549,10 @@ Sign in with `admin` and that password, then change it under **Settings**. To ch
 
 Data lives in `./data` (database, avatars, food photos, generated login) and `./garmin_tokens`, next to your `docker-compose.yml`, so it survives restarts and upgrades.
 
+**It runs as a user, not root.** The app runs as `headwind` (uid and gid 1000), so on a Linux host the files in `./data` and `./garmin_tokens` belong to uid 1000. Folders made by an older image belong to root: at each start, before giving up root, the container hands over whatever isn't the user's yet (only those files, so later starts are quick). If it can't, for example because a folder is mounted read-only, or it's on NFS that maps root to nobody, it says so in the log and carries on as root, as older images did. To choose the user yourself, give the folders to that user first and set `user: "1000:1000"` (or your own ids) in the Compose file, or pass `--user` to `docker run`. The container then changes no ownership.
+
+**Health check.** The image checks `/login` every 30 seconds, and `docker ps` shows `healthy` once it answers. The first start on a new version migrates the database before it answers, which can take minutes on a big one, so the container shows `starting` for up to 10 minutes before a failed check counts.
+
 To reach it from outside your home, at an HTTPS address, add a Cloudflare Tunnel: see [Putting it on the internet safely](#recommended-cloudflare-tunnel).
 
 Images are published for **amd64 and arm64** on Docker Hub: `lordmerchant99/headwind` (tags: `latest`, `0.1.0-beta`).
@@ -972,6 +976,11 @@ Other smoke scripts: `smoke_client_ops`, `smoke_api_v1`, `smoke_recipes_sync`, `
 
 - Schema changes go through `migrate_db()` — add columns/tables, never drop/recreate.
 - Dates are UK format everywhere (`%-d %b %Y`); the UI uses CSS custom properties (no hard-coded colours).
+- **Dependencies:** `requirements.txt` lists what the app needs, loosely (`>=`). The Docker image installs the exact versions and hashes in `requirements.lock`, so a rebuild gets the same packages. The lock is made with pip-tools inside the image's base image (Linux; amd64 and arm64 resolve the same, and the hashes cover every platform's wheels). After changing `requirements.txt`, or to take newer versions, refresh it:
+  ```bash
+  docker run --rm -v "$PWD":/src -w /src python:3.14-slim sh -c "pip install -q pip-tools && pip-compile --upgrade --generate-hashes --allow-unsafe --strip-extras --output-file=requirements.lock requirements.txt"
+  ```
+  Leave out `--upgrade` to keep the current pins and only add what `requirements.txt` changed. CI runs `pip-audit` against the lock on every push.
 - Contributions are welcome — open an issue first for anything big. Please include a test or a smoke check with behaviour changes.
 
 ---

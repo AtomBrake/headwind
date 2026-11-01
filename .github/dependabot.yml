@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # the actions are pinned to commit SHAs with the version in a comment; Dependabot moves both
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:   # minor and patch releases in one PR; a new major version gets a PR of its own
+        patterns: ['*']
+        update-types: [minor, patch]
+  # requirements.txt and requirements-dev.txt; requirements.lock is refreshed by hand (README, Development)
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
