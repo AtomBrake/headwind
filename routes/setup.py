@@ -40,7 +40,7 @@ def wizard():
             if not multi_rider():
                 names = names[:1]
             if not names:
-                return render_template('setup.html', step='1')
+                return _page('1')
             db = get_db()
             for i, name in enumerate(names):
                 db.execute(
@@ -70,13 +70,18 @@ def wizard():
                 telemetry.ping_once()
             return redirect('/setup?step=6')
 
+    return _page(step)
+
+
+def _page(step, error=None):
+    """The wizard at `step`, with everything its template reads (the Home Assistant step's script is on every step)."""
     s = query_db('SELECT * FROM Settings WHERE id=1', one=True)
     try:
         ha_mappings = json.loads((s['haEntityMap'] if s else None) or '[]')
     except ValueError:
         ha_mappings = []
     return render_template(
-        'setup.html', step=step, s=s,
+        'setup.html', step=step, s=s, error=error,
         ha_targets=ha.TARGETS, ha_mappings=ha_mappings,
         ha_has_token=bool(s and s['haToken']),
         ha_weather_entity=(s['haWeatherEntity'] if s else None) or '',
@@ -90,7 +95,7 @@ def restore():
 
     f = request.files.get('backup')
     if not f or not f.filename:
-        return render_template('setup.html', step='1', error='No file selected.')
+        return _page('1', error='No file selected.')
 
     from services import backup
     from routes.settings import _db_path, _avatar_dir
@@ -99,17 +104,18 @@ def restore():
     try:
         tmp_dir, tmp_db, assets = backup.stage_upload(f)
         if backup.validate(tmp_db) == 0:
-            return render_template('setup.html', step='1', error='That backup has no riders — download a backup from a working Headwind instance.')
+            return _page('1', error='That backup has no riders — download a backup from a working Headwind instance.')
         backup.prepare(tmp_db)
         backup.apply(_db_path(), tmp_db, assets, _avatar_dir())
         migrate_db()
         note = backup.secrets_note(assets.get('secrets_key'))
     except backup.BackupError as e:
         log.warning('Restore in the setup wizard refused: %s', e)
-        return render_template('setup.html', step='1', error=str(e))
-    except Exception as e:
+        return _page('1', error=str(e))
+    except Exception:
         log.exception('Restore in the setup wizard failed')
-        return render_template('setup.html', step='1', error=f'Could not restore backup: {e}')
+        from services import logs
+        return _page('1', error=logs.failed('Could not restore the backup'))
     finally:
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)

@@ -14,7 +14,7 @@ from database import get_db, query_db
 from services.segments import scan_activity_against_segments, scan_all_activities, _refresh_prs, seg_sport
 from services.limits import bounded_lines
 from services.peer_http import open_peer
-from services import feed_tokens, qr, sports, vault
+from services import feed_tokens, logs, qr, sports, vault
 
 bp = Blueprint('friends', __name__)
 
@@ -255,9 +255,14 @@ def probe_riders(url, token):
             # Older instance without /api/riders — return a synthetic default entry
             return [{'id': None, 'name': 'Default rider', 'isDefault': 1}], None
         return None, f'HTTP {e.code} from remote instance'
-    except Exception as e:
+    except json.JSONDecodeError:
+        log.warning('Fetching riders from a friend: not JSON', exc_info=True)
+        return None, "That address answered, but not like a Headwind instance — check the URL"
+    except ValueError as e:                              # open_peer: not an http(s) address
+        return None, str(e)
+    except Exception:
         log.warning('Fetching riders from a friend failed', exc_info=True)
-        return None, f'Could not connect: {e}'
+        return None, logs.failed('Could not connect to that address')
 
 
 @bp.route('/friends/add', methods=['POST'])

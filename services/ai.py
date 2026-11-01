@@ -171,6 +171,10 @@ class AIUnavailable(Exception):
     """No AI provider configured — raised (not returned as text) so it is never stored as a real analysis."""
 
 
+class AIDeclined(RuntimeError):
+    """The model refused the request. Its message is ours and safe to show, unlike an arbitrary provider error's."""
+
+
 CLAUDE_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']
 PROVIDER_NAMES = {'openai': 'OpenAI', 'claude': 'Claude', 'ollama': 'Ollama'}
 _CLAUDE_FALLBACK_MODELS = ('claude-opus-5-5', 'claude-sonnet-5-5')    # the ones that take fallbacks="default"
@@ -237,7 +241,7 @@ class Chat:
             model=self.model, max_tokens=16000, output_config={'effort': 'medium'},
             messages=[{'role': m['role'], 'content': _claude_content(m['content'])} for m in messages], **kw)
         if resp.stop_reason == 'refusal':
-            raise RuntimeError('Claude declined this request.')
+            raise AIDeclined('Claude declined this request.')
         text = ''.join(b.text for b in resp.content if b.type == 'text')
         return _json_only(text) if json else text
 

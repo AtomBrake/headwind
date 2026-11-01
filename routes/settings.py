@@ -14,7 +14,7 @@ _backfill_state = {'running': False, 'done': 0, 'failed': 0}
 from dotenv import load_dotenv, set_key
 from flask import Blueprint, after_this_request, current_app, flash, jsonify, redirect, render_template, request, send_file, session
 from database import get_db, migrate_db, query_db
-from services import vault
+from services import logs, vault
 
 import time
 bp = Blueprint('settings', __name__)
@@ -439,10 +439,10 @@ def backup_export():
 
         return send_file(zip_path, as_attachment=True, download_name='headwind-backup-with-secrets.zip' if key else 'headwind-backup.zip',
                          mimetype='application/zip')
-    except Exception as e:
+    except Exception:
         log.exception('Backup export failed')
         shutil.rmtree(tmp_dir, ignore_errors=True)
-        flash(f'Export failed: {e}', 'error')
+        flash(logs.failed('Export failed'), 'error')
         return redirect('/settings')
 
 
@@ -466,9 +466,9 @@ def backup_import():
         log.warning('Restore refused: %s', e)
         flash(str(e), 'error')
         return redirect('/settings')
-    except Exception as e:
+    except Exception:
         log.exception('Restore failed')
-        flash(f'Restore failed: {e}', 'error')
+        flash(logs.failed('Restore failed'), 'error')
         return redirect('/settings')
     finally:
         if tmp_dir:

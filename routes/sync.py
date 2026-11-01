@@ -40,7 +40,8 @@ def sync():
             push_update()
     except Exception as e:
         log.exception('Sync failed')
-        return jsonify({'error': str(e)}), 500
+        from services.garmin import sync_error
+        return jsonify({'error': sync_error(e)}), 500
 
     # Backfill HR/weather for the owner's recent rides that are missing it, whatever their source —
     # a file import or a phone-recorded ride can land without HR (GPX has none) or without weather

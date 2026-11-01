@@ -132,7 +132,8 @@ def sync():
         return jsonify({'synced': days})
     except Exception as e:
         log.exception('Garmin health sync from the page failed')
-        return jsonify({'error': str(e)}), 500
+        from services.garmin import sync_error
+        return jsonify({'error': sync_error(e)}), 500
 
 
 @bp.route('/garmin/sync-activities')
@@ -154,10 +155,12 @@ def sync_activities():
                 yield f"data: {json.dumps(status)}\n\n"
         except Exception as e:
             log.exception('Garmin activity sync from the page failed')
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            from services.garmin import sync_error
+            yield f"data: {json.dumps({'error': sync_error(e)})}\n\n"
 
+    from services import logs
     return Response(
-        stream_with_context(generate()),
+        stream_with_context(logs.keep_id(generate())),
         mimetype='text/event-stream',
         headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'},
     )

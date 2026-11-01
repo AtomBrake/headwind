@@ -1,7 +1,8 @@
 import logging
 from flask import Blueprint, jsonify, request
 from database import get_db, query_db
-from services.ai import analyse_ride
+from services import logs
+from services.ai import AIDeclined, AIUnavailable, analyse_ride
 
 log = logging.getLogger(__name__)
 
@@ -30,9 +31,11 @@ def kudos(rid):
         db.execute('UPDATE Settings SET coachPersonality=? WHERE id=1', [personality_key])
         text = analyse_ride(db, activity, personality_key=personality_key)
         return jsonify({'kudos': text})
-    except Exception as e:
+    except (AIUnavailable, AIDeclined) as e:       # our own words: no key set, or the model said no
+        return jsonify({'error': str(e)}), 400
+    except Exception:
         log.exception('AI analysis failed')
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': logs.failed('The AI analysis failed')}), 500
 
 
 @bp.route('/rides/<rid>/kudos/status')
