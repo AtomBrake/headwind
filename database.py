@@ -164,6 +164,7 @@ _REPAIR_FLAGS = ('distanceBackfillDone', 'utcStartFixDone', 'awayStartRecheckDon
 
 def migrate_db():
     db = get_db()
+    db.execute('PRAGMA journal_mode = WAL')     # kept in the database file, so once here (and on a restored backup) rather than per connection
 
     # ── Create all tables first ──────────────────────────────────────
     db.execute('''
@@ -1194,9 +1195,8 @@ def get_db():
         )
         from services import vault
         g.db.row_factory = vault.row_factory(current_app.config['DATABASE'])   # sqlite3.Row, with the saved keys and passwords decrypted
-        g.db.execute('PRAGMA journal_mode = WAL')
-        # With WAL, NORMAL can't corrupt the database: a power cut can only lose the last commits, and it saves an fsync per commit (slow on
-        # an SD card). The sorts behind the badges and leaderboards use temporary tables, kept in memory; 8 MB of page cache per connection.
+        # The database is in WAL mode (set once, in migrate_db). With WAL, NORMAL can't corrupt the database: a power cut can only lose the last
+        # commits, and it saves an fsync per commit (slow on an SD card). The sorts behind the badges and leaderboards use temporary tables, kept in memory; 8 MB of page cache per connection.
         g.db.execute('PRAGMA synchronous = NORMAL')
         g.db.execute('PRAGMA temp_store = MEMORY')
         g.db.execute('PRAGMA cache_size = -8000')

@@ -6,11 +6,15 @@ who is already using them — new installs just start simple."""
 import os
 
 from database import query_db
+from services import page_facts
 
 
 def multi_rider():
     if os.environ.get('HEADWIND_MULTI_RIDER') == '1':
         return True
+    facts = page_facts.get()
+    if facts:
+        return facts['localRiders'] > 1
     try:
         row = query_db('SELECT COUNT(*) FROM Rider r WHERE NOT EXISTS (SELECT 1 FROM Friend f WHERE f.riderId = r.id)', one=True)
     except Exception:          # tables not created yet (very first request) — treat as single-rider
@@ -19,6 +23,9 @@ def multi_rider():
 
 
 def owner_rider_id():
+    facts = page_facts.get()
+    if facts:
+        return facts['ownerId']
     try:
         row = query_db('SELECT id FROM Rider WHERE isDefault=1 ORDER BY id LIMIT 1', one=True)
     except Exception:

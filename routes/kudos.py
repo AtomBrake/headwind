@@ -11,7 +11,7 @@ bp = Blueprint('kudos', __name__)
 
 @bp.route('/rides/<rid>/kudos', methods=['POST'])
 def kudos(rid):
-    activity = query_db('SELECT * FROM Activity WHERE id=?', [rid], one=True)
+    activity = query_db('SELECT id, sportType FROM Activity WHERE id=?', [rid], one=True)     # the whole row only once it'll be analysed
     if not activity:
         return jsonify({'error': 'Not found'}), 404
     from services import friend_rides
@@ -29,6 +29,7 @@ def kudos(rid):
 
         db = get_db()
         db.execute('UPDATE Settings SET coachPersonality=? WHERE id=1', [personality_key])
+        activity = db.execute('SELECT * FROM Activity WHERE id=?', [rid]).fetchone()
         text = analyse_ride(db, activity, personality_key=personality_key)
         return jsonify({'kudos': text})
     except (AIUnavailable, AIDeclined) as e:       # our own words: no key set, or the model said no

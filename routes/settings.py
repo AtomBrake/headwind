@@ -30,7 +30,8 @@ APPEARANCES = ('auto', 'light', 'dark')       # Settings.appearance; auto follow
 def appearance():
     """The stored Appearance, for data-theme on <html>. 'auto' before setup, or if the column is missing or holds anything else."""
     try:
-        row = query_db('SELECT appearance FROM Settings WHERE id=1', one=True)
+        from services import page_facts
+        row = page_facts.get() or query_db('SELECT appearance FROM Settings WHERE id=1', one=True)
         return row['appearance'] if row and row['appearance'] in APPEARANCES else 'auto'
     except Exception:
         return 'auto'

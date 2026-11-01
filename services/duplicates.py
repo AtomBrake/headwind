@@ -356,16 +356,31 @@ def _kept_both_partners(db, act_id):
     return {r['id'] for r in rows} | {r['primaryId'] for r in rows}
 
 
+# What same_ride reads, but for the streams, which only _tracks_agree needs
+_MATCH_COLUMNS = 'id, startDate, startDateLocal, elapsedTime, movingTime, distance, sportType, source'
+
+
 def find_duplicates(db, row, exclude_ids=(), fragments=True):
-    """Other activities by the same rider that look like the same ride (fragments: see same_ride)."""
+    """Other activities by the same rider that look like the same ride (fragments: see same_ride), as full rows. The days around it are read
+    without their streams first: with no track, same_ride can only say yes more often (_tracks_agree passes), so a row it turns down then is
+    turned down for good, and only the rest are read whole and asked again."""
     s = span(row)
     if not s:
         return []
     day = s[0].astimezone(tz.zone()).date()
-    lo, hi = (day - timedelta(days=SEARCH_DAYS)).isoformat(), (day + timedelta(days=SEARCH_DAYS + 1)).isoformat()
-    cands = db.execute("SELECT * FROM Activity WHERE riderId=? AND id<>? AND substr(startDateLocal,1,10) BETWEEN ? AND ?", [row['riderId'], row['id'], lo, hi]).fetchall()
+    lo, hi = (day - timedelta(days=SEARCH_DAYS)).isoformat(), (day + timedelta(days=SEARCH_DAYS + 2)).isoformat()
+    # a plain range on startDateLocal, so the (riderId, startDateLocal) index narrows it by date: the start day is lo to the day before hi
+    cands = db.execute(f'SELECT {_MATCH_COLUMNS} FROM Activity WHERE riderId=? AND startDateLocal >= ? AND startDateLocal < ? AND id<>?',
+                       [row['riderId'], lo, hi, row['id']]).fetchall()
     skip = set(exclude_ids) | _kept_both_partners(db, row['id'])
-    return [c for c in cands if c['id'] not in skip and same_ride(row, c, fragments)]
+    found = []
+    for c in cands:
+        if c['id'] in skip or not same_ride(row, c, fragments):
+            continue
+        full = db.execute('SELECT * FROM Activity WHERE id=?', [c['id']]).fetchone()
+        if full and same_ride(row, full, fragments):
+            found.append(full)
+    return found
 
 
 def _drop_derived(db, act_id):

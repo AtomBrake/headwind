@@ -511,7 +511,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - **One code per friend**, made on the Friends page or in the iPhone app, each choosing what it shares (activities, segments, foods) and the date range (all, past 6 months, past month, from today, or your own dates), so you can cut one person off without touching the others. A code holds your address and that friend's feed token; a Headwind that doesn't read codes can still be given the address and token separately.
 - A friend's activities are shown, never changed, on your instance. The heatmap shows yours, one friend's or everyone's together.
 - **Challenges** — a race over set dates, sent to the friends you invite.
-- Auto-sync every 15 minutes by default (off / 15 / 30 / 60 / 120). Only new or changed activities are fetched, and edits and deletions reach your friends at their next sync.
+- Auto-sync every 15 minutes by default (off / 15 / 30 / 60 / 120). Only new or changed activities are fetched, and edits and deletions reach your friends at their next sync. **Sync** on the Friends page runs in the background (a first sync can take minutes): you can leave the page, and the result shows on the Tasks page.
 - Works over LAN, VPN or the public internet (use HTTPS).
 
 ### Automation and coaching

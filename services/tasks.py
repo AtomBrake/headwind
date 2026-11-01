@@ -120,8 +120,12 @@ def last(db, task):
     return dict(r) if r else None
 
 
+# A range, not LIKE 'startup:%', which ignores case and so can't use the TaskLog(task, id) index (';' sorts just after ':')
+UNSEEN_STARTUP_SQL = "SELECT COUNT(*) FROM TaskLog WHERE task >= 'startup:' AND task < 'startup;' AND seen=0"
+
+
 def unseen_startup(db):
-    return db.execute("SELECT COUNT(*) FROM TaskLog WHERE task LIKE 'startup:%' AND seen=0").fetchone()[0]
+    return db.execute(UNSEEN_STARTUP_SQL).fetchone()[0]
 
 
 def overview(db):

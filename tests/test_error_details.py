@@ -109,17 +109,19 @@ def test_friend_sync_hides_the_network_error(app, client, monkeypatch):
         db = database.get_db()
         fid = db.execute("INSERT INTO Friend (name, url, token) VALUES ('Sam', 'http://friend.invalid', 't')").lastrowid
         db.commit()
+    monkeypatch.setattr(routes.friends, '_spawn', lambda fn: fn())      # the sync runs in the background: here, before the answer
     monkeypatch.setattr(routes.friends, 'open_peer', _raise(OSError(LEAK)))
     r = client.post(f'/friends/{fid}/sync')
-    err = r.get_json()['error']
-    assert err.startswith('Could not connect to their server') and _quotes_id(err, r)
+    assert r.get_json() == {'ok': True, 'running': True}
+    err = client.get(f'/friends/{fid}/sync/status').get_json()['error']
+    assert err.startswith('Could not connect to their server') and _quotes_id(err, r)      # the id of the request that started it
 
     class Broken(io.BytesIO):
         def readline(self, *a):
             raise OSError(LEAK)
     monkeypatch.setattr(routes.friends, 'open_peer', lambda *a, **kw: Broken())
     r = client.post(f'/friends/{fid}/sync')
-    err = r.get_json()['error']
+    err = client.get(f'/friends/{fid}/sync/status').get_json()['error']
     assert err.startswith('The feed from their server stopped part-way') and _quotes_id(err, r)
 
 

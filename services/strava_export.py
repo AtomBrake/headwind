@@ -135,6 +135,10 @@ def dismiss(db, rider_id):
     db.commit()
 
 
+# How many riders advice() lists (the badge on Import), with len(REIMPORT_ADVISED) twice: no file checks
+ADVISED_COUNT_SQL = 'SELECT COUNT(*) FROM StravaExportRead a JOIN Rider r ON r.id = a.riderId WHERE a.advised < ? AND a.dismissed < ?'
+
+
 def advice(db, db_path):
     """[{riderId, riderName, readAt, kept, reasons: [(release, reason)]}]: riders whose export was last imported before a release in
     REIMPORT_ADVISED, and who haven't put it off since. kept: the export is here to import again without uploading it."""
