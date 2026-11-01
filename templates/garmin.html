@@ -30,7 +30,7 @@
 {% else %}
 
 {% if today_hr_stream or today_bb_stream %}
-<div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem;">
+<div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap:1rem; margin-bottom:1rem;">
 
   <div class="card" style="margin:0;">
     <div class="card-title" style="display:flex; justify-content:space-between; align-items:baseline;">
