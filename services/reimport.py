@@ -161,7 +161,8 @@ def differences(saved, act):
     num('movingTime', 'Moving time', 60, 0.02, _dur)
     num('elapsedTime', 'Elapsed time', 60, 0.02, _dur)
     num('totalElevationGain', 'Climb', 10, 0.10, units.fmt_elev)
-    if act.get('startDateLocal') and saved['startDateLocal']:
+    from services.sanity import future_start
+    if act.get('startDateLocal') and saved['startDateLocal'] and not future_start(act):      # a file whose clock was wrong: the rider's date stands
         apart = _seconds_apart(saved['startDateLocal'], act['startDateLocal'])
         if apart is not None and apart > 120:
             out.append({'label': 'Start', 'old': str(saved['startDateLocal'])[:16].replace('T', ' '), 'new': str(act['startDateLocal'])[:16].replace('T', ' ')})

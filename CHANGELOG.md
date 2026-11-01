@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- **Activities dated in the future are caught.** A device whose clock was reset can save a ride years ahead: an Avinox unit set back to 1970 gives dates in February 2106. Any activity starting more than a day after now, whether it came from a file, Garmin, the phone or a friend, now goes on the list of activities that look wrong and is left out of the speed and weather charts. On its page, **When did it really start?** takes the real date and time. The track, laps and charts move with it, its weather is looked up again for the right hour, and it's checked again for duplicates, because on the right day it may be a copy of another activity. Importing the file again doesn't offer the wrong date back. A friend's activity is only flagged, since only they can change it. At the first start after updating, those already saved are flagged, and the Tasks page lists them.
 - **Slow climbs match their segments.** A ride slower than 2 m/s (4.5 mph) over a segment was always turned away as a false match, so a steep climb pushed or crawled up never counted, not even on the ride the segment was drawn on. On a climb, the slowest speed that counts now depends on how steep it is: an effort counts if it climbs at least 200 m an hour, so a 10% climb at walking pace is an effort. A flat segment with a café stop in the middle still isn't. At the first start after updating, the steep segments are matched again, and the Tasks page says how many efforts were found.
 
 ## [0.7.35-beta] - 2026-11-01

@@ -1166,6 +1166,19 @@ def migrate_db():
                       "until you look at them on the dashboard: " + '; '.join(f"{f[1] or f[0]} ({f[3]})" for f in res['flagged'][:5])
                       + ('…' if n > 5 else '') + '.')
         db.commit()
+    future = [r for r in db.execute(f'SELECT id, name, startDateLocal, riderId IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL) AS friend '
+                                    f'FROM Activity WHERE {_sanity.FUTURE_SQL} AND flagReason IS NULL AND COALESCE(flagDismissed, 0) = 0').fetchall()
+              if _sanity.flag(db, r[0])]
+    if future:                                          # saved before the check existed: every start, so one from any path is caught
+        mine = [r for r in future if not r['friend']]
+        n, nf = len(future), len(future) - len(mine)
+        _tasks.record(db, 'startup:future_starts', 'Activities dated in the future',
+                      f"{n} activit{'y starts' if n == 1 else 'ies start'} after today, from a device whose clock was wrong, and "
+                      f"{'is' if n == 1 else 'are'} left out of the speed and weather analytics. "
+                      + (f"Give {'it' if len(mine) == 1 else 'them'} the real date from the dashboard's list of activities that look wrong. " if mine else '')
+                      + (f"{'It is' if nf == 1 else f'{nf} are'} a friend's, which only they can put right. " if nf else '')
+                      + '; '.join(f"{r['name'] or '(no name)'} ({_sanity._day(str(r['startDateLocal'])[:10])})" for r in future[:5])
+                      + ('…' if n > 5 else '.'))
     cleared = [r[1] for r in db.execute('SELECT id, name FROM Activity WHERE flagReason IS NOT NULL AND COALESCE(flagDismissed, 0) = 0').fetchall()
                if _sanity.flag(db, r[0]) is None]
     if cleared:

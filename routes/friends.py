@@ -14,7 +14,7 @@ from database import get_db, query_db
 from services.segments import scan_activity_against_segments, scan_all_activities, _refresh_prs, seg_sport
 from services.limits import LimitExceeded, bounded_lines
 from services.peer_http import open_peer
-from services import feed_tokens, logs, qr, sports, vault
+from services import feed_tokens, logs, qr, sanity, sports, vault
 
 bp = Blueprint('friends', __name__)
 
@@ -507,6 +507,8 @@ def _read_feed(db, pull, resp):
 
             elif t == 'ride' and pull.rider_id:
                 aid, kind = _store_ride(db, friend_id, pull.rider_id, obj)
+                if kind:
+                    sanity.flag(db, aid)                # a ride at 2,500 mph, or from a device whose clock was wrong: out of the analytics here
                 if aid not in pull.rides:
                     pull.new += kind == 'new'
                     pull.changed += kind == 'changed'
