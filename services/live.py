@@ -115,12 +115,8 @@ def build_messages(c, with_discovery):
 
 
 def _connection():
-    from database import query_db
-    s = query_db('SELECT mqttHost, mqttPort, mqttUser, mqttPassword FROM Settings WHERE id=1', one=True)
-    if not s or not (s['mqttHost'] or '').strip():
-        return None
-    auth = {'username': s['mqttUser'], 'password': s['mqttPassword'] or ''} if s['mqttUser'] else None
-    return s['mqttHost'].strip(), int(s['mqttPort'] or 1883), auth
+    from services import mqtt
+    return mqtt.broker()
 
 
 def _publish(c, sender=None, conn=None):

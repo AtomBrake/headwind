@@ -9,6 +9,8 @@ import os
 import re
 import secrets
 
+from services import limits
+
 _NAME_RE = re.compile(r'^act_[a-f0-9]{12}(_t)?\.jpg$')
 MAX_BYTES = 25 * 1024 * 1024
 FULL = 1600
@@ -61,8 +63,8 @@ def save(db, activity_id, data, db_path, caption=None, source_key=None, position
         img = Image.open(io.BytesIO(data))
         img.load()
         img = ImageOps.exif_transpose(img)              # upright, before the EXIF (and its orientation tag) goes
-    except Exception:
-        raise ValueError('that does not look like a picture')
+    except Exception as e:
+        raise ValueError(limits.IMAGE_TOO_LARGE if limits.image_too_large(e) else 'that does not look like a picture')
     img = img.convert('RGB')                            # also drops EXIF (location etc.)
     name = f'act_{secrets.token_hex(6)}.jpg'
     d = photo_dir(db_path)

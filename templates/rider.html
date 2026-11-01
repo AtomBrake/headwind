@@ -35,6 +35,7 @@
       {% endif %}
       <form method="POST" action="{{ url_for('gear.set_default') }}" class="form-group" style="margin:.8rem 0 0;">
         <input type="hidden" name="rider" value="{{ rider.id }}">
+        <input type="hidden" name="next" value="{{ url_for('riders.detail', rid=rider.id) }}">
         <label for="defaultBike">Default bike for new rides</label>
         <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
         <select name="bike" id="defaultBike" onchange="this.form.submit()" style="width:auto;">

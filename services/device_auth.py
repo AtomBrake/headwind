@@ -2,7 +2,10 @@
 
 A phone can make one more for its Apple Watch (create_child), so the Watch can upload a ride itself when the phone isn't with it. The Watch's token
 names the phone's (parentId): it's listed under the phone on the Phones page, can be revoked on its own, and stops working when the phone's is revoked,
-so a phone's token can't be used to leave a working one behind."""
+so a phone's token can't be used to leave a working one behind.
+
+A token works until it's revoked. One not used for STALE_DAYS is flagged on the Phones page, which offers to revoke them all; none is revoked
+by itself."""
 import hashlib
 import secrets
 from datetime import datetime, timedelta
@@ -12,6 +15,7 @@ from flask import g
 from database import get_db, query_db
 
 PREFIX = 'hw_'
+STALE_DAYS = 90
 
 
 def _hash(token):
@@ -62,8 +66,22 @@ def verify(token):
     return True
 
 
+def stale_ids():
+    """The un-revoked tokens last used (or, never used, made) more than STALE_DAYS ago. A phone counts as used when its Watch was, since revoking
+    the phone's token ends the Watch's too."""
+    rows = query_db('SELECT id, parentId, COALESCE(lastUsedAt, createdAt) AS seen FROM DeviceToken WHERE revokedAt IS NULL')
+    seen = {r['id']: r['seen'] or '' for r in rows}
+    for r in rows:
+        if r['parentId'] in seen:
+            seen[r['parentId']] = max(seen[r['parentId']], r['seen'] or '')
+    cutoff = (datetime.utcnow() - timedelta(days=STALE_DAYS)).strftime('%Y-%m-%d %H:%M:%S')
+    return {i for i, s in seen.items() if s < cutoff}
+
+
 def devices():
-    return [dict(r) for r in query_db('SELECT id, name, createdAt, lastUsedAt, revokedAt, parentId FROM DeviceToken ORDER BY id DESC')]
+    stale = stale_ids()
+    return [dict(r, stale=r['id'] in stale)
+            for r in query_db('SELECT id, name, createdAt, lastUsedAt, revokedAt, parentId FROM DeviceToken ORDER BY id DESC')]
 
 
 def revoke(device_id):
@@ -71,3 +89,11 @@ def revoke(device_id):
     db = get_db()
     db.execute("UPDATE DeviceToken SET revokedAt=datetime('now') WHERE (id=? OR parentId=?) AND revokedAt IS NULL", [device_id, device_id])
     db.commit()
+
+
+def revoke_stale():
+    """Revoke every token stale_ids() flags, each with its Watch's. Returns how many were flagged."""
+    ids = stale_ids()
+    for i in ids:
+        revoke(i)
+    return len(ids)

@@ -2,6 +2,7 @@ import logging
 import os
 import shutil
 import sqlite3
+import ssl
 import tempfile
 import threading as _threading
 import urllib.request
@@ -71,7 +72,8 @@ def index():
         kept_mqtt_pw = _kept('mqttPassword')
 
         mqtt_host     = field('mqttHost').strip()
-        mqtt_port     = (field('mqttPort', '1883') or '1883').strip()
+        mqtt_default  = '8883' if form.get('mqttTls') else '1883'     # a blank port: MQTT's usual one, over TLS or not
+        mqtt_port     = (field('mqttPort', mqtt_default) or mqtt_default).strip()
         mqtt_user     = field('mqttUser').strip()
         mqtt_password = form.get('mqttPassword', '').strip()
         garmin_sync_hours_raw = (field('garminSyncHours', '0.5') or '0.5').strip()
@@ -114,13 +116,18 @@ def index():
             ollama_url,
             ollama_model,
             mqtt_host,
-            int(mqtt_port) if mqtt_port.isdigit() else 1883,
+            int(mqtt_port) if mqtt_port.isdigit() else int(mqtt_default),
             mqtt_user,
             vault.seal(mqtt_password if mqtt_password else kept_mqtt_pw),
             garmin_sync_hours,
             garmin_sync_mode,
             units,
         ])
+        if 'mqttCaFile' in form:                        # the MQTT card, the only form with it: an unticked TLS box posts nothing
+            ca_file = form['mqttCaFile'].strip()
+            db.execute('UPDATE Settings SET mqttTls=?, mqttCaFile=? WHERE id=1', [1 if form.get('mqttTls') else 0, ca_file or None])
+            if form.get('mqttTls') and ca_file and not os.path.isfile(ca_file):
+                flash(f'There is no CA file at {ca_file} on this server, so the broker connection will fail until there is.', 'error')
         if form.get('appearance') in APPEARANCES:       # anything else keeps what is saved
             db.execute('UPDATE Settings SET appearance=? WHERE id=1', [form['appearance']])
         if 'timeZone' in form:                          # blank = the server's zone
@@ -189,10 +196,14 @@ def test_mqtt():
     host = (f.get('mqttHost') or '').strip()
     if not host or host == 'None':
         return jsonify({'error': 'No broker host entered'}), 400
+    tls = bool(f.get('mqttTls'))
+    ca_file = (f.get('mqttCaFile') or '').strip()
     try:
-        port = int(f.get('mqttPort') or 1883)
+        port = int(f.get('mqttPort') or (8883 if tls else 1883))
     except ValueError:
         return jsonify({'error': 'Port must be a number'}), 400
+    if tls and ca_file and not os.path.isfile(ca_file):
+        return jsonify({'error': f'There is no CA file at {ca_file} on this server'}), 400
     user = (f.get('mqttUser') or '').strip()
     pw = (f.get('mqttPassword') or '').strip()
     if user == 'None':
@@ -210,6 +221,8 @@ def test_mqtt():
             client = mqtt.Client(client_id='bike-tracker-test')
         if user:
             client.username_pw_set(user, pw)
+        if tls:
+            client.tls_set(ca_certs=ca_file or None)
         def on_connect(c, u, flags, rc, *a):
             result['rc'] = getattr(rc, 'value', rc)
         client.on_connect = on_connect
@@ -221,6 +234,13 @@ def test_mqtt():
             time.sleep(0.1)
         client.loop_stop()
         client.disconnect()
+    except ssl.SSLCertVerificationError as e:
+        log.warning('MQTT test connection: certificate not verified', exc_info=True)
+        return jsonify({'error': f"The broker's certificate could not be verified ({e.verify_message}). For a self-signed one, "
+                                 "give the CA file that signed it."}), 400
+    except ssl.SSLError:
+        log.warning('MQTT test connection: TLS failed', exc_info=True)
+        return jsonify({'error': 'The TLS connection failed: is the broker listening for TLS on that port?'}), 400
     except Exception as e:
         log.warning('MQTT test connection failed', exc_info=True)
         return jsonify({'error': str(e)[:200]}), 400

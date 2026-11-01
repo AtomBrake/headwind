@@ -243,7 +243,7 @@ def test_a_sync_that_stops_part_way_is_not_done_and_the_next_gets_the_rest(db, t
         return peer(url, headers, timeout)
     monkeypatch.setattr(friends, 'open_peer', flaky)
     n, err = sync(db)
-    assert (n, err) == (2, 'connection reset')
+    assert (n, err) == (2, 'Could not connect to their server. The details are in the log.')     # not the network's own words
     assert db.execute('SELECT lastSynced FROM Friend').fetchone()[0] is None
     monkeypatch.setattr(friends, 'open_peer', peer)
     assert sync(db) == (3, None)
@@ -312,7 +312,7 @@ def test_an_old_friends_feed_sending_the_same_rides_again_counts_none(db, monkey
 
 def test_an_old_friends_feed_that_breaks_is_not_done(db, monkeypatch):
     old_feed(monkeypatch, old_ride('r1'), fail=True)
-    assert sync(db) == (1, 'connection reset')
+    assert sync(db) == (1, 'The feed from their server stopped part-way. The details are in the log.')
     assert db.execute('SELECT lastSynced FROM Friend').fetchone()[0] is None
 
 

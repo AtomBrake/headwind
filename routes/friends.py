@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 
 from database import get_db, query_db
 from services.segments import scan_activity_against_segments, scan_all_activities, _refresh_prs, seg_sport
-from services.limits import bounded_lines
+from services.limits import LimitExceeded, bounded_lines
 from services.peer_http import open_peer
 from services import feed_tokens, logs, qr, sports, vault
 
@@ -401,9 +401,11 @@ def _open_feed(friend, params):
     except urllib.error.HTTPError as e:
         log.warning('Friends sync: HTTP %s from %s', e.code, url)
         return None, f'HTTP {e.code} from {url}'
-    except Exception as e:
-        log.warning('Friends sync: connect failed for "%s": %s', friend['name'], e)
+    except ValueError as e:                              # open_peer: not an http(s) address
         return None, str(e)
+    except Exception:
+        log.warning('Friends sync: connect failed for "%s"', friend['name'], exc_info=True)
+        return None, logs.failed('Could not connect to their server')
 
 
 def _read_feed(db, pull, resp):
@@ -458,10 +460,14 @@ def _read_feed(db, pull, resp):
 
             db.commit()   # each item as it lands: never hold the write lock while waiting on the network for the next
         return None
-    except Exception as e:
-        log.warning('Friends sync: stream error for "%s": %s', pull.name, e)
+    except LimitExceeded as e:
+        log.warning('Friends sync: stream from "%s" stopped: %s', pull.name, e)
         db.commit()  # save whatever we got
-        return str(e)
+        return f'Their feed was too large or too slow ({e})'
+    except Exception:
+        log.warning('Friends sync: stream error for "%s"', pull.name, exc_info=True)
+        db.commit()  # save whatever we got
+        return logs.failed('The feed from their server stopped part-way')
     finally:
         resp.close()
 

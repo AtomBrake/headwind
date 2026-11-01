@@ -3,9 +3,10 @@ import os
 import threading
 from collections import OrderedDict
 
-from flask import Blueprint, abort, redirect, render_template, request, url_for, current_app
+from flask import Blueprint, abort, flash, redirect, render_template, request, url_for, current_app
 
 from database import get_db, query_db
+from services import limits
 from services.best_efforts import BRACKETS_MI
 
 bp = Blueprint('riders', __name__)
@@ -703,6 +704,7 @@ def upload_avatar(rid):
     except Exception as e:
         # Never store the raw upload: an unparseable image may be active content (SVG/HTML) served same-origin
         log.warning('Avatar rejected, not a decodable image: %s', e)
+        flash('That picture is too large (over 50 megapixels).' if limits.image_too_large(e) else 'That file is not a picture Headwind can read.', 'error')
         return redirect(url_for('riders.detail', rid=rid))
 
     log.info('Avatar saved to %s', save_path)

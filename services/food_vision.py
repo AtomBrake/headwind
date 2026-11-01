@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from PIL import Image
 
+from services import limits
 from services.ai import get_chat, missing_key_message
 
 MEAL_KEYS = ['breakfast', 'lunch', 'dinner', 'snacks', 'ride_fuel', 'recovery']
@@ -107,8 +108,8 @@ def extract_foods(images, progress=None):
     for raw in images:
         try:
             _prepare(raw)
-        except Exception:
-            raise ValueError('One of the files is not a readable image.')
+        except Exception as e:
+            raise ValueError('One of the files is too large (over 50 megapixels).' if limits.image_too_large(e) else 'One of the files is not a readable image.')
 
     results = [None] * len(images)
     try:
@@ -214,8 +215,8 @@ def extract_recipes(images, progress=None):
     for raw in images:
         try:
             _prepare(raw)
-        except Exception:
-            raise ValueError('One of the files is not a readable image.')
+        except Exception as e:
+            raise ValueError('One of the files is too large (over 50 megapixels).' if limits.image_too_large(e) else 'One of the files is not a readable image.')
     found = {}
     try:
         with ThreadPoolExecutor(max_workers=min(4, len(images))) as pool:
@@ -265,8 +266,8 @@ def estimate_meal(image_bytes, hint=None):
         raise ValueError(missing_key_message('to estimate meals from photos'))
     try:
         image = _prepare(image_bytes)
-    except Exception:
-        raise ValueError('That file is not a readable image.')
+    except Exception as e:
+        raise ValueError('That picture is too large (over 50 megapixels).' if limits.image_too_large(e) else 'That file is not a readable image.')
     text = MEAL_PROMPT + (f"\n\nThe user adds this note about the meal: {hint.strip()[:400]}" if hint and hint.strip() else '')
     reply = chat([{'role': 'user', 'content': [{'type': 'text', 'text': text}, image]}], json=True, temperature=0.2)
     try:

@@ -50,9 +50,9 @@ def _friends_autosync(app):
                             failed.append(f"{f['name']}: {str(res[1])[:80]}")
                         elif isinstance(res, tuple):
                             rides += res[0] or 0
-                    except Exception as e:
-                        failed.append(f"{f['name']}: {str(e)[:80]}")
-                        log.warning('Auto-sync failed for friend %s: %s', f['id'], e)
+                    except Exception:
+                        failed.append(f"{f['name']}: the sync failed, the details are in the log")
+                        log.warning('Auto-sync failed for friend %s', f['id'], exc_info=True)
                 if task_id:
                     n = len(friends)
                     summary = f"{n - len(failed)} of {n} friend{'s' if n != 1 else ''} synced, " + \
@@ -299,6 +299,8 @@ def create_app():
     # Generates + logs the first-login password now (not lazily at first sign-in) when none is configured
     from services import credentials
     credentials.admin_login()
+    from services import limits
+    limits.limit_images()                             # no uploaded picture over 50 megapixels is decoded
 
     with app.app_context():
         migrate_db()

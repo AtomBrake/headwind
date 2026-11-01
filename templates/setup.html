@@ -770,7 +770,7 @@ const HA_TARGETS = {{ ha_targets | tojson }};
 let haMaps = {{ ha_mappings | tojson }};
 let haWeatherEntity = {{ (ha_weather_entity or '') | tojson }};
 let haEntities = [];
-const haEsc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const haEsc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 function haOpenOverlay(id) {
   document.getElementById(id).classList.add('open');

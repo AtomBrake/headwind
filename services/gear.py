@@ -17,6 +17,7 @@ import re
 import secrets
 from datetime import date, datetime, timedelta
 
+from services import limits
 from services.gear_catalog import BY_KIND
 from services.sports import RIDE_SQL
 
@@ -807,8 +808,8 @@ def save_photo(db, bike_id, data, db_path, what='bike'):
     try:
         img = Image.open(io.BytesIO(data))
         img.load()
-    except Exception:
-        raise ValueError('that does not look like a picture')
+    except Exception as e:
+        raise ValueError(limits.IMAGE_TOO_LARGE if limits.image_too_large(e) else 'that does not look like a picture')
     img = img.convert('RGB')                                     # also drops EXIF (location etc.)
     img.thumbnail((1400, 1400), Image.LANCZOS)
     table = _PHOTO_TABLES[what]

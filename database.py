@@ -415,6 +415,8 @@ def migrate_db():
         ('mqttPort',         'INTEGER DEFAULT 1883'),
         ('mqttUser',         'TEXT'),
         ('mqttPassword',     'TEXT'),
+        ('mqttTls',          'INTEGER DEFAULT 0'),     # Settings → MQTT: connect over TLS (services/mqtt.connection)
+        ('mqttCaFile',       'TEXT'),                  # the CA file for the broker's certificate, on this server; blank = the system's
         ('coachingGoals',    'TEXT'),
         ('coachPersonality', "TEXT DEFAULT 'default'"),
         ('aiAutoAnalyse',    'INTEGER DEFAULT 0'),     # analyse each new ride as it's imported (services/auto_analyse.py)
