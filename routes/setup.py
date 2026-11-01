@@ -5,7 +5,7 @@ import zipfile
 import shutil
 import tempfile
 
-from flask import Blueprint, flash, redirect, render_template, request
+from flask import Blueprint, flash, redirect, render_template, request, session
 from database import get_db, query_db
 from services import homeassistant as ha
 
@@ -41,6 +41,10 @@ def wizard():
                 names = names[:1]
             if not names:
                 return _page('1')
+            problem = _choose_password(request.form.get('newPassword', '').strip(),
+                                       request.form.get('confirmPassword', '').strip())
+            if problem:
+                return _page('1', password_error=problem)
             db = get_db()
             for i, name in enumerate(names):
                 db.execute(
@@ -73,15 +77,35 @@ def wizard():
     return _page(step)
 
 
-def _page(step, error=None):
+def _choose_password(new_pw, confirm_pw):
+    """Step 1's optional own password, in place of the generated one it signed in with. Returns what's wrong, or None."""
+    if not new_pw:
+        return None
+    from services import credentials
+    if new_pw != confirm_pw:
+        return 'The passwords do not match.'
+    if len(new_pw) < credentials.MIN_PASSWORD:
+        return f'Choose a password of at least {credentials.MIN_PASSWORD} characters.'
+    try:
+        credentials.save_login(None, new_pw)
+    except OSError:
+        log.exception('Could not save the login')
+        return "Couldn't save the password: Headwind can't write to its data folder. Keep the generated one for now."
+    session['av'] = credentials.auth_version()   # keep this session signed in
+    return None
+
+
+def _page(step, error=None, password_error=None):
     """The wizard at `step`, with everything its template reads (the Home Assistant step's script is on every step)."""
+    from services import credentials
     s = query_db('SELECT * FROM Settings WHERE id=1', one=True)
     try:
         ha_mappings = json.loads((s['haEntityMap'] if s else None) or '[]')
     except ValueError:
         ha_mappings = []
     return render_template(
-        'setup.html', step=step, s=s, error=error,
+        'setup.html', step=step, s=s, error=error, password_error=password_error,
+        generated_login=step == '1' and credentials.admin_login().generated, min_password=credentials.MIN_PASSWORD,
         ha_targets=ha.TARGETS, ha_mappings=ha_mappings,
         ha_has_token=bool(s and s['haToken']),
         ha_weather_entity=(s['haWeatherEntity'] if s else None) or '',

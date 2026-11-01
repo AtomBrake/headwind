@@ -1,7 +1,8 @@
-import hmac
+import logging
 import os
+import threading
 import time
-from collections import defaultdict, deque
+from collections import deque
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -11,23 +12,42 @@ from flask import Blueprint, redirect, render_template, request, session, url_fo
 load_dotenv(os.environ.get('HEADWIND_ENV') or Path(__file__).parent.parent / '.env', override=True)
 
 bp = Blueprint('login', __name__)
+log = logging.getLogger(__name__)
 
-_fails = defaultdict(deque)   # client address -> timestamps of recent failed sign-ins
-_MAX_FAILS, _WINDOW = 8, 300  # 8 failures per 5 minutes, then locked out until the window clears
+_fails = {}                 # client address -> times of its recent failed sign-ins
+_all_fails = deque()        # every recent failure, whatever address it came from (or claimed, through a proxy header)
+_fails_lock = threading.Lock()
+_MAX_FAILS, _WINDOW = 8, 300  # 8 failures per 5 minutes from one address, then it's locked out until the window clears
+_MAX_ALL_FAILS = 30           # and 30 from all addresses together locks every sign-in, which no header can get around
+
+
+def _prune(now):
+    while _all_fails and now - _all_fails[0] > _WINDOW:
+        _all_fails.popleft()
+    for ip in [ip for ip, q in _fails.items() if not q or now - q[-1] > _WINDOW]:
+        del _fails[ip]      # so the dict holds only addresses still inside the window
 
 
 def _locked_out(ip):
-    q, now = _fails[ip], time.monotonic()
-    while q and now - q[0] > _WINDOW:
-        q.popleft()
-    return len(q) >= _MAX_FAILS
+    now = time.monotonic()
+    with _fails_lock:
+        _prune(now)
+        if len(_all_fails) >= _MAX_ALL_FAILS:
+            return True
+        q = _fails.get(ip)
+        while q and now - q[0] > _WINDOW:
+            q.popleft()
+        return bool(q) and len(q) >= _MAX_FAILS
 
 
-def _check(username, password):
-    expected_u, expected_p, _ = credentials.admin_login()
-    ok_u = hmac.compare_digest(username.encode(), expected_u.encode())
-    ok_p = hmac.compare_digest(password.encode(), expected_p.encode())
-    return ok_u and ok_p
+def _failed(ip):
+    now = time.monotonic()
+    with _fails_lock:
+        _fails.setdefault(ip, deque()).append(now)
+        _all_fails.append(now)
+        if len(_all_fails) == _MAX_ALL_FAILS:
+            log.warning('%d failed sign-ins in %d minutes from all addresses: sign-in is closed to everyone until they age out',
+                        _MAX_ALL_FAILS, _WINDOW // 60)
 
 
 @bp.route('/login', methods=['GET', 'POST'])
@@ -39,17 +59,18 @@ def login_page():
         ip = request.remote_addr or ''
         if _locked_out(ip):
             return render_template('login.html', error='Too many attempts — try again in a few minutes'), 429
-        if _check(request.form.get('username', ''), request.form.get('password', '')):
+        if credentials.check(request.form.get('username', ''), request.form.get('password', '')):
             session.permanent = True
             session['logged_in'] = True
             session['av'] = credentials.auth_version()
-            _fails.pop(ip, None)
+            with _fails_lock:
+                _fails.pop(ip, None)
             nxt = request.args.get('next') or ''
             # same-origin relative paths only — no //host or scheme-qualified redirects
             if not nxt.startswith('/') or nxt.startswith('//') or '\\' in nxt:
                 nxt = url_for('dashboard.dashboard')
             return redirect(nxt)
-        _fails[ip].append(time.monotonic())
+        _failed(ip)
         error = 'Invalid username or password'
     return render_template('login.html', error=error)
 

@@ -12,7 +12,6 @@ from pathlib import Path
 _backfill_lock  = _threading.Lock()
 _backfill_state = {'running': False, 'done': 0, 'failed': 0}
 
-from dotenv import load_dotenv, set_key
 from flask import Blueprint, after_this_request, current_app, flash, jsonify, redirect, render_template, request, send_file, session
 from database import get_db, migrate_db, query_db
 from services import logs, vault
@@ -20,7 +19,6 @@ from services import logs, vault
 import time
 bp = Blueprint('settings', __name__)
 
-ENV_PATH = Path(os.environ.get('HEADWIND_ENV') or Path(__file__).parent.parent / '.env')
 
 OPENAI_MODELS = ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini', 'gpt-4-turbo', 'gpt-3.5-turbo']
 from services.ai import CLAUDE_MODELS
@@ -146,7 +144,7 @@ def index():
 
     s = query_db('SELECT * FROM Settings WHERE id=1', one=True)
     from services import credentials
-    current_username = credentials.admin_login()[0]
+    current_username = credentials.admin_login().username
     try:
         with open('/app/build_time.txt') as _f:
             build_time = _f.read().strip()
@@ -160,7 +158,7 @@ def index():
     from services import garmin
     return render_template('settings.html', s=s, openai_models=OPENAI_MODELS, zones=tz.names(), server_zone=tz.server_zone_name(),
                            claude_models=CLAUDE_MODELS, garmin_on=garmin.connected(s),
-                           current_username=current_username, build_time=build_time,
+                           current_username=current_username, min_password=credentials.MIN_PASSWORD, build_time=build_time,
                            app_version=__version__)
 
 
@@ -343,30 +341,30 @@ def weather_backfill():
 
 @bp.route('/password', methods=['POST'])
 def change_password():
-    load_dotenv(ENV_PATH, override=True)
+    """Saved hashed in .admin_login only, never in .env: the environment's APP_PASSWORD stays the operator's way back in."""
     current_pw  = request.form.get('currentPassword', '')
     new_username = request.form.get('newUsername', '').strip()
     new_pw      = request.form.get('newPassword', '').strip()
     confirm_pw  = request.form.get('confirmPassword', '').strip()
 
-    import hmac
     from services import credentials
-    stored_pw = credentials.admin_login()[1]
-    if not hmac.compare_digest(current_pw.encode(), stored_pw.encode()):
+    if not credentials.check_password(current_pw):
         flash('Current password is incorrect.', 'error')
         return redirect('/settings')
 
     if new_pw and new_pw != confirm_pw:
         flash('New passwords do not match.', 'error')
         return redirect('/settings')
+    if new_pw and len(new_pw) < credentials.MIN_PASSWORD:
+        flash(f'Choose a password of at least {credentials.MIN_PASSWORD} characters.', 'error')
+        return redirect('/settings')
 
-    credentials.save_login(new_username, new_pw)
-    if new_username:
-        set_key(ENV_PATH, 'APP_USERNAME', new_username)
-        os.environ['APP_USERNAME'] = new_username
-    if new_pw:
-        set_key(ENV_PATH, 'APP_PASSWORD', new_pw)
-        os.environ['APP_PASSWORD'] = new_pw
+    try:
+        credentials.save_login(new_username, new_pw)
+    except OSError:
+        log.exception('Could not save the login')
+        flash("Couldn't save the new login: Headwind can't write to its data folder.", 'error')
+        return redirect('/settings')
 
     session['av'] = credentials.auth_version()   # keep THIS session; every other one is now invalid
     flash('Login details updated.', 'success')
