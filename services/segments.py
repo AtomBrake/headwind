@@ -13,6 +13,9 @@ CHECKPOINT_M = 60  # metres — tolerance for interior waypoints (wider to absor
 CHECKPOINT_N = 4   # number of evenly-spaced interior checkpoints to sample
 MIN_SPEED_MPS = {'ride': 2.0, 'foot': 0.5}   # slower than this is a false match (4.5 mph on a bike; on foot, a steep hike's pace)
 MAX_SPEED_MPS = {'ride': 30.0, 'foot': 10.0}  # faster than this is a GPS jump, not an effort (67 mph down a mountain pass; a sprinter's top speed)
+MIN_CLIMB_MPS = 200 / 3600  # on a climb the floor is this rate upward instead, when that's lower (200 m an hour; the slow climbs in a real export
+                            # that missed the 2 m/s floor went up at 280-540 m an hour, pushing or crawling up 6-15%)
+MAX_GRADE = 0.25            # a segment's gain over its length is taken as no steeper than this (a broken altimeter mustn't drop the floor to nothing)
 MIN_SEGMENT_M = 10      # a hand-made segment shorter than this is a start and end picked on the same spot
 MIN_COVERED = 0.7       # an exact effort's own track must be at least this share of the segment's length (a shortcut between the ends isn't it)
 CLOSE_TOL_M = 75        # a ride counts as "on the shape" within this many metres (GPS drift, a different lane, a cycle path beside the road)
@@ -36,6 +39,16 @@ def seg_sport(seg):
     except AttributeError:
         v = seg.get('sport') or 'ride'
     return v if v in FAMILIES else ('foot' if v == 'run' else 'ride')
+
+
+def min_speed(seg):
+    """The slowest believable average speed over a segment: MIN_SPEED_MPS for its family, lowered on a climb to climbing MIN_CLIMB_MPS. So a
+    10% climb pushed at walking pace (1 m/s, 360 m an hour) is an effort, while a flat segment with a café stop in the middle still isn't."""
+    gain = seg['elevationGainM'] if 'elevationGainM' in seg.keys() else None   # a sqlite row or a dict
+    dist = seg['distanceM']
+    floor = MIN_SPEED_MPS[seg_sport(seg)]
+    grade = min((gain or 0) / dist, MAX_GRADE) if dist else 0
+    return min(floor, MIN_CLIMB_MPS / grade) if grade > 0 else floor
 
 
 def _activity_family(db, activity):
@@ -324,7 +337,7 @@ def match_segment(activity_streams_json, seg):
         elapsed = times[end_idx] - times[start_idx]
         if elapsed <= 0:
             return
-        if dist_m and not MIN_SPEED_MPS[seg_sport(seg)] <= dist_m / elapsed <= MAX_SPEED_MPS[seg_sport(seg)]:
+        if dist_m and not min_speed(seg) <= dist_m / elapsed <= MAX_SPEED_MPS[seg_sport(seg)]:
             return  # too slow to be a real effort, or too fast: a false match
         if dist_m:
             # Reject shortcut routes: actual GPS distance must be ≥70% of
@@ -472,7 +485,7 @@ def match_segment_close(activity_streams_json, seg):
     if secs <= 0:
         return None
     est = secs * (shape_len / span)
-    if not MIN_SPEED_MPS[seg_sport(seg)] <= seg_len / est <= MAX_SPEED_MPS[seg_sport(seg)]:
+    if not min_speed(seg) <= seg_len / est <= MAX_SPEED_MPS[seg_sport(seg)]:
         return None
     return int(round(est)), span / shape_len
 
@@ -773,6 +786,26 @@ def repair_matching(db):
                 loops, realigned, misaligned, before, after)
     return {'ran': True, 'loops': loops, 'realigned': realigned, 'misaligned': misaligned, 'before': before, 'after': after, 'prs_moved': moved}
 
+
+
+def rematch_climbs(db):
+    """Run once (Settings.segmentClimbFloorDone), when the speed floor started to drop on a climb (min_speed): the segments steep enough for that
+    are matched again, so the slow efforts up them MIN_SPEED_MPS turned away are found (pushing up a steep climb). The floor only went down, so
+    efforts are only added. Commits. Returns {'ran', 'segments', 'found'}."""
+    s = db.execute('SELECT segmentClimbFloorDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['segmentClimbFloorDone']:
+        return {'ran': False}
+    ids = [g['id'] for g in db.execute('SELECT * FROM Segment').fetchall() if min_speed(g) < MIN_SPEED_MPS[seg_sport(g)]]
+    found = 0
+    if ids:
+        before = db.execute('SELECT COUNT(*) FROM SegmentEffort').fetchone()[0]
+        scan_all_activities(db, ids)
+        found = db.execute('SELECT COUNT(*) FROM SegmentEffort').fetchone()[0] - before
+    db.execute('UPDATE Settings SET segmentClimbFloorDone=1 WHERE id=1')
+    db.commit()
+    if found:
+        log.warning('Slow climbs: %d steep segments matched again, %d new efforts', len(ids), found)
+    return {'ran': True, 'segments': len(ids), 'found': found}
 
 # ---------- segments from a Strava export (segments.csv) ----------
 IMPORT_TOL_M = 50       # a Strava segment's ends sit on the track it was drawn on; allow for a different recording of the same road

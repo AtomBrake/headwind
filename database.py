@@ -159,7 +159,7 @@ def heavy_last(db, table, heavy):
 _REPAIR_FLAGS = ('distanceBackfillDone', 'utcStartFixDone', 'awayStartRecheckDone', 'localZoneFixDone', 'workoutDupCheckDone', 'dupNameFixDone',
                  'segmentFamiliesDone', 'segmentBikesMergedDone', 'movingTimeFixDone', 'segmentMatchFixDone', 'sportEffortsDone',
                  'movingTimePausedDone', 'bestEffortsCleanDone', 'sensorTopSpeedDone', 'mmDistancesDone', 'stravaManualDone', 'sanityAllSportsDone',
-                 'liveParkedFixDone', 'strandedParkedFixDone')
+                 'liveParkedFixDone', 'strandedParkedFixDone', 'segmentClimbFloorDone')
 
 
 def migrate_db():
@@ -470,6 +470,7 @@ def migrate_db():
         ('liveParkedFixDone',      'INTEGER DEFAULT 0'), # activities both live and set aside as a copy (a Strava export before 0.7.11), decided again (services/duplicates.repair_live_parked)
         ('strandedParkedFixDone',  'INTEGER DEFAULT 0'), # copies left behind a deleted activity moved behind the live one of the same ride (services/duplicates.repair_stranded_parked)
         ('sanityAllSportsDone',    'INTEGER DEFAULT 0'), # every sport checked once against the "looks wrong" limits, heart rate included (services/sanity.scan_every_sport)
+        ('segmentClimbFloorDone',  'INTEGER DEFAULT 0'), # steep segments matched again with a speed floor that drops on a climb (services/segments.rematch_climbs)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
         ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
@@ -1107,6 +1108,14 @@ def migrate_db():
                       "whose GPS and times were out of step put right"
                       + (f"; {res['misaligned']} more can't be put right here, and their segment times are left out until they're imported "
                          "again from their files (the same Strava export or file: they're repaired as they come in)" if res['misaligned'] else '') + '.')
+        db.commit()
+    from services.segments import rematch_climbs as _rematch_climbs
+    res = _rematch_climbs(db)
+    if res.get('found'):
+        _tasks.record(db, 'startup:segment_climbs', 'Slow climbs matched',
+                      f"{res['found']:,} new effort{'s' if res['found'] != 1 else ''} on {res['segments']} steep segment{'s' if res['segments'] != 1 else ''}: "
+                      "a climb ridden or pushed up slowly now counts as long as it keeps climbing, where before a bike slower than a brisk walk "
+                      "was turned away.")
         db.commit()
     res = _moving_time.repair_paused(db)
     if res.get('fixed'):

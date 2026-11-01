@@ -1,5 +1,6 @@
 """Impossible segment times (0.7.7): loop segments that collapsed to a few metres, short segments whose ends are close, the close matcher on short
-segments and on a straighter line nearby, impossible speeds, GPS and time streams out of step, and Strava segments given the wrong family.
+segments and on a straighter line nearby, impossible speeds, a speed floor that drops on a climb, GPS and time streams out of step, and Strava
+segments given the wrong family.
 Throwaway DB, synthetic tracks."""
 import json
 from datetime import datetime, timedelta, timezone
@@ -130,6 +131,66 @@ def test_an_effort_faster_than_a_bike_can_go_is_a_gps_jump():
     st = walk([(-100, 0), (1100, 0)], speed=40)                 # 90 mph
     poly = [at(x, 0) for x in range(0, 1001, 50)]
     assert S.match_segment(st, seg_row(at(0, 0), at(1000, 0), 1000, poly)) is None
+
+
+def stopped(st, after_m, secs):
+    """The streams with a stop of `secs` seconds once `after_m` metres have been covered."""
+    ts = [t + (secs if d > after_m else 0) for t, d in zip(st['time']['data'], st['distance']['data'])]
+    return {**st, 'time': {'data': ts}}
+
+
+def climb(gain, **kw):
+    poly = [at(x, 0) for x in range(0, 1001, 50)]
+    return {**seg_row(at(0, 0), at(1000, 0), 1000, poly, **kw), 'elevationGainM': gain}
+
+
+def test_a_steep_climb_pushed_at_walking_pace_is_an_effort():
+    """7 of 65 segments in a real export never matched, not even on the ride they were drawn on: climbs of 6-15% ridden at 0.7-2 m/s, under
+    the 2 m/s floor for a bike. On a climb the floor is a rate upward (MIN_CLIMB_MPS) instead."""
+    st = walk([(-100, 0), (1100, 0)], speed=1)                  # 10% at 1 m/s: 360 m an hour
+    assert S.match_segment(st, climb(100)) is not None
+    assert S.match_segment(st, climb(0)) is None                # the same pace on the flat is still too slow
+    assert S.match_segment(st, climb(None)) is None             # a segment with no climb stored keeps the plain floor
+    assert S.match_segment(walk([(-100, 0), (1100, 0)], speed=1.5), climb(40)) is not None    # 4% at 1.5 m/s: 216 m an hour
+
+
+def test_a_flat_segment_with_a_cafe_stop_is_still_not_an_effort():
+    st = stopped(walk([(-100, 0), (1100, 0)], speed=6), 600, 1800)          # 6 m/s with half an hour at the café
+    assert S.match_segment(st, climb(5)) is None
+    assert S.match_segment(st, climb(100)) is None              # a 10% climb's floor (0.56 m/s) still rules out half an hour
+    assert S.match_segment(stopped(walk([(-100, 0), (1100, 0)], speed=6), 600, 300), climb(100)) is not None   # a 5-minute breather
+
+
+def test_a_broken_altimeter_does_not_take_the_floor_away():
+    assert S.min_speed(climb(5000)) == pytest.approx(S.MIN_CLIMB_MPS / S.MAX_GRADE)
+    st = stopped(walk([(-100, 0), (1100, 0)], speed=6), 600, 3 * 3600)
+    assert S.match_segment(st, climb(5000)) is None
+
+
+def test_the_close_matcher_takes_the_same_floor():
+    st = walk([(-100, 0), (920, 0)], speed=1)                   # pushes up 10% at 1 m/s and stops 80 m short of the top
+    assert S.match_segment(st, climb(100)) is None
+    assert S.match_segment_close(st, climb(100)) is not None
+    assert S.match_segment_close(st, climb(0)) is None
+
+
+def test_steep_segments_are_matched_again_once(db):
+    poly = [at(x, 0) for x in range(0, 1001, 50)]
+    for name, gain in (('Up', 100), ('Flat', 0)):
+        db.execute("INSERT INTO Segment (name, startLat, startLng, endLat, endLng, distanceM, elevationGainM, polyline, sport) "
+                   "VALUES (?, ?, ?, ?, ?, 1000, ?, ?, 'ride')", [name, *at(0, 0), *at(1000, 0), gain, json.dumps(poly)])
+    add(db, 'r1', walk([(-100, 0), (1100, 0)], speed=1))
+    db.execute('UPDATE Settings SET segmentClimbFloorDone=0 WHERE id=1')
+    res = S.rematch_climbs(db)
+    assert res == {'ran': True, 'segments': 1, 'found': 1}
+    assert [r[0] for r in db.execute('SELECT s.name FROM SegmentEffort e JOIN Segment s ON s.id=e.segmentId')] == ['Up']
+    assert S.rematch_climbs(db) == {'ran': False}
+
+
+def test_on_foot_the_floor_only_drops_on_a_steep_climb():
+    assert S.min_speed(climb(0, sport='foot')) == S.MIN_SPEED_MPS['foot']
+    assert S.min_speed(climb(100, sport='foot')) == S.MIN_SPEED_MPS['foot']   # 10%: 0.56 m/s up it is above the 0.5 m/s floor
+    assert S.min_speed(climb(200, sport='foot')) < S.MIN_SPEED_MPS['foot']    # 20%: a scramble up at 0.3 m/s counts
 
 
 # ── GPS and time in step ─────────────────────────────────────────
