@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.36-beta] - 2026-11-01
 
 ### Added
 - **Activities recorded twice with different sports are pointed out.** When Garmin and Strava both have an activity and say different sports (a Garmin ride saved as a plain ride while Strava says it was on an e-bike, Strava's indoor ride kept as Garmin's `cycling`, Strava's yoga kept as Garmin's Other), Headwind kept one and its sport without a word. Now the activity's page says "Strava says E-bike ride, Garmin says Ride", with a button to take the other sport or keep the one it has. The Import page lists them all, grouped by kind of difference, to settle a whole group at once, and the dashboard says when there are some. Nothing changes until you choose. Strava's spelling of a sport Headwind has its own name for doesn't count as a difference, nor does a copy that only says Other or Workout.
