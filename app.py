@@ -114,6 +114,18 @@ def _mqtt_heartbeat(app):
         except Exception as e:
             log.warning('Gear alert sweep failed: %s', e)
         try:
+            if tick % 12 == 1:                      # hourly too: what was deleted more than 30 days ago leaves Recently deleted, photo files and all
+                with app.app_context():
+                    from database import get_db
+                    from services import recently_deleted, tasks
+                    n = recently_deleted.purge(get_db(), app.config['DATABASE'])
+                    if n:
+                        tasks.record(get_db(), 'bin_purge', 'Recently deleted',
+                                     f"{n} activit{'y' if n == 1 else 'ies'} deleted more than {recently_deleted.DAYS} days ago deleted for good")
+                        get_db().commit()
+        except Exception as e:
+            log.warning('Emptying Recently deleted failed: %s', e)
+        try:
             with app.app_context():
                 from services.mqtt import push_update
                 push_update(background=True)

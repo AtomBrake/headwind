@@ -149,13 +149,18 @@ def test_a_broken_picture_does_not_stop_the_ride(db):
     assert done['imported'] == 1 and done['photos'] == 0 and done['errors'] == 0
 
 
-def test_photos_move_to_the_kept_ride_and_go_when_it_is_deleted(db):
+def test_photos_move_to_the_kept_ride_and_go_when_it_leaves_the_bin(db):
+    from flask import current_app
+    from services import recently_deleted
     run_import(db, strava_zip([row(media='media/p1.jpg')], files=[('media/p1.jpg', jpeg())]))
     db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime, streams) "
                "VALUES ('garmin_1', 'g', 'Ride', 'Ride', 1, '2026-07-04T10:00:00', 1770, 590, 590, '{}')")
     duplicates.park(db, '101', 'garmin_1', 'test')
     assert len(photos.for_activity(db, 'garmin_1')) == 1
     duplicates.delete_activity(db, 'garmin_1')
+    db.commit()
+    assert len(photos.for_activity(db, 'garmin_1')) == 1 and len(photo_files(db)) == 2          # in the bin with it, full size and thumbnail
+    recently_deleted.empty(db, ['garmin_1'], current_app.config['DATABASE'])
     db.commit()
     assert not db.execute('SELECT 1 FROM ActivityPhoto').fetchone() and photo_files(db) == []
 

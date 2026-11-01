@@ -288,7 +288,7 @@
   {% set blips = flagged | selectattr('isBlip') | list %}
   {% if blips %}
   <form method="POST" action="{{ url_for('rides.delete_blips') }}" style="margin:0 0 0.5rem;"
-        onsubmit="return confirm('Delete the {{ blips | length }} flagged ride{{ 's' if blips | length != 1 }} shorter than 160 m? This cannot be undone.')">
+        onsubmit="return confirm('Delete the {{ blips | length }} flagged ride{{ 's' if blips | length != 1 }} shorter than 160 m? They go to Recently deleted on the Import page for 30 days.')">
     {% if not active_rider.isDefault %}<input type="hidden" name="rider" value="{{ active_rider.id }}">{% endif %}
     <button class="btn btn-danger-quiet btn-sm" type="submit">Delete all {{ blips | length }} blip{{ 's' if blips | length != 1 }} (under 160 m)</button>
   </form>

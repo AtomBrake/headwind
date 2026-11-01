@@ -31,7 +31,7 @@
           {% for sp in (['Walk','Run','VirtualRun','Hike','Ride','VirtualRide'] if w.sport in ['Walk','Run','VirtualRun','Hike'] else [w.sport,'Walk','Run','VirtualRun','Hike','Ride','VirtualRide']) %}<option value="{{ sp }}" {{ 'selected' if w.sport == sp }}>{{ {'VirtualRide': 'Indoor ride', 'VirtualRun': 'Indoor run'}.get(sp, sp) }}</option>{% endfor %}
         </select>
       </form>
-      <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=w.id) }}" onsubmit="return confirm('Delete this activity? Its photos and notes go with it. This cannot be undone.')"><button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button></form>
+      <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=w.id) }}" onsubmit="return confirm('Delete this activity? It goes to Recently deleted on the Import page for 30 days, to restore from there.')"><button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button></form>
   {% endcall %}
 {% endmacro %}
 

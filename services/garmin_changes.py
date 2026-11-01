@@ -298,14 +298,20 @@ def not_here(db, rider_id=None, deleted=False):
 
 
 def bring_in(db, api, garmin_ids):
-    """Fetch and save these listed activities (garmin.save_activity); one deleted here is no longer remembered as deleted. Returns (brought in,
-    failed). One that fails is recorded like a sync failure and stays listed, to try again. Commits."""
-    from services import garmin, garmin_failures
+    """Fetch and save these listed activities (garmin.save_activity); one deleted here is no longer remembered as deleted, and one still in the bin
+    is restored from there instead, with what was chosen here (services/recently_deleted.restore). Returns (brought in, failed). One that fails
+    is recorded like a sync failure and stays listed, to try again. Commits."""
+    from services import garmin, garmin_failures, recently_deleted
     ensure_schema(db)
     done = failed = 0
     for gid in garmin_ids:
         r = db.execute('SELECT * FROM GarminMissing WHERE garminId=?', [str(gid)]).fetchone()
         if not r:
+            continue
+        if recently_deleted.restore(db, f'garmin_{gid}'):
+            db.execute('DELETE FROM GarminMissing WHERE garminId=?', [str(gid)])
+            db.commit()
+            done += 1
             continue
         a = json.loads(r['activity'])
         err = garmin.save_activity(db, api, a, r['riderId'])
