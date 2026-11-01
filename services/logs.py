@@ -62,6 +62,7 @@ def new_request_id():
 _REDACT = [
     (re.compile(r'(?i)\bBearer\s+[A-Za-z0-9._~+/=-]+'), 'Bearer ***'),
     (re.compile(r'\bhw_[A-Za-z0-9_-]{16,}'), 'hw_***'),                         # phone app device tokens
+    (re.compile(r'\bhwf_[A-Za-z0-9_-]{16,}'), 'hwf_***'),                       # friend feed tokens
     (re.compile(r'\bsk-[A-Za-z0-9_-]{16,}'), 'sk-***'),                         # OpenAI / Anthropic keys
     # name=value, name: value, "name": "value", ?name=value — garminPassword, claudeKey, access_token, X-Api-Key, appid, ...
     (re.compile(r'(?i)([\w-]*(?:password|passwd|secret|token|api[_-]?key|apikey|appid|key|authorization|cookie)["\']?\s*[=:]\s*["\']?)'
