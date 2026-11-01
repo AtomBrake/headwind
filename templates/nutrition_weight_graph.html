@@ -16,8 +16,16 @@
   .wg-big.gain { color: var(--danger); }
   .wg-big.flat { color: var(--text-muted); }
   .wg-sub { font-size: 0.82rem; color: var(--text-muted); margin-top: 0.35rem; }
-  #wgChartWrap { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 0.5rem; }
-  #wgSvg { width: 100%; height: auto; display: block; }
+  #wgChartWrap { position: relative; background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 0.5rem; }
+  #wgSvg { width: 100%; height: auto; display: block; touch-action: pan-y; }   /* a sideways drag scrubs the chart, an upward one still scrolls */
+  .wg-tip { position: absolute; z-index: 5; pointer-events: none; white-space: nowrap; font-size: 0.78rem; line-height: 1.45;
+    padding: 0.45rem 0.6rem; background: var(--raised-bg); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 4px 12px var(--shadow); }
+  .wg-tip[hidden] { display: none; }
+  .wg-tip-date { color: var(--text-muted); }
+  .wg-tip-kg { font-size: 1rem; font-weight: 600; color: var(--text-strong); }
+  .wg-tip .loss { color: var(--success); }
+  .wg-tip .gain { color: var(--danger); }
+  .wg-tip .wg-src { margin-top: 0.2rem; }
   .wg-empty { text-align: center; color: var(--text-muted); padding: 2rem 0; }
   .wg-links { display: flex; gap: 0.5rem; margin-top: 1rem; }
   .wg-table td { font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -54,6 +62,7 @@
 
 <div id="wgChartWrap">
   <svg id="wgSvg" viewBox="0 0 800 420" preserveAspectRatio="xMidYMid meet"></svg>
+  <div class="wg-tip" id="wgTip" hidden></div>
   <div class="wg-empty" id="wgEmpty" style="display:none;">No weigh-ins in this period yet.</div>
 </div>
 
@@ -140,6 +149,7 @@ document.getElementById('wgNext').addEventListener('click', () => {
 });
 
 async function loadGraph() {
+  hideHover();
   document.querySelectorAll('.wg-tab').forEach(b => b.classList.toggle('active', b.dataset.period === period));
   const r = await fetch(`/nutrition/api/weight/graph?period=${period}&end=${isoDate(endDate)}`);
   const data = await r.json();
@@ -179,6 +189,7 @@ function render(data) {
   const svg = document.getElementById('wgSvg');
   const empty = document.getElementById('wgEmpty');
   const headline = document.getElementById('wgHeadline');
+  hideHover();
 
   document.getElementById('wgRangeLabel').textContent =
     data.periodStart && data.periodEnd
@@ -189,6 +200,7 @@ function render(data) {
 
   if (!raw.length && !trend.length) {
     svg.innerHTML = '';
+    chartGeom = null;
     empty.style.display = '';
     headline.style.display = 'none';
     return;
@@ -218,7 +230,7 @@ function render(data) {
 }
 
 // WeightLog.source values; anything else (a newer client) is shown as stored
-const SOURCE_LABELS = { manual: 'Typed in', backfill: 'Backfill', homeassistant: 'Scale (Home Assistant)', garmin: 'Scale (Garmin)' };
+const SOURCE_LABELS = { manual: 'Typed in', settings: 'Typed in (Settings)', backfill: 'Backfill', homeassistant: 'Scale (Home Assistant)', garmin: 'Scale (Garmin)', apple_health: 'Apple Health' };
 
 function sourceLabel(p) {
   const src = p.source || 'manual';
@@ -228,25 +240,34 @@ function sourceLabel(p) {
 
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]); }
 
+// "Mon 3 Nov", with the year when it isn't this one
+function fmtDay(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  const opts = { weekday: 'short', day: 'numeric', month: 'short' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return d.toLocaleDateString('en-GB', opts);
+}
+
+// the change since the last weigh-in, and its colour class, as the table and the chart's box show it
+function fmtChange(p) {
+  if (p.changeKg == null) return { text: '—', cls: '' };
+  return {
+    text: fmtDeltaMain(Math.abs(p.changeKg) < 0.05 ? 0 : p.changeKg),
+    cls: p.changeKg <= -0.05 ? 'loss' : (p.changeKg >= 0.05 ? 'gain' : ''),
+  };
+}
+
 function renderLog(raw) {
   const box = document.getElementById('wgLog');
   box.style.display = raw.length ? '' : 'none';
   document.getElementById('wgLogCount').textContent = raw.length ? `· ${raw.length}` : '';
-  const thisYear = new Date().getFullYear();
   document.getElementById('wgLogBody').innerHTML = raw.slice().reverse().map(p => {
-    const d = new Date(p.date + 'T12:00:00');
-    const opts = { weekday: 'short', day: 'numeric', month: 'short' };
-    if (d.getFullYear() !== thisYear) opts.year = 'numeric';
-    let change = '—', cls = '';
-    if (p.changeKg != null) {
-      change = fmtDeltaMain(Math.abs(p.changeKg) < 0.05 ? 0 : p.changeKg);
-      cls = p.changeKg <= -0.05 ? 'loss' : (p.changeKg >= 0.05 ? 'gain' : '');
-    }
+    const change = fmtChange(p);
     return `<tr>
-      <td>${d.toLocaleDateString('en-GB', opts)}</td>
+      <td>${fmtDay(p.date)}</td>
       <td class="num">${fmtWeight(p.kg)}</td>
       <td class="num wg-trend" style="color:var(--text-muted);">${p.trendKg != null ? fmtWeight(p.trendKg) : '—'}</td>
-      <td class="num ${cls}">${change}</td>
+      <td class="num ${change.cls}">${change.text}</td>
       <td><span class="wg-src ${p.scale ? 'scale' : ''}">${esc(sourceLabel(p))}</span></td>
     </tr>`;
   }).join('');
@@ -381,8 +402,88 @@ function drawChart(raw, trend, data) {
   if (dense) svgEls.push(...dotEls, ...trendEls);
   else svgEls.push(...trendEls, ...dotEls);
 
+  svgEls.push('<g id="wgHover"></g>');
   svg.innerHTML = svgEls.concat(overlay).join('');
+  chartGeom = { x, y, top: padT, bottom: H - padB, left: padL, right: W - padR, start, pxPerDay, raw, trend };
 }
+
+// ── Hover: the nearest weigh-in by date, or the trend alone between them ─────────
+let chartGeom = null;   // set by drawChart: its scales and the points drawn
+const tip = document.getElementById('wgTip');
+
+function hideHover() {
+  tip.hidden = true;
+  const g = document.getElementById('wgHover');
+  if (g) g.innerHTML = '';
+}
+
+// nearest by x: a binary search, since raw and trend come sorted by date
+function nearestByX(points, vx) {
+  let lo = 0, hi = points.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (chartGeom.x(points[mid].date) < vx) lo = mid; else hi = mid;
+  }
+  return Math.abs(chartGeom.x(points[lo].date) - vx) <= Math.abs(chartGeom.x(points[hi].date) - vx) ? points[lo] : points[hi];
+}
+
+function showHover(e) {
+  const svg = document.getElementById('wgSvg');
+  const g = document.getElementById('wgHover');
+  const ctm = svg.getScreenCTM();
+  if (!chartGeom || !g || !ctm) return;
+  const G = chartGeom;
+  // the SVG scales with its viewBox, so map the pointer into chart units rather than trusting offsetX
+  const pt = svg.createSVGPoint();
+  pt.x = e.clientX; pt.y = e.clientY;
+  const vx = pt.matrixTransform(ctm.inverse()).x;
+  if (vx < G.left - 10 || vx > G.right + 10) { hideHover(); return; }
+
+  // a weigh-in within half a day (or a dot's width, when days are narrow) wins; otherwise the trend that day
+  let p = G.raw.length ? nearestByX(G.raw, vx) : null;
+  if (p && Math.abs(G.x(p.date) - vx) > Math.max(G.pxPerDay / 2, 14)) p = null;
+  const t = p ? null : (G.trend.length ? nearestByX(G.trend, vx) : null);
+  if (!p && !t) { hideHover(); return; }
+
+  const date = p ? p.date : t.date, kg = p ? p.kg : t.kg;
+  const cx = G.x(date), cy = G.y(kg);
+  g.innerHTML = `<line x1="${cx.toFixed(1)}" y1="${G.top}" x2="${cx.toFixed(1)}" y2="${G.bottom}" stroke="var(--text-muted)" stroke-width="1"/>
+    <circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${p ? 8 : 6}" fill="none" stroke="var(--text-strong)" stroke-width="2"/>`;
+
+  if (p) {
+    const change = fmtChange(p);
+    tip.innerHTML = `<div class="wg-tip-date">${fmtDay(p.date)}</div>
+      <div class="wg-tip-kg">${fmtWeight(p.kg)}</div>
+      ${p.trendKg != null ? `<div>Trend ${fmtWeight(p.trendKg)}</div>` : ''}
+      ${p.changeKg != null ? `<div class="${change.cls}">${change.text} since last</div>` : ''}
+      <span class="wg-src ${p.scale ? 'scale' : ''}">${esc(sourceLabel(p))}</span>`;
+  } else {
+    tip.innerHTML = `<div class="wg-tip-date">${fmtDay(t.date)}</div>
+      <div class="wg-tip-kg">${fmtWeight(t.kg)}</div>
+      <div class="wg-tip-date">Trend · no weigh-in</div>`;
+  }
+  tip.hidden = false;
+
+  // beside the guide line, level with the dot, flipped or clamped to stay inside the chart's box
+  const wrap = tip.offsetParent.getBoundingClientRect();
+  pt.x = cx; pt.y = cy;
+  const at = pt.matrixTransform(ctm);
+  const px = at.x - wrap.left, py = at.y - wrap.top, gap = 12;
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  let left = px + gap;
+  if (left + tw > wrap.width - 4) left = px - gap - tw;
+  left = Math.max(4, Math.min(left, wrap.width - tw - 4));
+  const top = Math.max(4, Math.min(py - th / 2, wrap.height - th - 4));
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+}
+
+const chartSvg = document.getElementById('wgSvg');
+chartSvg.addEventListener('pointermove', showHover);
+chartSvg.addEventListener('pointerdown', showHover);   // a tap on a phone
+// a finger lifting fires pointerleave too, so a tapped box stays until a tap elsewhere
+chartSvg.addEventListener('pointerleave', e => { if (e.pointerType !== 'touch') hideHover(); });
+document.addEventListener('pointerdown', e => { if (!chartSvg.contains(e.target)) hideHover(); });
 
 const milestoneBox = document.getElementById('wgMilestones');
 milestoneBox.addEventListener('change', async () => {
