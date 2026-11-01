@@ -66,7 +66,13 @@
   <div style="margin-top:0.6rem; display:flex; gap:0.6rem; flex-wrap:wrap;">
     {% if elapsed_fix %}<button class="btn btn-secondary" onclick="useElapsedTime()"
       title="The file's timestamps are broken; start to finish gives {{ (activity.distance / elapsed_fix) | fmt_rate(activity.sportType) }}">Use the elapsed time ({{ elapsed_fix | fmt_duration }})</button>{% endif %}
-    <button class="btn btn-secondary" onclick="dismissFlag()">It's right, keep it</button>
+    {% if future_start %}<form id="startForm" onsubmit="return setStart(event)" style="margin:0; display:flex; gap:0.4rem; align-items:center; flex-wrap:wrap;">
+      <label for="startWhen" class="hint" style="margin:0;">When did it really start?</label>
+      <input type="datetime-local" id="startWhen" name="start" required>
+      <button class="btn btn-secondary" type="submit" title="The track, laps and charts move with it">Set the date</button>
+      <span id="startMsg" class="hint" role="status"></span>
+    </form>{% else %}
+    <button class="btn btn-secondary" onclick="dismissFlag()">It's right, keep it</button>{% endif %}
     <form method="POST" action="/rides/{{ activity.id }}/delete" onsubmit="return confirm('Delete this activity? It goes to Recently deleted on the Import page for 30 days, to restore from there, and no sync brings it back.')" style="margin:0;"><button class="btn btn-danger-quiet" type="submit">Delete the {{ 'activity' if is_workout else 'ride' }}</button></form>
   </div>
 </div>
@@ -77,6 +83,7 @@
   <strong>{{ friend.name }}'s {{ 'ride' if is_ride else 'activity' }}</strong>, synced from <a href="{{ url_for('friends.index') }}">their instance</a> on
   {{ (activity.updatedAt or activity.createdAt) | fmt_when }}.
   <span class="hint">It's shown as they recorded it: changes are made there and arrive with the next sync.</span>
+  {% if activity.flagReason %}<div class="hint" style="margin-top:.3rem;">It looks wrong: {{ activity.flagReason }}. It is left out of the speed and weather analytics.</div>{% endif %}
 </div>
 {% else %}
 <div class="card" style="margin-bottom:1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;padding:.7rem 1rem;" id="typeCard">
@@ -1152,6 +1159,16 @@ function openPhoto(a) {
 
 function useElapsedTime() {
   fetch('/rides/{{ activity.id }}/moving/elapsed', { method: 'POST' }).then(function(r) { if (r.ok) location.reload(); });
+}
+
+function setStart(e) {
+  e.preventDefault();
+  var m = document.getElementById('startMsg');
+  fetch('/rides/{{ activity.id }}/start', { method: 'POST', body: new URLSearchParams(new FormData(e.target)) })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.error) { m.textContent = d.error; return; } location.href = '/rides/' + encodeURIComponent(d.id); })
+    .catch(function() { m.textContent = 'Could not save it.'; });
+  return false;
 }
 
 function dismissFlag() {

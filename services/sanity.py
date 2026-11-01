@@ -7,7 +7,9 @@ The limits are deliberately loose: they catch the impossible, not the unusual. T
 run, a 7,000 m day) pass, and so do a 2:10 marathon, a race walk and a 25 km open-water swim. Rides, runs, walks, hikes and swims have limits of their
 own; every sport, those included, is checked for a heart rate no heart has, a moving time of seconds against a real distance, a recording left
 running for days and a day's worth of calories several times over. Other sports (skiing, paddling, golf, ...) have only those: a ski run's speed
-or a paddle's distance can be anything.
+or a paddle's distance can be anything. Every sport, a friend's synced ones too, is also checked for a start that hasn't happened yet: a device
+whose clock was reset (an Avinox unit back at 1970, which the FIT conversion wrapped round to 2106). The rider can give it the real date
+(set_start).
 """
 MI = 1609.344
 
@@ -34,10 +36,12 @@ MAX_SWIM_DIST_MI = 150    # 240 km (the longest swims on record are under that)
 # every sport
 MIN_AVG_HR = 30           # bpm: an average below this is a strap that lost contact, not a heart
 MAX_HR = 230              # bpm: above any heart's maximum
+FUTURE_GRACE_S = 86400    # a start more than a day after now: no time zone mix-up goes that far
 
 SANE_SQL = "(flagReason IS NULL OR flagDismissed = 1)"      # for charts: activities nobody has flagged, or that the rider cleared
-COLS = ('id, sportType, distance, movingTime, elapsedTime, averageSpeed, maxSpeed, totalElevationGain, calories, averageHeartrate, maxHeartrate, '
-        'flagDismissed')
+COLS = ('id, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, averageSpeed, maxSpeed, totalElevationGain, calories, '
+        'averageHeartrate, maxHeartrate, flagDismissed')
+FUTURE_SQL = "substr(COALESCE(startDate, startDateLocal), 1, 10) > date('now')"     # a cheap pre-filter for future_start
 
 
 def _family(sport):
@@ -54,6 +58,26 @@ def _family(sport):
 
 def _get(r, key):
     return r[key] if key in r.keys() else None
+
+
+def _day(iso):
+    """'2106-02-08' as '8 Feb 2106'."""
+    from datetime import date
+    try:
+        d = date.fromisoformat(iso)
+    except ValueError:
+        return iso
+    return f'{d.day} {d:%b %Y}'
+
+
+def future_start(r):
+    """The start (UTC) when it is more than FUTURE_GRACE_S after now, else None. `r` is a mapping with id, startDate and startDateLocal."""
+    from datetime import datetime, timedelta, timezone
+    from services.duplicates import start_instant
+    if not (_get(r, 'startDate') or _get(r, 'startDateLocal')):
+        return None
+    at = start_instant(r)
+    return at if at and at > datetime.now(timezone.utc) + timedelta(seconds=FUTURE_GRACE_S) else None
 
 
 def reasons(r, system=None):
@@ -87,6 +111,9 @@ def reasons(r, system=None):
             out.append('top speed of %s is not possible on foot' % spd(r['maxSpeed']))
     elif fam == 'swim' and avg > MAX_SWIM_AVG_MPH:
         out.append('average speed of %s is not possible swimming' % spd(avg_mps))
+    if future_start(r):
+        d = str(_get(r, 'startDateLocal') or _get(r, 'startDate'))[:10]
+        out.append('starts on %s, which hasn\'t happened yet: the device\'s clock was wrong' % _day(d))
     if fam and dist <= 0 and moving <= 0 and elapsed <= 0:
         out.append('no distance and no time: nothing was recorded')
     if dist >= 1000 and 0 < moving < 60:
@@ -181,6 +208,37 @@ def use_elapsed_time(db, act_id):
     return True
 
 
+def set_start(db, act_id, local):
+    """The real start for an activity whose device clock was wrong (future_start): `local` is the rider's 'YYYY-MM-DDTHH:MM', the clock where it
+    started. Its UTC start follows from the time zone there, and the day kept with its best and segment times goes with it (start_times.move_local);
+    the streams and laps are seconds from the start, so they need nothing. The file's start is kept in rawData.fileStart. Then checked again, and
+    for duplicates: on the right day it may meet a copy that had it right. Returns an error text, or None when done. Does not commit."""
+    import json
+    from datetime import datetime, timezone
+    from services import duplicates, tz
+    from services.start_times import move_local
+    from services.weather import origin
+    try:
+        when = datetime.fromisoformat(str(local or '').strip()[:16])
+    except ValueError:
+        return 'Give the date and time it started.'
+    r = db.execute('SELECT id, startDate, startDateLocal, startLat, startLng, sportType, streams, rawData FROM Activity WHERE id=?', [act_id]).fetchone()
+    if not r:
+        return 'No such activity.'
+    lat, lng = origin(r)
+    utc = when.replace(tzinfo=tz.zone_at(lat, lng, r['sportType'])).astimezone(timezone.utc)
+    if future_start({'id': r['id'], 'startDate': utc.strftime('%Y-%m-%dT%H:%M:%S'), 'startDateLocal': None}):
+        return "That's in the future too."
+    raw = json.loads(r['rawData'] or '{}') or {}
+    raw.setdefault('fileStart', r['startDateLocal'])
+    db.execute('UPDATE Activity SET rawData=? WHERE id=?', [json.dumps(raw), act_id])
+    move_local(db, act_id, r['startDateLocal'], when.strftime('%Y-%m-%dT%H:%M:%S'), utc.strftime('%Y-%m-%dT%H:%M:%S'))
+    db.execute("UPDATE Activity SET updatedAt=datetime('now') WHERE id=?", [act_id])
+    res = duplicates.resolve(db, act_id)
+    flag(db, (res or {}).get('kept', act_id))
+    return None
+
+
 def strava_climb(row):
     """Strava's climb for an activity from a Strava export (kept in rawData at import), or None."""
     import json
@@ -197,7 +255,7 @@ def flagged(db, rider_id):
     (offered in its place). `elapsedFix`: the elapsed time, when it can stand in for a broken moving time (elapsed_fix)."""
     from services.sports import is_ride, label
     out = []
-    for r in db.execute(f'SELECT {COLS}, name, startDateLocal, flagReason, rawData FROM Activity '
+    for r in db.execute(f'SELECT {COLS}, name, flagReason, rawData FROM Activity '
                         'WHERE riderId=? AND flagReason IS NOT NULL AND COALESCE(flagDismissed,0)=0 ORDER BY startDateLocal DESC', [rider_id]).fetchall():
         sc = strava_climb(r)
         d = {k: r[k] for k in r.keys() if k != 'rawData'}

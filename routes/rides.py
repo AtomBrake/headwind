@@ -281,8 +281,9 @@ def detail(rid):
         file_climb = file_moving = None
     from services import sanity as _sanity
     elapsed_fix = _sanity.elapsed_fix(activity) if activity['flagReason'] and not activity['flagDismissed'] else None
+    future_start = bool(activity['flagReason'] and _sanity.future_start(activity))
     return render_template('ride.html', friend=friend, kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, zwift_world=zwift_world, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
-                           file_climb=file_climb, file_moving=file_moving, elapsed_fix=elapsed_fix, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
+                           file_climb=file_climb, file_moving=file_moving, elapsed_fix=elapsed_fix, future_start=future_start, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
                            charts=charts, has_memory=memory_count > 0, ai_pending=_auto_analyse.is_pending(activity['id']),
                            seg_efforts=seg_efforts, alt_raw=alt_raw, coords_from_stream=coords_from_stream, dist_raw=dist_raw,
                            co_riders=co_riders, seg_rivals=seg_rivals,
@@ -390,6 +391,21 @@ def use_elapsed_time(rid):
     db.commit()
     row = db.execute('SELECT flagReason FROM Activity WHERE id=?', [rid]).fetchone()
     return jsonify(ok=True, flagged=bool(row and row['flagReason']))
+
+
+@bp.route('/<rid>/start', methods=['POST'])
+def set_start(rid):
+    """The real start for an activity whose device clock was wrong (services/sanity.set_start). Returns the id it's kept under: on the right day it
+    may turn out to be a copy of another."""
+    from flask import jsonify
+    from services import sanity
+    db = get_db()
+    err = sanity.set_start(db, rid, request.form.get('start'))
+    if err:
+        return jsonify(error=err), 400
+    db.commit()
+    parked = db.execute("SELECT primaryId FROM ActivityDuplicate WHERE id=? AND status='parked'", [rid]).fetchone()
+    return jsonify(ok=True, id=parked['primaryId'] if parked else rid)
 
 
 @bp.route('/<rid>/notes', methods=['POST'])

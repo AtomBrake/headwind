@@ -146,6 +146,44 @@ def test_changing_the_sport_checks_it_against_the_new_one(db):
     assert db.execute("SELECT flagReason FROM Activity WHERE id='car'").fetchone()[0] is None
 
 
+def dated(db, rid, local, utc=None, **kw):
+    ride(db, rid, **kw)
+    db.execute('UPDATE Activity SET startDateLocal=?, startDate=? WHERE id=?', [local, utc or local, rid])
+    db.commit()
+
+
+def test_a_start_after_today_is_flagged(db):
+    from datetime import datetime, timedelta, timezone
+    dated(db, 'avinox', '2106-02-08T23:46:37')                                    # a clock reset to 1970, wrapped round to 2106
+    assert "starts on 8 Feb 2106, which hasn't happened yet: the device's clock was wrong" in sanity.flag(db, 'avinox')
+    soon = (datetime.now(timezone.utc) + timedelta(hours=14)).strftime('%Y-%m-%dT%H:%M:%S')
+    dated(db, 'kiwi', soon, sport='Run')                                          # New Zealand's evening is still today here
+    assert sanity.flag(db, 'kiwi') is None
+
+
+def test_the_real_start_can_be_given(db):
+    import json
+    dated(db, 'avinox', '2106-02-08T23:46:37', utc='2106-02-08T23:46:37+00:00')
+    db.execute("UPDATE Activity SET startLat=51.5, startLng=-0.12, weatherSummary='Sunny', weatherTempC=9 WHERE id='avinox'")
+    db.execute("INSERT INTO BestEffort (activityId, activityDate, distanceMi, elapsedSecs) VALUES ('avinox', '2106-02-08', 1, 180)")
+    sanity.flag(db, 'avinox')
+    assert sanity.set_start(db, 'avinox', 'not a date') and sanity.set_start(db, 'avinox', '2107-01-01T10:00')     # refused
+    assert sanity.set_start(db, 'avinox', '2025-04-21T14:30') is None
+    r = db.execute("SELECT startDate, startDateLocal, flagReason, weatherSummary, rawData FROM Activity WHERE id='avinox'").fetchone()
+    assert (r['startDateLocal'], r['startDate']) == ('2025-04-21T14:30:00', '2025-04-21T13:30:00')       # London in summer time
+    assert r['flagReason'] is None and r['weatherSummary'] is None                                       # looked up again for the real hour
+    assert json.loads(r['rawData'])['fileStart'] == '2106-02-08T23:46:37'
+    assert db.execute("SELECT activityDate FROM BestEffort WHERE activityId='avinox'").fetchone()[0] == '2025-04-21'
+
+
+def test_a_reimport_does_not_offer_the_wrong_date_back(db):
+    from services import reimport
+    dated(db, 'r', '2025-04-21T14:30:00')
+    saved = db.execute("SELECT * FROM Activity WHERE id='r'").fetchone()
+    assert reimport.differences(saved, {'startDateLocal': '2106-02-08T23:46:37'}) == []
+    assert [d['label'] for d in reimport.differences(saved, {'startDateLocal': '2025-04-21T16:30:00'})] == ['Start']
+
+
 def test_gps_altitude_noise_is_not_counted_as_climbing():
     flat_noisy = [100 + (1.5 if i % 2 else -1.5) for i in range(200)]
     assert _gain_smoothed(flat_noisy) < 3
