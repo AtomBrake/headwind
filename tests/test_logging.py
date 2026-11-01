@@ -112,6 +112,7 @@ def test_secrets_are_blanked_in_log_lines():
     assert logs.redact('garminPassword=hunter2 ok') == 'garminPassword=*** ok'
     assert logs.redact('{"claudeKey": "sk-ant-abcdefghijklmnopqrstu"}') == '{"claudeKey": "***"}'
     assert 'hw_abcdefghijklmnopqrstuv' not in logs.redact('Authorization: Bearer hw_abcdefghijklmnopqrstuv')
+    assert logs.redact('feed sent hwf_abcdefghijklmnopqrstuv ok') == 'feed sent hwf_*** ok'
     assert logs.redact('GET /data/2.5/onecall?lat=1&appid=deadbeef') == 'GET /data/2.5/onecall?lat=1&appid=***'
     assert logs.redact('used 1200 tokens in 3s') == 'used 1200 tokens in 3s'
 
