@@ -59,8 +59,9 @@ def troubleshooting_copy():
     no_gps, no_streams = bool(request.form.get('no_gps')), bool(request.form.get('no_streams'))
     database = current_app.config['DATABASE']
     started = downloads.start(current_app._get_current_object(), copy.KIND, 'Copy for troubleshooting',
-                              lambda work_dir: copy.build(database, work_dir, no_gps=no_gps, no_streams=no_streams),
-                              f"headwind-troubleshooting-{datetime.now():%Y-%m-%d-%H%M}.zip")
+                              lambda work_dir, report: copy.build(database, work_dir, no_gps=no_gps, no_streams=no_streams),
+                              f"headwind-troubleshooting-{datetime.now():%Y-%m-%d-%H%M}.zip",
+                              url_for('tasks.index') + '#copy', url_for('tasks.troubleshooting_copy_download'))
     if not started:
         flash('A copy is already being made: it will be offered here when it\'s ready.', 'error')
     return redirect(url_for('tasks.index') + '#copy')
@@ -87,6 +88,43 @@ def troubleshooting_copy_delete():
     from services import downloads, troubleshooting_copy as copy
     downloads.discard(copy.KIND)
     return redirect(url_for('tasks.index') + '#copy')
+
+
+@bp.route('/tasks/background')
+def background():
+    """What the pill at the top of every page shows (templates/base.html): an import started on the Import page, and the files being made
+    to download (services/downloads.py), while they run and until their outcome is dismissed."""
+    from routes import import_rides
+    from services import downloads
+    items = []
+    imp = import_rides.progress()
+    if imp:
+        state = 'failed' if imp.get('error') else 'running' if imp['running'] else 'done'
+        items.append({'id': 'import', 'state': state, 'url': url_for('import_rides.index'),
+                      'text': f"Import failed: {imp['error']}" if state == 'failed'
+                      else (f"Importing {imp.get('done') or 0} / {imp['total']}" if imp.get('total') else 'Importing…') if state == 'running'
+                      else f"✓ Import done · {imp.get('imported') or 0} imported",
+                      'pct': round((imp.get('done') or 0) / imp['total'] * 100) if state == 'running' and imp.get('total') else None})
+    for kind, d in downloads.notices().items():
+        state = {'ready': 'done'}.get(d['state'], d['state'])
+        items.append({'id': f'download:{kind}', 'state': state, 'url': d['url'] if state == 'done' else d['page'] if state == 'running' else url_for('tasks.index'),
+                      'text': f"{d['label']} · {d['progress'] or 'Starting'}…" if state == 'running'
+                      else f"✓ {d['label']} ready ({d['size_text']}): Download" if state == 'done'
+                      else f"{d['label']} failed: {d['error']}",
+                      'pct': d['pct'] if state == 'running' else None})
+    return jsonify(items=items)
+
+
+@bp.route('/tasks/background/dismiss', methods=['POST'])
+def background_dismiss():
+    from routes import import_rides
+    from services import downloads
+    item = request.form.get('id') or ''
+    if item == 'import':
+        import_rides.dismiss()
+    elif item.startswith('download:'):
+        downloads.dismiss(item.split(':', 1)[1])
+    return jsonify(ok=True)
 
 
 @bp.route('/tasks/logs')

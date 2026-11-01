@@ -5,7 +5,7 @@ import zipfile
 
 from flask import Flask
 
-from routes import import_rides
+from routes import import_rides, tasks
 
 
 def _app(monkeypatch, n, tmp_path):
@@ -19,6 +19,7 @@ def _app(monkeypatch, n, tmp_path):
     app = Flask('t')
     app.config['DATABASE'] = str(tmp_path / 't.db')         # a zip is saved beside it while it's imported (services/strava_export)
     app.register_blueprint(import_rides.bp)
+    app.register_blueprint(tasks.bp)                     # the pill's /tasks/background
     return app
 
 
@@ -67,8 +68,11 @@ def test_progress_snapshot_for_the_indicator_until_dismissed(monkeypatch, tmp_pa
     d = client.get('/import/progress').get_json()
     assert d['running'] is False and d['complete'] is True and d['done'] == 5 and d['total'] == 5 and d['imported'] == 5
     assert client.get('/import/progress').get_json() == d           # stays until someone acknowledges it
-    client.post('/import/progress/dismiss')
+    pill = client.get('/tasks/background').get_json()['items']      # the pill at the top of every page
+    assert pill == [{'id': 'import', 'state': 'done', 'url': '/import', 'text': '✓ Import done · 5 imported', 'pct': None}]
+    client.post('/tasks/background/dismiss', data={'id': 'import'})
     assert client.get('/import/progress').get_json() == {}
+    assert client.get('/tasks/background').get_json()['items'] == []
     assert client.get('/import/status').get_data(as_text=True) == ''  # the import page won't show it again either
 
 

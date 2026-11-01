@@ -10,3 +10,21 @@ def _home_zone(monkeypatch):
     tz.forget()
     yield
     tz.forget()
+
+
+@pytest.fixture
+def backup_zip(monkeypatch):
+    """backup_zip(client, secrets=False) -> the download's response: Make backup on Settings, with the background job run there and then
+    (services/downloads.py)."""
+    from services import downloads
+    monkeypatch.setattr(downloads, '_spawn', lambda fn: fn())
+    monkeypatch.setattr(downloads, '_expire_later', lambda kind, path: None)
+    monkeypatch.setattr(downloads, '_jobs', {})
+
+    def make(client, secrets=False):
+        assert client.post('/settings/backup/export', data={'secrets': '1'} if secrets else {}).status_code == 302
+        status = client.get('/settings/backup/status').get_json()
+        assert status['state'] == 'ready', status
+        return client.get(status['url'])
+    return make
+

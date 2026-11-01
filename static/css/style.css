@@ -319,25 +319,26 @@ body {
 .more-menu .more-menu-list a:hover, .more-menu-list button:hover { background: var(--hover-tint); }
 .more-menu-list .danger { color: var(--danger); border-top: 1px solid var(--border); }
 
-/* background import indicator */
-.import-pill {
+/* what runs in the background: an import, a backup being made (templates/base.html) */
+.task-pills { display: flex; gap: 0.5rem; min-width: 0; }
+.task-pills:empty { display: none; }
+.task-pill {
   position: relative; display: flex; align-items: center; gap: 0.5rem; min-width: 0;
   padding: 0.3rem 0.75rem; border: 1px solid var(--border); border-radius: 999px; overflow: hidden;
   font-size: 0.8125rem; white-space: nowrap;
 }
-.import-pill[hidden] { display: none; }
-.import-pill a { color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; }
-.import-pill-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; }
-.import-pill-bar div { height: 100%; width: 0; background: var(--accent); transition: width 0.3s ease; }
-.import-pill-done { border-color: var(--success); }
-.import-pill-done .import-pill-bar div { background: var(--success); }
-.import-pill-error { border-color: var(--danger); }
-.import-pill-error a { color: var(--danger); }
-.import-pill-error .import-pill-bar div { background: var(--danger); }
-.import-pill button {
+.task-pill-text { color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; }
+.task-pill-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; }
+.task-pill-bar div { height: 100%; width: 0; background: var(--accent); transition: width 0.3s ease; }
+.task-pill-done { border-color: var(--success); }
+.task-pill-done .task-pill-bar div { background: var(--success); }
+.task-pill-error { border-color: var(--danger); }
+.task-pill-error .task-pill-text { color: var(--danger); }
+.task-pill-error .task-pill-bar div { background: var(--danger); }
+.task-pill button {
   background: none; border: 0; padding: 0; color: var(--text-muted); font-size: 1rem; line-height: 1; cursor: pointer;
 }
-.import-pill button:hover { color: var(--text); }
+.task-pill button:hover { color: var(--text); }
 
 .content {
   flex: 1;

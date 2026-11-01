@@ -3,16 +3,15 @@ import os
 import shutil
 import sqlite3
 import ssl
-import tempfile
 import threading as _threading
 import urllib.request
-import zipfile
+from datetime import datetime
 from pathlib import Path
 
 _backfill_lock  = _threading.Lock()
 _backfill_state = {'running': False, 'done': 0, 'failed': 0}
 
-from flask import Blueprint, after_this_request, current_app, flash, jsonify, redirect, render_template, request, send_file, session
+from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from database import get_db, migrate_db, query_db
 from services import logs, vault
 
@@ -155,11 +154,13 @@ def index():
     except ImportError:
         __version__ = 'dev'
     from services import tz
-    from services import garmin
+    from services import backup, downloads, garmin, tasks
+    last_backup = tasks.last(get_db(), f'download:{backup.KIND}')        # the size of the last one, said on the card
     return render_template('settings.html', s=s, openai_models=OPENAI_MODELS, zones=tz.names(), server_zone=tz.server_zone_name(),
                            claude_models=CLAUDE_MODELS, garmin_on=garmin.connected(s),
                            current_username=current_username, min_password=credentials.MIN_PASSWORD, build_time=build_time,
-                           app_version=__version__)
+                           app_version=__version__, backup_job=downloads.status(backup.KIND),
+                           last_backup=last_backup if last_backup and last_backup['status'] == 'done' else None)
 
 
 @bp.route('/test-ai', methods=['POST'])
@@ -405,63 +406,53 @@ def _validate_db(path):
     return tables, rider_count
 
 
-@bp.route('/backup/export')
+@bp.route('/backup/export', methods=['POST'])
 def backup_export():
-    """The whole database and its photos in one zip. ?secrets=1 adds the key the saved keys and passwords are encrypted with
-    (services/vault.py), so a restore on another server keeps them: and so does anyone else who gets the zip."""
-    from services import backup
+    """Start making the whole database and its photos into one zip (services/backup.build), in the background (services/downloads.py):
+    on a big database it takes minutes, longer than a proxy waits. The card, and the pill on every page, offer the download when it's ready.
+    `secrets` adds the key the saved keys and passwords are encrypted with (services/vault.py), so a restore on another server keeps them:
+    and so does anyone else who gets the zip. The key goes only inside the zip, so it's deleted with it."""
+    from services import backup, downloads
     db = _db_path()
-    key = vault.key_path() if request.args.get('secrets') else None
     if not db or not Path(db).exists():
         flash('Database file not found.', 'error')
-        return redirect('/settings')
+        return redirect('/settings#backup')
+    key = vault.key_path() if request.form.get('secrets') else None
+    avatar_dir = _avatar_dir()
+    name = f"headwind-backup{'-with-secrets' if key else ''}-{datetime.now():%Y-%m-%d}.zip"
+    started = downloads.start(current_app._get_current_object(), backup.KIND, 'Backup',
+                              lambda work_dir, report: backup.build(db, work_dir, avatar_dir, key=key, report=report),
+                              name, '/settings#backup', url_for('settings.backup_download', name=name), notify=True)
+    if not started:
+        flash('A backup is already being made: it will be offered here when it\'s ready.', 'error')
+    return redirect('/settings#backup')
 
-    tmp_dir = tempfile.mkdtemp()
-    try:
-        # Consistent DB snapshot via SQLite backup API
-        snap = os.path.join(tmp_dir, 'headwind.db')
-        src = sqlite3.connect(db)
-        dst = sqlite3.connect(snap)
-        src.backup(dst)
-        src.close()
-        dst.execute('UPDATE Settings SET garminPassword=NULL')     # an older install's, not yet swapped for tokens (services/garmin._client)
-        dst.commit()
-        dst.close()
 
-        zip_path = os.path.join(tmp_dir, 'headwind-backup.zip')
-        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            zf.write(snap, 'headwind.db')
-            if key:
-                zf.write(key, backup.SECRETS_KEY)
-            av_dir = _avatar_dir()
-            if os.path.isdir(av_dir):
-                for name in os.listdir(av_dir):
-                    zf.write(os.path.join(av_dir, name), f'avatars/{name}')
-            fi_dir = os.path.join(os.path.dirname(os.path.abspath(db)), 'foodimg')
-            if os.path.isdir(fi_dir):
-                for name in os.listdir(fi_dir):
-                    zf.write(os.path.join(fi_dir, name), f'foodimg/{name}')
-            bi_dir = os.path.join(os.path.dirname(os.path.abspath(db)), 'bikeimg')
-            if os.path.isdir(bi_dir):
-                for name in os.listdir(bi_dir):
-                    zf.write(os.path.join(bi_dir, name), f'bikeimg/{name}')
-            ri_dir = os.path.join(os.path.dirname(os.path.abspath(db)), 'rideimg')
-            if os.path.isdir(ri_dir):
-                for name in os.listdir(ri_dir):
-                    zf.write(os.path.join(ri_dir, name), f'rideimg/{name}')
+@bp.route('/backup/status')
+def backup_status():
+    from services import backup, downloads
+    return jsonify(downloads.status(backup.KIND))
 
-        @after_this_request
-        def _cleanup(resp):
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            return resp
 
-        return send_file(zip_path, as_attachment=True, download_name='headwind-backup-with-secrets.zip' if key else 'headwind-backup.zip',
-                         mimetype='application/zip')
-    except Exception:
-        log.exception('Backup export failed')
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        flash(logs.failed('Export failed'), 'error')
-        return redirect('/settings')
+@bp.route('/backup/download/<name>')
+def backup_download(name):
+    """The finished backup, by the name its job gave it: never a path from the request."""
+    from services import backup, downloads
+    made = downloads.ready(backup.KIND)
+    if not made:
+        flash('That backup is no longer kept: make it again.', 'error')
+        return redirect('/settings#backup')
+    if name != made[1]:
+        abort(404)
+    downloads.dismiss(backup.KIND)                  # fetched: the pill's notice has done its job
+    return send_file(made[0], mimetype='application/zip', as_attachment=True, download_name=made[1])
+
+
+@bp.route('/backup/delete', methods=['POST'])
+def backup_delete():
+    from services import backup, downloads
+    downloads.discard(backup.KIND)
+    return redirect('/settings#backup')
 
 
 @bp.route('/backup/import', methods=['POST'])

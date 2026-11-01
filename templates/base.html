@@ -219,11 +219,7 @@
       {# The way back is the page above this one, named before the title: Gear › Stumpjumper. A page sets it with {% block parent %}<a href="…">Gear</a>{% endblock %}. #}
       <h1>{% if self.parent() | trim %}<span class="crumb">{% block parent %}{% endblock %}</span><span class="crumb-sep" aria-hidden="true">›</span>{% endif %}{% block page_title %}{% endblock %}</h1>
       <div class="topbar-right">
-        <div class="import-pill" id="importPill" hidden>
-          <a href="{{ url_for('import_rides.index') }}" id="importPillText"></a>
-          <div class="import-pill-bar"><div id="importPillFill"></div></div>
-          <button type="button" id="importPillClose" aria-label="Dismiss" hidden>&times;</button>
-        </div>
+        <div class="task-pills" id="taskPills"></div>
         <div class="topbar-actions">{% block topbar_actions %}{% endblock %}</div>
       </div>
     </div>
@@ -257,33 +253,52 @@
   }
   </script>
   {% block scripts %}{% endblock %}
-  {% if request.blueprint != 'import_rides' %}
   <script>
-  // An import started on the Import page carries on in the background; show how it is getting on from every other page.
+  // What runs in the background, from every page (/tasks/background): an import started on the Import page, and a backup or other file
+  // being made to download, with a link to it when it's ready. The Import page shows its own import, so not here.
   (function () {
-    var pill = document.getElementById('importPill'), text = document.getElementById('importPillText'),
-        fill = document.getElementById('importPillFill'), close = document.getElementById('importPillClose');
+    var box = document.getElementById('taskPills'), onImport = {{ 'true' if request.blueprint == 'import_rides' else 'false' }};
+    function dismiss(id, pill) {
+      pill.remove();
+      fetch('/tasks/background/dismiss', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                           body: new URLSearchParams({ id: id }) }).catch(function () {});
+    }
     function poll() {
-      fetch('/import/progress').then(function (r) { return r.json(); }).then(function (d) {
-        if (!('running' in d)) { pill.hidden = true; return; }
-        pill.hidden = false;
-        pill.className = 'import-pill' + (d.error ? ' import-pill-error' : d.running ? '' : ' import-pill-done');
-        close.hidden = d.running;
-        if (d.error) text.textContent = 'Import failed: ' + d.error;
-        else if (d.running) text.textContent = d.total ? 'Importing ' + (d.done || 0) + ' / ' + d.total : 'Importing\u2026';
-        else text.textContent = '\u2713 Import done \u00b7 ' + (d.imported || 0) + ' imported';
-        fill.style.width = (d.running ? (d.total ? Math.round((d.done || 0) / d.total * 100) : 0) : 100) + '%';
-        if (d.running) setTimeout(poll, 2000);
+      fetch('/tasks/background').then(function (r) { return r.json(); }).then(function (d) {
+        box.textContent = '';
+        var running = false;
+        d.items.forEach(function (it) {
+          if (onImport && it.id === 'import') return;
+          running = running || it.state === 'running';
+          var pill = document.createElement('div');
+          pill.className = 'task-pill' + (it.state === 'failed' ? ' task-pill-error' : it.state === 'done' ? ' task-pill-done' : '');
+          var a = document.createElement('a');
+          a.className = 'task-pill-text';        // a class, so the plain-link colour (a:not([class])) leaves it alone
+          a.href = it.url;
+          a.textContent = it.text;
+          a.title = it.text;
+          if (it.state === 'done' && it.id !== 'import') a.addEventListener('click', function () { setTimeout(function () { pill.remove(); }, 0); });
+          var bar = document.createElement('div'), fill = document.createElement('div');
+          bar.className = 'task-pill-bar';
+          fill.style.width = (it.state === 'running' ? (it.pct || 0) : 100) + '%';
+          bar.append(fill);
+          pill.append(a, bar);
+          if (it.state !== 'running') {
+            var close = document.createElement('button');
+            close.type = 'button';
+            close.setAttribute('aria-label', 'Dismiss');
+            close.innerHTML = '&times;';
+            close.addEventListener('click', function () { dismiss(it.id, pill); });
+            pill.append(close);
+          }
+          box.append(pill);
+        });
+        if (running) setTimeout(poll, 2000);
       }).catch(function () {});
     }
-    close.addEventListener('click', function () {
-      pill.hidden = true;
-      fetch('/import/progress/dismiss', { method: 'POST' }).catch(function () {});
-    });
     poll();
   })();
   </script>
-  {% endif %}
   <script>
   (function () {
     var tip = document.createElement('div');
