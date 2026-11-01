@@ -447,16 +447,47 @@
     </div>
 
     <!-- Backup & Restore -->
-    <div class="card">
+    <div class="card" id="backup">
       <div class="card-title">Backup &amp; Restore</div>
       <p class="hint" style="margin-bottom:1rem;">
         Export a full backup — all rides, segments, settings, avatars, and rider data.
         Use to migrate to a new machine or restore after a problem.
       </p>
+      {% if backup_job.state == 'running' %}
+      <p style="margin:0 0 1rem; padding:0.6rem 0.75rem; border:1px solid var(--border); border-radius:8px;">Making the backup:
+        <span id="backupProgress">{{ backup_job.progress or 'starting' }}</span>… You can leave this page: the backup is offered here, and at
+        the top of whatever page you're on, when it's ready.</p>
+      <script>
+        (function poll() {
+          setTimeout(function () {
+            fetch('{{ url_for('settings.backup_status') }}').then(function (r) { return r.json(); })
+              .then(function (s) {
+                if (s.state !== 'running') { location.reload(); return; }
+                if (s.progress) document.getElementById('backupProgress').textContent = s.progress;
+                poll();
+              })
+              .catch(poll);
+          }, 2000);
+        })();
+      </script>
+      {% elif backup_job.state == 'ready' %}
+      <div style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; margin:0 0 1rem; padding:0.6rem 0.75rem; border:1px solid var(--border); border-radius:8px;">
+        <span style="flex:1 1 12rem;"><strong>Your backup is ready</strong> ({{ backup_job.size_text }}). It's kept here for a day, or until
+          you make another.</span>
+        <a class="btn btn-primary" href="{{ backup_job.url }}">Download</a>
+        <form method="POST" action="{{ url_for('settings.backup_delete') }}" style="margin:0;"><button class="btn btn-danger-quiet">Delete it</button></form>
+      </div>
+      {% elif backup_job.state == 'failed' %}
+      <p class="hint" style="margin:0 0 1rem; color:var(--danger-text);">The last backup failed: {{ backup_job.error }}. The
+        <a href="{{ url_for('tasks.index') }}">Tasks page</a> has its log lines.</p>
+      {% endif %}
       <div style="display:flex; gap:0.75rem; align-items:flex-start; flex-wrap:wrap;">
-        <form method="GET" action="/settings/backup/export" style="max-width:22rem;">
-          <button class="btn btn-secondary">Download Backup</button>
-          <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.4rem;">Downloads a <code>.zip</code> (database and photos)</div>
+        {% if backup_job.state != 'running' %}
+        <form method="POST" action="{{ url_for('settings.backup_export') }}" style="max-width:22rem;">
+          <button class="btn btn-secondary">Make backup</button>
+          <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.4rem;">A <code>.zip</code> of the database and photos, made
+            in the background and offered to download when it's ready{% if last_backup %}. The last one, <span data-backup-when="{{ last_backup.finishedAt }}">{{ last_backup.finishedAt[:10] }}</span>,
+            was {{ (last_backup.result or '').split(',')[0] }}{% endif %}.</div>
           <label style="display:flex; gap:0.4rem; align-items:flex-start; font-size:0.8125rem; margin-top:0.6rem;">
             <input type="checkbox" name="secrets" value="1" style="margin-top:0.2rem;">
             <span>Include the secrets key
@@ -465,6 +496,16 @@
                 keep it as safe as the passwords themselves.</span></span>
           </label>
         </form>
+        <script>
+          // stored in UTC: shown in this browser's time, once base.html's _MONTHS is there
+          document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('[data-backup-when]').forEach(function (el) {
+              var d = new Date(el.dataset.backupWhen);
+              if (!isNaN(d)) el.textContent = 'on ' + d.getDate() + ' ' + _MONTHS[d.getMonth()] + ' at ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            });
+          });
+        </script>
+        {% endif %}
         <div>
           <form method="POST" action="/settings/backup/import" enctype="multipart/form-data" id="importForm" style="display:flex; flex-direction:column; gap:0.4rem;">
             <label class="btn btn-secondary" style="cursor:pointer; margin:0;">

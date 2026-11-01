@@ -25,7 +25,7 @@ def test_the_harmless_fun_stuff_still_works():
 
 
 def test_proxies_downloads_and_peer_endpoints_are_refused_even_for_get():
-    for ep in ('settings.backup_export', 'heatmap.tile_proxy', 'friends.feed', 'friends.foods_feed', 'nutrition.image_search', 'phones.app_apk', 'telemetry_forward.ping'):
+    for ep in ('settings.backup_export', 'settings.backup_download', 'heatmap.tile_proxy', 'friends.feed', 'friends.foods_feed', 'nutrition.image_search', 'phones.app_apk', 'telemetry_forward.ping'):
         assert demo.decide('GET', ep), ep
 
 

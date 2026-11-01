@@ -185,9 +185,9 @@ def test_the_settings_page_doesnt_carry_the_secrets(app, client):
     assert 'Saved: leave blank to keep it' in html and 'Sign out' in html
 
 
-def test_a_backup_leaves_out_an_older_installs_password(app, client, tmp_path):
+def test_a_backup_leaves_out_an_older_installs_password(app, client, tmp_path, backup_zip):
     _set(app, "UPDATE Settings SET garminPassword='hunter2'")
-    r = client.get('/settings/backup/export')
+    r = backup_zip(client)
     assert r.status_code == 200
     out = tmp_path / 'restored.db'
     out.write_bytes(zipfile.ZipFile(io.BytesIO(r.data)).read('headwind.db'))

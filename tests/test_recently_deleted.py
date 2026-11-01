@@ -283,7 +283,7 @@ def test_the_import_page_lists_it_and_restores_it(app_client):
     assert 'Recently deleted' not in c.get('/import').get_data(as_text=True)
 
 
-def test_a_backup_carries_the_bin_photos_and_all(app_client, tmp_path):
+def test_a_backup_carries_the_bin_photos_and_all(app_client, tmp_path, backup_zip):
     a, c = app_client
     with a.app_context():
         db = database.get_db()
@@ -291,7 +291,7 @@ def test_a_backup_carries_the_bin_photos_and_all(app_client, tmp_path):
         photos.save(db, 'garmin_1', jpeg(), a.config['DATABASE'])
         duplicates.delete_activity(db, 'garmin_1')
         db.commit()
-    backup = c.get('/settings/backup/export').get_data()
+    backup = backup_zip(c).get_data()
     with a.app_context():                                       # gone from this server: restored from the backup alone
         recently_deleted.empty(database.get_db(), ['garmin_1'], a.config['DATABASE'])
         database.get_db().commit()

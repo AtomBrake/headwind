@@ -1,4 +1,4 @@
-"""Safe backup staging + restore. Uploads never choose their own filesystem paths, zips are read member-by-member
+"""Making a backup, and safe backup staging + restore. Uploads never choose their own filesystem paths, zips are read member-by-member
 with size limits, and the live database is replaced through SQLite's backup API (atomic, WAL-aware, no file swap)."""
 import os
 import re
@@ -26,6 +26,57 @@ SECRETS_KEY = '.secrets_key'      # in a backup made with "include the secrets k
 
 class BackupError(Exception):
     pass
+
+
+KIND = 'backup'                 # its job in services/downloads.py
+_FOLDERS = (('avatars', _AVATAR_RE), ('foodimg', _FOODIMG_RE), ('bikeimg', _BIKEIMG_RE), ('rideimg', _RIDEIMG_RE))
+
+
+def _files(database, avatar_dir):
+    """(path, name in the zip) of every photo a restore reads back. Only names it accepts, so nothing else lying in those folders (an
+    earlier backup among them) goes in."""
+    base = os.path.dirname(os.path.abspath(database))
+    for folder, pattern in _FOLDERS:
+        src = avatar_dir if folder == 'avatars' else os.path.join(base, folder)
+        if os.path.isdir(src):
+            for name in sorted(os.listdir(src)):
+                path = os.path.join(src, name)
+                if pattern.match(f'{folder}/{name}') and os.path.isfile(path):
+                    yield path, f'{folder}/{name}'
+
+
+def build(database, work_dir, avatar_dir, key=None, report=lambda text, pct=None: None):
+    """Write the backup zip into work_dir and return its path: a snapshot of the database through SQLite's backup API, the photos, and
+    the secrets key when `key` (its path) is given. report(text, pct) is told how far it's got."""
+    report('Copying the database')
+    snap = os.path.join(work_dir, 'headwind.db')
+    src = sqlite3.connect(database, timeout=60)
+    dst = sqlite3.connect(snap)
+    try:
+        src.backup(dst)
+    finally:
+        src.close()
+    try:
+        dst.execute('PRAGMA journal_mode = DELETE')     # one file, nothing left in a -wal beside it
+        dst.execute('UPDATE Settings SET garminPassword=NULL')     # an older install's, not yet swapped for tokens (services/garmin._client)
+        dst.commit()
+    finally:
+        dst.close()
+    files = list(_files(database, avatar_dir))
+    zip_path = os.path.join(work_dir, 'headwind-backup.zip')
+    # Level 1: on a 1.5 GB database the default level took about 60 s and this 7 s, for a zip 13% bigger. Photos are JPEGs already:
+    # stored as they are, as deflating them again only costs time.
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=1) as zf:
+        report('Database copied: compressing it')
+        zf.write(snap, 'headwind.db')
+        os.remove(snap)
+        if key:
+            zf.write(key, SECRETS_KEY)
+        for i, (path, name) in enumerate(files, 1):
+            zf.write(path, name, compress_type=zipfile.ZIP_STORED if name.endswith('.jpg') else None)
+            if i % 25 == 0 or i == len(files):
+                report(f'Database copied, files {i:,} of {len(files):,}', round(i / len(files) * 100))
+    return zip_path
 
 
 def _copy_member(zf, info, dest, limit):

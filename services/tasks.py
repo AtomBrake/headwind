@@ -228,7 +228,17 @@ def overview(db):
     except Exception:
         log.debug('Import card on the Tasks page failed', exc_info=True)
 
-    startup = [dict(r) for r in db.execute("SELECT * FROM TaskLog WHERE task LIKE 'startup:%' ORDER BY id DESC LIMIT 30")]
+    # Files being made to download (services/downloads.py): a backup started on Settings, the copy for troubleshooting below
+    from services import downloads
+    for d in downloads.jobs().values():
+        if d['state'] == 'running':
+            jobs.append(_card(d['label'], 'running', f"{d['progress'] or 'Starting'}…", None, {'url': d['page'], 'label': 'Open'}))
+        elif d['state'] == 'ready':
+            jobs.append(_card(d['label'], 'done', f"{d['size_text']}, ready to download for a day.", None, {'url': d['url'], 'label': 'Download'}))
+        elif d['state'] == 'failed':
+            jobs.append(_card(d['label'], 'failed', d['error'] or 'Failed.', None, {'url': d['page'], 'label': 'Open'}))
+
+    startup =[dict(r) for r in db.execute("SELECT * FROM TaskLog WHERE task LIKE 'startup:%' ORDER BY id DESC LIMIT 30")]
     history = [dict(r) for r in db.execute("SELECT * FROM TaskLog WHERE task NOT LIKE 'startup:%' ORDER BY id DESC LIMIT 40")]
     return {'jobs': jobs, 'startup': startup, 'history': history}
 

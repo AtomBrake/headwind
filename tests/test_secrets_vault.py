@@ -153,8 +153,8 @@ def test_without_its_key_the_database_starts_and_asks_for_the_secrets_again(setu
     assert _read(app, 'SELECT openaiKey FROM Settings')['openaiKey'] == 'sk-openai-again'
 
 
-def _export(client):
-    r = client.get('/settings/backup/export')
+def _export(client, backup_zip):
+    r = backup_zip(client)
     assert r.status_code == 200
     return r.data
 
@@ -165,10 +165,10 @@ def _flashes(client):
         return s.pop('_flashes', [])
 
 
-def test_a_backup_keeps_them_encrypted_and_restores_on_the_same_server(setup):
+def test_a_backup_keeps_them_encrypted_and_restores_on_the_same_server(setup, backup_zip):
     path, app = setup
     c = _client(app)
-    zipped = _export(c)
+    zipped = _export(c, backup_zip)
     inside = zipfile.ZipFile(io.BytesIO(zipped))
     assert '.secrets_key' not in ' '.join(inside.namelist())
     db = inside.read('headwind.db')
@@ -181,9 +181,9 @@ def test_a_backup_keeps_them_encrypted_and_restores_on_the_same_server(setup):
     assert _read(app, 'SELECT openaiKey FROM Settings')['openaiKey'] == OLD['openaiKey']
 
 
-def test_a_backup_restored_on_another_server_says_what_to_enter_again(setup, tmp_path, monkeypatch):
+def test_a_backup_restored_on_another_server_says_what_to_enter_again(setup, tmp_path, monkeypatch, backup_zip):
     path, app = setup
-    zipped = _export(_client(app))
+    zipped = _export(_client(app), backup_zip)
     other = str(tmp_path / 'b' / 't.db')
     os.makedirs(os.path.dirname(other))
     pre = Flask('fresh')
@@ -234,9 +234,9 @@ def _fresh_server(tmp_path, monkeypatch, name='b'):
     return other, _make_app(other, monkeypatch)
 
 
-def test_a_backup_with_the_secrets_key_keeps_them_on_another_server(setup, tmp_path, monkeypatch):
+def test_a_backup_with_the_secrets_key_keeps_them_on_another_server(setup, tmp_path, monkeypatch, backup_zip):
     path, app = setup
-    r = _client(app).get('/settings/backup/export?secrets=1')
+    r = backup_zip(_client(app), secrets=True)
     assert 'with-secrets' in r.headers['Content-Disposition']
     zipped = r.data
     key_a = open(os.path.join(os.path.dirname(path), '.secrets_key'), 'rb').read()
