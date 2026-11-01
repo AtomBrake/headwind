@@ -4,7 +4,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 from urllib.parse import urlparse
-from flask import Flask, g, jsonify, redirect, request, session, url_for, render_template
+from flask import Flask, jsonify, redirect, request, session, url_for, render_template
 from config import Config
 from database import close_db, get_db, migrate_db
 
@@ -506,6 +506,8 @@ def create_app():
             h.setdefault('Strict-Transport-Security', 'max-age=31536000')
         return resp
 
+    riders_found = []      # once a rider exists there always is one (the owner can't be deleted): check_login stops asking
+
     @app.before_request
     def check_login():
         if request.endpoint in _PUBLIC or request.endpoint is None:
@@ -534,10 +536,12 @@ def create_app():
             origin = request.headers.get('Origin')
             if origin and origin != 'null' and urlparse(origin).netloc != request.host:
                 return jsonify(error='cross-origin request blocked'), 403
-        if request.endpoint not in ('setup.wizard', 'setup.restore', 'garmin.connect', 'garmin.connect_mfa', 'garmin.history', 'garmin.history_status'):
+        if not riders_found and request.endpoint not in ('setup.wizard', 'setup.restore', 'garmin.connect', 'garmin.connect_mfa',
+                                                         'garmin.history', 'garmin.history_status'):
             from database import query_db
             if query_db('SELECT COUNT(*) FROM Rider', one=True)[0] == 0:
                 return redirect('/setup')
+            riders_found.append(True)
 
     app.permanent_session_lifetime = timedelta(days=30)
 
@@ -556,8 +560,9 @@ def create_app():
         if not session.get('logged_in') or request.endpoint == 'tasks.index':
             return {'startup_unseen': 0}
         try:
-            from services import tasks
-            return {'startup_unseen': tasks.unseen_startup(get_db())}
+            from services import page_facts, tasks
+            facts = page_facts.get()
+            return {'startup_unseen': facts['startupUnseen'] if facts else tasks.unseen_startup(get_db())}
         except Exception:
             return {'startup_unseen': 0}
 
@@ -567,8 +572,9 @@ def create_app():
         if not session.get('logged_in'):
             return {'reimport_advised': 0}
         try:
-            from services import strava_export
-            return {'reimport_advised': len(strava_export.advice(get_db(), app.config['DATABASE']))}
+            from services import page_facts, strava_export
+            facts = page_facts.get()
+            return {'reimport_advised': facts['reimportAdvised'] if facts else len(strava_export.advice(get_db(), app.config['DATABASE']))}
         except Exception:
             return {'reimport_advised': 0}
 
@@ -585,9 +591,7 @@ def create_app():
     @app.context_processor
     def inject_rider_mode():
         from services.rider_mode import multi_rider, owner_rider_id
-        if not hasattr(g, 'multi_rider'):
-            g.multi_rider = multi_rider()
-        return {'multi_rider': g.multi_rider, 'owner_rider_id': owner_rider_id()}
+        return {'multi_rider': multi_rider(), 'owner_rider_id': owner_rider_id()}
 
     # Packaged/desktop installs keep photos in the user's data folder instead of the app folder (AVATAR_DIR); serve them at
     # the same /static/avatars/ URLs the templates already use.

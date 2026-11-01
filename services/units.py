@@ -20,7 +20,8 @@ def current():
             return 'imperial'
         if not hasattr(g, 'units'):
             from database import query_db
-            row = query_db('SELECT units FROM Settings WHERE id=1', one=True)
+            from services import page_facts
+            row = page_facts.get() or query_db('SELECT units FROM Settings WHERE id=1', one=True)
             g.units = row['units'] if row and row['units'] in _SPEC else 'imperial'
         return g.units
     except Exception:

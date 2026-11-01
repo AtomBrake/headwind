@@ -160,8 +160,9 @@ def bulk_analyse():
     def generate():
         db = get_db()
         clause, params = _activity_where(date_from, date_to, force)
+        # Only the ids up front: each ride is read whole when its turn comes, not all of them (streams and all) before the first
         rides = query_db(
-            f'SELECT * FROM Ride {clause} ORDER BY startDateLocal ASC',
+            f'SELECT id, name, startDateLocal FROM Ride {clause} ORDER BY startDateLocal ASC',
             params
         )
 
@@ -175,11 +176,15 @@ def bulk_analyse():
         analysed = 0
         skipped  = 0
 
-        for i, activity in enumerate(rides):
-            name = activity['name'] or activity['id']
-            date = str(activity['startDateLocal'] or '')[:10]
+        for i, listed in enumerate(rides):
+            name = listed['name'] or listed['id']
+            date = str(listed['startDateLocal'] or '')[:10]
             yield f'data: {json.dumps({"type":"progress","i":i+1,"total":total,"name":name,"date":date})}\n\n'
             from services.ai import AIDeclined, AIUnavailable, analyse_ride
+            activity = db.execute('SELECT * FROM Ride WHERE id=?', [listed['id']]).fetchone()
+            if not activity:                           # deleted while the others were analysed
+                skipped += 1
+                continue
             try:
                 analyse_ride(db, activity)
                 analysed += 1

@@ -279,7 +279,7 @@
         <td class="muted fr-url"><code>{{ f.url }}</code></td>
         <td class="muted" data-label="Last synced" data-sort="{{ f.lastSynced or '' }}">{% if f.lastSynced %}{{ f.lastSynced | fmt_when }}{% else %}Never{% endif %}</td>
         <td class="act">
-          <button type="button" onclick="syncFriend({{ f.id }}, this)" class="btn btn-secondary btn-sm">Sync</button>
+          <button type="button" onclick="syncFriend({{ f.id }}, this)" class="btn btn-secondary btn-sm"{% if f.id in syncing %} data-syncing="{{ f.id }}"{% endif %}>Sync</button>
           <form method="POST" action="{{ url_for('friends.set_friend_token', fid=f.id) }}"
                 data-prompt="New feed token from {{ f.name }}:" onsubmit="var t = prompt(this.dataset.prompt); if (!t) return false; this.token.value = t; return true;">
             <input type="hidden" name="token">
@@ -439,17 +439,31 @@ function probeInstance(via) {
 }
 
 function syncFriend(fid, btn) {
-  var orig = btn.textContent;
   btn.textContent = 'Syncing…';
   btn.disabled = true;
   fetch('/friends/' + fid + '/sync', { method: 'POST' })
     .then(r => r.json())
-    .then(d => {
-      btn.textContent = d.ok ? (d.synced ? '✓ ' + d.synced + ' new or changed' : '✓ Nothing new') : ('Error: ' + d.error);
-      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 3000);
-      if (d.ok) setTimeout(() => location.reload(), 1200);
-    })
+    .then(d => d.running ? waitForSync(fid, btn) : syncDone(btn, d))
     .catch(e => { btn.textContent = 'Failed'; btn.disabled = false; });
 }
+
+// The sync runs in the background (a first one can take minutes): ask how it's going every 2 seconds
+function waitForSync(fid, btn) {
+  btn.textContent = 'Syncing…';
+  btn.disabled = true;
+  fetch('/friends/' + fid + '/sync/status')
+    .then(r => r.json())
+    .then(d => d.running ? setTimeout(() => waitForSync(fid, btn), 2000) : syncDone(btn, d))
+    .catch(e => setTimeout(() => waitForSync(fid, btn), 5000));
+}
+
+function syncDone(btn, d) {
+  btn.textContent = d.ok ? (d.synced ? '✓ ' + d.synced + ' new or changed' : '✓ Nothing new') : ('Error: ' + d.error);
+  setTimeout(() => { btn.textContent = 'Sync'; btn.disabled = false; }, 3000);
+  if (d.ok) setTimeout(() => location.reload(), 1200);
+}
+
+// A sync that was already running when the page loaded
+document.querySelectorAll('button[data-syncing]').forEach(b => waitForSync(b.dataset.syncing, b));
 </script>
 {% endblock %}

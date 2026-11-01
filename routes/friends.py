@@ -171,8 +171,10 @@ def index():
         ORDER BY f.name
     ''')
 
+    with _syncing_lock:
+        syncing = set(_syncing)
     return render_template('friends.html', friends=friends, feed_tokens=feed_tokens.tokens(),
-                           sync_interval=sync_interval)
+                           sync_interval=sync_interval, syncing=syncing)
 
 
 @bp.route('/friends/sync-interval', methods=['POST'])
@@ -283,21 +285,63 @@ def add_friend(name, url, token, rider_name):
     cur = db.execute('INSERT INTO Friend (name, url, token, riderName) VALUES (?,?,?,?)',
                      [name, url, vault.seal(token), rider_name])
     db.commit()
-    # Large initial syncs can take minutes — run in background so the browser doesn't hang
-    app = current_app._get_current_object()
-    threading.Thread(target=_bg_sync, args=(app, cur.lastrowid), daemon=True).start()
+    start_sync(cur.lastrowid, name)
     return cur.lastrowid
 
 
-def _bg_sync(app, friend_id):
-    with app.app_context():
-        _do_sync(friend_id)
+def start_sync(friend_id, name):
+    """Sync one friend in the background, shown on the Tasks page: a first sync can take minutes, longer than a request should hold one of
+    the server's threads. False when a sync of them is already running (the automatic one): the page waits for that one instead."""
+    if not _claim(friend_id):
+        return False
+    app, log_id = current_app._get_current_object(), logs.current_id()
+    _spawn(lambda: _bg_sync(app, friend_id, name, log_id))
+    return True
+
+
+def _spawn(fn):
+    threading.Thread(target=fn, daemon=True, name='friend-sync').start()
+
+
+def _bg_sync(app, friend_id, name, log_id):
+    token = logs.bind(log_id)                  # its lines, and the error the page shows, carry the id of the request that started it
+    try:
+        with app.app_context():
+            from services import tasks
+            row = tasks.start(get_db(), 'friend_sync', 'Friend sync')
+            try:
+                count, err = _run_claimed(friend_id)
+            except Exception:
+                log.exception('Sync of friend %s failed', friend_id)
+                count, err = _last[friend_id]
+            tasks.finish(get_db(), row, f"{name}: " + (f"{count} new or changed activit{'ies' if count != 1 else 'y'}." if count else 'nothing new.'),
+                         f'{name}: {err}' if err else None)
+    finally:
+        logs.reset(token)
 
 
 @bp.route('/friends/<int:fid>/sync', methods=['POST'])
 def sync(fid):
-    count, err = _do_sync(fid)
-    return jsonify({'ok': err is None, 'synced': count, 'error': err})
+    """Starts the sync and answers at once; the page then asks sync_status until it's done."""
+    friend = query_db('SELECT name FROM Friend WHERE id=?', [fid], one=True)
+    if not friend:
+        return jsonify({'ok': False, 'error': 'Friend not found'}), 404
+    start_sync(fid, friend['name'])
+    return jsonify({'ok': True, 'running': True})
+
+
+@bp.route('/friends/<int:fid>/sync/status')
+def sync_status(fid):
+    """{'running': true} while a sync of this friend runs (the one the page started, or the automatic one), then how the last one went:
+    ok, synced (activities new or changed here) and error."""
+    with _syncing_lock:
+        if fid in _syncing:
+            return jsonify({'running': True})
+        last = _last.get(fid)
+    if last is None:
+        return jsonify({'running': False, 'ok': False, 'error': 'No sync of this friend has run since Headwind started.'})
+    count, err = last
+    return jsonify({'running': False, 'ok': err is None, 'synced': count, 'error': err})
 
 
 @bp.route('/friends/<int:fid>/token', methods=['POST'])
@@ -315,7 +359,11 @@ def set_friend_token(fid):
 def delete(fid):
     db = get_db()
     friend = query_db('SELECT riderId FROM Friend WHERE id=?', [fid], one=True)
+    seg_ids = set()
     if friend and friend['riderId']:
+        # only the segments their activities had efforts on can have a new PR once those go
+        seg_ids = {r[0] for r in db.execute('SELECT DISTINCT e.segmentId FROM SegmentEffort e JOIN Activity a ON a.id = e.activityId '
+                                            'WHERE a.riderId=?', [friend['riderId']])}
         db.execute('DELETE FROM SegmentEffort WHERE activityId IN '
                    '(SELECT id FROM Activity WHERE riderId=?)', [friend['riderId']])
         db.execute('DELETE FROM BestEffort WHERE activityId IN (SELECT id FROM Activity WHERE riderId=?)', [friend['riderId']])
@@ -329,9 +377,8 @@ def delete(fid):
     db.execute('DELETE FROM Friend WHERE id=?', [fid])
     db.commit()
 
-    # Refresh PRs for remaining segments
-    for seg in query_db('SELECT id FROM Segment'):
-        _refresh_prs(db, seg['id'])
+    for (sid,) in db.execute(f"SELECT id FROM Segment WHERE id IN ({','.join('?' * len(seg_ids))})", list(seg_ids)).fetchall():
+        _refresh_prs(db, sid)          # the ones still here: the friend's own segments went with them
     db.commit()
 
     return redirect(url_for('friends.index'))
@@ -339,19 +386,34 @@ def delete(fid):
 
 _syncing = set()                 # friend ids with a sync running: a second one would only fight the first for the write lock
 _syncing_lock = threading.Lock()
+_last = {}                       # friend id -> (count, error) of their last sync since start-up, for the page's Sync button (sync_status)
+
+
+def _claim(friend_id):
+    with _syncing_lock:
+        if friend_id in _syncing:
+            return False
+        _syncing.add(friend_id)
+        return True
 
 
 def _do_sync(friend_id):
     """Rides + segments, then the friend's shared foods. A foods problem never fails the ride sync."""
-    with _syncing_lock:
-        if friend_id in _syncing:
-            return 0, 'Already syncing'
-        _syncing.add(friend_id)
+    if not _claim(friend_id):
+        return 0, 'Already syncing'
+    return _run_claimed(friend_id)
+
+
+def _run_claimed(friend_id):
+    """_do_sync once _claim has said yes: the sync, then the friend is free again and its result kept in _last."""
+    res = None
     try:
-        return _do_sync_once(friend_id)
+        res = _do_sync_once(friend_id)
+        return res
     finally:
         with _syncing_lock:
             _syncing.discard(friend_id)
+            _last[friend_id] = res or (0, logs.failed('The sync failed'))
 
 
 def _do_sync_once(friend_id):

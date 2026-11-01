@@ -68,6 +68,7 @@ MIN_PASSWORD = 10
 
 _unsaved = None      # the login file's contents when the data folder wouldn't take them: kept for the life of the process
 _generated = None    # the generated password in plain, while it's in force and this process made it (Windows tray, console)
+_av = None           # (what it was worked out from, auth_version): see _av_key
 
 
 def _env_sig():
@@ -97,7 +98,8 @@ def _read_login_file():
 
 def _save(d):
     """Write the login file. If the data folder won't take it (read-only), keep it in memory until Headwind restarts."""
-    global _unsaved
+    global _unsaved, _av
+    _av = None
     try:
         _write_private(_login_file(), json.dumps(d))
         _unsaved = None
@@ -174,7 +176,8 @@ def check(username, password):
 def save_login(username, password, generated=False):
     """Persist changed login details: blank keeps the current one. Records the environment credentials in force, so
     the saved login keeps winning until the operator changes the environment. Raises OSError if it can't be written."""
-    global _unsaved, _generated
+    global _unsaved, _generated, _av
+    _av = None
     cur = admin_login()
     if password:
         pw_hash = generate_password_hash(password)
@@ -196,10 +199,34 @@ def new_password():
     return pw
 
 
+def _av_key():
+    """Everything auth_version depends on, cheaply: the login file's stat (another process may change it), the environment's
+    credentials, the login kept in memory and the signing key. This process's own writes also clear the cache (_save, save_login),
+    as a coarse file clock can give two writes in a row the same time and size."""
+    from config import Config
+    path = _login_file()
+    try:
+        st = os.stat(path)
+        stat = (st.st_mtime_ns, st.st_size, st.st_ino)
+    except OSError:
+        stat = None
+    return path, stat, os.environ.get('APP_USERNAME'), os.environ.get('APP_PASSWORD'), _unsaved, str(Config.SECRET_KEY)
+
+
 def auth_version():
     """Changes whenever the login username/password changes, so existing sessions stop being valid. Built from the
     salted hash (or, for the environment's password, keyed with SECRET_KEY): it goes in the session cookie, which
-    anyone holding it can read, so it mustn't be a quick hash of the password itself."""
+    anyone holding it can read, so it mustn't be a quick hash of the password itself. Asked on every request, so it's kept
+    until the login file or the environment changes, rather than read and hashed each time."""
+    global _av
+    if _av and _av[0] == _av_key():
+        return _av[1]
+    av = _auth_version()
+    _av = (_av_key(), av)          # after: working it out may have written the file (a generated or upgraded login)
+    return av
+
+
+def _auth_version():
     login = admin_login()
     if login.password_hash:
         return hashlib.sha256(f'{login.username}\0{login.password_hash}'.encode()).hexdigest()[:16]

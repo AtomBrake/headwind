@@ -28,3 +28,13 @@ def backup_zip(monkeypatch):
         return client.get(status['url'])
     return make
 
+
+@pytest.fixture(autouse=True)
+def _no_friend_sync_left_running():
+    """A test that starts a friend sync with threads stubbed out (Sync, Add) leaves the friend marked as syncing: free it for the next test."""
+    yield
+    import sys
+    friends = sys.modules.get('routes.friends')
+    if friends:
+        friends._syncing.clear()
+        friends._last.clear()
