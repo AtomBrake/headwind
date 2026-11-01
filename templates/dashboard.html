@@ -36,6 +36,24 @@
   </div>
 </div>
 {% endif %}
+{% if sport_merged or sport_fixes %}
+<div class="card" style="margin-bottom:1.25rem;border-color:var(--warning-line);">
+  {% if sport_merged %}
+  <div style="display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;">
+    <strong>Sports to check</strong>
+    <span style="color:var(--text-muted);font-size:.9rem;flex:1;min-width:200px;">{{ '{:,}'.format(sport_merged) }} activit{{ 'y was' if sport_merged == 1 else 'ies were' }} recorded twice, and the two recordings say different sports.</span>
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('import_rides.index') }}#sports">Check them</a>
+  </div>
+  {% endif %}
+  {% if sport_fixes %}
+  <div style="display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;{% if sport_merged %}margin-top:.6rem;{% endif %}">
+    {% if not sport_merged %}<strong>Sports to check</strong>{% endif %}
+    <span style="color:var(--text-muted);font-size:.9rem;flex:1;min-width:200px;">{{ '{:,}'.format(sport_fixes) }} Garmin activit{{ 'y is' if sport_fixes == 1 else 'ies are' }} saved with another sport than Garmin gives {{ 'it' if sport_fixes == 1 else 'them' }}.</span>
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('garmin.sports_page') }}">Review</a>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
 {% if all_riders | length > 1 %}
 <div style="display:flex; gap:0.5rem; margin-bottom:1.25rem; flex-wrap:wrap;">
   {% for r in all_riders %}

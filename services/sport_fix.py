@@ -3,9 +3,12 @@ sessions, trail and treadmill runs were saved as rides, count in the ride totals
 know were still kept with the rides rather than the workouts. The original Garmin type was never stored, so it is fetched again (the activity list gives 100 per
 call), each wrong one is written down as a proposal, and nothing moves until the rider has looked at the list and applied it. Mountain bike and gravel
 rides the sync saved as a plain Ride are offered their own kind too, so they can follow the rider's default bike for them (services/gear.pick_bike).
+The same proposals are made at every start from the type the sync last read (from_seen), with no call to Garmin, and the dashboard says when
+there are some to review.
 
 Also here, with no review: rides and runs from Zwift's made-up worlds saved as outdoor ones (fix_misfiled), since nobody rides out at sea, and
 Strava's spellings of sports Headwind has its own name for (fix_spellings)."""
+import json
 import logging
 
 log = logging.getLogger(__name__)
@@ -30,8 +33,6 @@ def ensure_schema(db):
 def scan(db, api, rider_id):
     """Ask Garmin for the type of every Garmin activity this rider has as a ride, and record the ones that are wrong. Commits.
     Returns {'checked', 'found', 'proposed'}."""
-    from services.sports import RIDES
-    from services.garmin import garmin_sport
     rows = {r['id']: r for r in db.execute("SELECT id, name, startDateLocal, distance, sportType FROM Activity WHERE riderId=? AND id LIKE 'garmin\\_%' ESCAPE '\\'",
                                             [rider_id]).fetchall()}
     if not rows:
@@ -47,8 +48,19 @@ def scan(db, api, rider_id):
         if len(page) < 100 or str(page[-1].get('startTimeLocal') or '')[:10] < oldest:
             break
         offset += 100
-    kept = {r[0] for r in db.execute("SELECT rideId FROM SportFix WHERE status='kept'")}
     db.execute("DELETE FROM SportFix WHERE riderId=? AND status='pending'", [rider_id])
+    proposed = _propose(db, rider_id, rows, types)
+    db.commit()
+    log.warning('Sport check: %d Garmin rides checked, %d found on Garmin, %d with the wrong sport', len(rows), len(types), proposed)
+    return {'checked': len(rows), 'found': len(types), 'proposed': proposed}
+
+
+def _propose(db, rider_id, rows, types):
+    """Write down a proposal for each of `rows` ({id: Activity row}) whose sport isn't the one its Garmin type (`types`: {id: typeKey}) gives,
+    unless the rider has already said to keep it. Returns how many."""
+    from services.sports import RIDES
+    from services.garmin import garmin_sport
+    kept = {r[0] for r in db.execute("SELECT rideId FROM SportFix WHERE status='kept'")}
     proposed = 0
     for aid, key in types.items():
         r, new = rows[aid], garmin_sport(key)
@@ -59,9 +71,49 @@ def scan(db, api, rider_id):
         db.execute('INSERT OR REPLACE INTO SportFix (rideId, riderId, name, startDateLocal, distance, oldSport, newSport, typeKey) VALUES (?,?,?,?,?,?,?,?)',
                    [aid, rider_id, r['name'], r['startDateLocal'], r['distance'], r['sportType'], new, key])
         proposed += 1
-    db.commit()
-    log.warning('Sport check: %d Garmin rides checked, %d found on Garmin, %d with the wrong sport', len(rows), len(types), proposed)
-    return {'checked': len(rows), 'found': len(types), 'proposed': proposed}
+    return proposed
+
+
+def from_seen(db):
+    """Every start, without asking Garmin: what the sync last read from Garmin's list for each activity (GarminSeen, services/garmin_changes)
+    already has its type, so a Garmin activity saved with another sport is proposed the way scan proposes it. That catches the ones saved before
+    Headwind knew their type (e-bike rides saved as rides before 0.7.3) and never mapped again. Proposals made stale by a change of sport since,
+    or by the activity going, are dropped. Friends' activities are left alone. Does not commit. Returns {rider id: proposals added}."""
+    from services import garmin_changes
+    garmin_changes.ensure_schema(db)
+    db.execute("""DELETE FROM SportFix WHERE status='pending' AND NOT EXISTS (SELECT 1 FROM Activity a WHERE a.id = SportFix.rideId
+                                                                              AND a.sportType IS NOT SportFix.newSport)""")
+    pending = {r[0] for r in db.execute("SELECT rideId FROM SportFix WHERE status='pending'")}
+    by_rider = {}
+    for r in db.execute(r"""SELECT a.id, a.riderId, a.name, a.startDateLocal, a.distance, a.sportType, s.summary FROM Activity a
+                            JOIN GarminSeen s ON a.id = 'garmin_' || s.garminId
+                            WHERE a.riderId IS NOT NULL AND a.riderId NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)"""):
+        if r['id'] in pending:
+            continue
+        try:
+            key = (json.loads(r['summary']).get('typeKey') or '').lower()
+        except (ValueError, AttributeError):
+            continue
+        rows, types = by_rider.setdefault(r['riderId'], ({}, {}))
+        rows[r['id']], types[r['id']] = r, key
+    out = {}
+    for rider_id, (rows, types) in by_rider.items():
+        n = _propose(db, rider_id, rows, types)
+        if n:
+            out[rider_id] = n
+    if out:
+        log.warning('Sport check from what Garmin last listed: %s', ', '.join(f'rider {r}: {n}' for r, n in out.items()))
+    return out
+
+
+def count(db, rider_id):
+    """How many proposals this rider has still to review (the dashboard's notice)."""
+    if rider_id is None:
+        return 0
+    try:
+        return db.execute("SELECT COUNT(*) FROM SportFix WHERE riderId=? AND status='pending'", [rider_id]).fetchone()[0]
+    except Exception:                                   # no SportFix table yet (a bare database)
+        return 0
 
 
 def pending(db, rider_id):

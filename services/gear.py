@@ -55,6 +55,8 @@ def ensure_schema(db):
     db.execute('CREATE INDEX IF NOT EXISTS idx_activity_bike ON Activity(bikeId)')
     if 'bikeAuto' not in act:                   # the bike stamp_new_ride gave it (0: it looked and found none), so a change of sport or commute can pick again
         db.execute('ALTER TABLE Activity ADD COLUMN bikeAuto INTEGER')
+    if 'sportBeforeBike' not in act:            # the sport a ride had before its e-bike made it an e-bike ride (ebike_sport), to go back to off it
+        db.execute('ALTER TABLE Activity ADD COLUMN sportBeforeBike TEXT')
     rider = {r[1] for r in db.execute('PRAGMA table_info(Rider)').fetchall()}
     if 'defaultBikeId' not in rider:
         db.execute('ALTER TABLE Rider ADD COLUMN defaultBikeId INTEGER')
@@ -311,10 +313,57 @@ def bike_stats(db, bike_id):
 def _repick_moved(db, before):
     """A ride ridden on an e-bike races for e-bike PRs (services/sports.segment_class), so a change of bike or of a bike's kind can move it between
     pedal and e-bike PRs. `before` is {ride id: class} from before the change; the PRs of the rides whose class is now different are picked again.
-    Does not commit."""
+    The rides' sport follows their bike first (ebike_sport). Does not commit."""
     from services.segments import reclassed
+    ebike_sport(db, list(before))
     for act_id, cls in before.items():
         reclassed(db, act_id, cls)
+
+
+def ebike_sport(db, ids):
+    """Anything ridden on an e-bike is an e-bike ride: each of these rides that is on a bike of kind 'ebike' chosen for it (by hand, by the phone,
+    a Strava export, Assign by date: not a default given automatically, gear._auto, which is only a guess) becomes an EBikeRide, so it shows
+    and counts as one in the lists, the sport filter and the totals. Its sport before is kept (Activity.sportBeforeBike), and it goes back to that
+    once it is no longer on an e-bike, unless its sport was changed since. Indoor rides stay indoor ones. Friends' rides are left alone.
+    Does not commit. Returns the ids changed."""
+    from services.sports import is_ebike, is_ride, is_virtual
+    changed = []
+    ids = list(ids)
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        rows = db.execute(f'''SELECT a.id, a.sportType, a.bikeId, a.bikeAuto, a.sportBeforeBike, b.kind FROM Activity a LEFT JOIN Bike b ON b.id = a.bikeId
+                              WHERE a.id IN ({','.join('?' * len(chunk))})
+                              AND a.riderId NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)''', chunk).fetchall()
+        for r in rows:
+            sport = r['sportType']
+            if r['kind'] == 'ebike':
+                if is_ride(sport) and not is_ebike(sport) and not is_virtual(sport) and not _auto(r['bikeId'], r['bikeAuto']):
+                    db.execute("UPDATE Activity SET sportType='EBikeRide', type='EBikeRide', sportBeforeBike=? WHERE id=?", [sport or 'Ride', r['id']])
+                    changed.append(r['id'])
+            elif r['sportBeforeBike']:
+                if is_ebike(sport):
+                    db.execute('UPDATE Activity SET sportType=?, type=?, sportBeforeBike=NULL WHERE id=?', [r['sportBeforeBike'], r['sportBeforeBike'], r['id']])
+                    changed.append(r['id'])
+                else:
+                    db.execute('UPDATE Activity SET sportBeforeBike=NULL WHERE id=?', [r['id']])
+    return changed
+
+
+def ebike_rides(db):
+    """Run once (Settings.ebikeSportDone), when a ride's e-bike started to make it an e-bike ride: ebike_sport for every ride already on an
+    e-bike. Rides from before Headwind told a default bike from a chosen one count as chosen. Commits. Returns {'ran', 'changed': [(id, name,
+    old sport, start)]}, newest first."""
+    s = db.execute('SELECT ebikeSportDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['ebikeSportDone']:
+        return {'ran': False, 'changed': []}
+    old = {r['id']: (r['name'], r['sportType'], r['startDateLocal']) for r in
+           db.execute(f"SELECT a.id, a.name, a.sportType, a.startDateLocal FROM Activity a JOIN Bike b ON b.id = a.bikeId WHERE b.kind='ebike' AND {RIDE_SQL}")}
+    changed = ebike_sport(db, list(old))                # the PRs stay: the e-bike made these e-bike efforts already (sports.segment_class)
+    db.execute('UPDATE Settings SET ebikeSportDone=1 WHERE id=1')
+    db.commit()
+    if changed:
+        log.warning('E-bike rides: %d ride(s) on an e-bike made e-bike rides', len(changed))
+    return {'ran': True, 'changed': [(i, *old[i]) for i in sorted(changed, key=lambda i: old[i][2] or '', reverse=True)]}
 
 
 def _classes(db, ids):
@@ -422,10 +471,10 @@ def apply_defaults(db, rider_id, include_chosen=False, dry_run=True):
             moves.setdefault(new, []).append(r['id'])
     if not dry_run:
         for bid, ids in moves.items():
-            set_rides_bike(db, ids, bid)
-            for i in range(0, len(ids), 500):
+            for i in range(0, len(ids), 500):            # first, so the default reads as one given automatically (ebike_sport)
                 chunk = ids[i:i + 500]
                 db.execute(f"UPDATE Activity SET bikeAuto=? WHERE id IN ({','.join('?' * len(chunk))})", [bid] + chunk)
+            set_rides_bike(db, ids, bid)
     return plan
 
 

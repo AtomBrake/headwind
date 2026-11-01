@@ -256,6 +256,8 @@ def detail(rid):
     kit_items = kit_svc.choices_for(get_db(), activity) if not is_ride and not friend else []      # a run's shoes, a swim's wetsuit, ...
     from services import merged_gear
     gear_diff = {c['dupId']: c for c in merged_gear.conflicts(get_db(), primary_id=rid)} if not friend else {}
+    from services import merged_sport
+    sport_diff = {c['dupId']: c for c in merged_sport.conflicts(get_db(), primary_id=rid)} if not friend else {}
     dups = []
     for d in duplicates.parked_for(get_db(), rid):
         try:
@@ -263,7 +265,8 @@ def detail(rid):
         except ValueError:
             continue
         dups.append({'id': d['id'], 'source': d['source'], 'reason': d['reason'], 'start': r.get('startDateLocal'), 'distance': r.get('distance'),
-                     'moving': r.get('movingTime'), 'hr': r.get('averageHeartrate'), 'watts': r.get('averageWatts'), 'gear': gear_diff.get(d['id'])})
+                     'moving': r.get('movingTime'), 'hr': r.get('averageHeartrate'), 'watts': r.get('averageWatts'), 'gear': gear_diff.get(d['id']),
+                     'sport': sport_diff.get(d['id'])})
 
     from services import sensors as _sensors
     phone_sensors = _sensors.for_ride(get_db(), str(activity['id']))

@@ -314,6 +314,58 @@
 </div>
 {% endif %}
 
+{% if sport_fixes %}
+<div class="card" style="max-width:600px;margin-top:1.25rem;">
+  <div class="card-title">{{ '{:,}'.format(sport_fixes) }} Garmin activit{{ 'y is' if sport_fixes == 1 else 'ies are' }} saved with another sport than Garmin's</div>
+  <p class="hint" style="margin:0 0 0.75rem;">Saved before Headwind knew Garmin's type for {{ 'it' if sport_fixes == 1 else 'them' }}: e-bike or mountain bike rides saved as plain rides, say. Nothing changes until you apply it.</p>
+  <a class="btn btn-secondary" href="{{ url_for('garmin.sports_page') }}">Review activity types</a>
+</div>
+{% endif %}
+
+{% if sport_groups %}
+{% set n_sports = sport_groups | sum(attribute='rows', start=[]) | length %}
+<div class="card" id="sports" style="margin-top:1.25rem;">
+  <div class="card-title">{{ '{:,}'.format(n_sports) }} activit{{ 'y' if n_sports == 1 else 'ies' }} recorded twice with different sports</div>
+  <p class="hint" style="margin:0.5rem 0 0;">
+    Each was recorded twice (by Garmin and Strava, say), and the two recordings say different sports. Headwind kept one recording and its sport,
+    which may be the wrong one: a Garmin ride saved as a plain ride while Strava says it was on an e-bike, say, or the other way round.
+    Take the other recording's sport, or keep the one it has, for each kind of difference at once or one by one.</p>
+  {% for g in sport_groups %}
+  {% set n = g.rows | length %}
+  <div style="border-top:1px solid var(--border); margin-top:0.75rem; padding-top:0.75rem;">
+    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+      <span style="flex:1; min-width:12rem; font-weight:600; font-size:0.875rem;">Saved as {{ g.kept | sport_icon }} {{ g.kept | sport_label }}, the other recording says
+        {{ g.other | sport_icon }} {{ g.other | sport_label }} ({{ '{:,}'.format(n) }})</span>
+      {% if n > 1 %}
+      {% for choice, text in (('other', 'Use ' ~ (g.other | sport_label) ~ ' for all ' ~ n), ('kept', 'Keep ' ~ (g.kept | sport_label) ~ ' for all ' ~ n)) %}
+      <form method="POST" action="{{ url_for('import_rides.sports_resolve', dup_id='all', choice=choice) }}" style="margin:0;"
+            {% if choice == 'other' %}onsubmit="return confirm('Change all {{ n }} to {{ g.other | sport_label }}?')"{% endif %}>
+        <input type="hidden" name="kept" value="{{ g.kept }}"><input type="hidden" name="other" value="{{ g.other }}">
+        <button class="btn btn-secondary btn-sm">{{ text }}</button></form>
+      {% endfor %}
+      {% endif %}
+    </div>
+    <details{% if n <= 3 %} open{% endif %} style="margin-top:0.4rem;">
+      <summary style="cursor:pointer; color:var(--text-muted); font-size:0.8125rem;">{{ 'The activity' if n == 1 else 'The ' ~ n ~ ' activities' }}</summary>
+      {% for c in g.rows %}
+      <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--divider); padding:0.5rem 0; font-size:0.875rem;">
+        <span style="flex:1; min-width:12rem;">
+          <a href="{{ url_for('rides.detail', rid=c.id) }}" style="color:var(--text);">{{ c.startDateLocal | fmt_date }} · {{ c.name or (c.sportType | sport_label) }}</a>
+          <span style="color:var(--text-muted);">{% if c.distance %} · {{ c.distance | fmt_dist }}{% endif %} · {{ c.keptBy | capitalize if c.keptBy.islower() else c.keptBy }} says {{ c.sportType | sport_label }},
+            {{ c.otherBy }} says {{ c.other | sport_label }}</span>
+        </span>
+        {% for choice, text in (('other', 'Use ' ~ (c.other | sport_label)), ('kept', 'Keep ' ~ (c.sportType | sport_label))) %}
+        <form method="POST" action="{{ url_for('import_rides.sports_resolve', dup_id=c.dupId, choice=choice) }}" style="margin:0;">
+          <input type="hidden" name="back" value="{{ url_for('import_rides.index') }}#sports"><button class="btn btn-secondary btn-sm">{{ text }}</button></form>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </details>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if binned %}
 <div class="card" id="deleted" style="margin-top:1.25rem;">
   <div class="card-title">Recently deleted ({{ binned | length }})</div>
