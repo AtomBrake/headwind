@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.7.34-beta] - 2026-11-01
+
+### Added
+- **A bin for deleted activities.** Deleting an activity of any sport now keeps it whole, photos included, for 30 days. It's listed under **Recently deleted** on the Import page, with **Restore** and **Delete now**. Restoring it brings back its segment times, best efforts, gear and Home Assistant totals, and any copies set aside behind it come back with it. After 30 days only its id is kept, so a Garmin sync or a Strava export imported again doesn't bring it back.
+- **MQTT over TLS.** **Settings → MQTT** has **Use TLS** (port 8883) and an optional CA file, used by every sensor, the live ride and the water button. **Test connection** checks the certificate.
+- **Unused phone tokens are flagged.** The Phones page marks phones not seen for 90 days and revokes them, each with its Watch, with one button. Nothing is revoked without asking.
+- **Weight chart detail.** Hover or tap a day on the weight chart to see its weigh-in, trend, change and where it came from.
+
+### Security
+- **The admin password is stored as a hash.** The saved sign-in now holds a salted scrypt hash, not the password itself. It's converted at the first start, and browsers already signed in stay signed in. Changing the password in Settings no longer writes it into `.env`; setting `APP_PASSWORD` in the environment still works to get back in.
+- **New passwords need at least 10 characters,** in Settings and in the setup wizard.
+- **Sign-in locks for everyone after 30 failures in 5 minutes,** beside the existing 8 per address, so changing the forwarded address no longer gets round the lockout.
+- **The Docker image runs as a user, not root.** Headwind now runs as `headwind` (uid and gid 1000). At start the container hands the data folder and the Garmin token folder to that user, then gives up root. Nothing to do when updating. On a Linux host the files in `./data` and `./garmin_tokens` will belong to uid 1000 afterwards. If they can't be handed over (a read-only mount, NFS), Headwind says so in the log and runs as root as before. Going back to an older image still works. Running the container with `--user` works too, once the folders belong to that user.
+- **The image's Python packages are pinned** to exact versions and hashes (`requirements.lock`), so the same release builds the same packages every time, and CI checks them for known vulnerabilities.
+- **Request size limits before signing in:** 1 MB for anyone not signed in, 64 MB for the phone app, and the large limits only for the Strava export import and backup restores.
+- **A Content Security Policy** allows scripts only from this server and the exact Chart.js, Leaflet and html5-qrcode versions the pages use.
+- **Errors show a short message with a log id,** not the exception text, which could carry file paths and internals. That includes friend syncs.
+- **Pictures over 50 megapixels are refused** with a clear message, so one upload can't take half a gigabyte to decode.
+- **Every HTML escaper escapes quotes,** and the default-bike buttons on the Gear pages no longer send you back to the Referer.
+- **Friend feed tokens are hidden in the logs,** as phone tokens already were.
+- **Debug mode listens on this computer only** (`HEADWIND_DEBUG=1`), with a warning in the log.
+
+### Changed
+- **A health check.** `docker ps` shows the container `healthy` once `/login` answers. A first start on a new version shows `starting` while the database is migrated.
+
+### Fixed
+- **A generated password that can't be saved** (a read-only data folder) is kept for as long as the server runs, instead of changing on every request and signing everyone out.
+- **Activity lists open on the newest month with activities.** On the 1st of a month, before anything was recorded, every month was collapsed.
+- **Recovery on a phone:** today's heart-rate and Body Battery charts stack instead of each taking half the screen.
+- **The setup wizard's restore errors** no longer end in a server error.
+
 ## [0.7.33-beta] - 2026-10-31
 
 ### Added
