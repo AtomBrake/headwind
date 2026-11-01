@@ -64,7 +64,8 @@ def _apply_water(app, payload):
             log.warning('Home Assistant nutrition update after logging water failed', exc_info=True)
 
 
-def _make_client(app, host, port, user, pw):
+def _make_client(app, host, port, auth, tls):
+    """auth and tls as services/mqtt.connection gives them."""
     import paho.mqtt.client as mqtt
     try:
         c = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=_client_id())
@@ -72,8 +73,10 @@ def _make_client(app, host, port, user, pw):
     except AttributeError:
         c = mqtt.Client(client_id=_client_id())
         v2 = False
-    if user:
-        c.username_pw_set(user, pw or '')
+    if auth:
+        c.username_pw_set(auth['username'], auth['password'])
+    if tls:
+        c.tls_set(**tls)
 
     def on_connect(client, ud, flags, rc, *a):
         client.subscribe(WATER_TOPIC, qos=1)
@@ -96,11 +99,8 @@ def run(app):
     while True:
         try:
             with app.app_context():
-                from database import query_db
-                s = query_db('SELECT mqttHost, mqttPort, mqttUser, mqttPassword FROM Settings WHERE id=1', one=True)
-                cfg = None
-                if s and (s['mqttHost'] or '').strip():
-                    cfg = ((s['mqttHost'] or '').strip(), int(s['mqttPort'] or 1883), s['mqttUser'] or '', s['mqttPassword'] or '')
+                from services import mqtt
+                cfg = mqtt.broker()
             if cfg != current:
                 if client:
                     client.loop_stop()

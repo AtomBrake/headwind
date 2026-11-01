@@ -8,6 +8,7 @@
   const pad = (n) => String(n).padStart(2, '0'), iso = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`;
   const parse = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
   const fromDate = (dt) => iso(dt.getFullYear(), dt.getMonth() + 1, dt.getDate());
+  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const MONTHS = Array.from({ length: 12 }, (_, i) => new Intl.DateTimeFormat('en-GB', { month: 'long' }).format(new Date(2000, i, 1)));
   const rider = G.rider ? `&rider=${G.rider}` : '';
 
@@ -20,7 +21,7 @@
   const firstYear = +(G.span.first || G.today).slice(0, 4), lastYear = Math.max(t.getFullYear(), +(G.span.last || G.today).slice(0, 4));
   MONTHS.forEach((n, i) => $('monthSel').add(new Option(n, i + 1)));
   for (let y = lastYear; y >= Math.min(firstYear, lastYear); y--) $('yearSel').add(new Option(y, y));
-  $('legend').innerHTML = G.bikes.map((id) => `<span><i style="background:${colourOf[String(id)]}"></i>${nameOf[String(id)].replace(/</g, '&lt;')}</span>`).join('') + '<span><i style="box-shadow:inset 0 0 0 2px var(--accent-line);background:transparent"></i>has rides with no bike</span>';
+  $('legend').innerHTML = G.bikes.map((id) => `<span><i style="background:${colourOf[String(id)]}"></i>${esc(nameOf[String(id)])}</span>`).join('') + '<span><i style="box-shadow:inset 0 0 0 2px var(--accent-line);background:transparent"></i>has rides with no bike</span>';
 
   // ---- range helpers ----
   function range() {
@@ -77,7 +78,6 @@
   $('qClear').onclick = () => { setRange('', '', false); lastClicked = null; $('result').textContent = ''; };
 
   // ---- the picked days' rides, each with its own bike (a day with a road ride and an MTB ride can be split) ----
-  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   let daySeq = 0;
   async function loadDayRides() {
     const box = $('dayRides'), seq = ++daySeq;
@@ -126,7 +126,7 @@
     const target = $('bikeSel').value ? nameOf[$('bikeSel').value] : 'no bike';
     const skipped = j.matched - j.changed;
     $('preview').innerHTML = j.matched === 0 ? 'No rides in that selection.' : (j.changed === 0 ? `All ${j.matched} ride${j.matched === 1 ? ' is' : 's are'} already as you want them.` :
-      `<strong>${j.changed.toLocaleString()}</strong> ride${j.changed === 1 ? '' : 's'} will be put on <strong>${target.replace(/</g, '&lt;')}</strong>.` + (skipped > 0 ? `<div class="hint">${skipped.toLocaleString()} left as they are.</div>` : ''));
+      `<strong>${j.changed.toLocaleString()}</strong> ride${j.changed === 1 ? '' : 's'} will be put on <strong>${esc(target)}</strong>.` + (skipped > 0 ? `<div class="hint">${skipped.toLocaleString()} left as they are.</div>` : ''));
     $('apply').disabled = j.changed === 0; $('apply').dataset.n = j.changed;
   }
   $('bikeSel').onchange = $('onlyUn').onchange = schedulePreview;

@@ -246,9 +246,9 @@
       </div>
       <div class="form-group">
         <label>Port</label>
-        <input type="number" name="mqttPort"
+        <input type="number" name="mqttPort" id="mqttPort"
                value="{{ s.mqttPort if s and s.mqttPort else 1883 }}"
-               placeholder="1883">
+               placeholder="{{ 8883 if s and s.mqttTls else 1883 }}">
       </div>
       <div class="form-group">
         <label>Username <span class="hint">(optional)</span></label>
@@ -260,6 +260,15 @@
         <label>Password <span class="hint">(optional)</span></label>
         <input type="password" name="mqttPassword" value="" autocomplete="off"
                placeholder="{{ 'Saved: leave blank to keep it' if s and s.mqttPassword else '••••••••' }}">
+      </div>
+      <div class="form-group">
+        <label class="check"><input type="checkbox" name="mqttTls" value="1" id="mqttTls" {{ 'checked' if s and s.mqttTls }} onchange="mqttTlsPort(this)"> Use TLS</label>
+        <p class="hint">Encrypts the connection, username and password included. Brokers usually take TLS on port 8883.</p>
+      </div>
+      <div class="form-group">
+        <label>CA certificate file <span class="hint">(optional)</span></label>
+        <input type="text" name="mqttCaFile" value="{{ s.mqttCaFile if s and s.mqttCaFile else '' }}" placeholder="/data/mqtt-ca.crt">
+        <p class="hint">For a broker with a self-signed certificate: the path, on this server, of the CA certificate that signed it. Blank uses the system's.</p>
       </div>
     </div>
 
@@ -606,6 +615,11 @@ function updateProvider() {
 updateProvider();
 
 // Tests whatever is typed in the form this button sits in — no need to save first
+function mqttTlsPort(box) {     // the usual port for each, unless one of their own was typed
+  var port = document.getElementById('mqttPort');
+  if (port.value === (box.checked ? '1883' : '8883') || !port.value) port.value = box.checked ? '8883' : '1883';
+}
+
 function testSetting(kind, btn) {
   var status = document.getElementById(kind + (kind === 'ai' ? 'TestStatus' : 'Status'));
   btn.disabled = true;

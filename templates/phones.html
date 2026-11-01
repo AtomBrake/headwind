@@ -9,6 +9,8 @@
   .ph-form input { width:100%; font-size:16px; min-height:44px; }
   .ph-row { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.6rem 0; border-top:1px solid var(--border); font-size:0.9rem; }
   .ph-row small { color:var(--text-muted); display:block; }
+  .ph-stale { color:var(--warning); }
+  .ph-note { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; font-size:0.85rem; margin:0 0 0.6rem; }
   #phResult { display:none; text-align:center; }
   #phResult img { width:220px; height:220px; background:var(--white); padding:6px; border-radius:10px; }
   #phResult code { display:block; word-break:break-all; font-size:0.72rem; background:var(--border); padding:0.5rem; border-radius:6px; margin-top:0.5rem; text-align:left; }
@@ -37,9 +39,14 @@
 <div class="ph-card">
   <div style="font-weight:600;margin-bottom:0.3rem">Paired phones</div>
   {% if not devices %}<p style="color:var(--text-muted);font-size:0.9rem">None yet.</p>{% endif %}
+  {% set stale = devices | selectattr('stale') | list %}
+  {% if stale %}
+  <div class="ph-note" id="phStale"><span>{{ stale | length }} token{{ 's have' if stale | length != 1 else ' has' }} not been used for over {{ stale_days }} days. A token works until it's revoked, so revoke the ones for phones you no longer use.</span>
+    <button class="btn btn-danger-quiet btn-sm" onclick="revokeStale({{ stale | length }})">Revoke {{ 'them' if stale | length != 1 else 'it' }}</button></div>
+  {% endif %}
   {% for d in devices %}
   <div class="ph-row"><div>{{ d.name }}{% if d.revokedAt %} <span style="color:var(--danger)">(revoked)</span>{% endif %}
-    <small>added {{ d.createdAt | fmt_date }} · {{ ('last used ' ~ (d.lastUsedAt | fmt_when)) if d.lastUsedAt else 'never used' }}</small></div>
+    <small>added {{ d.createdAt | fmt_date }} · {{ ('last used ' ~ (d.lastUsedAt | fmt_when)) if d.lastUsedAt else 'never used' }}{% if d.stale %} · <span class="ph-stale">unused for over {{ stale_days }} days</span>{% endif %}</small></div>
     {% if not d.revokedAt %}<button class="btn btn-danger-quiet btn-sm" onclick="revoke({{ d.id }})">Revoke</button>{% endif %}</div>
   {% endfor %}
 </div>
@@ -55,5 +62,9 @@ document.getElementById('phGo').addEventListener('click', async () => {
   document.getElementById('phResult').style.display = 'block';
 });
 async function revoke(id) { if (!confirm('Revoke this phone? The app on it will stop working.')) return; await fetch('/phones/' + id + '/revoke', {method:'POST'}); location.reload(); }
+async function revokeStale(n) {
+  if (!confirm('Revoke ' + (n === 1 ? 'the token' : 'the ' + n + ' tokens') + ' not used for over {{ stale_days }} days? The app on those phones, and their Apple Watches, will stop working until paired again.')) return;
+  await fetch('/phones/revoke-stale', {method:'POST'}); location.reload();
+}
 </script>
 {% endblock %}

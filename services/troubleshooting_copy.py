@@ -23,8 +23,8 @@ from services import diagnostics, vault
 
 KIND = 'troubleshooting'        # its job in services/downloads.py
 
-# Settings columns emptied besides the secrets (vault.COLUMNS): addresses, user names, the install's id.
-ADDRESSES = ('garminEmail', 'haUrl', 'ollamaUrl', 'ntfyUrl', 'mqttHost', 'mqttUser', 'installId', 'webhookSubId')
+# Settings columns emptied besides the secrets (vault.COLUMNS): addresses, user names, the install's id, a path on the server (mqttCaFile).
+ADDRESSES = ('garminEmail', 'haUrl', 'ollamaUrl', 'ntfyUrl', 'mqttHost', 'mqttUser', 'mqttCaFile', 'installId', 'webhookSubId')
 # Free text from a sync or a run, which can quote an address or a server's reply: through the same redaction as the diagnostics zip, and
 # with the address in a URL taken out.
 _URL = re.compile(r'(?i)\b([a-z][a-z0-9+.-]*://)[^\s/"\'<>]+')

@@ -6,7 +6,7 @@
   if (!G || !$('bApply')) return;
   const pad = (n) => String(n).padStart(2, '0'), iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;   // local date, never toISOString (UTC shift)
   const isBike = G.what === 'bike', url = (isBike ? '/gear/api/assign' : '/gear/api/kit-assign') + '?rider=' + G.rider;
-  const [one, many] = G.noun, n_ = (n) => `${n.toLocaleString()} ${n === 1 ? one : many}`, esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const [one, many] = G.noun, n_ = (n) => `${n.toLocaleString()} ${n === 1 ? one : many}`, esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const sportBoxes = () => [...document.querySelectorAll('input[name=aSport]')];
   let timer = null, seq = 0;
   const range = () => ({ from: $('bFrom').value || null, to: $('bPresent').checked ? G.today : ($('bTo').value || null) });

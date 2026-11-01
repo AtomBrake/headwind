@@ -63,6 +63,14 @@ def _flash_redirect(url, error=None):
     return redirect(url)
 
 
+def _next_or(fallback):
+    """The form's 'next' page, as routes/login.py checks it: a path on this server only, never //host or a scheme. Else fallback."""
+    nxt = request.form.get('next') or ''
+    if not nxt.startswith('/') or nxt.startswith('//') or '\\' in nxt:
+        return fallback
+    return nxt
+
+
 # ---------- one shape for a bike and an item of kit, so one page, form and card show both ----------
 def default_label(key):
     """What a person reads for one of a bike's or kit's defaults: a sport key, kit.COMMUTE or gear.ANY."""
@@ -411,7 +419,7 @@ def bike_default(bike_id):
         db.commit()
     except ValueError as e:
         return _flash_redirect(url_for('gear.bike', bike_id=bike_id), e)
-    return redirect(request.referrer or url_for('gear.bike', bike_id=bike_id))
+    return redirect(_next_or(url_for('gear.bike', bike_id=bike_id)))
 
 
 @bp.route('/default', methods=['POST'])
@@ -424,7 +432,7 @@ def set_default():
         db.commit()
     except ValueError as e:
         return _flash_redirect(url_for('gear.index'), e)
-    return redirect(request.referrer or url_for('gear.index'))
+    return redirect(_next_or(url_for('gear.index')))
 
 
 @bp.route('/bike/<int:bike_id>/archive', methods=['POST'])

@@ -17,7 +17,7 @@ def _default_url():
 
 @bp.route('/')
 def index():
-    return render_template('phones.html', devices=device_auth.devices(), default_url=_default_url())
+    return render_template('phones.html', devices=device_auth.devices(), default_url=_default_url(), stale_days=device_auth.STALE_DAYS)
 
 
 @bp.route('/create', methods=['POST'])
@@ -37,6 +37,12 @@ def create():
 def revoke(device_id):
     device_auth.revoke(device_id)
     return jsonify({'ok': True})
+
+
+@bp.route('/revoke-stale', methods=['POST'])
+def revoke_stale():
+    """Every token not used for device_auth.STALE_DAYS, flagged on the page."""
+    return jsonify({'ok': True, 'revoked': device_auth.revoke_stale()})
 
 
 # ── the Android app itself (sideloading; served behind the normal login) ─────────────────────────────

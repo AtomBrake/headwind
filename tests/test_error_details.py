@@ -103,6 +103,26 @@ def test_friend_probe_hides_the_exception(client, monkeypatch):
     assert r.get_json()['error'] == 'friend URL must start with http:// or https://'
 
 
+def test_friend_sync_hides_the_network_error(app, client, monkeypatch):
+    import routes.friends
+    with app.app_context():
+        db = database.get_db()
+        fid = db.execute("INSERT INTO Friend (name, url, token) VALUES ('Sam', 'http://friend.invalid', 't')").lastrowid
+        db.commit()
+    monkeypatch.setattr(routes.friends, 'open_peer', _raise(OSError(LEAK)))
+    r = client.post(f'/friends/{fid}/sync')
+    err = r.get_json()['error']
+    assert err.startswith('Could not connect to their server') and _quotes_id(err, r)
+
+    class Broken(io.BytesIO):
+        def readline(self, *a):
+            raise OSError(LEAK)
+    monkeypatch.setattr(routes.friends, 'open_peer', lambda *a, **kw: Broken())
+    r = client.post(f'/friends/{fid}/sync')
+    err = r.get_json()['error']
+    assert err.startswith('The feed from their server stopped part-way') and _quotes_id(err, r)
+
+
 def test_restore_hides_the_exception(client, monkeypatch):
     monkeypatch.setattr(backup, 'stage_upload', _raise(RuntimeError(LEAK)))
     r = client.post('/settings/backup/import', data={'backup': (io.BytesIO(b'x'), 'b.zip')}, content_type='multipart/form-data')

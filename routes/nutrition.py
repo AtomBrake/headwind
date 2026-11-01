@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 import requests
 from flask import Blueprint, Response, abort, jsonify, redirect, request, render_template
 from database import get_db, query_db
+from services import limits
 from services.food_lookup import name_key
 from services.food_quality import nutri_score_label, nutrient_tags
 from services.weight_trend import (
@@ -782,8 +783,8 @@ def upload_food_image():
         img.thumbnail((640, 640))
         buf = io.BytesIO()
         img.save(buf, 'JPEG', quality=85)
-    except Exception:
-        return jsonify({'error': 'That file is not a readable image'}), 400
+    except Exception as e:
+        return jsonify({'error': 'That picture is too large (over 50 megapixels)' if limits.image_too_large(e) else 'That file is not a readable image'}), 400
     food_cache.init_path()
     url = food_cache.save_local_image(buf.getvalue(), 'jpg')
     _apply_food_image(name, request.form.get('brand') or '', request.form.get('barcode') or '', url)

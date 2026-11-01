@@ -5,6 +5,8 @@ import zipfile
 
 MAX_ACTIVITY_BYTES = 200 * 1024 ** 2   # one .fit/.gpx after decompression
 MAX_ZIP_ENTRIES = 50_000
+MAX_IMAGE_PIXELS = 50_000_000          # one picture, decoded at about 4 bytes a pixel: a phone photo is around 12 million (limit_images)
+IMAGE_TOO_LARGE = 'that picture is too large (over 50 megapixels)'
 
 # A request's body, by who can send it (the before_request hook in app.py). The Strava export import and the backup restores take the
 # app-wide MAX_CONTENT_LENGTH (2 GB, config.py).
@@ -15,6 +17,21 @@ MAX_PAGE_REQUEST = 512 * 1024 ** 2      # a signed-in page: the activity page se
 
 class LimitExceeded(Exception):
     pass
+
+
+def limit_images():
+    """Once at start-up: Pillow refuses to open a picture over MAX_IMAGE_PIXELS. On its own it only warns up to twice its limit and decodes
+    the picture anyway, so that warning is made an error too."""
+    import warnings
+    from PIL import Image
+    Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+    warnings.simplefilter('error', Image.DecompressionBombWarning)
+
+
+def image_too_large(e):
+    """Whether Pillow failed to open a picture because of limit_images, so the message can say so rather than 'not a picture'."""
+    from PIL import Image
+    return isinstance(e, (Image.DecompressionBombError, Image.DecompressionBombWarning))
 
 
 def safe_gunzip(data, limit=MAX_ACTIVITY_BYTES):

@@ -687,6 +687,7 @@ The Garmin sign-in, the MQTT broker, Home Assistant URL/token and mappings, AI p
 
 ### Home Assistant / MQTT
 - Enter your broker in **Settings → Home Assistant — MQTT**. Headwind publishes retained **auto-discovery** config, so sensors appear in Home Assistant without YAML.
+- **TLS:** tick **Use TLS** so the broker's username and password don't cross the network as they are (brokers usually take TLS on port 8883, which the port changes to). A broker with a self-signed certificate needs the CA certificate that signed it: give its path on the server (with Docker, put it in the data volume, e.g. `/data/mqtt-ca.crt`); blank uses the system's. **Test connection** says when the certificate can't be verified. The publisher and the listener for Home Assistant's water button both use it.
 - Sensors cover lifetime ride totals, last-ride details, recovery metrics, calories eaten / remaining, macros, hydration and weight. State is published on events plus a periodic heartbeat.
 - **One publisher per broker:** two Headwinds on one broker must use different `HEADWIND_MQTT_PREFIX` values, or they'll overwrite each other's sensors.
 - A separate connection (**Settings → Home Assistant — import health data**) lets Headwind read HA entities (e.g. weight from a smart scale, a weather entity) via a long-lived token.
@@ -876,6 +877,9 @@ Since then:
 - **The Garmin password isn't kept** — only the sign-in tokens Garmin gives back.
 - **Feed tokens are per friend**, sent in a header only and compared in constant time; `X-Forwarded-*` headers are only believed from a trusted proxy.
 - **A friend's activities can't be changed** on your instance.
+- **Phone tokens not used for 90 days** are flagged on **Phones**, with a button to revoke them.
+- **MQTT can use TLS**, with your own CA certificate for a self-signed broker.
+- **Pictures over 50 megapixels are refused** before they're decoded (activity, gear, avatar and food photos), so one upload can't take half a gigabyte of memory.
 
 Known limits: one shared admin login; the login password is stored in plaintext in your data folder / `.env`; in the advanced multi-rider mode phone devices aren't scoped per rider. See [Known limitations](#known-limitations-and-roadmap). To report a vulnerability, please open a private security advisory on GitHub rather than a public issue.
 
@@ -883,7 +887,7 @@ Known limits: one shared admin login; the login password is stored in plaintext 
 
 ## The Android app
 
-A native Kotlin/Jetpack Compose companion — nutrition logging with barcode scan, ride recording, widgets and Health Connect — exists but is **a work in progress and not publicly released**. It pairs with your server via a QR code (**Phones** page) and a per-device token, and **requires HTTPS**. Until it's released, everything works from the browser, and the nutrition tracker installs as a PWA.
+A native Kotlin/Jetpack Compose companion — nutrition logging with barcode scan, ride recording, widgets and Health Connect — exists but is **a work in progress and not publicly released**. It pairs with your server via a QR code (**Phones** page) and a per-device token, and **requires HTTPS**. A token works until it's revoked: **Phones** shows when each was last used, flags those not used for 90 days, and revokes them with one button (a phone counts as used while its Watch is, and its Watch's token goes with it). Until it's released, everything works from the browser, and the nutrition tracker installs as a PWA.
 
 ---
 

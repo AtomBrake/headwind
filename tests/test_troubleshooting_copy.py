@@ -41,7 +41,7 @@ def setup(tmp_path, monkeypatch):
         d = database.get_db()
         d.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
         d.execute('UPDATE Settings SET openaiKey=?, claudeKey=?, haToken=?, mqttPassword=?, garminEmail=?, haUrl=?, ollamaUrl=?, ntfyUrl=?, '
-                  "mqttHost=?, mqttUser='mosquitto-user', installId='install-id-x', heightCm=180, "
+                  "mqttHost=?, mqttUser='mosquitto-user', mqttCaFile='/home/ridersbox/mqtt-ca.crt', installId='install-id-x', heightCm=180, "
                   "garminLastError='GET http://ha.home.lan/api?token=abcdef123456 failed' WHERE id=1",
                   [*SECRETS[:4], ADDRESSES[0], 'http://' + ADDRESSES[1], 'http://' + ADDRESSES[2], 'https://' + ADDRESSES[3], ADDRESSES[4]])
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1), (2, 'Sam', 0)")
@@ -104,7 +104,7 @@ def test_the_copy_leaves_out_secrets_addresses_and_friends(setup, tmp_path):
     path, app = setup
     out, c, readme = _copy(app, tmp_path)
     data = open(out, 'rb').read()
-    for text in (*SECRETS, *ADDRESSES, 'mosquitto-user', 'install-id-x', 'Sam Smith', 'Sams secret loop', 'Sams hill', 'hash-of-sams-token',
+    for text in (*SECRETS, *ADDRESSES, 'mosquitto-user', 'ridersbox', 'install-id-x', 'Sam Smith', 'Sams secret loop', 'Sams hill', 'hash-of-sams-token',
                  'abcdef123456', 'Tom Example', 'tom_example'):
         assert text.encode() not in data, text
     assert [r['name'] for r in c.execute('SELECT name FROM Rider')] == ['Tom']

@@ -258,6 +258,47 @@ def test_the_watch_gets_a_token_of_its_own_that_goes_with_the_phones(phone):
     assert phone.get('/api/v1/ping', headers=watch2).status_code == 401                  # revoking the phone revokes its Watch
 
 
+# ── Tokens not used for 90 days ────────────────────────────────────────────────────────
+
+def _age(phone, name, created_days, used_days=None):
+    with phone.app_.app_context():
+        db = database.get_db()
+        db.execute("UPDATE DeviceToken SET createdAt=datetime('now', ?), lastUsedAt=" + ("datetime('now', ?)" if used_days is not None else 'NULL') +
+                   " WHERE name=?", [f'-{created_days} days', *([f'-{used_days} days'] if used_days is not None else []), name])
+        db.commit()
+
+
+def test_tokens_unused_for_90_days_are_flagged_and_revoked_with_their_watch(phone):
+    watch = {'Authorization': 'Bearer ' + phone.post('/api/v1/devices/watch', headers=phone.H).get_json()['token']}
+    old = phone.web.post('/phones/create', json={'name': 'Old Pixel', 'server_url': 'https://h.example'}).get_json()['token']
+    phone.web.post('/phones/create', json={'name': 'New tablet', 'server_url': 'https://h.example'})
+    _age(phone, 'iPhone', 400, 120)                     # the phone's own token: not used for 120 days...
+    _age(phone, 'iPhone · Apple Watch', 300, 3)         # ...but its Watch's was, three days ago
+    _age(phone, 'Old Pixel', 200)                       # never used, made 200 days ago
+    _age(phone, 'New tablet', 10)                       # never used, but new
+    page = phone.web.get('/phones/').get_data(as_text=True)
+    assert '1 token has not been used for over 90 days' in page and page.count('unused for over 90 days') == 1
+
+    _age(phone, 'iPhone · Apple Watch', 300, 95)        # now the Watch is quiet too: the phone, with its Watch, and the Pixel
+    page = phone.web.get('/phones/').get_data(as_text=True)
+    assert '3 tokens have not been used for over 90 days' in page and page.count('unused for over 90 days') == 3
+    assert phone.web.post('/phones/revoke-stale').get_json() == {'ok': True, 'revoked': 3}
+    for h in (phone.H, watch, {'Authorization': 'Bearer ' + old}):
+        assert phone.get('/api/v1/ping', headers=h).status_code == 401
+    with phone.app_.app_context():
+        live = [r[0] for r in database.get_db().execute('SELECT name FROM DeviceToken WHERE revokedAt IS NULL')]
+    assert live == ['New tablet']
+    assert 'not been used for over' not in phone.web.get('/phones/').get_data(as_text=True)
+
+
+def test_a_quiet_watch_alone_is_revoked_alone(phone):
+    watch = {'Authorization': 'Bearer ' + phone.post('/api/v1/devices/watch', headers=phone.H).get_json()['token']}
+    _age(phone, 'iPhone · Apple Watch', 200, 100)
+    assert phone.web.post('/phones/revoke-stale').get_json()['revoked'] == 1
+    assert phone.get('/api/v1/ping', headers=watch).status_code == 401
+    assert phone.get('/api/v1/ping', headers=phone.H).status_code == 200
+
+
 # ── Photos ─────────────────────────────────────────────────────────────────────────────
 
 def jpeg():

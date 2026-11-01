@@ -904,15 +904,34 @@ def _gather_stats():
     return stats
 
 
-def _broker_send(msgs, host, port, auth):
+TLS_PORT = 8883
+BROKER_SQL = 'SELECT mqttHost, mqttPort, mqttUser, mqttPassword, mqttTls, mqttCaFile FROM Settings WHERE id=1'
+
+
+def connection(s):
+    """(host, port, auth, tls) for the broker in a Settings row (or dict), or None when no host is set. tls is None for plain MQTT, else
+    {'ca_certs': the CA file, or None for the system's}: what paho's publish takes, and Client.tls_set(**tls) for the command listener."""
+    if not s or not (s['mqttHost'] or '').strip():
+        return None
+    tls = {'ca_certs': (s['mqttCaFile'] or '').strip() or None} if s['mqttTls'] else None
+    auth = {'username': s['mqttUser'], 'password': s['mqttPassword'] or ''} if s['mqttUser'] else None
+    return s['mqttHost'].strip(), int(s['mqttPort'] or (TLS_PORT if tls else 1883)), auth, tls
+
+
+def broker():
+    from database import query_db
+    return connection(query_db(BROKER_SQL, one=True))
+
+
+def _broker_send(msgs, host, port, auth, tls=None):
     import os
     import paho.mqtt.publish as mqtt_publish
     old = socket.getdefaulttimeout()
     socket.setdefaulttimeout(5)
     from services import logs
     try:
-        with logs.timed(f'PUBLISH {len(msgs)} message(s) to', f'mqtt://{host}:{port}'):
-            mqtt_publish.multiple(msgs, hostname=host, port=port, auth=auth,
+        with logs.timed(f'PUBLISH {len(msgs)} message(s) to', f"{'mqtts' if tls else 'mqtt'}://{host}:{port}"):
+            mqtt_publish.multiple(msgs, hostname=host, port=port, auth=auth, tls=dict(tls) if tls else None,     # a copy: paho pops from it
                                   client_id=f'bike-tracker-{os.getpid()}')
     finally:
         socket.setdefaulttimeout(old)
@@ -922,15 +941,9 @@ def publish(settings, stats):
     """Force-publish all HA sensors. Called by the manual Settings button.
     Resets the change-detection cache so the next heartbeat sees a clean baseline."""
     global _last_state
-    host = (settings.get('mqttHost') or '').strip()
-    if not host:
+    conn = connection(settings)
+    if not conn:
         raise ValueError("MQTT host not configured")
-
-    port = int(settings.get('mqttPort') or 1883)
-    auth = None
-    if settings.get('mqttUser'):
-        auth = {'username': settings['mqttUser'],
-                'password': settings.get('mqttPassword') or ''}
 
     states = _state_values(stats)
     garmin_states    = _garmin_state_values(_gather_garmin())
@@ -950,7 +963,7 @@ def publish(settings, stats):
                 msgs.append({'topic': _attr_topic(uid), 'payload': _hist_now().get(uid, '{}'), 'retain': True, 'qos': 1})
             log.debug("MQTT queued %s = %s", uid, state_map[uid])
 
-    _broker_send(msgs, host, port, auth)
+    _broker_send(msgs, *conn)
     # Reset cache so next heartbeat sees the freshly published values as the baseline
     all_states = {}
     all_states.update(states)
@@ -970,16 +983,9 @@ def push_update(activity=None, background=False):
     if background and time.time() < _next_retry:
         return
     try:
-        settings = query_db('SELECT * FROM Settings WHERE id=1', one=True)
-        if not settings or not (settings['mqttHost'] or '').strip():
+        conn = broker()
+        if not conn:
             return
-
-        s    = dict(settings)
-        host = s['mqttHost'].strip()
-        port = int(s.get('mqttPort') or 1883)
-        auth = None
-        if s.get('mqttUser'):
-            auth = {'username': s['mqttUser'], 'password': s.get('mqttPassword') or ''}
 
         stats = _gather_stats()
         all_states = {}
@@ -1042,12 +1048,12 @@ def push_update(activity=None, background=False):
             })
 
         if msgs:
-            _broker_send(msgs, host, port, auth)
+            _broker_send(msgs, *conn)
             _last_state.update({uid: all_states[uid] for uid in changed})
             log.info("MQTT push_update — %d sensor(s) changed%s",
                         len(changed), ", ride notification sent" if activity else "")
         elif activity:
-            _broker_send(msgs, host, port, auth)
+            _broker_send(msgs, *conn)
             log.info("MQTT push_update — ride notification sent (no sensor changes)")
 
         if _fail_count:
@@ -1065,24 +1071,21 @@ def push_update(activity=None, background=False):
 
 def push_workout(w, rider_name, url):
     """"Workout saved" push: same topic and shape as the ride-added message, so the one HA automation sends it to both phones."""
-    from database import query_db
     from services import workouts
-    s = query_db('SELECT mqttHost, mqttPort, mqttUser, mqttPassword FROM Settings WHERE id=1', one=True)
-    if not s or not (s['mqttHost'] or '').strip():
+    conn = broker()
+    if not conn:
         return
     title, message = workouts.summary(w, rider_name)
-    auth = {'username': s['mqttUser'], 'password': s['mqttPassword'] or ''} if s['mqttUser'] else None
     payload = {'title': title, 'message': message, 'url': url, 'rider': rider_name, 'ride_id': w['id'], 'kind': 'workout'}
-    _broker_send([{'topic': f'{_prefix()}/new_ride', 'payload': json.dumps(payload), 'qos': 1}], s['mqttHost'].strip(), int(s['mqttPort'] or 1883), auth)
+    _broker_send([{'topic': f'{_prefix()}/new_ride', 'payload': json.dumps(payload), 'qos': 1}], *conn)
 
 
 def push_gear_alert(alerts):
     """"Something on a bike needs attention" push: same topic and shape as the ride-added message so the one HA automation delivers it to the right phone."""
     from database import query_db
-    s = query_db('SELECT mqttHost, mqttPort, mqttUser, mqttPassword FROM Settings WHERE id=1', one=True)
-    if not s or not (s['mqttHost'] or '').strip() or not alerts:
+    conn = broker()
+    if not conn or not alerts:
         return
-    auth = {'username': s['mqttUser'], 'password': s['mqttPassword'] or ''} if s['mqttUser'] else None
     msgs = []
     for a in alerts:
         r = query_db('SELECT name, haDevice FROM Rider WHERE id=?', [a.get('riderId')], one=True)
@@ -1091,24 +1094,16 @@ def push_gear_alert(alerts):
         if r and r['haDevice']:
             payload['ha_device'] = r['haDevice']
         msgs.append({'topic': f'{_prefix()}/new_ride', 'payload': json.dumps(payload), 'qos': 1})
-    _broker_send(msgs, s['mqttHost'].strip(), int(s['mqttPort'] or 1883), auth)
+    _broker_send(msgs, *conn)
 
 
 def push_update_nutrition():
     """Publish nutrition sensors that have changed — called after every food/water log action."""
     global _last_state
     try:
-        from database import query_db
-        settings = query_db('SELECT * FROM Settings WHERE id=1', one=True)
-        if not settings or not (settings['mqttHost'] or '').strip():
+        conn = broker()
+        if not conn:
             return
-
-        settings = dict(settings)   # sqlite3.Row has no .get()
-        host = settings['mqttHost'].strip()
-        port = int(settings.get('mqttPort') or 1883)
-        auth = None
-        if settings.get('mqttUser'):
-            auth = {'username': settings['mqttUser'], 'password': settings.get('mqttPassword') or ''}
 
         nutrition_states = _nutrition_state_values(_gather_nutrition())
         changed = {uid for uid, val in nutrition_states.items() if _last_state.get(uid) != val}
@@ -1125,7 +1120,7 @@ def push_update_nutrition():
             if uid in HISTORY_UIDS:
                 msgs.append({'topic': _attr_topic(uid), 'payload': _hist_now().get(uid, '{}'), 'retain': True, 'qos': 1})
 
-        _broker_send(msgs, host, port, auth)
+        _broker_send(msgs, *conn)
         _last_state.update({uid: nutrition_states[uid] for uid in changed})
         log.info("MQTT nutrition push — %d sensor(s) changed", len(changed))
     except Exception as e:
