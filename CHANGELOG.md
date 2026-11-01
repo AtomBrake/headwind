@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.35-beta] - 2026-11-01
+
+### Changed
+- **Backups are made in the background.** **Make backup** under **Settings → Backup & Restore** returns at once, and the backup is made while you carry on. The card and the Tasks page say how far it's got, and when it's ready a notice at the top of whatever page is open offers the download (ntfy says so too, when it's set up). It's kept for a day, or until the next one is made. It's also much quicker: photos are stored as they are, not compressed again. Before, the page sat waiting until the whole zip was made, and a reverse proxy's timeout could cut it off.
+- **The top bar shows every background job,** not only imports: a backup or a copy for troubleshooting shows there too.
+- **Syncing with a friend runs in the background,** as a row on the Tasks page, so a long first sync no longer holds the Friends page.
+- **Faster pages and imports.** Every page makes fewer database queries, and the duplicate check during an import or sync no longer reads every nearby activity's recorded data, about three times quicker. Deleting a friend re-checks only the segments their activities were on.
+
 ## [0.7.34-beta] - 2026-11-01
 
 ### Added
