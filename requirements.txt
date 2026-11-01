@@ -1,4 +1,4 @@
-flask>=3.0.0
+flask>=3.1.0   # request.max_content_length set per request (the size hook in app.py)
 python-dotenv>=1.0.0
 openai>=1.50.0
 anthropic>=1.15.0

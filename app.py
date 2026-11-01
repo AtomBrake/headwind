@@ -424,6 +424,27 @@ def create_app():
 
     _BEARER_PATHS = ('/api/v1/', '/nutrition/api/')
 
+    _WHOLE_UPLOADS = {'import_rides.upload', 'settings.backup_import', 'setup.restore'}   # Strava export zips and backups: the app-wide 2 GB
+
+    @app.before_request
+    def limit_body():
+        """Before the login check, so a request nobody signed in for can't be 2 GB: one too big for its endpoint is refused by its
+        Content-Length, and one sent chunked (no Content-Length) stops at the limit as Werkzeug reads it (request.max_content_length)."""
+        from services import limits
+        ep = request.endpoint
+        if ep in _WHOLE_UPLOADS:
+            return None
+        if request.path.startswith('/api/v1/') or ep == 'import_rides.api_upload_ride':
+            limit = limits.MAX_PHONE_REQUEST
+        elif ep in _PUBLIC or ep is None:
+            limit = limits.MAX_PUBLIC_REQUEST
+        else:
+            limit = limits.MAX_PAGE_REQUEST
+        request.max_content_length = limit
+        if (request.content_length or 0) > limit:
+            return jsonify(error='request too large'), 413
+        return None
+
     from services import demo as _demo
     DEMO = _demo.enabled()
     if DEMO:

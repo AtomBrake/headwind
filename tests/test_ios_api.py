@@ -363,7 +363,7 @@ def test_an_indoor_ride_from_the_phone_goes_on_the_chosen_bike(phone):
 
 
 def test_a_phone_request_bigger_than_the_app_ever_sends_is_refused(phone, monkeypatch):
-    monkeypatch.setattr('routes.api_v1.MAX_REQUEST', 1000)
+    monkeypatch.setattr('services.limits.MAX_PHONE_REQUEST', 1000)
     big = phone.post('/api/v1/health/days', headers=phone.H, json={'days': [{'date': '2026-10-01', 'metric': 'steps', 'value': 1}] * 100})
     assert big.status_code == 413
     small = phone.post('/api/v1/health/days', headers=phone.H, json={'days': []})

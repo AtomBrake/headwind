@@ -35,14 +35,7 @@ bp = Blueprint('api_v1', __name__, url_prefix='/api/v1')
 ui = Blueprint('workouts_ui', __name__)
 MAX_GPX = 25 * 1024 * 1024
 MAX_PHOTOS = 60                    # per activity, from the app
-MAX_REQUEST = 64 * 1024 * 1024     # the app's largest upload is a 25 MB GPX or photo; the app-wide limit (2 GB) is for Strava export zips
-
-
-@bp.before_request
-def _limit_size():
-    """A phone's request is never near the 2 GB the web import allows: refuse anything bigger than the app sends before Werkzeug spools it to disk."""
-    if (request.content_length or 0) > MAX_REQUEST:
-        return jsonify({'error': 'request too large'}), 413
+# A whole request is at most limits.MAX_PHONE_REQUEST (the size hook in app.py)
 
 
 def _rider():

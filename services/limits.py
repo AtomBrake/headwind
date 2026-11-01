@@ -6,6 +6,12 @@ import zipfile
 MAX_ACTIVITY_BYTES = 200 * 1024 ** 2   # one .fit/.gpx after decompression
 MAX_ZIP_ENTRIES = 50_000
 
+# A request's body, by who can send it (the before_request hook in app.py). The Strava export import and the backup restores take the
+# app-wide MAX_CONTENT_LENGTH (2 GB, config.py).
+MAX_PUBLIC_REQUEST = 1024 ** 2          # nobody signed in: the login form, the telemetry ping, the friend feeds
+MAX_PHONE_REQUEST = 64 * 1024 ** 2      # the phone API and the ride-upload token: the app's largest upload is a 25 MB GPX or photo
+MAX_PAGE_REQUEST = 512 * 1024 ** 2      # a signed-in page: the activity page sends up to 20 photos of 25 MB at once (services/photos.py)
+
 
 class LimitExceeded(Exception):
     pass
