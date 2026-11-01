@@ -398,6 +398,29 @@
     <button type="button" class="btn-add" onclick="addRider()">+ Add another rider</button>
 
     {% endif %}
+    {% if generated_login %}
+    <!-- Own password in place of the generated one -->
+    <div style="margin:1.25rem 0;">
+      <div class="section-label">
+        Your password <span style="font-weight:400; text-transform:none; letter-spacing:0;">(optional)</span>
+      </div>
+      <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 0.5rem;">
+        You signed in with a generated password. Choose your own here (at least {{ min_password }} characters), or later
+        under Settings. Headwind keeps only a hash of it.
+      </p>
+      {% if password_error %}
+      <div class="flash flash-error">{{ password_error }}</div>
+      {% endif %}
+      <div class="rider-row">
+        <input type="password" name="newPassword" minlength="{{ min_password }}" autocomplete="new-password"
+               placeholder="New password">
+      </div>
+      <div class="rider-row">
+        <input type="password" name="confirmPassword" minlength="{{ min_password }}" autocomplete="new-password"
+               placeholder="Confirm password">
+      </div>
+    </div>
+    {% endif %}
     <button type="submit" class="btn btn-primary submit-btn">Continue →</button>
   </form>
 

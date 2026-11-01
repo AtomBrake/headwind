@@ -308,7 +308,8 @@ def create_app():
     log.info('Headwind %s starting: log level %s, log file %s', __version__, logging.getLevelName(logs.level()),
              logs.file_path() or 'none')
 
-    # Generates + logs the first-login password now (not lazily at first sign-in) when none is configured
+    # Moves a plain saved password to its hash, and generates + logs the first-login password now (not lazily at first
+    # sign-in) when none is configured
     from services import credentials
     credentials.admin_login()
     from services import limits
@@ -517,7 +518,10 @@ def create_app():
             return jsonify(error='invalid or revoked token'), 401
         from services import credentials
         if session.get('logged_in') and session.get('av') != credentials.auth_version():
-            session.clear()   # password/username changed since this session was issued
+            if credentials.signed_in_before_hashing(session.get('av')):
+                session['av'] = credentials.auth_version()   # same login, signed in before passwords were hashed
+            else:
+                session.clear()   # password/username changed since this session was issued
         if not session.get('logged_in'):
             if request.path.startswith('/api/v1/'):
                 return jsonify(error='unauthorised'), 401
@@ -649,5 +653,9 @@ def create_app():
 
 if __name__ == '__main__':
     # use_reloader=False → single process, no duplicate background threads
-    create_app().run(debug=os.environ.get('HEADWIND_DEBUG') == '1', use_reloader=False, load_dotenv=False,  # config.py loads the right env file; Flask would also pull in ./.env, leaking one instance's settings into another
-                            host='0.0.0.0', port=int(os.environ.get('PORT', 5001)))
+    debug = os.environ.get('HEADWIND_DEBUG') == '1'
+    app = create_app()
+    if debug:   # the Werkzeug debugger runs code for anyone who reaches it, so it only listens on this machine
+        log.warning('HEADWIND_DEBUG=1: debugger on, listening on 127.0.0.1 only. Never turn this on for a server others can reach.')
+    app.run(debug=debug, use_reloader=False, load_dotenv=False,  # config.py loads the right env file; Flask would also pull in ./.env, leaking one instance's settings into another
+            host='127.0.0.1' if debug else '0.0.0.0', port=int(os.environ.get('PORT', 5001)))

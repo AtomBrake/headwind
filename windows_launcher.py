@@ -121,7 +121,8 @@ def main():
     from waitress import serve
 
     app = create_app()
-    user, pw, generated = credentials.admin_login()
+    user, pw = credentials.admin_login().username, credentials.generated_password()
+    generated = pw is not None
     threading.Thread(target=lambda: serve(app, host=HOST, port=PORT, threads=8), daemon=True).start()
     for _ in range(60):                # wait until it's actually listening
         if port_in_use():
@@ -143,8 +144,17 @@ def main():
     from PIL import Image
 
     def sign_in_details(*_):
-        u, p, _g = credentials.admin_login()
-        message('Headwind sign-in', f'Username: {u}\nPassword: {p}\n\nChange it under Settings.')
+        u, p = credentials.admin_login().username, credentials.generated_password()
+        if p:
+            message('Headwind sign-in', f'Username: {u}\nPassword: {p}\n\nChange it under Settings.')
+        else:   # only a hash of it is kept
+            message('Headwind sign-in', f'Username: {u}\n\nHeadwind keeps only a hash of your password, so it can\'t show it '
+                    'here. Forgotten it? Use Reset sign-in password in this menu.')
+
+    def reset_password(*_):
+        p = credentials.new_password()
+        message('Headwind sign-in', f'Your new sign-in:\n\nUsername: {credentials.admin_login().username}\nPassword: {p}\n\n'
+                'Change it under Settings. Until Headwind quits, Show sign-in details shows it again.')
 
     def toggle_startup(*_):
         set_startup(not startup_enabled())
@@ -155,6 +165,7 @@ def main():
     menu = pystray.Menu(
         pystray.MenuItem('Open Headwind', lambda *_: open_window(), default=True),
         pystray.MenuItem('Show sign-in details', sign_in_details),
+        pystray.MenuItem('Reset sign-in password', reset_password),
         pystray.MenuItem('Open data folder', lambda *_: os.startfile(DATA)),
         pystray.MenuItem('Start with Windows', toggle_startup, checked=lambda *_: startup_enabled()),
         pystray.Menu.SEPARATOR,

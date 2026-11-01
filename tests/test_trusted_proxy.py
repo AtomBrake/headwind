@@ -50,3 +50,27 @@ def test_none_trusts_nobody_and_bad_entries_are_skipped():
 
 def test_unparseable_peer_passes_through():
     assert _seen(parse(None), '', FWD)['REMOTE_ADDR'] == ''
+
+
+def test_default_believes_a_direct_client_that_arrives_from_a_private_address():
+    """The trade-off the instance-wide sign-in limit (routes/login.py, tests/test_login_lockout.py) covers: under Docker
+    Desktop or the userland proxy, a client reaching the port directly can arrive from the bridge address, so it can claim
+    a new address on every attempt."""
+    for docker_peer in ('172.17.0.1', '192.168.65.1', '::ffff:172.17.0.1'):
+        claimed = [_seen(parse(None), docker_peer, {'X-Forwarded-For': f'198.51.100.{i}'})['REMOTE_ADDR'] for i in range(3)]
+        assert claimed == ['198.51.100.0', '198.51.100.1', '198.51.100.2'], docker_peer
+
+
+def test_loopback_only_ignores_a_docker_bridge_peer():
+    """TRUSTED_PROXIES=127.0.0.1,::1: a proxy on the same machine still works; the bridge address no longer can claim one."""
+    nets = parse('127.0.0.1, ::1')
+    assert _seen(nets, '127.0.0.1', FWD)['REMOTE_ADDR'] == '198.51.100.9'
+    assert _seen(nets, '::1', FWD)['REMOTE_ADDR'] == '198.51.100.9'
+    assert _seen(nets, '172.17.0.1', FWD)['REMOTE_ADDR'] == '172.17.0.1'
+    assert _seen(nets, '::ffff:127.0.0.1', FWD)['REMOTE_ADDR'] == '198.51.100.9'      # IPv4-mapped loopback counts as loopback
+
+
+def test_a_trusted_proxy_hands_on_only_the_last_hop():
+    """One hop (x_for=1): a client can't pick its address by sending its own X-Forwarded-For through the proxy."""
+    env = _seen(parse(None), '127.0.0.1', {'X-Forwarded-For': '203.0.113.66, 198.51.100.9'})
+    assert env['REMOTE_ADDR'] == '198.51.100.9'

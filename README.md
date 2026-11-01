@@ -546,9 +546,9 @@ Open **http://localhost:5001**. On the first start Headwind generates a random s
 docker logs headwind 2>&1 | grep -A3 "generated one"
 ```
 
-Sign in with `admin` and that password, then change it under **Settings**. To choose your own credentials instead, copy `.env.example` to `.env` and set `SECRET_KEY`, `APP_USERNAME` and `APP_PASSWORD` *before* the first `docker compose up`.
+Sign in with `admin` and that password, then choose your own (at least 10 characters) in the setup wizard or under **Settings**; the generated one stops working then. Headwind keeps only a hash of the password, so it can't show it to you again. To choose your own credentials instead, copy `.env.example` to `.env` and set `SECRET_KEY`, `APP_USERNAME` and `APP_PASSWORD` *before* the first `docker compose up`.
 
-Data lives in `./data` (database, avatars, food photos, generated login) and `./garmin_tokens`, next to your `docker-compose.yml`, so it survives restarts and upgrades.
+Data lives in `./data` (database, avatars, food photos, the saved login) and `./garmin_tokens`, next to your `docker-compose.yml`, so it survives restarts and upgrades.
 
 **It runs as a user, not root.** The app runs as `headwind` (uid and gid 1000), so on a Linux host the files in `./data` and `./garmin_tokens` belong to uid 1000. Folders made by an older image belong to root: at each start, before giving up root, the container hands over whatever isn't the user's yet (only those files, so later starts are quick). If it can't, for example because a folder is mounted read-only, or it's on NFS that maps root to nobody, it says so in the log and carries on as root, as older images did. To choose the user yourself, give the folders to that user first and set `user: "1000:1000"` (or your own ids) in the Compose file, or pass `--user` to `docker run`. The container then changes no ownership.
 
@@ -574,7 +574,7 @@ Deploy as a stack using the Compose file from this repo and set `SECRET_KEY`, `A
 
 Download `Headwind-windows-x64.zip` from the [Releases](../../releases) page, extract it somewhere writable (not *Program Files*), and run `Headwind\Headwind.exe`. It runs as a desktop app: a tray icon (bottom right, near the clock — you may need to click the ^ arrow) and Headwind opens in its own app-style window. A dialog shows your first sign-in.
 
-Tray menu (right-click, or double-click to open): **Open Headwind**, **Show sign-in details**, **Open data folder** (`%LOCALAPPDATA%\Headwind`), **Start with Windows**, **Quit Headwind**. Closing the window does *not* stop it (it keeps syncing); use Quit.
+Tray menu (right-click, or double-click to open): **Open Headwind**, **Show sign-in details** (the generated password, until you choose your own or Headwind quits), **Reset sign-in password** (if you've forgotten yours: a new random one, shown once), **Open data folder** (`%LOCALAPPDATA%\Headwind`), **Start with Windows**, **Quit Headwind**. Closing the window does *not* stop it (it keeps syncing); use Quit.
 
 - Your data survives updates — replace the extracted folder.
 - It listens on this PC only by default. For a phone on your network set `HEADWIND_HOST=0.0.0.0` before launching.
@@ -592,7 +592,7 @@ cp .env.example .env
 python3 app.py          # http://localhost:5001
 ```
 
-`python3 app.py` is for development: it listens on all interfaces. Set `HEADWIND_DEBUG=1` for Flask's debugger **only on a machine nobody else can reach**. For anything long-lived use Docker (gunicorn) or put it behind a proper service manager.
+`python3 app.py` is for development: it listens on all interfaces. `HEADWIND_DEBUG=1` turns on Flask's debugger, which runs code for anyone who reaches it, so then it listens on `127.0.0.1` only (and says so in the log). For anything long-lived use Docker (gunicorn) or put it behind a proper service manager.
 
 To build the Docker image yourself:
 
@@ -629,7 +629,7 @@ Set these in a `.env` file next to `docker-compose.yml` (Compose reads it automa
 |---|---|---|
 | `SECRET_KEY` | generated | Session signing key. If blank or a known placeholder, a random one is generated and stored in the data folder. |
 | `APP_USERNAME` | `admin` | Login username. |
-| `APP_PASSWORD` | generated | Login password. If blank or a known placeholder, a random one is generated and printed once in the logs. A password changed in **Settings** persists across container recreation unless you later edit this value. |
+| `APP_PASSWORD` | generated | Login password. If blank or a known placeholder, a random one is generated and printed once in the logs. A password changed in **Settings** is kept (as a hash, in `.admin_login`) across container recreation until you edit this value: then this one wins, which is the way back in if you forget yours. Headwind never writes it to `.env`. |
 | `APP_URL` | `http://localhost:5001` | The URL others (and your phone) reach this instance at — used in notification links and the phone pairing QR code. |
 | `DATABASE_URL` | `/data/bike.db` (Docker) | Path to the SQLite database. |
 | `TELEMETRY` | *(unset)* | Set to `off` to skip the telemetry question and never send the install ping. |
@@ -642,7 +642,7 @@ Set these in a `.env` file next to `docker-compose.yml` (Compose reads it automa
 | `HEADWIND_MQTT_NUTRITION` | `1` | `0` publishes only the ride sensors, not nutrition. |
 | `HEADWIND_ENV` | `./.env` | Point an instance at a different env file (useful for running two instances from one code folder). |
 | `PORT` | `5001` | Port for `python3 app.py`. |
-| `HEADWIND_DEBUG` | *(unset)* | `1` turns on Flask's debug mode for `python3 app.py` (never on a reachable machine). |
+| `HEADWIND_DEBUG` | *(unset)* | `1` turns on Flask's debug mode for `python3 app.py`, listening on `127.0.0.1` only. |
 | `LOG_LEVEL` | `INFO` | How much goes in the log. `DEBUG` adds every page load and every call to Strava, Garmin, the weather, food lookup and the AI; use it while chasing a fault. |
 | `LOG_DIR` | `logs` beside the database (`./data/logs` in Docker) | Where the log files go (`headwind.log`, rotated at 5 MB, 5 kept). `off` keeps the log on the console only. |
 | `LOG_FORMAT` | text | `json` writes one JSON object per line, for a log collector. |
@@ -665,7 +665,7 @@ The Garmin sign-in, the MQTT broker, Home Assistant URL/token and mappings, AI p
 | `/data/rideimg/` | Photos added to activities (or brought in from a Strava export). |
 | `/data/strava_exports/` | The latest Strava export imported, per rider, kept for **Import again**. Not in backups. |
 | `/data/logs/` | `headwind.log` and its rotated copies. |
-| `/data/.secret_key`, `/data/.admin_login` | The generated session key and login (mode 600). |
+| `/data/.secret_key`, `/data/.admin_login` | The generated session key, and the login: username and a scrypt hash of the password (mode 600). |
 | `/data/prepared-downloads/` | A copy for troubleshooting while it's waiting to be downloaded (a day at most). Emptied at every start. |
 | `/data/.secrets_key` | The key those saved secrets, and the Garmin token file, are encrypted with (mode 600). Not in backups unless you tick **Include the secrets key**: otherwise keep a copy to move to another server with them. |
 | `/app/.garmin_tokens/` | Garmin login tokens (so MFA isn't needed every sync), encrypted with `.secrets_key`: a copy of this folder without the data folder doesn't sign anyone in. |
@@ -735,7 +735,7 @@ Headwind has a login, throttling and cross-site protections, but it is a **singl
 
 1. **Use HTTPS.** Always. The recommended way is a [Cloudflare Tunnel](#recommended-cloudflare-tunnel), below.
 2. **Set `SESSION_COOKIE_SECURE=true`** once you're on HTTPS.
-3. **Use a strong password** (the generated one is fine) — never `admin/admin`.
+3. **Use a strong password** (the generated one is fine; your own must be at least 10 characters) — never `admin/admin`.
 4. **Don't forward a port on your router.** A tunnel doesn't need one.
 5. Remember the **phone app only talks to HTTPS** servers.
 
@@ -829,6 +829,8 @@ headwind.example.com {
 
 Behind a proxy Headwind trusts one `X-Forwarded-*` hop, but only from a loopback or private address (or the ones in `TRUSTED_PROXIES`), so a client reaching port 5001 directly can't fake its address to get round the sign-in lockout. Make sure your proxy sets those headers, and keep port 5001 unreachable from outside anyway.
 
+Where a direct client can still arrive from a private address (Docker Desktop on Mac or Windows, Docker's userland proxy, a port published on your LAN), it can claim a new address on each attempt and dodge the per-address lockout (8 failures in 5 minutes). A second limit covers that: 30 failures from all addresses together in 5 minutes closes sign-in to everyone until they age out, whatever the headers say. Signed-in browsers and paired phones carry on as normal. If your proxy runs on the same machine as Headwind, `TRUSTED_PROXIES=127.0.0.1,::1` closes the gap completely.
+
 ---
 
 ## Backups, updates and your data
@@ -867,7 +869,7 @@ Behind a proxy Headwind trusts one `X-Forwarded-*` hop, but only from a loopback
 The first public release, 0.1.0-beta, shipped after a dedicated review. In short:
 
 - **No default credentials** — placeholder logins are rejected; a random key and password are generated per install.
-- **Login throttling** (8 failures / 5 minutes), **session revocation** when the password changes, **cross-site request blocking**, open-redirect fix.
+- **Login throttling** (8 failures from one address, or 30 from all addresses together, in 5 minutes), **session revocation** when the password changes, **cross-site request blocking**, open-redirect fix.
 - **Restore** is hardened (no path-chosen uploads, archive allow-list and size limits, integrity check, atomic swap).
 - **Stored-content injection** (ride/friend/segment names, friend-supplied route shapes) is escaped or validated; avatars that aren't decodable images are rejected.
 - **Resource limits** on imports, archives and peer feeds; peer redirects restricted to the same host.
@@ -876,13 +878,14 @@ Since then:
 
 - **Saved secrets are encrypted** — the AI keys, Home Assistant token, MQTT password, friends' feed tokens and the Garmin sign-in are encrypted in the database with a key kept beside it (`.secrets_key`), and never sent back to the Settings page.
 - **The Garmin password isn't kept** — only the sign-in tokens Garmin gives back.
+- **The login password is stored as a hash** (scrypt, in `.admin_login`) and never written to `.env`; new passwords need at least 10 characters. A password saved in plain text by an older version is hashed at the next start, and browsers signed in then stay signed in.
 - **Feed tokens are per friend**, sent in a header only and compared in constant time; `X-Forwarded-*` headers are only believed from a trusted proxy.
 - **A friend's activities can't be changed** on your instance.
 - **Phone tokens not used for 90 days** are flagged on **Phones**, with a button to revoke them.
 - **MQTT can use TLS**, with your own CA certificate for a self-signed broker.
 - **Pictures over 50 megapixels are refused** before they're decoded (activity, gear, avatar and food photos), so one upload can't take half a gigabyte of memory.
 
-Known limits: one shared admin login; the login password is stored in plaintext in your data folder / `.env`; in the advanced multi-rider mode phone devices aren't scoped per rider. See [Known limitations](#known-limitations-and-roadmap). To report a vulnerability, please open a private security advisory on GitHub rather than a public issue.
+Known limits: one shared admin login; in the advanced multi-rider mode phone devices aren't scoped per rider. See [Known limitations](#known-limitations-and-roadmap). To report a vulnerability, please open a private security advisory on GitHub rather than a public issue.
 
 ---
 
@@ -910,7 +913,7 @@ Like the Android app it **requires HTTPS**. Pair it from **Phones**: name the ph
 
 | Problem | Try |
 |---|---|
-| **Can't sign in / forgot the generated password** | `docker logs headwind 2>&1 \| grep -A3 "generated one"`. The login is also stored in `./data/.admin_login`. To set your own, put `APP_PASSWORD` in `.env` and recreate the container. |
+| **Can't sign in / forgot the password** | A generated one that's still in use: `docker logs headwind 2>&1 \| grep -A3 "generated one"`. Otherwise Headwind keeps only a hash, so set a new `APP_PASSWORD` in `.env` (one it hasn't seen before) and recreate the container: that one then works, and you can choose another under **Settings**. On Windows, use **Reset sign-in password** in the tray menu. After 8 wrong tries from one address, or 30 from everywhere, sign-in waits 5 minutes. |
 | **"Too many attempts"** | The login locks for a few minutes after 8 failures. Wait, or restart the container. |
 | **Port 5001 is in use** | Change the left side of `ports` in `docker-compose.yml`, e.g. `"5002:5001"`. |
 | **Garmin asks you to sign in again after every restart** | The `garmin_tokens` folder must be a persistent volume; check it's mounted and writable. |
@@ -950,7 +953,7 @@ docs/               Home Assistant builders, screenshots, notes
 ## Known limitations and roadmap
 
 **Known limitations**
-- One shared admin login; the login password is stored in plaintext in the data folder / `.env`.
+- One shared admin login.
 - Phone-API tokens aren't scoped per rider (only matters in the advanced multi-rider mode).
 - The arm64 image and Windows build are new and lightly tested; the Windows build is unsigned.
 - Strava's live API is closed to new apps, so Strava is import-only (export zip).
