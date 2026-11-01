@@ -247,8 +247,8 @@ def _gear_filter(db, rid, value):
 
 
 def _open_newest(grouped):
-    """Open the newest year and month of a history tree that has nothing in the current one (a gear filter's list, say), so it starts on
-    something; the other months are still fetched when they're opened."""
+    """Open the newest year and month of a history tree that has nothing in the current one (on the 1st, before anything's recorded, or a
+    gear filter's list), so it starts on something; the other months are still fetched when they're opened."""
     if grouped and not any(y['is_current'] for y in grouped):
         grouped[0]['is_current'] = True
     for y in grouped:
@@ -312,7 +312,7 @@ def _activity_list(args, list_path):
         back_url=list_path + '?' + urlencode([(k, v) for k, v in args.items(multi=True) if k != 'typed']),
         sport_choices=[('Ride', 'Ride'), ('MountainBikeRide', 'Mountain bike ride'), ('GravelRide', 'Gravel ride'), ('VirtualRide', 'Indoor ride'), ('Walk', 'Walk'), ('Run', 'Run'), ('VirtualRun', 'Indoor run'), ('Hike', 'Hike')],
         activities=activities,
-        grouped=(_open_newest if gf['value'] else (lambda g: g))(_group_activities(activities)) if not is_filtered else [],
+        grouped=_open_newest(_group_activities(activities)) if not is_filtered else [],
         search_results=activities if is_filtered else [],
         is_filtered=is_filtered,
         q=q, date_from=date_from, date_to=date_to,

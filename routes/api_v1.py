@@ -992,7 +992,7 @@ def delete_ride(kind, rid):
 @ui.route('/workouts')
 def workouts_page():
     from services import workouts
-    from routes.dashboard import _group_activities, climb
+    from routes.dashboard import _group_activities, _open_newest, climb
     rider = _rider()
     from routes.dashboard import dist_filters, remember_list
     remember_list('Workouts')
@@ -1004,7 +1004,7 @@ def workouts_page():
               'elev': sum(climb(r) for r in rows), 'kcal': sum(r['calories'] or 0 for r in rows), 'steps': sum(r['steps'] or 0 for r in rows)}
     sports = [r[0] for r in query_db(f'SELECT DISTINCT sportType FROM Activity WHERE riderId=? AND NOT {RIDE_SQL} ORDER BY sportType', [rider['id']])] if rider else []
     st = query_db('SELECT units FROM Settings WHERE id=1', one=True)
-    return render_template('workouts.html', workouts=rows, grouped=_group_activities(rows) if not is_filtered else [], totals=totals, sports=sports, f=f, is_filtered=is_filtered,
+    return render_template('workouts.html', workouts=rows, grouped=_open_newest(_group_activities(rows)) if not is_filtered else [], totals=totals, sports=sports, f=f, is_filtered=is_filtered,
                            units=(st['units'] if st and st['units'] else 'imperial'), today=_today(),
                            now=tz.now().strftime('%H:%M'), error=request.args.get('error'))
 

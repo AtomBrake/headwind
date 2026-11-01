@@ -157,22 +157,36 @@ def test_activities_page_lists_every_sport_and_keeps_its_links(client):
     with client.application.app_context():
         db = database.get_db()
         db.execute("INSERT INTO Activity (id, name, riderId, sportType, type, startDateLocal, distance, movingTime) "
-                   "VALUES ('walk', 'Evening walk', 1, 'Walk', 'Walk', ?, 3000, 2400)", [date.today().isoformat() + 'T19:00:00'])
+                   "VALUES ('walk', 'Evening walk', 1, 'Walk', 'Walk', ?, 3000, 2400)", [(date.today() - timedelta(days=1)).isoformat() + 'T19:00:00'])
         db.commit()
 
     html = client.get('/activities').get_data(as_text=True)
     assert 'class="nav-item active"' in html and '4 activities' in html
     listed = _listed(html)
-    assert {'walk', 'good'} <= listed                       # this month's rides and walk together, newest first
+    assert {'walk', 'good'} <= listed                       # the newest month's rides and walk together (last month's on the 1st)
     assert 'action="/activities"' in html and 'tree-list-link" href="/activities?' in html
 
     html = client.get('/activities?skip=Walk&q=go').get_data(as_text=True)
     assert _listed(html) == {'good'}
 
-    days = client.get(f"/dashboard/history?from={date.today().replace(day=1)}&to={date.today()}&list=/activities").get_data(as_text=True)
+    month = (date.today() - timedelta(days=1)).replace(day=1)        # the walk's month
+    days = client.get(f"/dashboard/history?from={month}&to={date.today()}&list=/activities").get_data(as_text=True)
     assert 'href="/activities?from=' in days
-    days = client.get(f"/dashboard/history?from={date.today().replace(day=1)}&list=https://evil.example").get_data(as_text=True)
+    days = client.get(f"/dashboard/history?from={month}&list=https://evil.example").get_data(as_text=True)
     assert 'evil' not in days and 'href="/dashboard?from=' in days
+
+
+def test_a_list_with_nothing_this_month_opens_on_the_newest_month(client):
+    with client.application.app_context():
+        db = database.get_db()
+        db.execute("DELETE FROM Activity WHERE id IN ('good', 'huge')")     # only 'old', 400 days ago, as on a 1st with nothing recorded yet
+        db.execute("INSERT INTO Activity (id, name, riderId, sportType, type, startDateLocal, distance, movingTime) "
+                   "VALUES ('oldrun', 'Old run', 1, 'Run', 'Run', ?, 5000, 1500)", [(date.today() - timedelta(days=400)).isoformat() + 'T07:00:00'])
+        db.commit()
+    html = client.get('/activities').get_data(as_text=True)
+    assert _listed(html) == {'old', 'oldrun'} and html.count('<details class="tree-year" open') == 1
+    html = client.get('/workouts').get_data(as_text=True)
+    assert 'data-pick="oldrun"' in html and html.count('<details class="tree-month" open') == 1
 
 
 def test_an_activity_goes_back_to_the_list_with_its_filters(client):
