@@ -135,7 +135,7 @@ Edit the weight of any logged item and calories, protein, carbs, fat and fibre s
 <img src="docs/screenshots/nutrition-weight-edit.jpg" alt="Editing a food's weight" width="900">
 
 ### Weight trend
-Daily weigh-ins with a smoothed trend line, rate of change, and progress against your goal. The chart stays readable from a week to years of daily readings, with a line at every stone (or 5 kg) lost that you can switch off.
+Daily weigh-ins with a smoothed trend line, rate of change, and progress against your goal. The chart stays readable from a week to years of daily readings, with a line at every stone (or 5 kg) lost that you can switch off. Hover over the chart, or tap it on a phone, to see a day's weigh-in, trend, change and source.
 
 <img src="docs/screenshots/weight-trend.jpg" alt="Weight trend" width="900">
 
