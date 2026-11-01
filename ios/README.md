@@ -115,7 +115,7 @@ fold or rotation mid-ride loses nothing. The fold-specific APIs Apple has shown 
 iOS 27.1 SDK only; the app uses only what Xcode 16 and iOS 17 have, and the system's own containers keep clear of the fold.
 
 What's planned for the apps (food logging, widgets, smart-trainer control, following a route on the Watch) is in
-[TODO.md](../TODO.md) under **iOS and watchOS app**.
+[TODO.md](../TODO.md) under **iPhone and Watch** in each priority tier.
 
 ## Requirements
 
