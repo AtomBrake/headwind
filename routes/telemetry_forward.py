@@ -13,7 +13,7 @@ def ping():
     target = os.environ.get('TELEMETRY_FORWARD_URL')
     if not target:
         abort(404)
-    body = request.get_data(cache=False)[:4096]
+    body = request.stream.read(4096)   # a ping is a few hundred bytes: never read more than this into memory
     try:
         r = requests.post(target, data=body, timeout=3, headers={
             'Content-Type': 'application/json',
