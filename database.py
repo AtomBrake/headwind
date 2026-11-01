@@ -159,7 +159,7 @@ def heavy_last(db, table, heavy):
 _REPAIR_FLAGS = ('distanceBackfillDone', 'utcStartFixDone', 'awayStartRecheckDone', 'localZoneFixDone', 'workoutDupCheckDone', 'dupNameFixDone',
                  'segmentFamiliesDone', 'segmentBikesMergedDone', 'movingTimeFixDone', 'segmentMatchFixDone', 'sportEffortsDone',
                  'movingTimePausedDone', 'bestEffortsCleanDone', 'sensorTopSpeedDone', 'mmDistancesDone', 'stravaManualDone', 'sanityAllSportsDone',
-                 'liveParkedFixDone', 'strandedParkedFixDone', 'segmentClimbFloorDone')
+                 'liveParkedFixDone', 'strandedParkedFixDone', 'segmentClimbFloorDone', 'ebikeSportDone')
 
 
 def migrate_db():
@@ -471,6 +471,7 @@ def migrate_db():
         ('strandedParkedFixDone',  'INTEGER DEFAULT 0'), # copies left behind a deleted activity moved behind the live one of the same ride (services/duplicates.repair_stranded_parked)
         ('sanityAllSportsDone',    'INTEGER DEFAULT 0'), # every sport checked once against the "looks wrong" limits, heart rate included (services/sanity.scan_every_sport)
         ('segmentClimbFloorDone',  'INTEGER DEFAULT 0'), # steep segments matched again with a speed floor that drops on a climb (services/segments.rematch_climbs)
+        ('ebikeSportDone',         'INTEGER DEFAULT 0'), # rides on an e-bike made e-bike rides (services/gear.ebike_rides)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
         ('garminWeightsStatus',  'TEXT'),   # imported rides' UTC start times moved to local time (services/start_times.py)
@@ -1199,6 +1200,30 @@ def migrate_db():
     from services.origin import backfill as _origin_backfill
     _origin_backfill(db)
     db.commit()
+
+    # ── Rides on an e-bike are e-bike rides (once for those already here), then Garmin activities saved with another sport than Garmin's type ──
+    from services.gear import ebike_rides as _ebike_rides
+    res = _ebike_rides(db)
+    if res['changed']:
+        from services.sports import label as _sport_label
+        ch = res['changed']
+        _tasks.record(db, 'startup:ebike_sport', 'Rides on an e-bike',
+                      f"{len(ch):,} ride{'s' if len(ch) != 1 else ''} on a bike of kind E-bike {'is' if len(ch) == 1 else 'are'} now "
+                      f"{'an e-bike ride' if len(ch) == 1 else 'e-bike rides'}, so {'it shows' if len(ch) == 1 else 'they show'} and count{'s' if len(ch) == 1 else ''} "
+                      f"as {'one' if len(ch) == 1 else 'such'} in the lists, the sport filter and the totals ({'its' if len(ch) == 1 else 'their'} segment times counted as e-bike ones already). "
+                      "Put on a bike that isn't an e-bike, a ride goes back to what it was: "
+                      + '; '.join(f"{c[1] or c[0]} on {str(c[3])[:10]} ({_sport_label(c[2])})" for c in ch[:5]) + ('…' if len(ch) > 5 else '') + '.')
+        db.commit()
+    from services.sport_fix import from_seen as _sport_from_seen
+    res = _sport_from_seen(db)
+    db.commit()
+    if res:
+        n = sum(res.values())
+        _tasks.record(db, 'startup:garmin_sports', 'Garmin activities with another sport',
+                      f"{n:,} Garmin activit{'y is' if n == 1 else 'ies are'} saved with another sport than the type Garmin lists for "
+                      f"{'it' if n == 1 else 'them'} (e-bike or mountain bike rides saved as plain rides, say, before Headwind knew those types). "
+                      "Nothing has changed: review them on the Activity types page (Settings, Garmin), linked from the dashboard.")
+        db.commit()
 
 
 def _mmss(secs):

@@ -29,7 +29,7 @@ def index():
     from services import reimport, strava_gear
     from services import strava_export
     from services.rider_mode import owner_rider_id
-    from services import garmin_changes, recently_deleted, tasks
+    from services import garmin_changes, merged_sport, recently_deleted, sport_fix, tasks
     riders = query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name ASC')
     return render_template('import.html', riders=riders, changes=reimport.pending(get_db()), problems=reimport.problems(get_db()),
                            binned=recently_deleted.listing(get_db()), bin_days=recently_deleted.DAYS,
@@ -37,6 +37,7 @@ def index():
                            garmin_missing=garmin_changes.not_here(get_db()), garmin_deleted=garmin_changes.not_here(get_db(), deleted=True),
                            garmin_full=bool(query_db("SELECT 1 FROM Settings WHERE id=1 AND garminSyncMode='full'", one=True)),
                            strava_pending=strava_gear.pending(get_db(), owner_rider_id()),
+                           sport_groups=merged_sport.groups(merged_sport.conflicts(get_db())), sport_fixes=sport_fix.count(get_db(), owner_rider_id()),
                            kept=strava_export.kept(get_db(), current_app.config['DATABASE']),
                            advice=strava_export.advice(get_db(), current_app.config['DATABASE']))
 
@@ -67,6 +68,44 @@ def deleted_resolve(act_id, choice):
     else:
         abort(400)
     return redirect(url_for('import_rides.index') + '#deleted')
+
+
+@bp.route('/import/sports/<path:dup_id>/<choice>', methods=['POST'])
+def sports_resolve(dup_id, choice):
+    """Merged activities whose two recordings disagree about the sport (services/merged_sport.py). choice 'other': take the other recording's
+    sport; 'kept': the kept one's is right. dup_id 'all' settles every one with the sports in the form's `kept` and `other`. Back to the
+    activity's page when it came from there."""
+    from flask import abort, flash, redirect, url_for
+    from services import merged_sport
+    from services.ingest import after_ride_removed
+    from services.sports import label
+    if choice not in ('other', 'kept'):
+        abort(400)
+    db = get_db()
+    if dup_id == 'all':
+        pair = (request.form.get('kept') or '', request.form.get('other') or '')
+        found = [c for c in merged_sport.conflicts(db) if c['pair'] == pair]
+    else:
+        found = merged_sport.conflicts(db, dup_ids=[dup_id])
+    failed = []
+    if choice == 'other':
+        n, failed = merged_sport.use_other(db, found)
+    else:
+        n = merged_sport.keep(db, found)
+    db.commit()
+    if choice == 'other' and n:
+        after_ride_removed()                            # the Home Assistant totals follow an activity that became another sport
+    back = request.form.get('back') or ''
+    if dup_id != 'all' and back.startswith('/') and not back.startswith('//'):
+        if failed:
+            flash(failed[0][1], 'error')
+        return redirect(back)
+    if choice == 'other':
+        flash(f"{n:,} activit{'y' if n == 1 else 'ies'} now {'has' if n == 1 else 'have'} the other recording's sport"
+              + (f"; {len(failed)} couldn't be changed: {failed[0][1]}" if failed else '') + '.', 'error' if failed else 'success')
+    else:
+        flash(f"{n:,} activit{'y' if n == 1 else 'ies'} left as {label(found[0]['sportType']) if found else 'they are'}.", 'success')
+    return redirect(url_for('import_rides.index') + '#sports')
 
 
 @bp.route('/import/problems/clear', methods=['POST'])
@@ -419,6 +458,8 @@ def _process_single_file(path, original_name, rider_id=None, bike_id=None):
         _insert(db, act, rider_id)
         if bike_id:                                     # before the segment scan, so an e-bike's efforts race for e-bike PRs from the start
             db.execute('UPDATE Activity SET bikeId=? WHERE id=?', [bike_id, act['id']])
+            from services import gear as _gear
+            _gear.ebike_sport(db, [act['id']])          # a ride on an e-bike is an e-bike ride
         from services.best_efforts import save_best_efforts
         save_best_efforts(db, act.get('id'), act.get('startDateLocal'), act.get('streams'))
         from services import sport_records

@@ -142,6 +142,25 @@ _TYPE_NEEDLES = (('run', 'Run'), ('walk', 'Walk'), ('hik', 'Hike'), ('mountainee
 _INDOOR_SUBS = ('indoor_cycling', 'virtual_activity')
 _INDOOR_RUN_SUBS = ('treadmill', 'indoor_running', 'virtual_activity')
 
+# How an activity's sport is decided, source by source:
+# - Garmin sync: Garmin's list type (services/garmin.garmin_sport, which is from_type) wins over the FIT file's sport and sub-sport, which are read
+#   only when the list has none (services/parser._map_sport). The list type is the device's and any edit made in Garmin Connect; files from
+#   other head units don't mark an e-bike at all (Wahoo and Avinox files say cycling / generic), so the file has nothing better to offer.
+# - Strava export: "Activity Type" as written, Strava's spellings renamed to Headwind's at start (STRAVA_NAMES, sport_fix.fix_spellings).
+# - A file: from_type on its own sport. The phone: the sport picked on it.
+# - Then, whatever the source: a ride or run in one of Zwift's made-up worlds is an indoor one (services/zwift.indoor_sport), and a ride on an
+#   e-bike chosen for it is an e-bike ride (services/gear.ebike_sport; a default bike given automatically doesn't count, being a guess).
+# - Two recordings of one activity (services/duplicates.park): the one kept keeps its own sport. When the copy set aside says another, the
+#   rider is asked (services/merged_sport.py); a Garmin activity whose saved sport isn't Garmin's type is offered it (sport_fix.from_seen).
+GENERIC = ('Other', 'Workout')                         # no sport in particular: Headwind's catch-all, and Strava's
+
+
+def differ(kept, other):
+    """True when the copy set aside of a merged activity says another sport than the one kept, one worth asking about: Strava's "Virtual Ride"
+    against VirtualRide is one sport, and a copy that says only Other or Workout has nothing to offer."""
+    a, b = canonical(kept or ''), canonical(other or '')
+    return bool(b) and a != b and b not in GENERIC
+
 
 def from_type(type_key, sub=None):
     """A device's or service's name for a sport -> one of SPORTS. Garmin Connect's activity type ('mountain_biking', 'lap_swimming'), a FIT

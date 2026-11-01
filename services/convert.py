@@ -5,7 +5,7 @@ is more than a label: what only a ride has (best efforts, ride segments, the bik
 (a walk logged as a ride carries a cycling estimate, which badly over-counts). Nothing here commits: the caller does.
 """
 
-from services.sports import RIDES, SPORTS, is_ride
+from services.sports import SPORTS, is_ride
 
 _GENERIC_NAMES = {'', 'ride', 'walk', 'run', 'hike', 'virtualride', 'garmin activity', 'ride activity'}
 
@@ -18,13 +18,13 @@ def _kg(rider_id):
         return 70.0
 
 
-def _ride_to_workout(db, row, sport, discard_parked=False):
+def _ride_to_workout(db, row, sport, discard_parked=False, keep_parked=False):
     """Same row, new sport: what only a ride has goes (best efforts, ride segment efforts, the AI's ride memory, the bike), calories are re-estimated
     for the new sport, and a run gets its best times, and a walk, run or hike its foot-segment efforts."""
     from services import duplicates
     from services.segments import _refresh_prs
     from services.workouts import estimate_calories
-    parked = [d['id'] for d in duplicates.parked_for(db, row['id'])]
+    parked = [] if keep_parked else [d['id'] for d in duplicates.parked_for(db, row['id'])]
     if parked and not discard_parked:
         raise ValueError('this ride has another recording set aside under it: settle that first (open the ride and choose which recording to keep)')
     for dup_id in parked:                                # another device's copy of the same session: not a ride either, so it goes (its id stays remembered)
@@ -70,11 +70,14 @@ def _checked(db, res):
     return res
 
 
-def change_sport(db, kind, act_id, sport, discard_parked=False):
+def change_sport(db, kind, act_id, sport, discard_parked=False, keep_parked=False, any_sport=False):
     """Returns {'kind', 'id', 'sport', 'changed'}. `kind` is what the caller has in hand ('ride' or 'workout'), checked against the row, or None to
     take the row as it is; the id never changes now that every sport is a row in Activity. Raises ValueError with a readable reason. A ride with
-    another recording set aside under it is refused unless `discard_parked`, which throws those recordings away as it changes the ride."""
-    if sport not in SPORTS:
+    another recording set aside under it is refused unless `discard_parked`, which throws those recordings away as it changes the ride, or
+    `keep_parked` (the recording set aside is the one that says the new sport: services/merged_sport.py). `any_sport` takes a sport that isn't
+    one of SPORTS, as another recording of the activity has it (Strava's "Windsurf"). A ride its e-bike made an e-bike ride
+    (gear.ebike_sport) no longer goes back once its sport is changed here."""
+    if sport not in SPORTS and not (any_sport and isinstance(sport, str) and sport.strip()):
         raise ValueError('pick one of: ' + ', '.join(SPORTS))
     if kind not in ('ride', 'workout', None):
         raise ValueError('kind must be ride or workout')
@@ -87,7 +90,9 @@ def change_sport(db, kind, act_id, sport, discard_parked=False):
     friend_rides.refuse(db, act_id)
     if (row['sportType'] or '') == sport:
         return {'kind': kind, 'id': act_id, 'sport': sport, 'changed': False}
-    if kind == 'ride' and sport in RIDES:                # Ride <-> VirtualRide <-> EBikeRide (or an MTB ride becoming a plain Ride): the label,
+    if 'sportBeforeBike' in row.keys():
+        db.execute('UPDATE Activity SET sportBeforeBike=NULL WHERE id=?', [act_id])
+    if kind == 'ride' and is_ride(sport):                # Ride <-> VirtualRide <-> EBikeRide (or an MTB ride becoming a plain Ride): the label,
         from services.segments import reclassed         # and its segments (none indoors) or its PRs (pedal or e-bike: services/sports.segment_class)
         from services.sports import class_of
         before = class_of(db, act_id)
@@ -97,8 +102,8 @@ def change_sport(db, kind, act_id, sport, discard_parked=False):
         gear.regear(db, act_id)                         # a bike it was given automatically follows the new sport (a mountain bike ride: the MTB)
         return {'kind': 'ride', 'id': act_id, 'sport': sport, 'changed': True}
     if kind == 'ride':
-        return _checked(db, dict(_ride_to_workout(db, row, sport, discard_parked), changed=True))
-    if sport in RIDES:
+        return _checked(db, dict(_ride_to_workout(db, row, sport, discard_parked, keep_parked), changed=True))
+    if is_ride(sport):
         return _checked(db, dict(_workout_to_ride(db, row, sport), changed=True))
     db.execute('UPDATE Activity SET sportType=?, type=? WHERE id=?', [sport, sport, act_id])
     from services import workouts as _wk

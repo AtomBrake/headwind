@@ -198,6 +198,16 @@ function typeChanged(sel) {
     {% endfor %}
   </div>
   {% endif %}
+  {% if d.sport %}{% set s = d.sport %}
+  <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:-.25rem 0 .75rem;padding:.5rem .75rem;border:1px solid var(--warning-line);background:var(--warning-soft);border-radius:8px;font-size:.9rem;">
+    <span style="flex:1 1 16rem;"><strong>Different sport:</strong> {{ s.otherBy | capitalize if s.otherBy.islower() else s.otherBy }} says <strong>{{ s.other | sport_label }}</strong>,
+      {{ s.keptBy }} says <strong>{{ activity.sportType | sport_label }}</strong>. Check which is right.</span>
+    {% for choice, label in (('other', 'Use ' ~ (s.other | sport_label)), ('kept', (activity.sportType | sport_label) ~ ' is right')) %}
+    <form method="POST" action="{{ url_for('import_rides.sports_resolve', dup_id=d.id, choice=choice) }}" style="margin:0;">
+      <input type="hidden" name="back" value="{{ url_for('rides.detail', rid=activity.id) }}"><button class="btn btn-secondary btn-sm" type="submit">{{ label }}</button></form>
+    {% endfor %}
+  </div>
+  {% endif %}
   <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.75rem;">
     <a class="btn btn-secondary" href="{{ url_for('rides.view_duplicate', rid=activity.id, dup_id=d.id) }}">View</a>
     <a class="btn btn-secondary" href="{{ url_for('rides.view_duplicate', rid=activity.id, dup_id=d.id, compare=1) }}">Compare side by side</a>

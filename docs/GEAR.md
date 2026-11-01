@@ -14,6 +14,11 @@ for every other ride. Retired bikes are skipped. Garmin's mountain biking and gr
 older sync saved as plain rides can be given their kind back with "Check activity types with Garmin" in Settings. A Strava bike's default sport types
 (bikes.csv) become its defaults when you match it, where you have none yet.
 
+A bike whose type is **E-bike** makes the rides on it e-bike rides: a ride you put on it (by hand, on the phone, from a Strava export, with
+Assign rides) becomes one, and so do its rides when you change a bike's type to E-bike. Most head units don't say e-bike in their files, so the
+bike is often the only way to tell. A default bike a ride was given automatically doesn't count, being a guess. Moved to a bike that isn't an
+e-bike, or its bike's type changed back, the ride goes back to the sport it had, unless you've changed its sport yourself since.
+
 Changing a default only affects rides that arrive afterwards. Ticking **Commute** or changing a ride's sport later picks its bike again, as long
 as the bike was given by a default; one you chose yourself (or the phone, or a Strava export, named) stays. To bring older rides in line, the
 defaults card lists how many would move and **Apply to past activities** moves them: rides with no bike or still on the bike a default gave

@@ -44,6 +44,10 @@ def ensure_schema(db):
                                      ELSE NULLIF(json_extract(rowJson, '$.{col}Id'), 0) END"""
         # chosen_gear for the copies already set aside, in SQL: a whole row each (streams and all) is too much to load into Python at start-up
         db.execute(f"UPDATE ActivityDuplicate SET bikeId = {chosen('bike')}, kitId = {chosen('kit')} WHERE status='parked' AND json_valid(rowJson)")
+    if 'sportType' not in cols:                         # the copy's sport, checked against the one kept (services/merged_sport.py), read once from the row
+        db.execute('ALTER TABLE ActivityDuplicate ADD COLUMN sportType TEXT')
+        db.execute('ALTER TABLE ActivityDuplicate ADD COLUMN sportChecked INTEGER')    # 1: the rider said the kept activity's sport is right
+        db.execute("UPDATE ActivityDuplicate SET sportType = json_extract(rowJson, '$.sportType') WHERE status='parked' AND json_valid(rowJson)")
 
 
 # ---------- time + matching (pure) ----------
@@ -436,8 +440,8 @@ def park(db, loser_id, primary_id, reason):
         _take_better_name(db, primary_id, winner['name'], row['name'])
         from services import photos
         photos.move(db, loser_id, primary_id)
-    db.execute('INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson, bikeId, kitId) VALUES (?,?,?,?,?,?,?,?,?)',
-               [loser_id, primary_id, row['riderId'], source_label(row), reason, 'parked', json.dumps(dict(row)), *chosen_gear(row)])
+    db.execute('INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson, bikeId, kitId, sportType) VALUES (?,?,?,?,?,?,?,?,?,?)',
+               [loser_id, primary_id, row['riderId'], source_label(row), reason, 'parked', json.dumps(dict(row)), *chosen_gear(row), row['sportType']])
     # Copies set aside under this one now hang off the one kept: a copy set aside under a copy that is itself set aside was lost to everything
     # that follows primaryId to a live activity (the Strava bike or shoes of the copy, services/strava_gear._rides)
     db.execute("UPDATE ActivityDuplicate SET primaryId=? WHERE primaryId=? AND status='parked' AND id<>?", [primary_id, loser_id, primary_id])
