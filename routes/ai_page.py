@@ -1,11 +1,13 @@
 import json
-import traceback
+import logging
 from datetime import datetime
 
 from flask import Blueprint, Response, flash, jsonify, redirect, render_template, request, stream_with_context, url_for
 from database import get_db, query_db
+from services import logs
 
 bp = Blueprint('ai_page', __name__)
+log = logging.getLogger(__name__)
 
 
 def _memory_viz_data():
@@ -177,17 +179,21 @@ def bulk_analyse():
             name = activity['name'] or activity['id']
             date = str(activity['startDateLocal'] or '')[:10]
             yield f'data: {json.dumps({"type":"progress","i":i+1,"total":total,"name":name,"date":date})}\n\n'
+            from services.ai import AIDeclined, AIUnavailable, analyse_ride
             try:
-                from services.ai import analyse_ride
                 analyse_ride(db, activity)
                 analysed += 1
-            except Exception:
+            except (AIUnavailable, AIDeclined) as e:   # our own words: no key set, or the model said no
                 skipped += 1
-                yield f'data: {json.dumps({"type":"error","name":name,"detail":traceback.format_exc(limit=1)})}\n\n'
+                yield f'data: {json.dumps({"type":"error","name":name,"detail":str(e)})}\n\n'
+            except Exception:
+                log.exception('Bulk analysis of activity %s failed', activity['id'])
+                skipped += 1
+                yield f'data: {json.dumps({"type":"error","name":name,"detail":logs.failed("Analysis failed")})}\n\n'
 
         yield f'data: {json.dumps({"type":"done","analysed":analysed,"skipped":skipped})}\n\n'
 
-    return Response(stream_with_context(generate()), mimetype='text/event-stream',
+    return Response(stream_with_context(logs.keep_id(generate())), mimetype='text/event-stream',
                     headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'})
 
 

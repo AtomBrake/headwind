@@ -374,6 +374,16 @@ def _is_rate_limit(e):
     return type(e).__name__ == 'GarminConnectTooManyRequestsError' or '429' in str(e)
 
 
+def sync_error(e):
+    """What a sync started from a page shows when it failed with e (logged by the caller): what to do when that's known, else the log id."""
+    from services import logs
+    if isinstance(e, SignInNeeded):
+        return str(e)
+    if _is_rate_limit(e):
+        return 'Garmin is limiting requests just now: try again in a while.'
+    return logs.failed('Garmin sync failed')
+
+
 class _Calls:
     """Makes Garmin calls for a run of days. An ordinary failure comes back as None, so one missing metric doesn't lose
     the rest of the day. With raise_rate_limit a rate limit is raised instead, so the history backfill can stop and resume
@@ -999,7 +1009,8 @@ def sync_garmin_activities(rider_id, api=None):
         try:
             activities = api.get_activities(start=offset, limit=limit)
         except Exception as e:
-            yield {'error': f'Garmin API error: {e}'}
+            log.warning('Garmin activity list failed at offset %d', offset, exc_info=True)
+            yield {'error': sync_error(e)}
             return
 
         if not activities:

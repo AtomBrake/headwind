@@ -333,7 +333,7 @@ function startBulk() {
     } else if (d.type === 'error') {
       var log = document.getElementById('bulkLog');
       var row = document.createElement('div');
-      row.textContent = '✗ ' + d.name;
+      row.textContent = '✗ ' + d.name + (d.detail ? ' — ' + d.detail : '');
       row.style.color = 'var(--danger)';
       log.appendChild(row);
       log.scrollTop = log.scrollHeight;

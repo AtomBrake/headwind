@@ -315,6 +315,27 @@ _API_PREFIXES = ('/api/', '/nutrition/api/', '/gear/api/')
 _QUIET_ENDPOINTS = {'static', 'avatar_files'}
 
 
+def failed(what):
+    """What to show the browser when something failed: `what`, and the id its details were logged under. Never the exception's own text,
+    which can carry file paths and internals: the caller logs that (log.exception) before it answers with this."""
+    log_id = current_id()
+    return f'{what}. The error has been logged as {log_id}: quote that if you report it.' if log_id else f'{what}. The details are in the log.'
+
+
+def keep_id(gen):
+    """A streamed response's generator runs after the request's hooks have cleared its id: wrap it (in the view) so its lines and failed()
+    still carry the request's."""
+    log_id = current_id()
+
+    def run():
+        token = bind(log_id)
+        try:
+            yield from gen
+        finally:
+            reset(token)
+    return run()
+
+
 def init_app(app):
     """Request ids, one line per request, and a logged, quotable error page for anything unhandled. Call first in create_app, so the id is
     set before the other before_request hooks (the login check) run."""
@@ -369,7 +390,7 @@ def init_app(app):
                                                      request.endpoint)
         if app.debug:                               # HEADWIND_DEBUG=1: the interactive debugger as before
             raise e
-        msg = f'Something went wrong. The error has been logged as {log_id}: quote that if you report it.'
+        msg = failed('Something went wrong')
         if request.path.startswith(_API_PREFIXES) or request.is_json or 'application/json' in (request.headers.get('Accept') or ''):
             return jsonify(error=msg, request_id=log_id), 500
         try:
