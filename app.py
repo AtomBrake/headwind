@@ -13,6 +13,14 @@ from services import logs
 logs.setup()                    # stderr only until create_app knows where the database (and so the log folder) is
 log = logging.getLogger(__name__)
 
+# Scripts only from this server and the exact library versions the templates load (a bump there needs one here too;
+# tests/test_security_headers.py checks). 'unsafe-inline' because the pages are full of inline scripts and on…= handlers.
+SCRIPT_SOURCES = ("'self'", "'unsafe-inline'",
+                  'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/',
+                  'https://unpkg.com/leaflet@1.9.4/',
+                  'https://unpkg.com/html5-qrcode@2.3.8/')
+CSP = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; script-src " + ' '.join(SCRIPT_SOURCES)
+
 
 def _friends_autosync(app):
     import logging
@@ -472,13 +480,13 @@ def create_app():
     @app.after_request
     def security_headers(resp):
         """On every response, not just the demo: no framing by other sites (clickjacking), no MIME sniffing, no full URLs
-        leaking to other sites. The CSP only covers what can't break the inline scripts the pages still use. HSTS only
+        leaking to other sites. The CSP (CSP above) limits where scripts come from but still allows inline ones. HSTS only
         over HTTPS (directly or via a trusted proxy's X-Forwarded-Proto), so a plain-HTTP LAN install isn't locked out."""
         h = resp.headers
         h.setdefault('X-Frame-Options', 'DENY')
         h.setdefault('X-Content-Type-Options', 'nosniff')
         h.setdefault('Referrer-Policy', 'same-origin')
-        h.setdefault('Content-Security-Policy', "frame-ancestors 'none'; base-uri 'self'; object-src 'none'")
+        h.setdefault('Content-Security-Policy', CSP)
         if request.is_secure:
             h.setdefault('Strict-Transport-Security', 'max-age=31536000')
         return resp
