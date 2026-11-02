@@ -343,21 +343,12 @@ def _gather_nutrition():
     steps_goal = (query_db('SELECT stepGoal FROM Settings WHERE id=1', one=True) or {'stepGoal': None})['stepGoal'] or 8000
     from datetime import timedelta as _td
 
+    from services import steps as _steps
+    src = _steps.effective_source()
+
     def best_steps(day_iso):
-        """Highest step count seen for a day across Garmin, the phone and the watch (Garmin only counts what the
-        watch has uploaded, so it can lag or be low when the watch isn't worn). Returns (steps, source)."""
-        cands = {}
-        g = query_db('SELECT steps FROM GarminDaily WHERE date=?', [day_iso], one=True)
-        if g and g['steps']:
-            cands['Garmin'] = g['steps']
-        for metric, label in (('steps_phone', 'Phone'), ('steps_watch', 'Pixel Watch'), ('steps_manual', 'Manual'), ('steps_health', 'Apple Health')):
-            m = query_db('SELECT value FROM BodyMetric WHERE riderId=? AND logDate=? AND metric=?', [rid, day_iso, metric], one=True)
-            if m and m['value']:
-                cands[label] = m['value']
-        if not cands:
-            return 0, None
-        src = max(cands, key=cands.get)
-        return int(cands[src]), src
+        """The day's step count from the one chosen source (services/steps.py), and which it was."""
+        return _steps.steps_for(rid, day_iso, source=src)
 
     steps_today, steps_source = best_steps(today)
     past = [best_steps((today_d - _td(days=i)).isoformat())[0] for i in range(1, 8)]
@@ -441,14 +432,11 @@ def _step_days(rid, start_iso):
     return [r['d'] for r in rows]
 
 
-def _best_steps_for(rid, day_iso, garmin_steps):
-    from database import query_db
-    vals = [garmin_steps or 0]
-    for metric in STEP_METRICS:
-        m = query_db('SELECT value FROM BodyMetric WHERE riderId=? AND logDate=? AND metric=?', [rid, day_iso, metric], one=True)
-        if m and m['value']:
-            vals.append(m['value'])
-    return int(max(vals))
+def _best_steps_for(rid, day_iso, garmin_steps, source=None):
+    """The day's step count from the one chosen source (services/steps.py). Kept under its old name for its callers; pass source when calling it for
+    many days, so automatic is worked out once."""
+    from services import steps
+    return int(steps.steps_for(rid, day_iso, garmin_steps, source)[0])
 
 
 
@@ -566,10 +554,12 @@ def _history_payloads():
     gr = {r['date']: dict(r) for r in query_db('''SELECT date, restingHR, hrv, sleepHours, bodyBattery, steps, stressScore FROM GarminDaily
                      WHERE date>=? ORDER BY date''', [start30])}
     days30 = sorted(set(gr) | set(_step_days(rid, start30)))
+    from services import steps as _steps
+    step_src = _steps.effective_source()
     out['nutrition_recovery_history'] = {
         'd': days30, 'hr': [gr.get(d, {}).get('restingHR') for d in days30], 'hrv': [gr.get(d, {}).get('hrv') for d in days30],
         'sl': [gr.get(d, {}).get('sleepHours') for d in days30], 'bb': [gr.get(d, {}).get('bodyBattery') for d in days30],
-        'st': [_best_steps_for(rid, d, gr.get(d, {}).get('steps')) for d in days30], 'sx': [gr.get(d, {}).get('stressScore') for d in days30],
+        'st': [_best_steps_for(rid, d, gr.get(d, {}).get('steps'), step_src) for d in days30], 'sx': [gr.get(d, {}).get('stressScore') for d in days30],
     }
     try:
         from services import insights
@@ -631,9 +621,11 @@ def _history_payloads():
             FROM Ride WHERE riderId=? AND date(startDateLocal)>=? GROUP BY w''', [rid, first])}
         steps_by_week = {}
         g_steps = {r['date']: r['steps'] for r in query_db('SELECT date, steps FROM GarminDaily WHERE date>=? AND date<=?', [first, today.isoformat()])}
+        from services import steps as _steps
+        step_src = _steps.effective_source()
         for day_iso in sorted(set(g_steps) | {x for x in _step_days(rid, first) if x <= today.isoformat()}):
             d = date.fromisoformat(day_iso)
-            v = _best_steps_for(rid, day_iso, g_steps.get(day_iso))
+            v = _best_steps_for(rid, day_iso, g_steps.get(day_iso), step_src)
             if v and v > 0:
                 steps_by_week.setdefault((d - timedelta(days=d.weekday())).isoformat(), []).append(v)
         out['nutrition_activity_weekly'] = {

@@ -193,7 +193,7 @@ def _mqtt_nutrition():
 
 # ── Manual steps ─────────────────────────────────────────────────────
 # For anyone without a Garmin (or whose phone/watch isn't feeding Headwind): log a day's steps by hand. Stored as BodyMetric
-# 'steps_manual'; the app already uses the highest of Garmin / phone / watch / manual for each day.
+# 'steps_manual', which is the count for its day whichever source is chosen (services/steps.py).
 
 _STEP_LABELS = (('steps_manual', 'Manual'), ('steps_phone', 'Phone'), ('steps_watch', 'Watch'), ('steps_health', 'Health'))
 
@@ -213,7 +213,8 @@ def steps_list():
     rider_id = _default_rider_id()
     today = _london_today()
     goal = (query_db('SELECT stepGoal FROM Settings WHERE id=1', one=True) or {'stepGoal': None})['stepGoal'] or 8000
-    from services.mqtt import _best_steps_for
+    from services import steps as _steps
+    src = _steps.effective_source()
     days = []
     for i in range(0, 21):
         d = (today - timedelta(days=i)).isoformat()
@@ -223,9 +224,23 @@ def steps_list():
             rec[label.lower()] = int(m['value']) if m and m['value'] is not None else None
         g = query_db('SELECT steps FROM GarminDaily WHERE date=?', [d], one=True)
         rec['garmin'] = int(g['steps']) if g and g['steps'] else None
-        rec['best'] = _best_steps_for(rider_id, d, rec['garmin'])
+        rec['best'], rec['used'] = _steps.steps_for(rider_id, d, rec['garmin'], src)
         days.append(rec)
-    return jsonify({'goal': goal, 'today': today.isoformat(), 'days': days})
+    return jsonify({'goal': goal, 'today': today.isoformat(), 'days': days, 'source': _steps.configured(), 'effective': src})
+
+
+@bp.route('/api/steps/source', methods=['POST'])
+def steps_source():
+    """Which one source a day's step count comes from: 'auto', 'garmin' or 'phone' (services/steps.py)."""
+    from services import steps as _steps
+    v = ((request.get_json(silent=True) or {}).get('source') or '').strip().lower()
+    if v not in _steps.SOURCES:
+        return jsonify({'error': 'source must be auto, garmin or phone'}), 400
+    db = get_db()
+    db.execute('UPDATE Settings SET stepsSource=? WHERE id=1', [None if v == 'auto' else v])
+    db.commit()
+    _mqtt_nutrition()
+    return jsonify({'ok': True, 'source': _steps.configured(), 'effective': _steps.effective_source()})
 
 
 @bp.route('/api/steps', methods=['POST'])
@@ -243,8 +258,8 @@ def steps_set():
         return jsonify({'error': 'date must be within the last 120 days (not in the future)'}), 400
     rider_id = _default_rider_id()
     # An automatic sync (currently: the phone app's Health Connect) writes to a DIFFERENT metric slot than a value someone
-    # typed by hand, so neither can silently overwrite the other -- both still feed the same max() in
-    # services.mqtt._best_steps_for, so the displayed total only ever goes up, never regresses because of which fired last.
+    # typed by hand, so neither can silently overwrite the other. Which one counts is services/steps.py: a typed value wins
+    # for its day, otherwise the chosen source.
     metric = 'steps_phone' if d.get('source') == 'health_connect' else 'steps_manual'
     db = get_db()
     db.execute('DELETE FROM BodyMetric WHERE riderId=? AND logDate=? AND metric=?', [rider_id, day.isoformat(), metric])

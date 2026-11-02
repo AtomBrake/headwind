@@ -196,3 +196,27 @@ def test_reader_version_falls_back_to_the_release_without_source(monkeypatch):
     monkeypatch.setattr(reimport, '_reader_version', None)
     monkeypatch.setattr(version, '__version__', '9.9.9')
     assert frozen != with_source and reimport.reader_version() != frozen     # the Windows build reads every file again on each release
+
+
+@pytest.mark.parametrize('kind', ['strava', 'files'])
+def test_an_activity_that_fails_half_way_leaves_nothing_behind(db, monkeypatch, kind):
+    """The first activity is inserted, then a later step fails: what it wrote is rolled back, not committed along with the next one."""
+    from services import sport_records
+    real, calls = sport_records.index, []
+
+    def fails_once(*a, **kw):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError('boom')
+        return real(*a, **kw)
+    monkeypatch.setattr(sport_records, 'index', fails_once)
+    if kind == 'strava':
+        done = run(db, ROWS[:2], {k: v for k, v in FILES.items() if k != 'activities/3.gpx'})
+    else:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w') as z:
+            z.writestr('a.gpx', gpx(4)); z.writestr('b.gpx', gpx(5))
+        done = [json.loads(e[len('data: '):]) for e in import_rides._process_generic_zip(zipfile.ZipFile(io.BytesIO(buf.getvalue())), ['a.gpx', 'b.gpx'], 1)][-1]
+    assert done['errors'] == 1 and done['imported'] == 1
+    assert db.execute('SELECT COUNT(*) FROM Activity').fetchone()[0] == 1
+    assert db.execute("SELECT COUNT(*) FROM Activity WHERE startDateLocal LIKE '2026-07-04%'").fetchone()[0] == 0

@@ -172,6 +172,25 @@ def test_live_goes_idle_if_the_phone_stops_talking():
     assert status == ['idle']
 
 
+def test_going_idle_reaches_the_broker_from_the_timer_thread(monkeypatch):
+    """The idle timer runs on its own thread, with no app context: the broker it publishes to is the one read during the phone's request."""
+    import threading
+    from flask import current_app
+    app = Flask(__name__)
+    sent = []
+    monkeypatch.setattr(live, '_connection', lambda: current_app.config['BROKER'])          # needs an app context, as reading Settings does
+    app.config['BROKER'] = ('h', 1883, None)
+    live._state.update(last=None, last_pub=0.0, timer=None, sent_discovery=False)
+    with app.app_context():
+        live.update({'state': 'riding', 'speed_mps': 5}, sender=lambda m, *a: sent.append(m))
+    t = live._state['timer']
+    t.cancel()
+    th = threading.Thread(target=t.function, args=t.args)
+    th.start(); th.join()
+    status = [m['payload'] for m in sent[-1] if m['topic'].endswith('live_ride_status/state')]
+    assert status == ['idle']
+
+
 def test_cadence_summary_and_old_rows():
     from services import sensors
     rows = [[i * 1000, 2.0, 5.0, 0.5, 10, 1000.0, 54.8, -1.7, 5.0, 100, (90.0 if i % 4 else None)] for i in range(100)]

@@ -434,6 +434,7 @@ def migrate_db():
         ('activityFactor',       'REAL'),
         ('lossLbPerWeek',        'REAL'),
         ('stepGoal',             'INTEGER'),
+        ('stepsSource',          'TEXT'),        # 'garmin' / 'phone', NULL = automatic (services/steps.py)
         ('goalAuto',             'INTEGER DEFAULT 0'),
         ('goalAutoLast',         'TEXT'),
         ('rideKcalWeek',         'REAL'),

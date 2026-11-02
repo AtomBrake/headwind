@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- **A day's steps come from one source.** Each day took the highest count from Garmin, the phone, Apple Health and a watch, and a phone counts pedalling as steps, so on a ride day the phone's count won, thousands of steps too high. Now the **Steps** page has **Count steps from**: Automatic (Garmin when it has given steps on 5 of the last 14 days, otherwise the phone), Garmin, or Phone (Apple Health, the Android app, or a watch through Home Assistant). If the chosen source has nothing for a day, the day has no steps; another source's count isn't used instead. A number you enter on the Steps page is still the count for its day. The Home Assistant sensors, the recovery charts and the phone apps all use the same count.
+- **Check for update looks at this project's releases.** It asked Docker Hub when the original project's old image was last pushed, which said nothing about the version you run. Now it compares your version with the newest release on GitHub and names it when there's a newer one.
+
+### Fixed
+- **A live recording on the phone goes idle in Home Assistant when the phone stops sending.** The timer that marks it idle couldn't read the MQTT settings from its own thread, so the ride stayed "riding" in Home Assistant.
+- **Activities from a Garmin sync send the new-activity notification,** as an uploaded file does, for activities from the last 3 days. Older ones filled in by the sync, and a copy of an activity already here, don't.
+- **An activity that fails half-way through a zip import leaves nothing behind.** What it had saved before the error was kept along with the next activity, without its duplicate check or best times.
+
+These four came from looking through the original project's 0.8 and 0.9 releases.
+
 ## [0.7.36-beta] - 2026-11-01
 
 ### Added
