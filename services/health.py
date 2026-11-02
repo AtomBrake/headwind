@@ -110,9 +110,10 @@ def _apple(rid, since, until=None):
     return out
 
 
-def _merge(day, garmin, apple):
-    """One day's recovery from Garmin's row and Apple's metrics: Garmin's figure where it has one. hrv_kind says whose HRV it is, and source whose
-    figures these are ('garmin', 'apple_health' or both, 'garmin+apple_health')."""
+def _merge(day, garmin, apple, steps_source='garmin'):
+    """One day's recovery from Garmin's row and Apple's metrics: Garmin's figure where it has one, except steps, which come from steps_source alone
+    ('garmin' or 'phone', services/steps.py). hrv_kind says whose HRV it is, and source whose figures these are ('garmin', 'apple_health' or both,
+    'garmin+apple_health')."""
     g = dict(garmin) if garmin else {}
     a = apple or {}
     used = set()
@@ -130,7 +131,7 @@ def _merge(day, garmin, apple):
     hrv = pick('hrv', 'hrv_sdnn_apple', round)
     kind = None if hrv is None else ('rmssd' if g.get('hrv') else 'sdnn')
     sleep = pick('sleepHours', 'sleep_apple', lambda v: round(v, 2))
-    steps = max(g.get('steps') or 0, int(a.get('steps_health') or 0)) or None
+    steps = (g.get('steps') if steps_source == 'garmin' else int(a.get('steps_health') or 0)) or None
     if any(g.get(k) for k in ('sleepScore', 'bodyBattery', 'stressScore')):
         used.add('garmin')
     return {'date': day, 'restingHR': rhr, 'hrv': hrv, 'hrv_kind': kind, 'hrvBalanced': g.get('hrvBalanced') if kind == 'rmssd' else None,
@@ -152,7 +153,8 @@ def latest_recovery(rid):
     if g and g['date'] != day:
         g = query_db('SELECT date, restingHR, hrv, hrvBalanced, sleepHours, sleepScore, bodyBattery, steps, stressScore FROM GarminDaily WHERE date=?',
                      [day], one=True)
-    return _merge(day, g, _apple(rid, day, day).get(day))
+    from services import steps
+    return _merge(day, g, _apple(rid, day, day).get(day), steps.effective_source())
 
 
 def recovery_days(rid, until, days=3):
@@ -161,7 +163,9 @@ def recovery_days(rid, until, days=3):
     garmin = {r['date']: r for r in query_db('SELECT date, restingHR, hrv, hrvBalanced, sleepHours, sleepScore, bodyBattery, steps, stressScore '
                                              'FROM GarminDaily WHERE date<=? AND date>=?', [until, since])}
     apple = _apple(rid, since, until)
-    return [_merge(d, garmin.get(d), apple.get(d)) for d in sorted(set(garmin) | set(apple), reverse=True)]
+    from services import steps
+    src = steps.effective_source()
+    return [_merge(d, garmin.get(d), apple.get(d), src) for d in sorted(set(garmin) | set(apple), reverse=True)]
 
 
 def device_burn(rid, day):

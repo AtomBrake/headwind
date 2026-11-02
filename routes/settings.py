@@ -4,7 +4,6 @@ import shutil
 import sqlite3
 import ssl
 import threading as _threading
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -251,20 +250,38 @@ def test_mqtt():
     return jsonify({'ok': True})
 
 
+RELEASES_REPO = 'AtomBrake/headwind'       # this fork's releases: each v<version> tag builds the Docker image (.github/workflows/docker.yml)
+
+
+def version_key(v):
+    """'0.7.36-beta' -> a sortable key, or None for a tag that isn't a version. A release without a suffix sorts after its -beta."""
+    import re
+    m = re.fullmatch(r'v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.]+))?', (v or '').strip())
+    if not m:
+        return None
+    return (int(m[1]), int(m[2]), int(m[3]), m[4] is None, m[4] or '')
+
+
 @bp.route('/version-check')
 def version_check():
+    """The newest release tag on this fork's GitHub repository, and whether it's newer than the version running. Before 0.7.37 this asked Docker Hub
+    when upstream's old image was last pushed, which said nothing about this fork's releases."""
+    import requests
     try:
-        req  = urllib.request.Request(
-            'https://hub.docker.com/v2/repositories/lordmerchant99/bike-flask/tags/latest',
-            headers={'User-Agent': 'Headwind/1.0'},
-        )
-        resp = urllib.request.urlopen(req, timeout=8)
-        import json
-        data = json.loads(resp.read())
-        return jsonify({'last_updated': data.get('last_updated')})
-    except Exception as e:
+        r = requests.get(f'https://api.github.com/repos/{RELEASES_REPO}/tags', params={'per_page': 100}, timeout=8,
+                         headers={'User-Agent': 'Headwind/1.0', 'Accept': 'application/vnd.github+json'})
+        r.raise_for_status()
+        tags = [t.get('name') for t in r.json() if isinstance(t, dict)]
+        versions = [t for t in tags if version_key(t)]
+        if not versions:
+            return jsonify({'error': 'No releases found'}), 502
+        latest = max(versions, key=version_key).lstrip('v')
+        from version import __version__ as current
+        mine = version_key(current)
+        return jsonify({'latest': latest, 'current': current, 'newer': bool(mine and version_key(latest) > mine)})
+    except Exception:
         log.warning('Update check failed', exc_info=True)
-        return jsonify({'error': str(e)}), 502
+        return jsonify({'error': 'Could not reach GitHub'}), 502
 
 
 @bp.route('/calorie-adjust', methods=['POST'])

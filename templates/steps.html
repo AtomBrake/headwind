@@ -36,6 +36,15 @@
 </div>
 
 <div class="st-card">
+  <div style="font-weight:600;margin-bottom:0.3rem">Count steps from</div>
+  <p style="font-size:0.78rem;color:var(--text-muted);margin:0 0 0.6rem">One source for every day, never a mix: a phone counts pedalling as steps, so a long ride can add thousands. If you wear a Garmin, use that.</p>
+  <div class="st-chips" id="stSource">
+    <button class="st-chip" data-src="auto">Automatic</button><button class="st-chip" data-src="garmin">Garmin</button><button class="st-chip" data-src="phone">Phone</button>
+  </div>
+  <div style="font-size:0.78rem;color:var(--text-muted)" id="stSourceNote"></div>
+</div>
+
+<div class="st-card">
   <div style="font-weight:600;margin-bottom:0.6rem">Log steps</div>
   <div class="st-chips"><button class="st-chip on" data-off="0">Today</button><button class="st-chip" data-off="1">Yesterday</button><button class="st-chip" data-off="2">2 days ago</button></div>
   <div class="st-form">
@@ -44,7 +53,7 @@
     <button class="btn btn-primary" id="stSave">Save</button>
   </div>
   <div class="st-msg" id="stMsg"></div>
-  <p style="font-size:0.78rem;color:var(--text-muted);margin:0.5rem 0 0">Use this if you don't have a Garmin or your phone/watch isn't feeding Headwind. Each day uses the highest count from any source, so a manual entry never lowers a real one.</p>
+  <p style="font-size:0.78rem;color:var(--text-muted);margin:0.5rem 0 0">Use this if you don't have a Garmin or your phone/watch isn't feeding Headwind, or to correct a day: a number you enter here is the count for its day, whichever source is chosen.</p>
 </div>
 
 <div class="st-card">
@@ -59,8 +68,15 @@ const fmt = n => (n == null ? '–' : Number(n).toLocaleString('en-GB'));
 const $ = id => document.getElementById(id);
 const SOURCES = [['manual','Manual'],['phone','Phone'],['watch','Watch'],['health','Apple Health'],['garmin','Garmin']];
 const sourceParts = x => SOURCES.filter(([k]) => x[k] != null).map(([k, l]) => l + ' ' + fmt(x[k]));
+function showSource(d) {
+  document.querySelectorAll('#stSource .st-chip').forEach(x => x.classList.toggle('on', x.dataset.src === d.source));
+  $('stSourceNote').textContent = d.source === 'auto'
+    ? 'Garmin when it has given steps on 5 of the last 14 days, otherwise the phone (Apple Health, the Android app, or a watch through Home Assistant). Now counting ' + (d.effective === 'garmin' ? 'Garmin.' : 'the phone.')
+    : '';
+}
 async function load() {
   const d = await (await fetch('/nutrition/api/steps')).json();
+  showSource(d);
   $('stGoal').textContent = fmt(d.goal);
   if (!$('stDate').value) $('stDate').value = d.today;
   $('stDate').max = d.today;
@@ -68,7 +84,7 @@ async function load() {
   $('stToday').textContent = fmt(t.best);
   $('stBar').style.width = Math.min(100, t.best / d.goal * 100) + '%';
   const srcs = sourceParts(t);
-  $('stSrc').textContent = srcs.length ? srcs.join(' · ') : 'No steps logged today yet';
+  $('stSrc').textContent = srcs.length ? (t.used ? 'Counting ' + (t.used === 'Manual' ? 'your entry' : t.used) + ' · ' : '') + srcs.join(' · ') : 'No steps logged today yet';
   $('stList').innerHTML = d.days.map(x => {
     const parts = sourceParts(x).join(' · ');
     const dt = new Date(x.date + 'T12:00:00').toLocaleDateString('en-GB', {weekday:'short', day:'numeric', month:'short'});
@@ -87,10 +103,14 @@ async function save() {
   if (r.ok) { $('stSteps').value = ''; load(); }
 }
 async function del(day) { await fetch('/nutrition/api/steps/' + day, {method:'DELETE'}); load(); }
-document.querySelectorAll('.st-chip').forEach(b => b.addEventListener('click', () => {
+document.querySelectorAll('#stSource .st-chip').forEach(b => b.addEventListener('click', async () => {
+  const r = await fetch('/nutrition/api/steps/source', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({source: b.dataset.src})});
+  if (r.ok) load();
+}));
+document.querySelectorAll('.st-chip[data-off]').forEach(b => b.addEventListener('click', () => {
   const t = new Date($('stDate').max + 'T12:00:00'); t.setDate(t.getDate() - Number(b.dataset.off));
   $('stDate').value = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
-  document.querySelectorAll('.st-chip').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.st-chip[data-off]').forEach(x => x.classList.toggle('on', x === b));
   $('stSteps').focus();
 }));
 $('stSave').addEventListener('click', save);

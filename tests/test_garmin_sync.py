@@ -637,3 +637,27 @@ def test_the_tasks_page_lists_what_was_given_up_on(fenv):
     db.commit()
     card = next(j for j in tasks.overview(db)['jobs'] if j['name'] == 'Garmin activities not imported')
     assert 'Morning swim (2026-10-03)' in card['detail'] and card['action']['url'] == '/tasks/run/garmin-retry'
+
+
+def test_a_new_activity_from_the_last_few_days_is_announced(env, monkeypatch):
+    """A synced activity gets the "new activity" notification a file import gives, unless it's history being filled in, or a copy of one here."""
+    from datetime import timedelta
+    from services import mqtt, tz
+    sent = []
+    monkeypatch.setattr(mqtt, 'push_update', lambda act=None, background=False: sent.append(act['id'] if act else None))
+    db, run = env
+    today = tz.today()
+    recent, old = f'{today - timedelta(days=1)} 08:00:00', f'{today - timedelta(days=30)} 08:00:00'
+    run([_act(2, recent), _act(1, old)])
+    assert sent == ['garmin_2']
+    sent.clear()
+    run([_act(2, recent), _act(1, old)])                 # nothing new
+    assert sent == []
+    day = str(today - timedelta(days=2))
+    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,"
+               "totalElevationGain,averageSpeed,maxSpeed,riderId,createdAt,updatedAt) VALUES "
+               "('fit_x','a','Ride','Ride',?,?,10050,1700,1750,0,0,0,1,'n','n')", [f'{day}T08:01:00', f'{day}T08:01:00'])
+    db.commit()
+    run([_act(3, f'{day} 08:00:00'), _act(2, recent), _act(1, old)])
+    assert _ids(db) == ['garmin_1', 'garmin_2', 'garmin_3']          # kept in place of the phone's copy, which was announced when it came
+    assert sent == []

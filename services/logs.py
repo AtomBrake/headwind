@@ -241,7 +241,7 @@ def setup(database=None):
 
 # ── Outbound calls ───────────────────────────────────────────────
 _SERVICES = (('strava', 'Strava'), ('garmin', 'Garmin'), ('open-meteo', 'weather'), ('openfoodfacts', 'food lookup'),
-             ('anthropic', 'AI'), ('openai', 'AI'), ('hub.docker.com', 'update check'), ('arcgisonline', 'map tiles'),
+             ('anthropic', 'AI'), ('openai', 'AI'), ('api.github.com', 'update check'), ('arcgisonline', 'map tiles'),
              ('opentopomap', 'map tiles'), ('tile-cyclosm', 'map tiles'), ('waymarkedtrails', 'map tiles'), ('api.os.uk', 'map tiles'))
 
 

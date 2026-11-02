@@ -147,6 +147,8 @@ def announce(sender=None, conn=None):
 def update(payload, sender=None, conn=None, app=None):
     """Handle one POST from the phone. Returns the cleaned reading. Publishes at most every MIN_PUBLISH_GAP_S, but always publishes idle."""
     c = clean(payload)
+    if conn is None:
+        conn = _connection()       # here, in the request: the idle timer runs on its own thread, with no app context to read the broker settings from
     with _lock:
         prev = _state['last']
         _state['last'] = c

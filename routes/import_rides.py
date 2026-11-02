@@ -795,6 +795,7 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
             imported += _count_new(dup, act_id, kept, act['name'], new_ids, parked)
         except Exception as e:
             log.error('Insert failed for activity %s: %s', act.get('id'), e)
+            db.rollback()               # drop what this one wrote before it failed: the next activity's commit mustn't keep it
             errors += 1
 
         yield _progress(i + 1, total, imported, skipped, errors)
@@ -993,6 +994,7 @@ def _process_generic_zip(zf, names, rider_id=None):
                 unread.append({'file': name})
         except Exception as e:
             log.error('Import error for %s: %s\n%s', name, e, traceback.format_exc())
+            db.rollback()               # drop what this file wrote before it failed: the next file's commit mustn't keep it
             errors += 1
 
         yield _progress(i + 1, total, imported, skipped, errors)

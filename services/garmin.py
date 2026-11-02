@@ -963,6 +963,23 @@ def save_activity(db, api, a, rider_id):
     return None
 
 
+NOTIFY_DAYS = 3        # a synced activity older than this is history being filled in, not news: no notification
+
+
+def _notify_new(db, ids):
+    """The "new activity" notification (services/mqtt.push_update) for each activity a Garmin sync brought in that's new here. Not for one set aside as
+    a copy of an activity already here, nor for one kept in place of such a copy: that activity was announced when it first arrived. Never raises."""
+    for act_id in ids:
+        try:
+            row = db.execute('SELECT * FROM Activity WHERE id=?', [act_id]).fetchone()
+            if not row or db.execute("SELECT 1 FROM ActivityDuplicate WHERE primaryId=? AND status='parked'", [act_id]).fetchone():
+                continue
+            from services.mqtt import push_update
+            push_update(row)
+        except Exception:
+            log.warning('New activity notification for %s failed', act_id, exc_info=True)
+
+
 def sync_garmin_activities(rider_id, api=None):
     """
     Generator: pull activities from Garmin Connect, download FIT files, parse and insert.
@@ -988,6 +1005,9 @@ def sync_garmin_activities(rider_id, api=None):
     skipped  = 0
     newest   = since  # newest date fully handled — the next incremental sync cursor
     first_failed = None  # earliest date with a download/parse/insert failure still being retried; cursor must not pass it
+    from services import tz
+    fresh_from = (tz.today() - timedelta(days=NOTIFY_DAYS)).isoformat()
+    fresh = []           # new activities from the last few days: each gets the "new activity" notification, as a file import does
 
     def failed(activity_id, kind, error, start_date, name):
         """Remember the failure (services/garmin_failures); one still being retried holds the cursor back, one given up on counts as handled."""
@@ -1065,6 +1085,8 @@ def sync_garmin_activities(rider_id, api=None):
                 failed(activity_id, *fail, start_date, a.get('activityName'))
                 continue
             imported += 1
+            if start_date and start_date >= fresh_from:
+                fresh.append(db_id)
             if start_date and (newest is None or start_date > newest):
                 newest = start_date
             if imported % 20 == 0:
@@ -1076,10 +1098,10 @@ def sync_garmin_activities(rider_id, api=None):
         offset += limit
 
     db.commit()
+    _notify_new(db, fresh)
 
     # Never advance the cursor past a failed ride: step back a day from the earliest failure so it's retried
     if first_failed:
-        from datetime import date, timedelta
         retry_from = (date.fromisoformat(first_failed) - timedelta(days=1)).isoformat()
         if newest is None or retry_from < newest:
             newest = retry_from if (since is None or retry_from > since) else since

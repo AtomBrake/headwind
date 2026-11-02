@@ -578,7 +578,6 @@
             {{ '· built ' + build_time if build_time else '· dev build' }}
           </span>
         </div>
-        <code id="build-time-display" style="display:none;">{{ build_time if build_time else '' }}</code>
       </div>
       <div style="display:flex; align-items:center; gap:0.5rem;">
         <span id="update-badge" style="display:none; font-size:0.75rem; font-weight:600;
@@ -599,9 +598,6 @@
 function checkForUpdate() {
   var btn      = document.getElementById('update-btn');
   var badge    = document.getElementById('update-badge');
-  var localRaw = document.getElementById('build-time-display').textContent.trim();
-  var localDate = new Date(localRaw);
-  var hasLocal  = !isNaN(localDate);
   btn.textContent = 'Checking…';
   btn.disabled = true;
   badge.style.display = 'none';
@@ -611,29 +607,18 @@ function checkForUpdate() {
     .then(function(data) {
       btn.textContent = 'Check for update';
       btn.disabled = false;
-      var hubDate = new Date(data.last_updated);
-      if (isNaN(hubDate)) {
-        badge.textContent = 'Could not read Hub';
+      if (!data.latest) {
+        badge.textContent = data.error || 'Could not check';
         badge.style.background = 'var(--raised-bg)';
         badge.style.color = 'var(--text-muted)';
-      } else if (!hasLocal) {
-        // Dev instance — just show when Hub was last updated
-        var d = hubDate;
-        var label = d.toISOString().slice(0,16).replace('T',' ') + ' UTC';
-        badge.textContent = 'Latest Docker: ' + label;
-        badge.style.background = 'var(--raised-bg)';
-        badge.style.color = 'var(--text-muted)';
+      } else if (data.newer) {
+        badge.textContent = 'Update available: v' + data.latest;
+        badge.style.background = 'var(--due-soft)';
+        badge.style.color = 'var(--due)';
       } else {
-        var diffMins = (hubDate - localDate) / 60000;
-        if (diffMins > 60) {
-          badge.textContent = 'Update available';
-          badge.style.background = 'var(--due-soft)';
-          badge.style.color = 'var(--due)';
-        } else {
-          badge.textContent = 'Up to date';
-          badge.style.background = 'var(--success-soft)';
-          badge.style.color = 'var(--success-text)';
-        }
+        badge.textContent = 'Up to date';
+        badge.style.background = 'var(--success-soft)';
+        badge.style.color = 'var(--success-text)';
       }
       badge.style.display = 'inline-block';
     })

@@ -32,8 +32,8 @@ TARGETS = {
     'basal_metabolism': ('Basal metabolism', 'kcal'),
     'metabolic_age':   ('Metabolic age', 'yrs'),
     'resting_hr':      ('Resting heart rate', 'bpm'),
-    # No generic 'steps' target: services/mqtt.py's STEP_METRICS only ever reads steps_phone/steps_watch/steps_manual —
-    # a BodyMetric row written as plain 'steps' was silently invisible everywhere. Pick one of these two instead.
+    # No generic 'steps' target: services/steps.py only ever reads steps_health/steps_phone/steps_watch/steps_manual —
+    # a BodyMetric row written as plain 'steps' was silently invisible everywhere. Pick one of these two instead (both count as the phone).
     'steps_phone':     ('Steps (phone)', ''),
     'steps_watch':     ('Steps (watch)', ''),
 }
