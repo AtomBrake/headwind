@@ -179,7 +179,7 @@ Add your bikes, shoes and other kit (with photos) and give each kind of activity
 All 68 screens below use the same synthetic demo data (a fictional rider on real roads). Open a group to browse it.
 
 <details>
-<summary><b>Riding</b> (13 screens)</summary>
+<summary><b>Riding</b> (12 screens)</summary>
 
 **Dashboard: lifetime totals, a 12-week performance chart (distance, elevation, speed, calories) and your recent rides.**
 
@@ -224,10 +224,6 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 **Route planner with a saved route loaded: distance, waypoints and GPX export.**
 
 <img src="docs/screenshots/route-planner.jpg" alt="Route planner with a saved route loaded: distance, waypoints and GPX export." width="800">
-
-**Workouts: every activity that isn't a ride, with search and a sport filter. Distances only add up within a kind, so they never change your ride stats.**
-
-<img src="docs/screenshots/workouts.jpg" alt="Workouts: every activity that isn't a ride, with search and a sport filter." width="800">
 
 **Import: drop in .fit / .gpx / .tcx files or a full Strava export zip.**
 
@@ -408,25 +404,25 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 
 <img src="docs/screenshots/wizard-2-units.jpg" alt="Step 2: units." width="800">
 
-**Step 3: Garmin Connect (optional, MFA-capable).**
+**Step 4: Garmin Connect (optional, MFA-capable).**
 
-<img src="docs/screenshots/wizard-3-garmin.jpg" alt="Step 3: Garmin Connect (optional, MFA-capable)." width="800">
+<img src="docs/screenshots/wizard-3-garmin.jpg" alt="Step 4: Garmin Connect (optional, MFA-capable)." width="800">
 
-**Step 4: Home Assistant (optional).**
+**Step 5: Home Assistant (optional).**
 
-<img src="docs/screenshots/wizard-4-home-assistant.jpg" alt="Step 4: Home Assistant (optional)." width="800">
+<img src="docs/screenshots/wizard-4-home-assistant.jpg" alt="Step 5: Home Assistant (optional)." width="800">
 
 **Choosing a health entity from Home Assistant.**
 
 <img src="docs/screenshots/wizard-4b-ha-entity-picker.jpg" alt="Choosing a health entity from Home Assistant." width="800">
 
-**Step 5: the one-time anonymous install ping, with a permanent opt-out.**
+**Step 6: the one-time anonymous install ping, with a permanent opt-out.**
 
-<img src="docs/screenshots/wizard-5-telemetry.jpg" alt="Step 5: the one-time anonymous install ping, with a permanent opt-out." width="800">
+<img src="docs/screenshots/wizard-5-telemetry.jpg" alt="Step 6: the one-time anonymous install ping, with a permanent opt-out." width="800">
 
-**Step 6: done.**
+**Step 7: done.**
 
-<img src="docs/screenshots/wizard-6-done.jpg" alt="Step 6: done." width="800">
+<img src="docs/screenshots/wizard-6-done.jpg" alt="Step 7: done." width="800">
 
 </details>
 
@@ -447,7 +443,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - **File import** — `.fit`, `.gpx`, `.tcx` (and gzipped variants), or a **Strava data-export zip**, with a live progress bar. A file keeps its own sport. Strava's names for sports Headwind has its own name for ("Virtual Ride", "E-Bike Ride", "Mountain Bike Ride", ...) are saved under Headwind's, so an indoor ride from Strava and one from Garmin are the same sport in every list and filter. From a Strava export Headwind also takes Strava's own distance and moving time, your bikes and shoes, photos, commutes and segments, and keeps the export so you can **Import again** later without uploading it. When an update brings fixes that only reach activities already here through a re-import, the Import page says what they are and asks you to import the export again (or upload it, if it wasn't kept). It also lists the activities an older Headwind stored with their GPS and times out of step, which segments leave out: Garmin's are read again by the Garmin check, a friend's are put right on their Headwind, and the rest need their files imported again.
 - **Duplicates** — the same activity from Garmin, Strava, a file and the phone is kept once, however it arrived (including a watch's indoor ride and its Zwift copy, a phone's partial recording of a ride, a recording with nothing in it beside a real one, and a copy whose start a time zone mistake put hours out). Importing an activity you already have again offers to repair it from the file. Deleting an activity moves the recordings set aside behind it to another recording of the same session if there is one; otherwise one deleted in Garmin brings its other recording back as its own, and one you delete takes them into **Recently deleted** with it (and back out, if you restore it). When the two recordings are on different gear (a Garmin ride on your default bike, its Strava copy naming the bike you rode), the activity, the dashboard and **Gear → Gear to check** say so, so you can pick the right one. When they say different sports (a Garmin ride saved as a plain ride, its Strava copy an e-bike ride), the activity, the dashboard and the **Import** page say so: take the other recording's sport or keep the one it has, for one activity or for every activity with the same difference at once.
 - **Start times where each activity happened** — the time zone comes from where it started, so a run abroad shows local time. Your home time zone is set in Settings.
-- **Activities page** — every activity in one list, with search, a sport filter and a **Select** bar to edit many at once (delete, change type, set the gear, mark as commutes, rename, download as GPX). The **Activities** link at the top of an activity goes back to the list as you left it, with its search and filters, even after paging through with Prev and Next.
+- **Activities page** — every activity in one list, with search, a sport filter and a **Select** bar to edit many at once (delete, change type, set the gear, mark as commutes, rename, download as GPX). **+ Add an activity by hand** at the top adds a ride, walk, run or hike you didn't record; if a recording of it arrives later, the recording is kept and the typed-in one put aside. The **Activities** link at the top of an activity goes back to the list as you left it, with its search and filters, even after paging through with Prev and Next.
 - **Recently deleted** — a deleted activity of any sport is kept whole for 30 days, listed at the bottom of the **Import** page with its date, name, sport and distance. **Restore** puts it back as it was: notes, photos, gear, commute, the AI's analysis, and its segment and best times worked out again (a bike or shoes deleted meanwhile are replaced by your default; if another recording of the same session came in meanwhile, the better of the two is kept and the other set aside). **Delete now** doesn't wait. After 30 days only its id is kept, and its photo files are deleted. Either way no Garmin sync or Strava export imported again brings it back; uploading its file yourself does. Backups include it, photos and all.
 - **Commutes** and **photos** on any activity.
 - **GPX export** of any activity.
@@ -466,7 +462,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - **Trophy case** — badges for riding (counts, distance, elevation, epic rides, speed, climbing, weather, segments), running, walking and hiking, swimming, other sports and all sports together, each linking back to the activity that earned it. Indoor rides and runs count for the badges that count activities or time, not for distance, climbing, speed, weather or segments.
 - **Goals** — distance, climbing, time or number of activities for a sport, every week, month or year, measured against an even pace, on the Goals page and the dashboard.
 - **Activities that look wrong** — anything that can't be real is flagged on the dashboard and its own page, and left out of the speed and weather charts until you keep it or delete it: a ride at 2,500 mph, a walk at 20 km/h, a run faster than any record, a swim with nothing recorded, a moving time of seconds against a real distance, a heart rate below 30 or above 230 bpm, or a start date in the future from a device whose clock was wrong (every sport). The limits are loose: hard but real days pass. Where it can, the flag offers a fix: Strava's climb in place of a file's impossible one, the elapsed time when a file's broken timestamps made the moving time seconds, or the real date for one dated in the future.
-- **Recovery** — resting HR, HRV, sleep, steps, stress and body battery with 30/60/90-day charts: from Garmin, or from Apple Health through the iPhone app on days Garmin has none (Apple Health has no body battery, sleep score or stress). Steps come from one source, chosen on the **Steps** page (Garmin, the phone, or automatic), never the highest of several: a phone counts pedalling as steps.
+- **Recovery** — resting HR, HRV, sleep, steps, stress and body battery with 30/60/90-day charts: from Garmin, or from Apple Health through the iPhone app on days Garmin has none (Apple Health has no body battery, sleep score or stress, so a chart or Daily Log column with nothing in it is left out). Steps come from one source, chosen on the **Steps** page (Garmin, the phone, or automatic), never the highest of several: a phone counts pedalling as steps.
 - Tables sort by clicking a column heading.
 
 ### Segments
@@ -606,14 +602,15 @@ docker buildx build --platform linux/amd64,linux/arm64 -t yourname/headwind:dev 
 
 ## First run: the setup wizard
 
-A new install walks you through six short steps. Everything except step 1 is skippable and can be changed later in **Settings**.
+A new install walks you through seven short steps. Everything except step 1 is skippable and can be changed later in **Settings**.
 
 1. **Your name** — Headwind tracks one person. (Restoring from a backup is also offered here.)
 2. **Units** — imperial (mi, mph, ft, st/lb) or metric.
-3. **Garmin Connect** — optional. Enter your Garmin email and password; if Garmin asks for an MFA code you'll be prompted in the browser. The password is used only to sign in and isn't kept: Headwind keeps the sign-in tokens Garmin gives it, which renew themselves.
-4. **Home Assistant** — optional. Connect to HA with a long-lived token, map health entities and pick a weather entity.
-5. **Telemetry** — the exact text of the one-time anonymous ping is shown with a permanent opt-out.
-6. **Done** — you land on the dashboard.
+3. **Outside address** — the https address you reach Headwind on from outside the house (a [Cloudflare Tunnel](#recommended-cloudflare-tunnel) or another reverse proxy). The phone app pairs with it, friends' Headwinds sync from it and notification links open it. **Check** loads it from your browser. It starts with `APP_URL` when that's https; skip it if Headwind isn't reachable from outside yet.
+4. **Garmin Connect** — optional. Enter your Garmin email and password; if Garmin asks for an MFA code you'll be prompted in the browser. The password is used only to sign in and isn't kept: Headwind keeps the sign-in tokens Garmin gives it, which renew themselves.
+5. **Home Assistant** — optional. Connect to HA with a long-lived token, map health entities and pick a weather entity.
+6. **Telemetry** — the exact text of the one-time anonymous ping is shown with a permanent opt-out.
+7. **Done** — you land on the dashboard.
 
 No Garmin? Go to **Import** and drop in `.fit` / `.gpx` / `.tcx` files or a Strava export zip.
 
@@ -630,7 +627,7 @@ Set these in a `.env` file next to `docker-compose.yml` (Compose reads it automa
 | `SECRET_KEY` | generated | Session signing key. If blank or a known placeholder, a random one is generated and stored in the data folder. |
 | `APP_USERNAME` | `admin` | Login username. |
 | `APP_PASSWORD` | generated | Login password. If blank or a known placeholder, a random one is generated and printed once in the logs. A password changed in **Settings** is kept (as a hash, in `.admin_login`) across container recreation until you edit this value: then this one wins, which is the way back in if you forget yours. Headwind never writes it to `.env`. |
-| `APP_URL` | `http://localhost:5001` | The URL others (and your phone) reach this instance at — used in notification links and the phone pairing QR code. |
+| `APP_URL` | `http://localhost:5001` | The address others (and your phone) reach this instance at, used until one is saved under **Settings → Outside address**, which is the easier place to set it: no restart, and the setup wizard asks for it. |
 | `DATABASE_URL` | `/data/bike.db` (Docker) | Path to the SQLite database. |
 | `TELEMETRY` | *(unset)* | Set to `off` to skip the telemetry question and never send the install ping. |
 | `HEADWIND_MULTI_RIDER` | *(unset)* | `1` enables the advanced multi-rider mode (several local riders on one instance). |
@@ -652,7 +649,7 @@ Windows-build only: `HEADWIND_HOST`, `HEADWIND_DATA`, `HEADWIND_NO_TRAY`.
 
 ### Settings inside the app
 
-The Garmin sign-in, the MQTT broker, Home Assistant URL/token and mappings, AI provider/key/model, the optional map keys, coaching personality and goals, display units, home time zone, appearance (Auto, Light or Dark), your login details, backups and the **calorie burn adjustment** (a percentage taken off every burn estimate as it is pulled in, kept reversible; see the changelog) are all configured under **Settings** — not in `.env`. Calorie and macro goals live under **Nutrition → Goals**, and friend-sync is under **Friends → Auto-Sync**.
+The Garmin sign-in, the MQTT broker, Home Assistant URL/token and mappings, AI provider/key/model, the optional map keys, the **outside address** (what phones pair with, friends sync from and notification links open), coaching personality and goals, display units, home time zone, appearance (Auto, Light or Dark), your login details, backups and the **calorie burn adjustment** (a percentage taken off every burn estimate as it is pulled in, kept reversible; see the changelog) are all configured under **Settings** — not in `.env`. Calorie and macro goals live under **Nutrition → Goals**, and friend-sync is under **Friends → Auto-Sync**.
 
 ### Data and volumes
 
@@ -705,7 +702,7 @@ The Garmin sign-in, the MQTT broker, Home Assistant URL/token and mappings, AI p
 ### Friends (peer-to-peer)
 1. On each instance open **Friends**, enter the other person's name, choose what they see and press **Create Code** (or, in the iPhone app, Settings → **Share with a friend**). It shows a QR code and a code starting `hwfc_`, once. Send it privately: anyone with it can read what it shares.
 2. The other person scans the QR code with the Headwind iPhone app (Settings → **Add a friend**, or the Camera app), or pastes the code into **Friends → Add a Friend**, then picks the rider to follow.
-   The code carries your address: `APP_URL` when it's https, otherwise the address your browser used. If that's a home-network address the page warns you, since a friend's server can't reach it; set `APP_URL` to your public https address first.
+   The code carries your address: **Settings → Outside address** when it's https, otherwise the address your browser used. If that's a home-network address the page warns you, since a friend's server can't reach it; set the outside address first.
 3. Their activities and segments sync into your database; segments you both have appear on shared leaderboards, and their activities can be shown on the heatmap.
 4. To race, start a **challenge** on the Goals page and invite them; it reaches them on the feed.
 
@@ -815,7 +812,7 @@ Things to know:
 - **Sign-in throttling still sees each visitor's own address.** `cloudflared` connects to Headwind from a private Docker address, which Headwind trusts by default, and passes the visitor's address in `X-Forwarded-For`. Leave `TRUSTED_PROXIES` unset.
 - **Uploads through Cloudflare are limited to 100 MB** on the free plan, and a Strava export zip is often bigger. To import one, open the port on your home network for a while: add `ports: ["5001:5001"]` to the `headwind` service, put `SESSION_COOKIE_SECURE=false` in `.env` (or the login cookie won't be sent over plain HTTP), run `docker compose up -d`, and import at `http://<server-ip>:5001`. Then undo both changes and run `docker compose up -d` again.
 - **Cloudflare Access** (Zero Trust's sign-in page) can add a second login in front of Headwind, but the phone app and friends' sync can't get past it. If you turn it on, those stop working.
-- To pair the phone app, `APP_URL` must be the `https://` address, because the pairing QR code is built from it.
+- To pair the phone app, set **Settings → Outside address** to the `https://` address, because the pairing QR code is built from it. If the address changes later, the iPhone app offers to move to the new one the next time it opens.
 
 ### Other reverse proxies
 
@@ -919,7 +916,7 @@ Like the Android app it **requires HTTPS**. Pair it from **Phones**: name the ph
 | **Port 5001 is in use** | Change the left side of `ports` in `docker-compose.yml`, e.g. `"5002:5001"`. |
 | **Garmin asks you to sign in again after every restart** | The `garmin_tokens` folder must be a persistent volume; check it's mounted and writable. |
 | **Garmin sync finds nothing** | Make sure activity sync is enabled in Settings → Garmin and the account matches the one you connected. Failed rides are retried on the next sync. |
-| **Phone app can't pair** | It needs an **HTTPS** address. Put Headwind behind a [Cloudflare Tunnel](#recommended-cloudflare-tunnel) or another TLS proxy and set `APP_URL` to that address. |
+| **Phone app can't pair** | It needs an **HTTPS** address. Put Headwind behind a [Cloudflare Tunnel](#recommended-cloudflare-tunnel) or another TLS proxy and save that address under **Settings → Outside address**. |
 | **Home Assistant sensors missing** | Check the MQTT broker settings, that discovery is enabled in HA, and that no other Headwind uses the same `HEADWIND_MQTT_PREFIX`. |
 | **Map is blank** | Your browser needs to reach the tile and CDN hosts listed under [Privacy](#privacy-and-telemetry). |
 | **Windows SmartScreen warning** | The build is unsigned. More info → Run anyway, or use Docker. |

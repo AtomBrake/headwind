@@ -54,7 +54,7 @@ RATES = {'ride1': '18.6 mph', 'run1': '8:03 /mi', 'walk1': '19:19 /mi'}      # 3
     ('/dashboard', {'ride1', 'run1', 'walk1'}),
     ('/activities', {'ride1', 'run1', 'walk1'}),
     ('/activities?q=r', {'ride1', 'run1'}),
-    ('/workouts', {'run1', 'walk1'}),
+    ('/activities?skip=Ride', {'run1', 'walk1'}),
     ('/gear/bike/1', {'ride1'}),
     ('/gear/kit/1', {'run1'}),
     ('/riders/1', {'ride1'}),

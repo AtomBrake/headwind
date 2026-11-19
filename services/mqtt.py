@@ -1004,7 +1004,6 @@ def push_update(activity=None, background=False):
                     msgs.append({'topic': _attr_topic(uid), 'payload': _hist_now().get(uid, '{}'), 'retain': True, 'qos': 1})
 
         if activity:
-            from flask import current_app
             act = dict(activity)
 
             dist_mi   = round((act.get('distance') or 0) / 1609.344, 1)
@@ -1022,8 +1021,8 @@ def push_update(activity=None, background=False):
                     rider_name = rider['name']
                     ha_device  = rider['haDevice']
 
-            app_url = current_app.config.get('APP_URL', '').rstrip('/')
-            url     = f"{app_url}/rides/{act.get('id', '')}"
+            from services import external_url
+            url     = f"{external_url.get()}/rides/{act.get('id', '')}"
             prs = query_db('SELECT COUNT(*) AS n FROM SegmentEffort WHERE activityId=? AND isPR=1', [act.get('id')], one=True)
             ytd = None
             if act.get('riderId') and act.get('startDateLocal'):

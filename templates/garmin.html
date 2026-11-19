@@ -109,6 +109,9 @@
 
 </div>
 
+{# A column with nothing in it for the whole range is left out, as the charts are: Apple Health has no sleep score, Body Battery or stress #}
+{% set has = {} %}
+{% for k in ['restingHR', 'hrv', 'sleepHours', 'sleepScore', 'bodyBattery', 'steps', 'stressScore'] %}{% set _ = has.update({k: table_rows | selectattr(k) | first is defined}) %}{% endfor %}
 <div class="card">
   <div class="card-title">Daily Log</div>
   <div style="overflow-x:auto;">
@@ -116,19 +119,20 @@
       <thead>
         <tr>
           <th>Date</th>
-          <th class="num">Resting HR</th>
-          <th class="num">HRV</th>
-          <th class="num">Sleep</th>
-          <th class="num">Sleep Score</th>
-          <th class="num">Body Battery</th>
-          <th class="num">Steps</th>
-          <th class="num">Stress</th>
+          {% if has.restingHR %}<th class="num">Resting HR</th>{% endif %}
+          {% if has.hrv %}<th class="num">HRV</th>{% endif %}
+          {% if has.sleepHours %}<th class="num">Sleep</th>{% endif %}
+          {% if has.sleepScore %}<th class="num">Sleep Score</th>{% endif %}
+          {% if has.bodyBattery %}<th class="num">Body Battery</th>{% endif %}
+          {% if has.steps %}<th class="num">Steps</th>{% endif %}
+          {% if has.stressScore %}<th class="num">Stress</th>{% endif %}
         </tr>
       </thead>
       <tbody>
         {% for r in table_rows %}
         <tr>
           <td style="color:var(--text);">{{ r.date | fmt_date }}</td>
+          {% if has.restingHR %}
           <td class="num" style="color:var(--text);">
             {% if r.restingHR %}
               <span style="color:{{ 'var(--danger)' if r.restingHR > 65 else ('var(--warning)' if r.restingHR > 58 else 'var(--success)') }};">
@@ -136,16 +140,24 @@
               </span>
             {% else %}—{% endif %}
           </td>
+          {% endif %}
+          {% if has.hrv %}
           <td class="num" style="color:var(--text);">
             {# Apple's HRV is SDNN through the day, Garmin's overnight RMSSD: not comparable, so say which #}
             {% if r.hrv %}{{ r.hrv }}{% if r.hrv_kind == 'sdnn' %} <span style="color:var(--text-muted); font-size:0.75rem;" title="Apple Health's SDNN, not comparable with Garmin's overnight HRV">SDNN</span>{% endif %}{% else %}—{% endif %}
           </td>
+          {% endif %}
+          {% if has.sleepHours %}
           <td class="num" style="color:var(--text);">
             {% if r.sleepHours %}{{ r.sleepHours }}h{% else %}—{% endif %}
           </td>
+          {% endif %}
+          {% if has.sleepScore %}
           <td class="num" style="color:var(--text);">
             {% if r.sleepScore %}{{ r.sleepScore }}{% else %}—{% endif %}
           </td>
+          {% endif %}
+          {% if has.bodyBattery %}
           <td class="num">
             {% if r.bodyBattery %}
               <span style="color:{{ 'var(--danger)' if r.bodyBattery < 25 else ('var(--warning)' if r.bodyBattery < 50 else 'var(--success)') }};">
@@ -153,9 +165,13 @@
               </span>
             {% else %}—{% endif %}
           </td>
+          {% endif %}
+          {% if has.steps %}
           <td class="num" style="color:var(--text);">
             {% if r.steps %}{{ '{:,}'.format(r.steps) }}{% else %}—{% endif %}
           </td>
+          {% endif %}
+          {% if has.stressScore %}
           <td class="num">
             {% if r.stressScore %}
               <span style="color:{{ 'var(--danger)' if r.stressScore > 60 else ('var(--warning)' if r.stressScore > 35 else 'var(--success)') }};">
@@ -163,6 +179,7 @@
               </span>
             {% else %}—{% endif %}
           </td>
+          {% endif %}
         </tr>
         {% endfor %}
       </tbody>

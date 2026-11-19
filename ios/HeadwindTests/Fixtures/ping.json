@@ -4,5 +4,6 @@
     "ok": true,
     "rider": "Tom",
     "server_time": "2026-10-17T18:46:58+01:00",
+    "server_url": "https://headwind.example.com",
     "units": "metric"
 }

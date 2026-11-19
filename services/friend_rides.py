@@ -11,6 +11,11 @@ def friend_of(db, act_id):
     return db.execute('SELECT f.* FROM Activity a JOIN Friend f ON f.riderId = a.riderId WHERE a.id=?', [str(act_id)]).fetchone()
 
 
+def is_friend_rider(db, rider_id):
+    """True for a rider made by syncing a friend: their activities are added on their instance, not here."""
+    return bool(db.execute('SELECT 1 FROM Friend WHERE riderId=?', [rider_id]).fetchone())
+
+
 def refuse(db, act_id):
     """Raises ValueError(REFUSED) for a friend's activity, so the service that changes it stops before writing anything."""
     if friend_of(db, act_id):

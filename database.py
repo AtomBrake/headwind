@@ -539,6 +539,7 @@ def migrate_db():
         ('birthDateGuessed',       'INTEGER DEFAULT 0'),    # 1 = filled in as 1 January from birthYear; the profile forms ask for the real date
         ('thunderforestKey',       'TEXT'),     # optional map keys (services/map_tiles.py), sealed by services/vault.py
         ('osMapsKey',              'TEXT'),
+        ('externalUrl',            'TEXT'),     # the outside address (services/external_url.py); blank = APP_URL
     ]:
         if col not in settings_cols:
             db.execute(f'ALTER TABLE Settings ADD COLUMN {col} {defn}')

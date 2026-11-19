@@ -41,7 +41,7 @@ def index():
         has_ride.append(1 if d in ride_dates else None)
 
     table_rows = [r for r in reversed(rows) if any([
-        r['restingHR'], r['bodyBattery'], r['sleepHours'], r['sleepScore'], r['steps'], r['stressScore']
+        r['restingHR'], r['hrv'], r['bodyBattery'], r['sleepHours'], r['sleepScore'], r['steps'], r['stressScore']
     ])]
 
     # Most recent day with intraday streams for the "today" charts

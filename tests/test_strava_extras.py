@@ -230,6 +230,7 @@ def client(tmp_path, monkeypatch):
     import config
     from services import credentials
     monkeypatch.setattr(config.Config, 'DATABASE', str(tmp_path / 'app.db'))
+    monkeypatch.setattr(config.Config, 'APP_URL', 'https://h.example')     # the outside address phones pair with
     monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)
     app = app_module.create_app()
     with app.app_context():

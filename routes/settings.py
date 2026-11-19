@@ -12,7 +12,7 @@ _backfill_state = {'running': False, 'done': 0, 'failed': 0}
 
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from database import get_db, migrate_db, query_db
-from services import logs, vault
+from services import external_url, logs, vault
 
 import time
 bp = Blueprint('settings', __name__)
@@ -160,7 +160,28 @@ def index():
                            claude_models=CLAUDE_MODELS, garmin_on=garmin.connected(s),
                            current_username=current_username, min_password=credentials.MIN_PASSWORD, build_time=build_time,
                            app_version=__version__, backup_job=downloads.status(backup.KIND),
-                           last_backup=last_backup if last_backup and last_backup['status'] == 'done' else None)
+                           last_backup=last_backup if last_backup and last_backup['status'] == 'done' else None,
+                           address=external_url.describe(s), browser_url=request.host_url.rstrip('/'))
+
+
+@bp.route('/address', methods=['POST'])
+def save_address():
+    """The outside address (services/external_url.py). Blank clears it, and APP_URL is used again."""
+    try:
+        url = external_url.clean(request.form.get('externalUrl'))
+    except ValueError as e:
+        flash(f"That address won't work: {e}.", 'error')
+        return redirect('/settings#address')
+    db = get_db()
+    db.execute('INSERT INTO Settings (id, externalUrl) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET externalUrl=excluded.externalUrl', [url or None])
+    db.commit()
+    if not url:
+        flash('Outside address cleared.' + (' The APP_URL environment variable is used instead.' if external_url.get() else ''), 'success')
+    elif url.startswith('https://'):
+        flash('Outside address saved.', 'success')
+    else:
+        flash("Outside address saved, but it isn't https: the phone apps only pair over https, so they can't use it.", 'warning')
+    return redirect('/settings#address')
 
 
 @bp.route('/test-ai', methods=['POST'])

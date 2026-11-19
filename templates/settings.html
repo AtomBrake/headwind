@@ -104,6 +104,31 @@
     <button type="submit" class="btn btn-primary" style="margin-top:1.25rem;">Save Preferences</button>
   </form>
 
+  <!-- Outside address (services/external_url.py) -->
+  <form method="POST" action="{{ url_for('settings.save_address') }}" class="card" id="address">
+    <div class="card-title">Outside address</div>
+    <p class="hint" style="margin:0 0 0.75rem;">The https address you reach Headwind on from outside the house, through a Cloudflare Tunnel or another
+      reverse proxy. The phone apps pair with it, friends' Headwinds sync from it, and notification links open it.</p>
+    <div class="form-group">
+      <label for="externalUrl">Address</label>
+      <input type="url" id="externalUrl" name="externalUrl" value="{{ address.saved }}" autocomplete="off"
+             placeholder="https://headwind.example.com">
+    </div>
+    <p class="hint" style="margin:0.25rem 0 0.75rem;">
+      {% if address.source == 'setting' %}In use: this one.
+      {% elif address.source == 'APP_URL' %}In use: <code>{{ address.url }}</code>, from the <code>APP_URL</code> environment variable, until you save one here.
+      {% else %}None set yet.{% endif %}
+      {% if address.url and not address.https %}<span style="color:var(--danger);">It isn't https, so the phone apps can't pair with it.</span>{% endif %}
+      This browser reached Headwind on <code>{{ browser_url }}</code>.
+    </p>
+    <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
+      <button type="submit" class="btn btn-primary">Save Address</button>
+      <button type="button" class="btn btn-secondary" onclick="checkAddress('externalUrl', 'addressCheck')">Check</button>
+      <span id="addressCheck" style="font-size:0.8rem;"></span>
+    </div>
+  </form>
+  <script src="{{ url_for('static', filename='js/address_check.js') }}"></script>
+
   <!-- Login Details -->
   <form method="POST" action="/settings/password" class="card">
     <div class="card-title">Login Details</div>
@@ -545,7 +570,6 @@
           <div><span style="color:var(--accent);">SECRET_KEY</span>=<span style="color:var(--text-muted);">your-random-secret</span></div>
           <div><span style="color:var(--accent);">APP_USERNAME</span>=<span style="color:var(--text-muted);">admin</span></div>
           <div><span style="color:var(--accent);">APP_PASSWORD</span>=<span style="color:var(--text-muted);">your-password</span></div>
-          <div><span style="color:var(--accent);">APP_URL</span>=<span style="color:var(--text-muted);">https://headwind.yourdomain.com</span></div>
           <div><span style="color:var(--accent);">OPENAI_API_KEY</span>=<span style="color:var(--text-muted);">(optional — for AI coaching)</span></div>
         </div>
       </div>

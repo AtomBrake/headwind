@@ -167,10 +167,6 @@
          class="nav-item {% if request.blueprint == 'nutrition' and request.endpoint not in ('nutrition.steps_page', 'nutrition.weight_graph_page', 'nutrition.weight_backfill_page') %}active{% endif %}">
         {% include 'icons/_leaf.svg' %} Nutrition
       </a>
-      <a href="{{ url_for('workouts_ui.workouts_page') }}"
-         class="nav-item {% if request.endpoint == 'workouts_ui.workouts_page' %}active{% endif %}">
-        {% include 'icons/_pulse.svg' %} Workouts
-      </a>
       <a href="{{ url_for('nutrition.steps_page') }}"
          class="nav-item {% if request.endpoint == 'nutrition.steps_page' %}active{% endif %}">
         {% include 'icons/_footprint.svg' %} Steps

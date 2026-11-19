@@ -13,6 +13,9 @@ struct PingInfo: Codable, Equatable {
     var serverTime: String?
     /// The rider's bikes that aren't archived, for the bike picker (older servers don't send them).
     var bikes: [Bike]?
+    /// The https address the server is reached on from outside (its Settings → Outside address), or nil when none is set. When it isn't the
+    /// address this phone paired with, RootView offers to move there.
+    var serverUrl: String?
 }
 
 /// GET /api/v1/today: the home screen in one request.

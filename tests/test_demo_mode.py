@@ -19,7 +19,7 @@ def test_dangerous_writes_are_refused_by_default():
 
 
 def test_the_harmless_fun_stuff_still_works():
-    for ep in ('login.login_page', 'nutrition.log_food', 'nutrition.add_water', 'nutrition.log_weight', 'gear.api_assign', 'gear.bike_save', 'gear.part_add', 'workouts_ui.workouts_new', 'rides.save_notes'):
+    for ep in ('login.login_page', 'nutrition.log_food', 'nutrition.add_water', 'nutrition.log_weight', 'gear.api_assign', 'gear.bike_save', 'gear.part_add', 'dashboard.activities_new', 'rides.save_notes'):
         assert demo.decide('POST', ep) is None, ep
     assert demo.decide('GET', 'dashboard.dashboard') is None and demo.decide('GET', 'static') is None and demo.decide('GET', 'demo.counter') is None
 

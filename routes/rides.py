@@ -1,7 +1,7 @@
 import logging
 import json
 import re
-from flask import Blueprint, abort, current_app, redirect, render_template, request, send_from_directory, url_for
+from flask import Blueprint, abort, current_app, redirect, render_template, request, send_from_directory, session, url_for
 from database import query_db, get_db
 from services import sports
 from routes.riders import _compute_badges
@@ -549,14 +549,22 @@ def export_gpx(rid):
 
 @bp.route('/<rid>/delete', methods=['POST'])
 def delete(rid):
+    """Delete an activity of any sport (services/duplicates.delete_activity) and go back to the list it was opened from."""
     from services import duplicates
     db = get_db()
+    kind = sports.kind_of(db, rid)
     duplicates.delete_activity(db, rid)
-    db.execute('DELETE FROM RideMemory WHERE rideId=?', [rid])
     db.commit()
     from services.ingest import after_ride_removed
     after_ride_removed()
-    return redirect(url_for('dashboard.dashboard'))
+    if kind == 'workout':
+        try:
+            from services.mqtt import push_update_nutrition
+            push_update_nutrition()                     # its calories leave the day's burn
+        except Exception:
+            log.warning('Home Assistant update after a delete failed', exc_info=True)
+    back = session.get('list_back')                    # the list it was opened from (dashboard.remember_list)
+    return redirect(back['url'] if back else url_for('dashboard.activities_page'))
 
 
 def _bulk_ids():
@@ -674,17 +682,17 @@ def delete_blips():
 
 @bp.route('/<rid>/sport', methods=['POST'])
 def change_sport(rid):
-    """Change what this activity is (e.g. a walk that was recorded as a ride). A walk/run/hike leaves the rides list and appears under Workouts."""
+    """Change what this activity is (e.g. a walk that was recorded as a ride, or a run that was a walk), and open it again."""
     from services import convert
     db = get_db()
     try:
-        res = convert.change_sport(db, 'ride', rid, request.form.get('sport'))
+        res = convert.change_sport(db, None, rid, request.form.get('sport'))
         db.commit()
     except ValueError as e:
         db.rollback()
         from urllib.parse import quote
         return redirect(url_for('rides.detail', rid=rid) + '?error=' + quote(str(e)))
-    return redirect(url_for('workouts_ui.workouts_page') if res['kind'] == 'workout' else url_for('rides.detail', rid=res['id']))
+    return redirect(url_for('rides.detail', rid=res['id']))
 
 
 @bp.route('/bulk-sport', methods=['POST'])

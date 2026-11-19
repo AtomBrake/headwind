@@ -171,24 +171,6 @@ def recent(rider_id, days=30):
     return [dict(r) for r in rows]
 
 
-def search(rider_id, q='', date_from='', date_to='', min_m=None, max_m=None, sport=''):
-    """The complete workout history (no 90-day cut-off), newest first, with the same filters as the activity list on the dashboard (distances in metres)."""
-    where, args = ['riderId=?', f'NOT {RIDE_SQL}'], [rider_id]
-    if q:
-        where.append("COALESCE(name, sportType) LIKE ?"); args.append(f'%{q}%')
-    if date_from:
-        where.append('date(startDateLocal) >= ?'); args.append(date_from)
-    if date_to:
-        where.append('date(startDateLocal) <= ?'); args.append(date_to)
-    for val, op in ((min_m, '>='), (max_m, '<=')):
-        if val is not None:
-            where.append(f'distance {op} ?'); args.append(val)
-    if sport:
-        where.append('sportType = ?'); args.append(sport)
-    return query_db(f'''SELECT id, sportType AS sport, name, startDateLocal, distance, movingTime, totalElevationGain, averageSpeed, calories, steps, weatherSummary, source
-                        FROM Activity WHERE {' AND '.join(where)} ORDER BY startDateLocal DESC''', args)
-
-
 def forget(db, wid):
     """A workout is going away: drop its best-time cache and any segment efforts, and re-pick each affected segment's PRs. Does not commit."""
     from services.segments import _refresh_prs

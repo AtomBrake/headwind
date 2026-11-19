@@ -185,7 +185,7 @@ def test_a_list_with_nothing_this_month_opens_on_the_newest_month(client):
         db.commit()
     html = client.get('/activities').get_data(as_text=True)
     assert _listed(html) == {'old', 'oldrun'} and html.count('<details class="tree-year" open') == 1
-    html = client.get('/workouts').get_data(as_text=True)
+    html = client.get('/activities?skip=Ride').get_data(as_text=True)
     assert 'data-pick="oldrun"' in html and html.count('<details class="tree-month" open') == 1
 
 
@@ -196,5 +196,5 @@ def test_an_activity_goes_back_to_the_list_with_its_filters(client):
     client.get('/activities?q=goo&skip=Run&typed=1|0|Ride')
     assert crumb() == ('/activities?q=goo&amp;skip=Run', 'Activities'), 'the filters kept, the one-off notice not'
 
-    client.get('/workouts?sport=Run')
-    assert crumb() == ('/workouts?sport=Run', 'Workouts'), 'whichever list was looked at last'
+    client.get('/activities?sport=Run')
+    assert crumb() == ('/activities?sport=Run', 'Activities'), 'whichever list was looked at last'

@@ -165,7 +165,7 @@ def feed():
 
 @bp.route('/friends')
 def index():
-    settings = query_db('SELECT friendSyncInterval FROM Settings WHERE id=1', one=True)
+    settings = query_db('SELECT friendSyncInterval, externalUrl FROM Settings WHERE id=1', one=True)
     sync_interval = settings['friendSyncInterval'] if settings and settings['friendSyncInterval'] is not None else 15
 
     friends = query_db('''
@@ -177,8 +177,10 @@ def index():
 
     with _syncing_lock:
         syncing = set(_syncing)
+    from services import external_url
+    outside = external_url.describe(settings)['https'] if settings else external_url.https()
     return render_template('friends.html', friends=friends, feed_tokens=feed_tokens.tokens(), own_riders=feed_tokens.own_riders(),
-                           sync_interval=sync_interval, syncing=syncing)
+                           sync_interval=sync_interval, syncing=syncing, share_address=outside or request.host_url.rstrip('/'), outside_address=outside)
 
 
 @bp.route('/friends/sync-interval', methods=['POST'])
@@ -194,10 +196,10 @@ def set_sync_interval():
 
 
 def share_url():
-    """The address a friend's instance reaches us on: APP_URL when it's https, else the one this browser used (often a LAN
-    address, which the page warns about)."""
-    app_url = (current_app.config.get('APP_URL') or '').rstrip('/')
-    return app_url if app_url.startswith('https://') else request.host_url.rstrip('/')
+    """The address a friend's instance reaches us on: the outside address (services/external_url.py) when it's https, else the one this
+    browser used (often a LAN address, which the page warns about)."""
+    from services import external_url
+    return external_url.https() or request.host_url.rstrip('/')
 
 
 def new_token(name, form, url):

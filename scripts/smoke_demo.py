@@ -45,7 +45,7 @@ r = c.post('/nutrition/api/log', json={'date': today, 'name': 'Demo toast', 'cal
 ok('ALLOWED: add water', c.post('/nutrition/api/water', json={'date': today, 'ml': 250}, headers=H).status_code in (200, 201))
 ok('ALLOWED: add a bike', c.post('/gear/bike/save', data={'name': 'Demo bike', 'rider': '1'}, headers=H).status_code == 302)
 ok('bike picture uploads are ignored', c.post('/gear/bike/1/photo', data={'photo': (io.BytesIO(b'x'), 'x.png')}, headers=H, content_type='multipart/form-data').status_code == 302)
-for u in ('/dashboard', '/gear/', '/nutrition/', '/segments', '/heatmap', '/data', '/workouts', '/settings/'):
+for u in ('/dashboard', '/gear/', '/nutrition/', '/segments', '/heatmap', '/data', '/activities', '/settings/'):
     ok(f'page renders: {u}', c.get(u, headers=H).status_code == 200)
 
 # counter: browsers count (once), bots and refreshes do not

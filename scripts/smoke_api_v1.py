@@ -49,7 +49,7 @@ ok('bad file -> 422', c2.post('/api/v1/workouts', headers=H, data={'file': (io.B
 today = datetime.now().date().isoformat()
 d = c.get('/nutrition/api/day/' + today).get_json()
 ok("workout kcal counted in the day's burn", d.get('ride_calories') == round(w['workout']['calories']) or d.get('ride_calories') is not None, {'ride_calories': d.get('ride_calories'), 'burned': d.get('burned')})
-ok('workouts page lists it', b'Test walk' in c.get('/workouts').data or b'Walk' in c.get('/workouts').data)
+ok('activities page lists it', b'Test walk' in c.get('/activities').data or b'Walk' in c.get('/activities').data)
 ok('list api', len(c2.get('/api/v1/workouts', headers=H).get_json()['workouts']) == 1)
 ok('delete', c2.delete('/api/v1/workouts/' + w['workout']['id'], headers=H).status_code == 200 and con.execute(f'select count(*) from {WK}').fetchone()[0] == 0)
 # --- revoke ---

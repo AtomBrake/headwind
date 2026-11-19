@@ -64,7 +64,7 @@ def test_a_friends_ride_page_says_whose_it_is_and_offers_no_changes(client):
 def test_a_friends_run_page_offers_no_gear(client):
     page = client.get('/rides/f1_w1').get_data(as_text=True)
     assert "Sam's activity" in page
-    assert 'id="kitCard"' not in page and '/workouts/f1_w1/delete' not in page
+    assert 'id="kitCard"' not in page and '/rides/f1_w1/delete' not in page
 
 
 def test_your_own_ride_page_still_has_every_control(client):

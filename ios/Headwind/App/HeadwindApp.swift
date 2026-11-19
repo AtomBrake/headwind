@@ -74,6 +74,9 @@ struct RootView: View {
     /// Set while a new server is being checked before it replaces the current pairing.
     @State private var switching = false
     @State private var switchError: AppError?
+    @State private var moveError: AppError?
+    /// A new address that didn't answer this time: not offered again until the app next starts.
+    @State private var moveFailed: URL?
 
     var body: some View {
         Group {
@@ -96,6 +99,23 @@ struct RootView: View {
             Button("Cancel", role: .cancel) { session.pendingLink = nil }
         } message: {
             Text(switchMessage)
+        }
+        .alert("Your Headwind has a new address", isPresented: movePrompt) {
+            Button("Move") {
+                guard let new = session.movedServer else { return }
+                Task { await moveServer(to: new) }
+            }
+            Button("Not now", role: .cancel) { session.declineMove() }
+        } message: {
+            Text("It says it's reached at \(session.movedServer?.host() ?? "another address") now, and this phone uses "
+                 + "\(session.pairing?.server.host() ?? "its old one"). Moving keeps this phone's pairing and its recordings.")
+        }
+        .alert("Couldn't reach the new address", isPresented: Binding(get: { moveError != nil }, set: { if !$0 { moveError = nil } }),
+               presenting: moveError) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { error in
+            Text("\(error.localizedDescription)\n\nThis phone still uses \(session.pairing?.server.host() ?? "its old address"). "
+                 + "It asks again next time the app opens.")
         }
         .alert("Couldn't pair with the new server", isPresented: Binding(get: { switchError != nil }, set: { if !$0 { switchError = nil } }),
                presenting: switchError) { _ in
@@ -134,6 +154,26 @@ struct RootView: View {
         } catch {
             switchError = error
         }
+    }
+
+    /// The pairing moves only once the new address answers with this phone's token (Session.move); the recordings follow it there.
+    private func moveServer(to new: URL) async {
+        guard let old = session.pairing?.server else { return }
+        switching = true
+        defer { switching = false }
+        do throws(AppError) {
+            try await session.move(to: new)
+            store.serverMoved(from: old, to: new)
+        } catch {
+            moveError = error
+            moveFailed = new
+        }
+    }
+
+    /// Offered once the server's /ping gives another address, and not while a pairing link or a check is waiting. Both buttons settle it.
+    private var movePrompt: Binding<Bool> {
+        Binding(get: { session.movedServer.map { $0 != moveFailed } == true && session.pendingLink == nil && !switching && moveError == nil },
+                set: { _ in })
     }
 
     /// Only prompt when already paired; unpaired, PairingView consumes the link itself. Both buttons settle

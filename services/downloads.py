@@ -115,7 +115,8 @@ def _notify(app, job):
     try:
         from services.notify import send_notification
         with app.app_context():
-            app_url = (app.config.get('APP_URL') or '').rstrip('/')
+            from services import external_url
+            app_url = external_url.get()
             if job['state'] == 'ready':
                 send_notification(f"{job['label']} ready", f"{size_text(job['size'])}, kept for a day.", f"{app_url}{job['page']}" if app_url else None)
             else:

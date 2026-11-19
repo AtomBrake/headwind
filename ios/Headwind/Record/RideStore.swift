@@ -347,6 +347,16 @@ final class RideStore {
         await uploadPending(using: session)
     }
 
+    /// The same server moved to a new address (Session.move): its recordings, uploaded or not, go to it there, with their photos and bikes.
+    func serverMoved(from old: URL, to new: URL) {
+        var changed = false
+        for i in rides.indices where rides[i].server.map({ $0.isSameServer(as: old) }) == true {
+            rides[i].server = new
+            changed = true
+        }
+        if changed { try? save() }
+    }
+
     private func update(_ id: UUID, _ change: (inout SavedRide) -> Void) {
         guard let i = rides.firstIndex(where: { $0.id == id }) else { return }
         change(&rides[i])

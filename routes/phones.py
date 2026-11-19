@@ -4,30 +4,26 @@ import os
 from flask import Blueprint, current_app, jsonify, render_template, request, send_file
 from urllib.parse import quote
 
-from services import device_auth, qr
+from services import device_auth, external_url, qr
 
 bp = Blueprint('phones', __name__, url_prefix='/phones')
 
 
-def _default_url():
-    # Only an https address is useful: the Android app refuses plain http. If this instance's APP_URL isn't https the field starts empty.
-    app_url = (current_app.config.get('APP_URL') or '').rstrip('/')
-    return app_url if app_url.startswith('https://') else ''
-
-
 @bp.route('/')
 def index():
-    return render_template('phones.html', devices=device_auth.devices(), default_url=_default_url(), stale_days=device_auth.STALE_DAYS)
+    # Only an https address is any use: the apps refuse plain http, even on the home network
+    address = external_url.describe()
+    return render_template('phones.html', devices=device_auth.devices(), server_url=address['https'], other_url=address['url'],
+                           stale_days=device_auth.STALE_DAYS)
 
 
 @bp.route('/create', methods=['POST'])
 def create():
     d = request.get_json() or {}
-    url = (d.get('server_url') or _default_url()).strip().rstrip('/')
-    if not url.startswith('https://'):
-        return jsonify({'error': "The app only talks to https:// addresses (it refuses plain http, even on your home network). "
-                                 "Enter the address you reach Headwind on through your reverse proxy, e.g. https://bike.example.com — "
-                                 "and set APP_URL in this instance's env file to it so this box is pre-filled next time."}), 400
+    url = external_url.https()                          # Settings → Outside address is the one place it's set
+    if not url:
+        return jsonify({'error': "The app only talks to an https:// address (it refuses plain http, even on your home network). "
+                                 "Set the address you reach Headwind on from outside the house under Settings → Outside address first."}), 400
     token, did = device_auth.create(d.get('name') or 'Phone')
     link = f"headwind://pair?u={quote(url, safe='')}&t={token}"
     return jsonify({'id': did, 'token': token, 'server_url': url, 'link': link, 'qr': qr.data_url(link)})

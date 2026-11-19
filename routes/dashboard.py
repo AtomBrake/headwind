@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 from flask import Blueprint, redirect, render_template, request, session
 
 from database import get_db, query_db
-from services import sports, tz
+from services import friend_rides, sports, tz
 from services.dates import day_month
 from services.sport_filter import SportFilter, chart_groups, speed_sql
 
@@ -341,8 +341,50 @@ def activities_page():
     """Every activity, rides and the rest together, newest first: the dashboard's history and search on a page of their own."""
     ctx, where, params, _ = _activity_list(request.args, '/activities')
     remember_list('Activities')
-    totals = query_db(f"SELECT COUNT(*) AS n, SUM(a.movingTime) AS secs FROM Activity a WHERE {' AND '.join(where)}", params, one=True)
-    return render_template('activities.html', totals=totals, **ctx)
+    totals = query_db(f"SELECT COUNT(*) AS n, SUM(a.movingTime) AS secs, SUM(a.calories) AS kcal FROM Activity a WHERE {' AND '.join(where)}",
+                      params, one=True)
+    st = query_db('SELECT units FROM Settings WHERE id=1', one=True)
+    return render_template('activities.html', totals=totals, today=tz.today().isoformat(), now=tz.now().strftime('%H:%M'),
+                           units=(st['units'] if st and st['units'] else 'imperial'), error=request.args.get('error'),
+                           can_add=bool(ctx['active_rider']) and not friend_rides.is_friend_rider(get_db(), ctx['active_rider']['id']),
+                           **ctx)
+
+
+@bp.route('/activities/new', methods=['POST'])
+def activities_new():
+    """An activity typed in by hand (services/manual_activity.py), for the rider whose list it was added from."""
+    from services import manual_activity
+    f = request.form
+    _, rider, rid = _riders(f)
+    back = '/activities' + ('?' + urlencode(_rider_args(rider)) if _rider_args(rider) else '')
+    km = f.get('unit') == 'km'
+    try:
+        if not rider or friend_rides.is_friend_rider(get_db(), rider['id']):
+            raise ValueError("that rider's activities come from their own Headwind")
+        dur = (float(f.get('hours') or 0) * 3600) + (float(f.get('minutes') or 0) * 60)
+        dist = float(f.get('distance') or 0) * (1000 if km else 1609.344)
+        elev = float(f['elevation']) * (1 if km else 0.3048) if f.get('elevation') else None
+        manual_activity.create(get_db(), rider['id'], f.get('sport'), f"{f.get('date')}T{(f.get('time') or '12:00')[:5]}:00", dur, dist, elev,
+                               f.get('calories') or None, f.get('name'), f.get('notes'))
+    except (ValueError, TypeError) as e:
+        return redirect(back + ('&' if '?' in back else '?') + urlencode({'error': str(e)}))
+    from routes.api_v1 import _refresh_after_change
+    _refresh_after_change(sports.kind(f.get('sport')))
+    return redirect(back)
+
+
+@bp.route('/workouts')
+def workouts_page():
+    """The Workouts page went into Activities: an old link or bookmark lands on the Activities list with the rides left out, keeping its filters."""
+    _, rider, rid = _riders(request.args)
+    sf = SportFilter(get_db(), rid, request.args)
+    args = [(k, v) for k in ('q', 'from', 'to', 'min_dist', 'max_dist') for v in request.args.getlist(k) if v]
+    if request.args.get('sport'):
+        args.append(('sport', request.args['sport']))           # one sport, matched on part of its name (services/sport_filter)
+    else:
+        args += sf.args([s for s, _ in sf.sports if sports.stat_group(s) == 'ride'])
+    args = _rider_args(rider) + args
+    return redirect('/activities' + ('?' + urlencode(args) if args else ''))
 
 
 @bp.route('/dashboard')

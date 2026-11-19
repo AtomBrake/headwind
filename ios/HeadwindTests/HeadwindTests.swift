@@ -61,6 +61,7 @@ struct DecodingTests {
         #expect(ping.api == 1)
         #expect(ping.units == "metric")
         #expect(ping.calorieAdjustPct == 0)
+        #expect(ping.serverUrl == "https://headwind.example.com")
     }
 
     @Test func decodesToday() throws {
@@ -97,6 +98,45 @@ struct DecodingTests {
         #expect(today.goals?.cal == nil)
         #expect(today.steps?.today == nil)
         #expect(today.entries?.isEmpty == true)
+    }
+}
+
+/// The server's outside address from /ping, when it isn't the one this phone paired with (Session.movedServer).
+@MainActor
+struct ServerMoveTests {
+    private let token = "hw_" + String(repeating: "a", count: 32)
+
+    private func session(pairedWith server: String, pingSays serverUrl: String?, defaults: UserDefaults) throws -> Session {
+        defaults.set(try JSONEncoder().encode(PingInfo(serverUrl: serverUrl)), forKey: "ping-info")
+        return Session(store: MemoryPairingStore(Pairing(server: URL(string: server)!, token: token)), defaults: defaults)
+    }
+
+    private func freshDefaults() -> UserDefaults {
+        let name = "ServerMoveTests-\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: name)!
+        d.removePersistentDomain(forName: name)
+        return d
+    }
+
+    @Test func offersTheNewAddress() throws {
+        let s = try session(pairedWith: "https://192.168.1.5", pingSays: "https://headwind.example.com", defaults: freshDefaults())
+        #expect(s.movedServer == URL(string: "https://headwind.example.com"))
+    }
+
+    @Test func notWhenItsTheSameOrThereIsNoneOrItIsntHTTPS() throws {
+        #expect(try session(pairedWith: "https://Headwind.example.com", pingSays: "https://headwind.example.com/", defaults: freshDefaults()).movedServer == nil)
+        #expect(try session(pairedWith: "https://headwind.example.com", pingSays: nil, defaults: freshDefaults()).movedServer == nil)
+        #expect(try session(pairedWith: "https://headwind.example.com", pingSays: "http://192.168.1.5", defaults: freshDefaults()).movedServer == nil)
+    }
+
+    @Test func notNowIsRemembered() throws {
+        let defaults = freshDefaults()
+        let s = try session(pairedWith: "https://192.168.1.5", pingSays: "https://headwind.example.com", defaults: defaults)
+        s.declineMove()
+        #expect(s.movedServer == nil)
+        #expect(try session(pairedWith: "https://192.168.1.5", pingSays: "https://headwind.example.com", defaults: defaults).movedServer == nil)
+        #expect(try session(pairedWith: "https://192.168.1.5", pingSays: "https://other.example.com", defaults: defaults).movedServer != nil,
+                "another new address is offered again")
     }
 }
 

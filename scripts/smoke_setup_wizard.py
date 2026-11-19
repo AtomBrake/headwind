@@ -30,10 +30,16 @@ con2 = sqlite3.connect(db_path)
 ok('units persisted', con2.execute('SELECT units FROM Settings WHERE id=1').fetchone() == ('metric',))
 
 r = c.get('/setup?step=3')
-ok('step 3 renders Garmin form', r.status_code == 200 and b'garminConnect' in r.data)
+ok('step 3 asks for the outside address', r.status_code == 200 and b'name="externalUrl"' in r.data)
+r = c.post('/setup?step=3', data={'externalUrl': 'https://headwind.example.com/'}, follow_redirects=False)
+ok('POST step 3 saves the address -> redirect step 4', r.status_code == 302 and 'step=4' in r.headers['Location']
+   and sqlite3.connect(db_path).execute('SELECT externalUrl FROM Settings WHERE id=1').fetchone() == ('https://headwind.example.com',))
 
 r = c.get('/setup?step=4')
-ok('step 4 renders Home Assistant form', r.status_code == 200 and b'haUrl' in r.data and b'weather entity' in r.data.lower())
+ok('step 4 renders Garmin form', r.status_code == 200 and b'garminConnect' in r.data)
+
+r = c.get('/setup?step=5')
+ok('step 5 renders Home Assistant form', r.status_code == 200 and b'haUrl' in r.data and b'weather entity' in r.data.lower())
 
 # --- HA entity listing includes weather-domain entities (for the weather picker), not just sensors ---
 import services.homeassistant as ha
@@ -49,8 +55,8 @@ ents = ha.list_entities('http://fake', 'tok')
 ok('list_entities includes the weather entity', any(e['entity_id'] == 'weather.home' and e['domain'] == 'weather' for e in ents))
 ok('list_entities excludes unrelated domains (light)', not any(e['entity_id'].startswith('light.') for e in ents))
 
-r = c.get('/setup?step=5')
-ok('step 5 renders telemetry disclosure', r.status_code == 200 and b'one-time' in r.data.lower() and b'Opt out forever' in r.data)
+r = c.get('/setup?step=6')
+ok('step 6 renders telemetry disclosure', r.status_code == 200 and b'one-time' in r.data.lower() and b'Opt out forever' in r.data)
 
 # --- opt out: no ping ever sent, flag recorded, ping_once() becomes a permanent no-op ---
 import services.telemetry as tel
@@ -60,8 +66,8 @@ def fake_post(url, json=None, timeout=None):
     class R: ok = True
     return R()
 tel.requests.post = fake_post
-r = c.post('/setup?step=5', data={'telemetry': 'off'}, follow_redirects=False)
-ok('POST step 5 (opt out) -> redirect step 6', r.status_code == 302 and 'step=6' in r.headers['Location'])
+r = c.post('/setup?step=6', data={'telemetry': 'off'}, follow_redirects=False)
+ok('POST step 6 (opt out) -> redirect step 7', r.status_code == 302 and 'step=7' in r.headers['Location'])
 con3 = sqlite3.connect(db_path)
 ok('telemetryOptOut recorded', con3.execute('SELECT telemetryOptOut FROM Settings WHERE id=1').fetchone() == (1,))
 ok('no ping was sent', pinged['n'] == 0)
@@ -69,7 +75,7 @@ with a.app_context():
     tel.ping_once()  # even called directly, opt-out must block it forever
 ok('ping_once() is a permanent no-op after opt-out', pinged['n'] == 0)
 
-r = c.get('/setup?step=6')
-ok('step 6 renders done screen', r.status_code == 200 and b'dashboard' in r.data.lower())
+r = c.get('/setup?step=7')
+ok('step 7 renders done screen', r.status_code == 200 and b'dashboard' in r.data.lower())
 
 print('ALL PASS')

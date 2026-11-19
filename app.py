@@ -628,10 +628,9 @@ def create_app():
     app.register_blueprint(friends_bp)
     app.register_blueprint(nutrition_bp)
     app.register_blueprint(route_builder_bp)
-    from routes.api_v1 import bp as api_v1_bp, ui as workouts_ui_bp
+    from routes.api_v1 import bp as api_v1_bp
     from routes.phones import bp as phones_bp
     app.register_blueprint(api_v1_bp)
-    app.register_blueprint(workouts_ui_bp)
     app.register_blueprint(phones_bp)
     from routes.tasks import bp as tasks_bp
     app.register_blueprint(tasks_bp)

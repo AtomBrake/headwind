@@ -4,7 +4,7 @@
 {% block page_title %}{{ activity.sportType | sport_icon }} {{ activity.name }}<span style="font-size:0.875rem;font-weight:400;color:var(--text-muted);margin-left:0.6rem;">{{ activity.startDateLocal | fmt_date }}</span>{% endblock %}
 
 {# Back to the list this was opened from, filters and all (routes/dashboard.remember_list); the plain list for the sport when there's none yet. #}
-{% block parent %}{% set back = session.get('list_back') %}{% if back %}<a href="{{ back.url }}">{{ back.label }}</a>{% elif is_workout %}<a href="{{ url_for('workouts_ui.workouts_page') }}">Workouts</a>{% else %}<a href="{{ url_for('dashboard.activities_page') }}">Activities</a>{% endif %}{% endblock %}
+{% block parent %}{% set back = session.get('list_back') %}{% if back %}<a href="{{ back.url }}">{{ back.label }}</a>{% else %}<a href="{{ url_for('dashboard.activities_page') }}">Activities</a>{% endif %}{% endblock %}
 {% block topbar_actions %}
   {% if activity.riderName %}
     <a href="{{ url_for('riders.detail', rid=activity.riderId) }}" title="{{ activity.riderName }}" style="display:inline-flex;align-items:center;text-decoration:none;">
@@ -41,7 +41,7 @@
       {% if not is_workout %}<a href="{{ url_for('rides.export_gpx', rid=activity.id) }}">Download GPX</a>{% endif %}
       {% for l in source_links %}<a href="{{ l.url }}" target="_blank" rel="noopener">Open on {{ l.name }} ↗</a>{% endfor %}
       {% if not friend %}
-      <form method="POST" action="{{ url_for('workouts_ui.workouts_delete', wid=activity.id) if is_workout else url_for('rides.delete', rid=activity.id) }}" onsubmit="return confirm('Delete this activity? It goes to Recently deleted on the Import page for 30 days, to restore from there, and no sync brings it back.')">
+      <form method="POST" action="{{ url_for('rides.delete', rid=activity.id) }}" onsubmit="return confirm('Delete this activity? It goes to Recently deleted on the Import page for 30 days, to restore from there, and no sync brings it back.')">
         <button type="submit" class="danger">Delete</button>
       </form>
       {% endif %}
@@ -88,7 +88,7 @@
 {% else %}
 <div class="card" style="margin-bottom:1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;padding:.7rem 1rem;" id="typeCard">
   <span style="color:var(--text-muted);font-size:.78rem;letter-spacing:.07em;text-transform:uppercase;font-weight:700;">Activity type</span>
-  <form method="POST" action="{{ url_for('workouts_ui.workouts_sport', wid=activity.id) if is_workout else url_for('rides.change_sport', rid=activity.id) }}" style="margin:0;"
+  <form method="POST" action="{{ url_for('rides.change_sport', rid=activity.id) }}" style="margin:0;"
         id="typeForm" data-current="{{ activity.sportType }}">
     <select name="sport" id="typeSelect" aria-label="What kind of activity was this?" onchange="typeChanged(this)">
       {% if activity.sportType not in sports %}<option value="" selected>{{ activity.sportType or 'Not set' }}</option>{% endif %}

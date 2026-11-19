@@ -20,6 +20,7 @@ def phone(tmp_path, monkeypatch):
     import config
     from services import credentials
     monkeypatch.setattr(config.Config, 'DATABASE', str(tmp_path / 'app.db'))
+    monkeypatch.setattr(config.Config, 'APP_URL', 'https://h.example')     # the outside address phones pair with
     monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)
     monkeypatch.setattr('services.weather.fetch_weather', lambda *a, **k: None)
     app = app_module.create_app()
@@ -226,6 +227,16 @@ def test_apple_health_fills_the_recovery_page(phone):
     page = phone.web.get('/recovery').get_data(as_text=True)
     assert 'No recovery data yet' not in page and 'From Apple Health' in page and '52 bpm' in page and 'SDNN' in page
     assert 'batteryChart"' not in page and 'stressChart"' not in page               # Apple Health has neither
+    head = page[page.index('Daily Log'):page.index('</thead>')]
+    assert '>Resting HR<' in head and '>HRV<' in head
+    for empty in ('>Sleep<', '>Sleep Score<', '>Body Battery<', '>Steps<', '>Stress<'):          # no value on any day: no column of dashes
+        assert empty not in head, empty
+    day1, day2 = (tz.today() - timedelta(days=1)).isoformat(), (tz.today() - timedelta(days=2)).isoformat()
+    post_health(phone, [{'date': day1, 'metric': 'hrv_sdnn', 'value': 39}, {'date': day2, 'metric': 'steps', 'value': 9000}])
+    page = phone.web.get('/recovery').get_data(as_text=True)
+    head, body = page[page.index('Daily Log'):page.index('</thead>')], page[page.index('<tbody>'):page.index('</tbody>')]
+    assert '>Steps<' in head and '9,000' in body, 'one day with steps brings the column'
+    assert body.count('<tr>') == 3 and '39' in body, 'a day with only an HRV is listed'
 
 
 def test_forgetting_apple_health(phone):

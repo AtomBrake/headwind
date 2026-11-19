@@ -14,9 +14,9 @@ log = logging.getLogger(__name__)
 bp = Blueprint('setup', __name__)
 
 # Step 1 (riders) is the only one gated on "no riders yet" — once it creates the owner rider,
-# steps 2-6 must keep working even though Rider count is now > 0 (see check below).
-# 1 riders, 2 units, 3 garmin, 4 home assistant, 5 telemetry, 6 done.
-_STEPS = ('1', '2', '3', '4', '5', '6')
+# steps 2-7 must keep working even though Rider count is now > 0 (see check below).
+# 1 riders, 2 units, 3 outside address, 4 garmin, 5 home assistant, 6 telemetry, 7 done.
+_STEPS = ('1', '2', '3', '4', '5', '6', '7')
 
 
 @bp.route('/setup', methods=['GET', 'POST'])
@@ -27,7 +27,7 @@ def wizard():
     has_riders = query_db('SELECT COUNT(*) FROM Rider', one=True)[0] > 0
 
     # A completed install visiting /setup (bare, or re-POSTing step 1) goes straight to the dashboard.
-    # Mid-wizard steps (2-4) stay reachable — and POST-able — even after step 1 has created the owner
+    # Mid-wizard steps (2-6) stay reachable — and POST-able — even after step 1 has created the owner
     # rider; this must NOT be GET-only, or a POST to this auth-exempt route after install creates a
     # second isDefault=1 rider and every "WHERE isDefault=1 LIMIT 1" owner lookup becomes order-dependent.
     if has_riders and step == '1':
@@ -66,13 +66,25 @@ def wizard():
             db.commit()
             return redirect('/setup?step=3')
 
-        if step == '5':
+        if step == '3':
+            from services import external_url
+            try:
+                url = external_url.clean(request.form.get('externalUrl'))
+            except ValueError as e:
+                return _page('3', error=f"That address won't work: {e}.")
+            db = get_db()
+            db.execute('INSERT INTO Settings (id, externalUrl) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET externalUrl=excluded.externalUrl',
+                       [url or None])
+            db.commit()
+            return redirect('/setup?step=4')
+
+        if step == '6':
             from services import telemetry
             if request.form.get('telemetry') == 'off':
                 telemetry.opt_out()
             else:
                 telemetry.ping_once()
-            return redirect('/setup?step=6')
+            return redirect('/setup?step=7')
 
     return _page(step)
 
@@ -103,8 +115,10 @@ def _page(step, error=None, password_error=None):
         ha_mappings = json.loads((s['haEntityMap'] if s else None) or '[]')
     except ValueError:
         ha_mappings = []
+    from services import external_url
     return render_template(
         'setup.html', step=step, s=s, error=error, password_error=password_error,
+        address=external_url.https(), saved_address=external_url.saved(), browser_url=request.host_url.rstrip('/'),
         generated_login=step == '1' and credentials.admin_login().generated, min_password=credentials.MIN_PASSWORD,
         ha_targets=ha.TARGETS, ha_mappings=ha_mappings,
         ha_has_token=bool(s and s['haToken']),

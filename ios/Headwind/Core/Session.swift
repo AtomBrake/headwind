@@ -16,11 +16,14 @@ final class Session {
     /// The server this phone was last paired with, kept through unpair(): a ride finished after the phone was unpaired mid-ride still
     /// belongs to the server it was recorded under (RideStore.serverForNewRides).
     private(set) var lastServer: URL?
+    /// A new address the server gave that the user said "Not now" to, so it isn't offered again.
+    private var declinedMove: String?
 
     private let store: PairingStore
     private let defaults: UserDefaults
     private static let infoKey = "ping-info"
     private static let lastServerKey = "last-server"
+    private static let declinedMoveKey = "declined-server-move"
 
     init(store: PairingStore = KeychainPairingStore(), defaults: UserDefaults = .standard) {
         self.store = store
@@ -28,6 +31,7 @@ final class Session {
         pairing = store.load()
         lastServer = pairing?.server ?? defaults.url(forKey: Self.lastServerKey)
         if let lastServer { defaults.set(lastServer, forKey: Self.lastServerKey) }   // paired before this was kept
+        declinedMove = defaults.string(forKey: Self.declinedMoveKey)
         if pairing != nil, let data = defaults.data(forKey: Self.infoKey) {
             info = try? JSONDecoder().decode(PingInfo.self, from: data)
         }
@@ -50,6 +54,27 @@ final class Session {
         remember(ping)
         wasRevoked = false
         pendingLink = nil
+    }
+
+    /// The server's outside address (PingInfo.serverUrl) when it isn't the address this phone paired with: it moved, or the phone paired over
+    /// the home network. nil once the user has said no to that address, and for one the app couldn't pair with (not https).
+    var movedServer: URL? {
+        guard let pairing, let text = info?.serverUrl, text != declinedMove,
+              let url = try? PairLink.make(server: text, token: pairing.token).server, !url.isSameServer(as: pairing.server) else { return nil }
+        return url
+    }
+
+    /// Pair with the same server at its new address, with the same token. Session.pair stores it only once the new address answers /ping
+    /// with that token, so an address that doesn't work from here leaves the pairing as it is.
+    func move(to server: URL) async throws(AppError) {
+        guard let pairing else { throw .notPaired }
+        try await pair(with: Pairing(server: server, token: pairing.token))
+    }
+
+    func declineMove() {
+        guard let text = info?.serverUrl else { return }
+        declinedMove = text
+        defaults.set(text, forKey: Self.declinedMoveKey)
     }
 
     func unpair() {

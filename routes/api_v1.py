@@ -1,6 +1,7 @@
-"""Endpoints for the phone app (Bearer device token, see services/device_auth.py) plus the /workouts page.
+"""Endpoints for the phone app (Bearer device token, see services/device_auth.py).
 
-  GET  /api/v1/ping        who this instance is (the app calls it right after pairing), and the rider's bikes for the app's bike picker
+  GET  /api/v1/ping        who this instance is (the app calls it right after pairing), the rider's bikes for the app's bike picker, and
+                            server_url, the https outside address set in Settings (null when there's none)
   GET  /api/v1/today       everything the app's home screen needs in ONE request (fast start)
   POST /api/v1/workouts    upload a recorded walk/run/swim (multipart: file=GPX, optional sport, name, client_id, steps, calories, source=android|ios) — idempotent
   GET  /api/v1/workouts    recent workouts
@@ -25,15 +26,14 @@ import os
 import tempfile
 from datetime import datetime, timedelta
 
-from flask import abort, redirect, Blueprint, current_app, jsonify, render_template, request, url_for
+from flask import Blueprint, current_app, jsonify, request
 
 from database import get_db, query_db
-from services import tz
-from services.sports import KIND_SQL, RIDE_SQL, kind as sport_kind, kind_of
+from services import external_url, tz
+from services.sports import KIND_SQL, kind as sport_kind, kind_of
 
 log = logging.getLogger(__name__)
 bp = Blueprint('api_v1', __name__, url_prefix='/api/v1')
-ui = Blueprint('workouts_ui', __name__)
 MAX_GPX = 25 * 1024 * 1024
 MAX_PHOTOS = 60                    # per activity, from the app
 # A whole request is at most limits.MAX_PHONE_REQUEST (the size hook in app.py)
@@ -59,7 +59,8 @@ def ping():
     s = query_db('SELECT units, calorieAdjustPct FROM Settings WHERE id=1', one=True)
     return jsonify({'ok': True, 'api': 1, 'rider': r['name'] if r else None, 'units': (s['units'] if s else None) or 'imperial',
                     'calorie_adjust_pct': (s['calorieAdjustPct'] if s and s['calorieAdjustPct'] is not None else 0),
-                    'server_time': tz.now().isoformat(timespec='seconds'), 'bikes': _bikes(r['id']) if r else []})
+                    'server_time': tz.now().isoformat(timespec='seconds'), 'bikes': _bikes(r['id']) if r else [],
+                    'server_url': external_url.https() or None})        # the outside address: an app that paired on another can offer to move
 
 
 def _bikes(rider_id):
@@ -735,7 +736,7 @@ def post_workout():
     if created:
         try:
             from services.mqtt import push_workout, push_update_nutrition
-            push_workout(w, rider['name'], (current_app.config.get('APP_URL') or '').rstrip('/') + '/workouts')
+            push_workout(w, rider['name'], f"{external_url.get()}/rides/{w['id']}")
             push_update_nutrition()                      # the day's burn changed
         except Exception as e:
             log.warning('workout side effects failed (non-fatal): %s', e)
@@ -1028,71 +1029,3 @@ def delete_ride(kind, rid):
         _refresh_after_change(kind)
     return jsonify({'deleted': bool(n)}), (200 if n else 404)
 
-
-@ui.route('/workouts')
-def workouts_page():
-    from services import workouts
-    from routes.dashboard import _group_activities, _open_newest, climb
-    rider = _rider()
-    from routes.dashboard import dist_filters, remember_list
-    remember_list('Workouts')
-    f = {k: request.args.get(k, '').strip() for k in ('q', 'from', 'to', 'sport')}
-    f['min_dist'], f['max_dist'], min_m, max_m = dist_filters(request.args)
-    is_filtered = any(f.values())
-    rows = workouts.search(rider['id'], f['q'], f['from'], f['to'], min_m, max_m, f['sport']) if rider else []
-    totals = {'count': len(rows), 'dist': sum(r['distance'] or 0 for r in rows), 'secs': sum(r['movingTime'] or 0 for r in rows),
-              'elev': sum(climb(r) for r in rows), 'kcal': sum(r['calories'] or 0 for r in rows), 'steps': sum(r['steps'] or 0 for r in rows)}
-    sports = [r[0] for r in query_db(f'SELECT DISTINCT sportType FROM Activity WHERE riderId=? AND NOT {RIDE_SQL} ORDER BY sportType', [rider['id']])] if rider else []
-    st = query_db('SELECT units FROM Settings WHERE id=1', one=True)
-    return render_template('workouts.html', workouts=rows, grouped=_open_newest(_group_activities(rows)) if not is_filtered else [], totals=totals, sports=sports, f=f, is_filtered=is_filtered,
-                           units=(st['units'] if st and st['units'] else 'imperial'), today=_today(),
-                           now=tz.now().strftime('%H:%M'), error=request.args.get('error'))
-
-
-@ui.route('/workouts/new', methods=['POST'])
-def workouts_new():
-    from services import manual_activity
-    rider = _rider()
-    f = request.form
-    km = f.get('unit') == 'km'
-    try:
-        dur = (float(f.get('hours') or 0) * 3600) + (float(f.get('minutes') or 0) * 60)
-        dist = float(f.get('distance') or 0) * (1000 if km else 1609.344)
-        elev = float(f['elevation']) * (1 if km else 0.3048) if f.get('elevation') else None
-        manual_activity.create(get_db(), rider['id'], f.get('sport'), f"{f.get('date')}T{(f.get('time') or '12:00')[:5]}:00", dur, dist, elev,
-                               f.get('calories') or None, f.get('name'), f.get('notes'))
-    except (ValueError, TypeError) as e:
-        from urllib.parse import quote
-        return redirect('/workouts?error=' + quote(str(e)))
-    _refresh_after_change(sport_kind(f.get('sport')))
-    return redirect('/workouts')
-
-
-@ui.route('/workouts/<wid>/sport', methods=['POST'])
-def workouts_sport(wid):
-    from services import convert
-    rider = _rider()
-    db = get_db()
-    row = db.execute('SELECT riderId FROM Activity WHERE id=?', [wid]).fetchone()
-    if not rider or not row or row['riderId'] != rider['id']:
-        abort(404)
-    try:
-        res = convert.change_sport(db, 'workout', wid, request.form.get('sport'))
-        db.commit()
-    except ValueError as e:
-        db.rollback()
-        from urllib.parse import quote
-        return redirect('/workouts?error=' + quote(str(e)))
-    _refresh_after_change('ride'); _refresh_after_change('workout')
-    return redirect(url_for('rides.detail', rid=res['id']) if res['kind'] == 'ride' else '/workouts')
-
-
-@ui.route('/workouts/<wid>/delete', methods=['POST'])
-def workouts_delete(wid):
-    rider = _rider()
-    db = get_db()
-    from services import workouts as _wk
-    _wk.delete(db, wid, rider['id'] if rider else -1)
-    db.commit()
-    _refresh_after_change('workout')
-    return redirect('/workouts')

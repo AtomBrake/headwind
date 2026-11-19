@@ -90,6 +90,12 @@
     Give each friend their own code, so you can choose what they see and revoke one person without touching the others.
     It holds your address and a token for them, and is shown once — lose it and make a new one.
   </p>
+  <p class="hint fr-intro">
+    {% if outside_address %}Codes connect to <code>{{ outside_address }}</code>. <a href="{{ url_for('settings.index') }}#address">Change in Settings</a>
+    {% else %}<span style="color:var(--danger);">No https outside address is set,</span> so codes use the address this browser used,
+      <code>{{ share_address }}</code>. Set the one you reach Headwind on from outside the house under
+      <a href="{{ url_for('settings.index') }}#address">Settings → Outside address</a>.{% endif %}
+  </p>
 
   <form id="token-form" class="fr-grid fr-token">
     <label class="fr-field">Friend's name
@@ -131,8 +137,8 @@
       <div>It shares <b id="new-token-shares"></b>.</div>
       <div class="hint">It connects to <code id="new-token-url"></code>. Anyone with the code can read what it shares, so send it privately.</div>
       <div id="new-token-warn" class="flash flash-warning" hidden>
-        That address only works on your home network, so your friend's Headwind won't reach it. Set <code>APP_URL</code> in this
-        instance's env file to the https address you reach Headwind on from outside, restart, and make a new code.
+        That address only works on your home network, so your friend's Headwind won't reach it. Set the https address you reach Headwind on
+        from outside under <a href="{{ url_for('settings.index') }}#address">Settings → Outside address</a>, and make a new code.
       </div>
       <details>
         <summary>Their Headwind doesn't take codes? Send the address and token instead</summary>
@@ -146,7 +152,7 @@
   </div>
 
   <p class="hint fr-note">
-    Feed URL: <code>{{ request.host_url.rstrip('/') }}/api/feed</code> — token sent as <code>X-Feed-Token</code> header.
+    Feed URL: <code>{{ share_address }}/api/feed</code> — token sent as <code>X-Feed-Token</code> header.
     Activities of every sport are shared: rides, runs, walks, swims and the rest.
     Narrowing what a token shares takes those activities off your friend's instance at their next sync (from 0.7.6; an older version keeps
     what it already pulled). Revoking a token stops their syncs, and what they already pulled stays on their instance.

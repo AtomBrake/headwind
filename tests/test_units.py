@@ -10,7 +10,7 @@ import config
 import database
 from services import credentials, units
 
-PAGES = ['/dashboard', '/rides/r1', '/rides/r2', '/data', '/riders/1', '/segments', '/segments/1', '/workouts', '/ai', '/planner/', '/roughness',
+PAGES = ['/dashboard', '/rides/r1', '/rides/r2', '/data', '/riders/1', '/segments', '/segments/1', '/ai', '/planner/', '/roughness',
          '/dashboard?min_dist=10&max_dist=100']
 IMPERIAL = re.compile(r'\bmph\b|\d\s?mi\b|\bmi\b(?=[<)\'",])|\d\s?ft\b|\bft\b(?=[<)\'",])|/mi\b|\bmiles\b|\(ft\)')
 

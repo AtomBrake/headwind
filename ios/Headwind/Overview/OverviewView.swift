@@ -255,18 +255,11 @@ private struct RecoveryCard: View {
     var body: some View {
         Card(title: recoveryTitle) {
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 14) {
-                GridRow {
-                    Stat(value: recovery.restingHR.map { "\(Units.whole($0)) bpm" } ?? "–", caption: "Resting HR")
-                    // Apple's HRV is SDNN through the day, Garmin's RMSSD overnight: the numbers aren't comparable, so say whose it is.
-                    Stat(value: recovery.hrv.map { "\(Units.whole($0)) ms" } ?? "–", caption: recovery.hrvKind == "sdnn" ? "HRV (SDNN)" : "HRV")
-                    Stat(value: recovery.sleepHours.map { Units.duration(seconds: $0 * 3600) } ?? "–", caption: "Sleep")
-                }
-                // Apple Health has no sleep score or body battery: leave the row out rather than show dashes.
-                if recovery.sleepScore != nil || recovery.bodyBattery != nil || recovery.steps != nil {
+                ForEach(Array(stride(from: 0, to: stats.count, by: 3)), id: \.self) { start in
                     GridRow {
-                        Stat(value: Units.whole(recovery.sleepScore), caption: "Sleep score")
-                        Stat(value: Units.whole(recovery.bodyBattery), caption: "Body battery")
-                        Stat(value: Units.whole(recovery.steps), caption: "Steps")
+                        ForEach(stats[start..<min(start + 3, stats.count)], id: \.caption) { stat in
+                            Stat(value: stat.value, caption: stat.caption)
+                        }
                     }
                 }
             }
@@ -274,6 +267,19 @@ private struct RecoveryCard: View {
                 Text(source).font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// Only the figures the day has, three to a row: Apple Health has no sleep score or body battery, so a rider on it alone sees no dashes.
+    private var stats: [(value: String, caption: String)] {
+        var out: [(value: String, caption: String)] = []
+        if let v = recovery.restingHR { out.append(("\(Units.whole(v)) bpm", "Resting HR")) }
+        // Apple's HRV is SDNN through the day, Garmin's RMSSD overnight: the numbers aren't comparable, so say whose it is.
+        if let v = recovery.hrv { out.append(("\(Units.whole(v)) ms", recovery.hrvKind == "sdnn" ? "HRV (SDNN)" : "HRV")) }
+        if let v = recovery.sleepHours { out.append((Units.duration(seconds: v * 3600), "Sleep")) }
+        if recovery.sleepScore != nil { out.append((Units.whole(recovery.sleepScore), "Sleep score")) }
+        if recovery.bodyBattery != nil { out.append((Units.whole(recovery.bodyBattery), "Body battery")) }
+        if recovery.steps != nil { out.append((Units.whole(recovery.steps), "Steps")) }
+        return out
     }
 
     private var sourceLine: String? {

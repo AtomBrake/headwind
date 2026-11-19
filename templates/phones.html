@@ -25,11 +25,14 @@
   <div style="font-weight:600;margin-bottom:0.6rem">Pair a phone</div>
   <div class="ph-form">
     <div class="form-group"><label>Name</label><input id="phName" placeholder="e.g. Pixel 10" value="Phone"></div>
-    <div class="form-group"><label>Server address the phone will use</label><input id="phUrl" value="{{ default_url }}" placeholder="https://your-headwind-address"></div>
-    <button class="btn btn-primary" id="phGo" style="min-height:44px">Create token</button>
+    <div class="form-group"><label>Server address the phone will use</label>
+      {% if server_url %}<div style="padding:0.45rem 0;"><code>{{ server_url }}</code> <a href="{{ url_for('settings.index') }}#address" style="font-size:0.8rem;">Change in Settings</a></div>
+      {% else %}<div style="padding:0.45rem 0;color:var(--danger);font-size:0.85rem;">⚠ {% if other_url %}<code>{{ other_url }}</code> isn't https, and the app only pairs over https.{% else %}None set yet.{% endif %}
+        Set the https address you reach Headwind on from outside the house under <a href="{{ url_for('settings.index') }}#address">Settings → Outside address</a>.</div>{% endif %}
+    </div>
+    <button class="btn btn-primary" id="phGo" style="min-height:44px" {% if not server_url %}disabled{% endif %}>Create token</button>
   </div>
-  {% if not default_url %}<p style="font-size:0.85rem;color:var(--danger);margin:0.6rem 0 0">⚠ This Headwind has no https address configured (APP_URL is not https). Type the address you reach it on through your reverse proxy above; a plain <code>http://192.168…</code> address will not work in the app.</p>{% endif %}
-  <p style="font-size:0.78rem;color:var(--text-muted);margin:0.5rem 0 0">Use the <b>https://</b> address you reach Headwind on from outside the house (your reverse proxy), not the LAN IP, so the app also works away from home. The token is shown once; lose it and just make a new one.</p>
+  <p style="font-size:0.78rem;color:var(--text-muted);margin:0.5rem 0 0">The token is shown once; lose it and just make a new one.</p>
   <div id="phResult" style="margin-top:1rem">
     <img id="phQr" alt="pairing QR code">
     <p style="font-size:0.85rem;margin:0.5rem 0 0">Scan this in the Headwind app — or paste the link:</p>
@@ -55,7 +58,7 @@
 <script>
 document.getElementById('phGo').addEventListener('click', async () => {
   const r = await fetch('/phones/create', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({name: document.getElementById('phName').value, server_url: document.getElementById('phUrl').value})});
+    body: JSON.stringify({name: document.getElementById('phName').value})});
   const j = await r.json();
   if (!r.ok) { alert(j.error || 'Could not create token'); return; }
   document.getElementById('phQr').src = j.qr; document.getElementById('phLink').textContent = j.link;

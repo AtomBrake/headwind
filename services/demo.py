@@ -42,9 +42,9 @@ ALLOWED_WRITES = {
     # gear (bike photo uploads are ignored in demo mode, see gear routes)
     'gear.api_assign', 'gear.bike_archive', 'gear.bike_default', 'gear.bike_delete', 'gear.part_add', 'gear.bike_photo', 'gear.service_add', 'gear.bike_save',
     'gear.set_default', 'gear.log_delete', 'gear.part_edit', 'gear.ride_bike',
-    # rides / workouts: label things, change type, add or remove manual activities (deleting real rides stays disabled)
+    # activities: label things, change type, add one by hand (deleting stays disabled)
     'rides.save_notes', 'rides.set_commute', 'rides.scan_segments', 'rides.change_sport', 'rides.resolve_duplicate',
-    'workouts_ui.workouts_new', 'workouts_ui.workouts_delete', 'workouts_ui.workouts_sport',
+    'dashboard.activities_new',
     'route_builder.save_route', 'route_builder.delete_route',
     # goals (challenges stay off: they go out on the friends feed)
     'goals.add_goal', 'goals.delete_goal',

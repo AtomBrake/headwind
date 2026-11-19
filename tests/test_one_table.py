@@ -140,6 +140,7 @@ def test_the_history_shows_every_sport_and_can_leave_some_out(tmp_path, monkeypa
     import config
     from services import credentials
     monkeypatch.setattr(config.Config, 'DATABASE', str(tmp_path / 'full.db'))
+    monkeypatch.setattr(config.Config, 'APP_URL', 'https://h.example')     # the outside address phones pair with
     monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)       # no MQTT / Garmin / friend background loops
     full = app_module.create_app()
     with full.app_context():
@@ -169,6 +170,7 @@ def test_the_phone_and_the_days_burn_read_every_sport_once(tmp_path, monkeypatch
     import config
     from services import credentials, goal_model, sports, tz
     monkeypatch.setattr(config.Config, 'DATABASE', str(tmp_path / 'full.db'))
+    monkeypatch.setattr(config.Config, 'APP_URL', 'https://h.example')     # the outside address phones pair with
     monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)
     full = app_module.create_app()
     today = tz.today().isoformat()
@@ -203,8 +205,8 @@ def test_the_phone_and_the_days_burn_read_every_sport_once(tmp_path, monkeypatch
     assert phone.delete('/api/v1/rides/ride/555', headers=H).get_json() == {'deleted': True}
     with full.app_context():
         assert [r[0] for r in database.get_db().execute(WORKOUTS)] == ['w1']
-    page = web.get('/workouts').get_data(as_text=True)
+    page = web.get(web.get('/workouts').headers['Location']).get_data(as_text=True)           # the old Workouts page: Activities, rides left out
     assert '/rides/w1' in page and '/rides/r1' not in page
     assert web.get('/rides/w1').status_code == 200 and web.get('/rides/r1').status_code == 200
-    r = web.post('/workouts/w1/sport', data={'sport': 'Ride'})                                           # Workouts page: a walk that was a ride goes to its ride page
+    r = web.post('/rides/w1/sport', data={'sport': 'Ride'})                                              # a walk that was a ride goes to its ride page
     assert r.status_code == 302 and r.headers['Location'].endswith('/rides/w1')

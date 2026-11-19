@@ -307,13 +307,13 @@
   </div>
 
   <div class="step-track">
-    {% for n in ('1','2','3','4','5','6') %}
+    {% for n in ('1','2','3','4','5','6','7') %}
     <div class="step-dot {{ 'done' if n|int < step|int else ('active' if n == step else '') }}"></div>
     {% endfor %}
   </div>
 
   {% if step == '1' %}
-  <div class="step-label">Step 1 of 6 — Riders</div>
+  <div class="step-label">Step 1 of 7 — Riders</div>
 
   {% if multi_rider %}
   <!-- Architecture explanation -->
@@ -449,7 +449,7 @@
   </form>
 
   {% elif step == '2' %}
-  <div class="step-label">Step 2 of 6 — Units</div>
+  <div class="step-label">Step 2 of 7 — Units</div>
   <form method="POST" action="/setup?step=2">
     <div class="choice-row">
       <label class="choice-card" id="cardImperial">
@@ -470,7 +470,35 @@
   </form>
 
   {% elif step == '3' %}
-  <div class="step-label">Step 3 of 6 — Garmin</div>
+  <div class="step-label">Step 3 of 7 — Outside address</div>
+  <div class="arch-box">
+    <div class="arch-box-title">Why it's needed</div>
+    <div class="arch-row">
+      <span class="arch-icon">📱</span>
+      <span>The https address you reach Headwind on from outside the house, through a Cloudflare Tunnel or another reverse proxy.
+        The phone app pairs with it, a friend's Headwind syncs from it, and notification links open it.</span>
+    </div>
+  </div>
+  {% if error %}<p class="garmin-status show error">{{ error }}</p>{% endif %}
+  <form method="POST" action="/setup?step=3">
+    <div class="field-group">
+      <label for="externalUrl">Outside address</label>
+      <input type="url" id="externalUrl" name="externalUrl" class="text-field" autocomplete="off" placeholder="https://headwind.example.com"
+             value="{{ address }}">
+    </div>
+    <p style="font-size:0.75rem; color:var(--text-muted); margin:-0.5rem 0 0.75rem;">
+      This browser reached Headwind on <code>{{ browser_url }}</code>. That's usually a home-network address, which a phone on mobile data
+      or a friend's server can't reach.
+    </p>
+    <p style="margin:0 0 1rem;"><button type="button" class="btn btn-secondary btn-sm" onclick="checkAddress('externalUrl', 'addressCheck')">Check</button>
+      <span id="addressCheck" style="font-size:0.8rem; margin-left:0.5rem;"></span></p>
+    <button type="submit" class="btn btn-primary submit-btn">Continue →</button>
+  </form>
+  <a href="/setup?step=4" class="skip-link">Not yet — I'll set it later in Settings →</a>
+  <script src="{{ url_for('static', filename='js/address_check.js') }}"></script>
+
+  {% elif step == '4' %}
+  <div class="step-label">Step 4 of 7 — Garmin</div>
   <div class="arch-box">
     <div class="arch-box-title">What this connects</div>
     <div class="arch-row">
@@ -527,10 +555,10 @@
     <button type="button" class="btn btn-primary submit-btn" id="garminHistoryBtn" onclick="garminHistory()">Continue →</button>
   </div>
 
-  <a href="/setup?step=4" class="skip-link" id="garminSkip">Skip for now — I'll connect Garmin later from Settings →</a>
+  <a href="/setup?step=5" class="skip-link" id="garminSkip">Skip for now — I'll connect Garmin later from Settings →</a>
 
-  {% elif step == '4' %}
-  <div class="step-label">Step 4 of 6 — Home Assistant</div>
+  {% elif step == '5' %}
+  <div class="step-label">Step 5 of 7 — Home Assistant</div>
   <div class="arch-box">
     <div class="arch-box-title">What this connects</div>
     <div class="arch-row">
@@ -595,11 +623,11 @@
     </div>
   </div>
 
-  <button type="button" class="btn btn-primary submit-btn" onclick="location.href='/setup?step=5'">Continue →</button>
-  <a href="/setup?step=5" class="skip-link">Skip Home Assistant for now — I can connect it later from Settings →</a>
+  <button type="button" class="btn btn-primary submit-btn" onclick="location.href='/setup?step=6'">Continue →</button>
+  <a href="/setup?step=6" class="skip-link">Skip Home Assistant for now — I can connect it later from Settings →</a>
 
-  {% elif step == '5' %}
-  <div class="step-label">Step 5 of 6 — One-time ping</div>
+  {% elif step == '6' %}
+  <div class="step-label">Step 6 of 7 — One-time ping</div>
   <div class="arch-box">
     <div class="arch-box-title">What this sends, exactly</div>
     <div class="arch-row">
@@ -628,7 +656,7 @@
     </div>
   </div>
 
-  <form method="POST" action="/setup?step=5">
+  <form method="POST" action="/setup?step=6">
     <label class="check" style="margin-bottom:1.5rem;">
       <input type="checkbox" name="telemetry" value="off">
       <span>Opt out forever — never send this ping</span>
@@ -636,12 +664,19 @@
     <button type="submit" class="btn btn-primary submit-btn">Continue →</button>
   </form>
 
-  {% elif step == '6' %}
-  <div class="step-label">Step 6 of 6 — Done</div>
+  {% elif step == '7' %}
+  <div class="step-label">Step 7 of 7 — Done</div>
   <div class="done-icon">🚴</div>
   <p class="done-text">Headwind is ready. Head to your dashboard, or import some rides to get started.</p>
   <a href="/dashboard" class="btn btn-primary submit-btn" style="display:block; text-align:center;">Go to dashboard →</a>
 
+  {% if not address %}
+  <div class="also-box" style="margin-bottom:0.75rem;">
+    {% if saved_address %}Your outside address, <code>{{ saved_address }}</code>, isn't https, so the phone app won't pair with it.
+    {% else %}No outside address yet, so the phone app can't pair and friends can't sync.{% endif %} Set it under
+    <strong>Settings → Outside address</strong> once Headwind is reachable from outside the house over https.
+  </div>
+  {% endif %}
   <div class="also-box">
     Also available any time from <strong>Settings</strong>: connect <strong>Garmin</strong> if you skipped it,
     hook up <strong>Home Assistant/MQTT</strong> for dashboards and notifications, and restore or download backups.
@@ -749,7 +784,7 @@ function garminHistory() {
       showGarminStatus('error', data.error);
       return;
     }
-    window.location.href = '/setup?step=4';
+    window.location.href = '/setup?step=5';
   })
   .catch(function() {
     btn.disabled = false;
