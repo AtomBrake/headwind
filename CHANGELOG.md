@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **Zwift races hidden behind their warm-ups come back.** When a watch session held a Zwift warm-up and a race, and the race had been set aside as a copy of the session, keeping the warm-up over the session moved the race behind the warm-up with it, though they aren't the same ride. Now a copy that moves to another recording is checked against it first, and comes back as its own activity when it doesn't match. A Zwift recording that lasts more than half the watch session it's in is now matched to the session too, and kept over it.
+- **More duplicates are found, with no change to the ones already found.** On a real history this set aside 19 more:
+  - **Recordings with nothing in them** (a ride, run, walk or swim with no distance, speed, heart rate, power or GPS track, as some Garmin uploads are) are set aside behind the real activity they overlap, however long they last. An empty recording that overlaps nothing is listed under **Activities that look wrong** on the dashboard, where **Delete all blips** now takes these too.
+  - **Two recordings that start the same second** are one activity, however far apart their distances are: GPS drift, or a ski app that counts the lifts.
+  - **A start out by a time zone or a clock mistake.** A recording whose start is a whole number of quarter hours from another's, with the same distance, length and GPS track, is the same activity (RunKeeper runs on Strava, hours out from their Garmin copies). The one kept takes the start of whichever copy knows its time zone. Two Garmin recordings never match this way, so the same commute ridden twice in a day at the same pace stays two rides.
+  - **A second recording longer than half the activity** (a second Garmin recording of most of a day's ride, say) is a piece of it when it lies wholly inside it, is the same sport, and both GPS tracks agree.
+
+  At the first start after updating, every copy set aside is checked against the activity it sits behind, and every activity is checked for duplicates again. This took under half a minute on 3,600 activities. The Tasks page lists what came back and how many more duplicates were found. As always, a copy set aside isn't deleted: you can swap it in or keep both from the activity's page.
+
 ## [0.7.40-beta] - 2026-11-19
 
 ### Fixed

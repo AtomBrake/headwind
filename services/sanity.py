@@ -40,7 +40,8 @@ FUTURE_GRACE_S = 86400    # a start more than a day after now: no time zone mix-
 
 SANE_SQL = "(flagReason IS NULL OR flagDismissed = 1)"      # for charts: activities nobody has flagged, or that the rider cleared
 COLS = ('id, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, averageSpeed, maxSpeed, totalElevationGain, calories, '
-        'averageHeartrate, maxHeartrate, flagDismissed')
+        'averageHeartrate, maxHeartrate, averageWatts, startLat, flagDismissed')
+EMPTY = 'no distance, speed, heart rate, power or GPS track: nothing was recorded'
 FUTURE_SQL = "substr(COALESCE(startDate, startDateLocal), 1, 10) > date('now')"     # a cheap pre-filter for future_start
 
 
@@ -80,6 +81,14 @@ def future_start(r):
     return at if at and at > datetime.now(timezone.utc) + timedelta(seconds=FUTURE_GRACE_S) else None
 
 
+def empty(r):
+    """True for a ride, run, walk or swim with time but no distance, no speed, no heart rate, no power and no GPS track (duplicates.is_empty, read
+    from the columns: startLat is set whenever there's a track). Only for a mapping that has startLat."""
+    if 'startLat' not in r.keys() or _get(r, 'startLat') is not None or not _get(r, 'sportType') or not _family(r['sportType']):
+        return False
+    return not any(float(_get(r, k) or 0) > 0 for k in ('distance', 'averageSpeed', 'maxSpeed', 'averageHeartrate', 'averageWatts'))
+
+
 def reasons(r, system=None):
     """List of readable reasons an activity looks wrong (empty = fine), worded in the rider's units. `r` is a mapping with the Activity columns.
     The limits themselves are in mph and miles."""
@@ -116,6 +125,8 @@ def reasons(r, system=None):
         out.append('starts on %s, which hasn\'t happened yet: the device\'s clock was wrong' % _day(d))
     if fam and dist <= 0 and moving <= 0 and elapsed <= 0:
         out.append('no distance and no time: nothing was recorded')
+    elif empty(r):
+        out.append(EMPTY)
     if dist >= 1000 and 0 < moving < 60:
         out.append('moving time of %d s against %s' % (moving, units.fmt_dist(dist, system)))
     max_mi, what = {'ride': (MAX_DIST_MI, 'any ride'), 'run': (MAX_FOOT_DIST_MI, 'anything on foot'), 'walk': (MAX_FOOT_DIST_MI, 'anything on foot'),
@@ -250,8 +261,8 @@ def strava_climb(row):
 
 
 def flagged(db, rider_id):
-    """The rider's flagged activities of every sport, newest first. `isBlip`: a ride shorter than MIN_DIST_M, a start-stop by mistake (the dashboard
-    offers to delete them all). `stravaClimb`: Strava's climb, when the activity came from a Strava export and Strava's differs from the one saved
+    """The rider's flagged activities of every sport, newest first. `isBlip`: a ride shorter than MIN_DIST_M, a start-stop by mistake, or a recording
+    of any sport with nothing in it (EMPTY): the dashboard offers to delete them all. `stravaClimb`: Strava's climb, when the activity came from a Strava export and Strava's differs from the one saved
     (offered in its place). `elapsedFix`: the elapsed time, when it can stand in for a broken moving time (elapsed_fix)."""
     from services.sports import is_ride, label
     out = []
@@ -261,7 +272,7 @@ def flagged(db, rider_id):
         d = {k: r[k] for k in r.keys() if k != 'rawData'}
         d['isRide'] = is_ride(r['sportType'])
         d['sportLabel'] = label(r['sportType'])
-        d['isBlip'] = bool(d['isRide'] and r['distance'] is not None and 0 < r['distance'] < MIN_DIST_M)
+        d['isBlip'] = bool(d['isRide'] and r['distance'] is not None and 0 < r['distance'] < MIN_DIST_M) or EMPTY in (r['flagReason'] or '')
         d['stravaClimb'] = sc if sc is not None and abs(sc - float(r['totalElevationGain'] or 0)) > 1 else None
         d['elapsedFix'] = elapsed_fix(r)
         out.append(d)

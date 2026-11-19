@@ -160,7 +160,7 @@ _REPAIR_FLAGS = ('distanceBackfillDone', 'utcStartFixDone', 'awayStartRecheckDon
                  'segmentFamiliesDone', 'segmentBikesMergedDone', 'movingTimeFixDone', 'segmentMatchFixDone', 'sportEffortsDone',
                  'movingTimePausedDone', 'bestEffortsCleanDone', 'sensorTopSpeedDone', 'mmDistancesDone', 'stravaManualDone', 'sanityAllSportsDone',
                  'liveParkedFixDone', 'strandedParkedFixDone', 'segmentClimbFloorDone', 'ebikeSportDone', 'segmentStopsDone',
-                 'segmentRouteDone', 'segmentLapsDone')
+                 'segmentRouteDone', 'segmentLapsDone', 'dupMatchFixDone')
 
 
 # One row per effort: an activity that rides a segment twice (two laps of a trail centre's loop) has two, told apart by startSecs, the seconds
@@ -493,6 +493,7 @@ def migrate_db():
         ('stravaManualDone',       'INTEGER DEFAULT 0'), # manual entries an old Strava import saved unmarked, marked and brought back (services/strava_manual.fix)
         ('liveParkedFixDone',      'INTEGER DEFAULT 0'), # activities both live and set aside as a copy (a Strava export before 0.7.11), decided again (services/duplicates.repair_live_parked)
         ('strandedParkedFixDone',  'INTEGER DEFAULT 0'), # copies left behind a deleted activity moved behind the live one of the same ride (services/duplicates.repair_stranded_parked)
+        ('dupMatchFixDone',        'INTEGER DEFAULT 0'), # copies set aside checked against the one kept, every activity against the 0.7.41 matching rules (services/duplicates.recheck_matching)
         ('sanityAllSportsDone',    'INTEGER DEFAULT 0'), # every sport checked once against the "looks wrong" limits, heart rate included (services/sanity.scan_every_sport)
         ('segmentClimbFloorDone',  'INTEGER DEFAULT 0'), # steep segments matched again with a speed floor that drops on a climb (services/segments.rematch_climbs)
         ('segmentStopsDone',       'INTEGER DEFAULT 0'), # every segment matched again with stops left out of the speed floor and waits at the ends out of the time (services/segments.rematch_stops)
@@ -1101,6 +1102,19 @@ def migrate_db():
                   f"{'they are' if len(left) != 1 else 'it is'}: " + '; '.join(f"{u[1] or u[0]}" for u in left[:5]) + ('…' if len(left) > 5 else '') + '.'
                   if left else ''))
         _tasks.record(db, 'startup:stranded_parked', 'Copies left behind deleted activities', msg.strip())
+        db.commit()
+    from services.duplicates import recheck_matching
+    res = recheck_matching(db)
+    if res['ran'] and (res['back'] or res['merged'] or res['empty']):
+        nb, nm, ne = len(res['back']), len(res['merged']), res['empty']
+        msg = ((f"{nb} recording{'s' if nb != 1 else ''} set aside as a copy of an activity {'they were' if nb != 1 else 'it was'} not the same as "
+                f"(a Zwift race behind its warm-up, say) {'are' if nb != 1 else 'is'} back as {'their' if nb != 1 else 'its'} own: "
+                + '; '.join(name or i for i, name in res['back'][:5]) + ('…' if nb > 5 else '') + '. ' if nb else '')
+               + (f"{nm} more duplicate{'s' if nm != 1 else ''} found and the weaker copy set aside: recordings with nothing in them beside a real one, "
+                  "two that started the same second, a start out by a time zone, or a long piece of a longer recording. " if nm else '')
+               + (f"{ne} recording{'s' if ne != 1 else ''} with nothing in {'them' if ne != 1 else 'it'} and nothing beside {'them' if ne != 1 else 'it'} "
+                  f"{'are' if ne != 1 else 'is'} listed under Activities that look wrong on the dashboard, to delete." if ne else ''))
+        _tasks.record(db, 'startup:dup_matching', 'Duplicates checked again', msg.strip())
         db.commit()
     from services.segments import regroup as _regroup_segments
     res = _regroup_segments(db)

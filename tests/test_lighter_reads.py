@@ -73,7 +73,7 @@ def test_only_a_candidate_that_passes_the_cheap_checks_is_read_whole(app):
     with app.app_context():
         db = database.get_db()
         _add(db, 'garmin_1', '2026-01-10T12:00:30', dist=10100)        # the same ride from another device
-        _add(db, 'later', '2026-01-10T17:00:00')                         # another ride that day
+        _add(db, 'later', '2026-01-10T17:07:00')                         # another ride that day (not a whole number of hours on: see clock_shift)
         _add(db, 'yesterday', '2026-01-09T12:00:00')
         _add(db, 'new', '2026-01-10T12:00:00')
         db.commit()

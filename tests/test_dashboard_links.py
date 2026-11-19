@@ -114,7 +114,7 @@ def test_blips_go_in_one_click_and_the_rest_stay_flagged(client):
             sanity.flag(db, aid)
         db.commit()
     html, _, _ = _page(client)
-    assert 'Delete all 2 blips (under 160 m)' in html
+    assert 'Delete all 2 blips (under 160 m, or nothing recorded)' in html
     assert client.post('/rides/flagged/delete-blips').status_code == 302
     with client.application.app_context():
         left = {f['id'] for f in sanity.flagged(database.get_db(), 1)}

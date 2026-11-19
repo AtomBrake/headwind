@@ -658,7 +658,8 @@ def bulk_download():
 
 @bp.route('/flagged/delete-blips', methods=['POST'])
 def delete_blips():
-    """Delete every flagged ride shorter than the sanity limit (an accidental start-stop) for one rider, each through the normal delete."""
+    """Delete every flagged ride shorter than the sanity limit (an accidental start-stop), and every recording with nothing in it, for one rider,
+    each through the normal delete."""
     from services import duplicates, sanity
     from services.ingest import after_ride_removed
     db = get_db()

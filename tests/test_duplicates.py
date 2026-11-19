@@ -42,7 +42,7 @@ def test_second_commute_same_day_is_a_different_ride():
 
 
 def test_different_distance_is_a_different_ride():
-    assert not dup.same_ride(_row(distance=33000), _row(distance=20000))
+    assert not dup.same_ride(_row(distance=33000), _row(distance=20000, startDateLocal='2026-10-05T11:31:53'))   # (the same second: one, whatever)
 
 
 def test_zero_distance_activity_does_not_swallow_a_real_ride():
