@@ -1,5 +1,6 @@
 """The Tasks page: what Headwind is doing in the background and what the start-up repairs changed (services/tasks.py)."""
 from datetime import datetime
+import re
 
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 
@@ -137,4 +138,27 @@ def logs_json():
         limit = max(1, min(int(request.args.get('limit') or 200), 1000))
     except ValueError:
         limit = 200
-    return jsonify(logs.read(limit, (request.args.get('level') or 'INFO').upper(), request.args.get('q') or ''))
+    found = logs.read(limit, (request.args.get('level') or 'INFO').upper(), request.args.get('q') or '')
+    found['links'] = _activity_links(get_db(), [r['message'] for r in found['records']])
+    return jsonify(found)
+
+
+_ACTIVITY_ID = re.compile(r'\b(?:(?:garmin|wk|man|imp)_[0-9a-f]+|\d{7,})\b')
+
+
+def _activity_links(db, texts):
+    """{id: {url, name}} for every activity id in these log lines that is still here: its own page, or the view of the copy set aside.
+    A number that only looks like an id (a byte count, a timestamp) matches no activity and stays plain text."""
+    from services import duplicates
+    duplicates.ensure_schema(db)
+    ids = sorted({m for t in texts for m in _ACTIVITY_ID.findall(t)})
+    links = {}
+    for i in range(0, len(ids), 500):
+        part = ids[i:i + 500]
+        marks = ','.join('?' * len(part))
+        for r in db.execute(f"SELECT id, primaryId, json_extract(rowJson, '$.name') AS name FROM ActivityDuplicate "
+                            f"WHERE id IN ({marks}) AND status='parked'", part):
+            links[str(r['id'])] = {'url': url_for('rides.view_duplicate', rid=r['primaryId'], dup_id=r['id']), 'name': r['name'] or ''}
+        for r in db.execute(f'SELECT id, name FROM Activity WHERE id IN ({marks})', part):     # live wins over a stale copy of the same id
+            links[str(r['id'])] = {'url': url_for('rides.detail', rid=r['id']), 'name': r['name'] or ''}
+    return links

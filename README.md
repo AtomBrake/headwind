@@ -516,7 +516,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - **Notifications** — activity-synced alerts through Home Assistant's companion app (an ntfy hook exists in the code but has no settings screen yet).
 
 ### Running it
-- **Tasks page** — what Headwind is doing in the background: the Garmin sync, health history, friend sync, the MQTT link, imports in progress, the one-off repairs an update runs and what each changed, and the Garmin activities it gave up on, with Try again.
+- **Tasks page** — what Headwind is doing in the background: the Garmin sync, health history, friend sync, the MQTT link, imports in progress, the one-off repairs an update runs and what each changed, and the Garmin activities it gave up on, with Try again. Its Logs card searches the log, and an activity named in a line links to it.
 - **Light, dark or auto** — follows each device's setting by default; charts and maps change with the page.
 - Works on a phone: the layout and each page's top-bar actions fit a small screen.
 

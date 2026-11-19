@@ -187,7 +187,7 @@ function loadLogs() {
         who.textContent = r.logger + ': ';
         var msg = document.createElement('span');
         msg.style.whiteSpace = 'pre-wrap';
-        msg.textContent = r.message;
+        logMessage(msg, r.message, d.links || {});
         head.append(who, msg);
         row.append(head);
         if (r.detail) {
@@ -208,6 +208,22 @@ function loadLogs() {
         : 'No matching lines' + (level === 'ERROR' ? ': no errors logged.' : '.');
     })
     .catch(function () { document.getElementById('logFoot').textContent = 'Could not load the log.'; });
+}
+// An activity id the server found (links: {id: {url, name}}) becomes a link to it, named in its tooltip; the rest stays text
+function logMessage(el, text, links) {
+  var rx = /\b(?:(?:garmin|wk|man|imp)_[0-9a-f]+|\d{7,})\b/g, last = 0, m;
+  while ((m = rx.exec(text))) {
+    var hit = links[m[0]];
+    if (!hit) continue;
+    el.append(text.slice(last, m.index));
+    var a = document.createElement('a');
+    a.href = hit.url;
+    a.textContent = m[0];
+    a.title = hit.name || 'Open this activity';
+    el.append(a);
+    last = m.index + m[0].length;
+  }
+  el.append(text.slice(last));
 }
 function showLogId(id) {
   document.getElementById('logQ').value = id;

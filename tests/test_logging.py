@@ -199,6 +199,22 @@ def test_the_logs_card_filters_by_level_and_by_id(client):
     assert len(few['records']) == 1 and few['more']
 
 
+def test_the_logs_card_links_the_activities_a_line_names(app, client):
+    with app.app_context():
+        db = database.get_db()
+        for aid, name in (('13887314382', 'Morning Ride'), ('wk_cb79ae32fc2f2c01', 'Watch session')):
+            db.execute("INSERT INTO Activity (id, riderId, name, sportType, startDate) VALUES (?, 1, ?, 'Ride', '2026-11-01T08:00:00Z')", [aid, name])
+        db.commit()
+        from services import duplicates
+        duplicates.park(db, '13887314382', 'wk_cb79ae32fc2f2c01', 'a piece of it')
+        db.commit()
+    logging.getLogger('services.duplicates').warning('Duplicate ride: parked 13887314382, kept wk_cb79ae32fc2f2c01 after 1234567890 bytes')
+    links = client.get('/tasks/logs').get_json()['links']
+    assert links['wk_cb79ae32fc2f2c01'] == {'url': '/rides/wk_cb79ae32fc2f2c01', 'name': 'Watch session'}
+    assert links['13887314382'] == {'url': '/rides/wk_cb79ae32fc2f2c01/duplicate/13887314382', 'name': 'Morning Ride'}
+    assert '1234567890' not in links                    # a number that is no activity stays text
+
+
 def test_the_tasks_page_and_error_page_link_to_the_lines(client):
     html = client.get('/tasks').get_data(as_text=True)
     assert 'id="logs"' in html and 'id="logList"' in html
