@@ -36,7 +36,7 @@
   </div>
 </div>
 {% endif %}
-{% if sport_merged or sport_fixes %}
+{% if sport_merged or sport_fixes or sport_guesses %}
 <div class="card" style="margin-bottom:1.25rem;border-color:var(--warning-line);">
   {% if sport_merged %}
   <div style="display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;">
@@ -50,6 +50,13 @@
     {% if not sport_merged %}<strong>Sports to check</strong>{% endif %}
     <span style="color:var(--text-muted);font-size:.9rem;flex:1;min-width:200px;">{{ '{:,}'.format(sport_fixes) }} Garmin activit{{ 'y is' if sport_fixes == 1 else 'ies are' }} saved with another sport than Garmin gives {{ 'it' if sport_fixes == 1 else 'them' }}.</span>
     <a class="btn btn-secondary btn-sm" href="{{ url_for('garmin.sports_page') }}">Review</a>
+  </div>
+  {% endif %}
+  {% if sport_guesses %}
+  <div style="display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;{% if sport_merged or sport_fixes %}margin-top:.6rem;{% endif %}">
+    {% if not (sport_merged or sport_fixes) %}<strong>Sports to check</strong>{% endif %}
+    <span style="color:var(--text-muted);font-size:.9rem;flex:1;min-width:200px;">{{ '{:,}'.format(sport_guesses) }} upload{{ ' was' if sport_guesses == 1 else 's were' }} saved as {{ 'a ride' if sport_guesses == 1 else 'rides' }} because the file didn't say, but {{ 'it looks' if sport_guesses == 1 else 'they look' }} like {{ 'a run or a walk' if sport_guesses == 1 else 'runs or walks' }}.</span>
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('import_rides.index') }}#sport-guess">Check {{ 'it' if sport_guesses == 1 else 'them' }}</a>
   </div>
   {% endif %}
 </div>

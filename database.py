@@ -1271,6 +1271,8 @@ def migrate_db():
     _strava_export_schema(db)
     from services.sport_fix import ensure_schema as _sport_fix_schema
     _sport_fix_schema(db)
+    from services.sport_guess import ensure_schema as _sport_guess_schema      # uploads whose file didn't say they were runs
+    _sport_guess_schema(db)
     from services.garmin_changes import ensure_schema as _garmin_changes_schema
     _garmin_changes_schema(db)
     from services.goals import ensure_schema as _goals_schema               # goals and friend challenges

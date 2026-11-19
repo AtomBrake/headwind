@@ -100,6 +100,17 @@
     <input type="checkbox" id="commuteBox" {{ 'checked' if activity.commute == 1 }} onchange="saveCommute(this)"> Commute
     <span id="commuteSaved" style="font-size:.78rem;color:var(--text-muted);display:none;">Saved</span>
   </label>
+  {% if sport_guess %}{% set sg = sport_guess %}{% set gl, sl = sg.guess | sport_label | lower, sg.savedSport | sport_label | lower %}
+  <div style="flex:1 1 100%;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;padding:.5rem .75rem;border:1px solid var(--warning-line);background:var(--warning-soft);border-radius:8px;font-size:.9rem;">
+    <span style="flex:1 1 16rem;"><strong>Was this {{ 'an' if gl[0] in 'aeiou' else 'a' }} {{ gl }}?</strong> It was saved as {{ 'an' if sl[0] in 'aeiou' else 'a' }} {{ sl }}
+      because the file {{ 'says "' ~ sg.fileSport ~ '"' if sg.fileSport else "doesn't say" }}{% if sg.fileSport == 'Biking' %}, as Strava writes whatever the sport{% endif %},
+      but its pace is a {{ 'walker' if sg.guess == 'Walk' else 'runner' }}'s.</span>
+    {% for choice, label in (('use', 'Use ' ~ (sg.guess | sport_label)), ('keep', (sg.savedSport | sport_label) ~ ' is right')) %}
+    <form method="POST" action="{{ url_for('import_rides.sport_guess_resolve', act_id=activity.id, choice=choice) }}" style="margin:0;">
+      <input type="hidden" name="back" value="{{ url_for('rides.detail', rid=activity.id) }}"><button class="btn btn-secondary btn-sm" type="submit">{{ label }}</button></form>
+    {% endfor %}
+  </div>
+  {% endif %}
 </div>
 <script>
 function saveCommute(box) {

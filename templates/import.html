@@ -375,6 +375,40 @@
 </div>
 {% endif %}
 
+{% if sport_guesses %}
+{% set n = sport_guesses | length %}
+<div class="card" id="sport-guess" style="margin-top:1.25rem;">
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+    <div class="card-title" style="margin:0;">{{ '{:,}'.format(n) }} upload{{ 's' if n != 1 }} look{{ 's' if n == 1 }} like {{ 'a run or a walk' if n == 1 else 'runs or walks' }}, not {{ 'a ride' if n == 1 else 'rides' }}</div>
+    {% if n > 1 %}
+    <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+      <form method="POST" action="{{ url_for('import_rides.sport_guess_resolve', act_id='all', choice='use') }}" style="margin:0;"
+            onsubmit="return confirm('Change all {{ n }} to what their pace says? They move out of your rides and into Workouts.')">
+        <button class="btn btn-secondary btn-sm">Change all {{ n }}</button></form>
+      <form method="POST" action="{{ url_for('import_rides.sport_guess_resolve', act_id='all', choice='keep') }}" style="margin:0;">
+        <button class="btn btn-secondary btn-sm">Keep all {{ n }} as they are</button></form>
+    </div>
+    {% endif %}
+  </div>
+  <p class="hint" style="margin:0.5rem 0 0;">
+    Their files didn't say what sport they were, so they were saved as rides: Strava writes "Biking" into every TCX file it exports, a run's too,
+    and a GPX file often names no sport at all. Their pace is a runner's or a walker's, though a slow ride can look the same. Nothing changes until you say.</p>
+  {% for g in sport_guesses %}
+  <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;">
+    <span style="flex:1; min-width:12rem;">
+      <a href="{{ url_for('rides.detail', rid=g.activityId) }}" style="color:var(--text);">{{ g.startDateLocal | fmt_date }} · {{ g.name or (g.savedSport | sport_label) }}</a>
+      <span style="color:var(--text-muted);">{% if g.distance %} · {{ g.distance | fmt_dist }}{% endif %} · the file says {{ '"' ~ g.fileSport ~ '"' if g.fileSport else 'nothing' }},
+        the pace says {{ g.guess | sport_label }}</span>
+    </span>
+    {% for choice, text in (('use', 'Use ' ~ (g.guess | sport_label)), ('keep', (g.savedSport | sport_label) ~ ' is right')) %}
+    <form method="POST" action="{{ url_for('import_rides.sport_guess_resolve', act_id=g.activityId, choice=choice) }}" style="margin:0;">
+      <input type="hidden" name="back" value="{{ url_for('import_rides.index') }}#sport-guess"><button class="btn btn-secondary btn-sm">{{ text }}</button></form>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if sport_groups %}
 {% set n_sports = sport_groups | sum(attribute='rows', start=[]) | length %}
 <div class="card" id="sports" style="margin-top:1.25rem;">
@@ -565,6 +599,7 @@ function handleEvent(d) {
 
   if (d.complete) {
     const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+    const an = w => (/^[aeiou]/i.test(w) ? 'an ' : 'a ') + w.toLowerCase();
     const noun = d.noun || 'activities';
     const parked = d.parked || [], unread = d.unread || [];
     document.getElementById('progressCard').querySelector('.card-title').textContent = 'Complete';
@@ -586,6 +621,9 @@ function handleEvent(d) {
       (d.errors ? `<br><span style="color:var(--danger)">${d.errors} could not be saved</span>` : '') +
       (d.kept ? `<br><span style="color:var(--text-muted)">The export is kept here: <a href="/import#kept" onclick="location.reload()" style="color:var(--accent)">import it again</a> any time without uploading it</span>` : '') +
       (d.changed ? `<br><a href="/import#changes" onclick="location.reload()" style="color:var(--accent)">${d.changed} differ from what's saved: review them</a>` : '') +
+      (d.sport_guess ? `<br><a href="/rides/${encodeURIComponent(d.sport_guess.id)}" style="color:var(--accent)">Saved as ${esc(an(d.sport_guess.saved))} because the file ` +
+        (d.sport_guess.file ? `says "${esc(d.sport_guess.file)}"` : `doesn't say`) + `, but it looks like ${esc(an(d.sport_guess.guess))}: check it</a>` : '') +
+      (d.sport_guessed ? `<br><a href="/import#sport-guess" onclick="location.reload()" style="color:var(--accent)">${d.sport_guessed} saved as rides look like runs or walks: check them</a>` : '') +
       (d.bikes_filled ? `<br><span style="color:var(--text-muted)">${d.bikes_filled} rides put on their Strava bike</span>` : '') +
       (d.bikes_to_match ? `<br><a href="${d.bikes_url}" style="color:var(--accent)">${d.bikes_to_match} bike${d.bikes_to_match === 1 ? '' : 's'} from Strava to match to yours</a>` : '') +
       (d.photos ? `<br><span style="color:var(--text-muted)">${d.photos} photo${d.photos === 1 ? '' : 's'} added</span>` : '') +

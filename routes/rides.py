@@ -295,8 +295,10 @@ def detail(rid):
     from services import sanity as _sanity
     elapsed_fix = _sanity.elapsed_fix(activity) if activity['flagReason'] and not activity['flagDismissed'] else None
     future_start = bool(activity['flagReason'] and _sanity.future_start(activity))
+    from services import sport_guess as _sport_guess
+    sport_guess = None if friend else _sport_guess.for_activity(get_db(), activity['id'])    # an upload whose file didn't say it was a run
     return render_template('ride.html', friend=friend, kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, zwift_world=zwift_world, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
-                           file_climb=file_climb, file_moving=file_moving, elapsed_fix=elapsed_fix, future_start=future_start, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
+                           file_climb=file_climb, file_moving=file_moving, elapsed_fix=elapsed_fix, future_start=future_start, sport_guess=sport_guess, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
                            charts=charts, has_memory=memory_count > 0, ai_pending=_auto_analyse.is_pending(activity['id']),
                            seg_efforts=seg_efforts, alt_raw=alt_raw, coords_from_stream=coords_from_stream, dist_raw=dist_raw,
                            co_riders=co_riders, seg_rivals=seg_rivals,

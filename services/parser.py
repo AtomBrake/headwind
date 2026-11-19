@@ -76,12 +76,56 @@ _SPORT_MAP = {
 def _map_sport(s, sub=None):
     """A file's own name for its sport -> one of services/sports.SPORTS: the short names above (Strava's GPX numbers, the phone apps' types),
     else sports.from_type, which knows FIT's sports and sub-sports and GPX's and TCX's names, and makes anything it doesn't know 'Other'.
-    A file that names no sport at all is taken as a ride by its caller, as it always was."""
+    A file that names no sport at all is taken as a ride by its caller, as it always was, and the rider asked when it moved like a run (_guessed)."""
     key = str(s).lower().strip()
     if key in _SPORT_MAP and not sub:
         return _SPORT_MAP[key]
     from services.sports import from_type
     return from_type(key, sub)
+
+
+ON_FOOT_WINDOW_S = 30       # speed over this long, so a GPS jump or a sprint for the lights is one window among hundreds
+ON_FOOT_KMH = 19            # 98th percentile of the 30 s speeds below this: moved like a run or a walk
+WALK_KMH = 7                # ... and the 90th percentile below this: a walk
+ON_FOOT_MIN_WINDOWS = 30    # too little track to judge (a few minutes at most)
+
+
+def on_foot(streams):
+    """'Run' or 'Walk' when a track (streams: time and distance) moved like one on foot, else None. A power meter makes it a ride. For a file
+    whose sport can't be trusted (_guessed; services/sport_guess.py asks the rider). Thresholds from two real Strava exports, 225 runs and walks
+    and 1,248 rides as GPX or TCX: no run reached 19 km/h at its 98th percentile of 30 s speeds; 97% of rides did. Walks and hikes stayed under
+    7 km/h at the 90th percentile, runs over it."""
+    if any((streams.get('watts') or {}).get('data') or []):
+        return None
+    t = (streams.get('time') or {}).get('data') or []
+    d = (streams.get('distance') or {}).get('data') or []
+    if len(t) != len(d) or len(t) < 3:
+        return None
+    speeds, lo = [], 0
+    for hi in range(1, len(t)):
+        while lo < hi - 1 and t[hi] - t[lo + 1] >= ON_FOOT_WINDOW_S:
+            lo += 1
+        dt = t[hi] - t[lo]
+        if ON_FOOT_WINDOW_S <= dt < 3 * ON_FOOT_WINDOW_S and d[hi] is not None and d[lo] is not None:     # a longer gap is a pause, not a pace
+            kmh = (d[hi] - d[lo]) / dt * 3.6
+            if kmh > 2:                                     # standing still says nothing about what they were doing
+                speeds.append(kmh)
+    if len(speeds) < ON_FOOT_MIN_WINDOWS:
+        return None
+    speeds.sort()
+    at = lambda p: speeds[min(len(speeds) - 1, int(p * len(speeds)))]
+    if at(0.98) >= ON_FOOT_KMH:
+        return None
+    return 'Walk' if at(0.9) < WALK_KMH else 'Run'
+
+
+def _guessed(unsure, file_sport, streams):
+    """For a file whose sport can't be trusted (services/sport_guess.py): {'sportGuess', 'fileSport'} when its track moved like a run or a walk,
+    for the rider to be asked about once it is saved, else {}."""
+    if not unsure:
+        return {}
+    guess = on_foot(streams)
+    return {'sportGuess': guess, 'fileSport': file_sport} if guess else {}
 
 
 _MAX_PLAUSIBLE = {'speed': 30.0, 'hr': 250, 'watts': 2500, 'cadence': 250}   # m/s (108 km/h), bpm, W, rpm — beyond this is sensor/GPS noise
@@ -333,6 +377,7 @@ def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
         'startLat':           latlng[0][0] if latlng else None,
         'startLng':           latlng[0][1] if latlng else None,
         'streams':            json.dumps(streams),
+        **_guessed(not (gpx.tracks and gpx.tracks[0].type), None, streams),      # no <type>: a ride, as it always was, unless it moved like a run
     }
 
 
@@ -554,6 +599,8 @@ def parse_activity_file(name, data: bytes, strava_export=False):
     if act:
         from services.zwift import indoor_sport
         act['sportType'] = indoor_sport(act.get('sportType'), act.get('startLat'), act.get('startLng'))
+        if act.get('sportGuess'):
+            act['sportGuess'] = indoor_sport(act['sportGuess'], act.get('startLat'), act.get('startLng'))
     return act
 
 
@@ -875,7 +922,8 @@ def parse_tcx(data: bytes):
     activity = next((el for el in root.iter() if _tag(el) == 'Activity'), None)
     if activity is None:
         return None
-    sport_type = _map_sport(activity.get('Sport', 'Biking'))
+    file_sport = activity.get('Sport')
+    sport_type = _map_sport(file_sport or 'Biking')
 
     laps = [el for el in activity if _tag(el) == 'Lap']
     lap_time = lap_dist = calories = 0.0
@@ -972,4 +1020,5 @@ def parse_tcx(data: bytes):
         'startLat':           latlng[0][0] if latlng else None,
         'startLng':           latlng[0][1] if latlng else None,
         'streams':            json.dumps(streams),
+        **_guessed(file_sport in (None, '', 'Biking'), file_sport or None, streams),     # Strava writes Biking whatever the sport
     }

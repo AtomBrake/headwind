@@ -16,7 +16,7 @@ from flask import Blueprint, Response, current_app, render_template, request, st
 from database import get_db, query_db
 from services.parser import ACTIVITY_EXTENSIONS, parse_activity_file
 from services.limits import safe_gunzip, safe_zip_read, check_zip
-from services.sports import RIDES, canonical
+from services.sports import RIDES, canonical, label
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ def index():
     from services import reimport, strava_gear
     from services import strava_export
     from services.rider_mode import owner_rider_id
-    from services import garmin, garmin_changes, merged_sport, recently_deleted, sport_fix, tasks
+    from services import garmin, garmin_changes, merged_sport, recently_deleted, sport_fix, sport_guess, tasks
     riders = query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name ASC')
     return render_template('import.html', riders=riders, changes=reimport.pending(get_db()), problems=reimport.problems(get_db()),
                            binned=recently_deleted.listing(get_db()), bin_days=recently_deleted.DAYS,
@@ -38,6 +38,7 @@ def index():
                            garmin_full=bool(query_db("SELECT 1 FROM Settings WHERE id=1 AND garminSyncMode='full'", one=True)),
                            strava_pending=strava_gear.pending(get_db(), owner_rider_id()),
                            sport_groups=merged_sport.groups(merged_sport.conflicts(get_db())), sport_fixes=sport_fix.count(get_db(), owner_rider_id()),
+                           sport_guesses=sport_guess.pending(get_db()),
                            kept=strava_export.kept(get_db(), current_app.config['DATABASE']),
                            advice=strava_export.advice(get_db(), current_app.config['DATABASE']),
                            out_of_step=reimport.out_of_step(get_db()),
@@ -108,6 +109,34 @@ def sports_resolve(dup_id, choice):
     else:
         flash(f"{n:,} activit{'y' if n == 1 else 'ies'} left as {label(found[0]['sportType']) if found else 'they are'}.", 'success')
     return redirect(url_for('import_rides.index') + '#sports')
+
+
+@bp.route('/import/sport-guess/<path:act_id>/<choice>', methods=['POST'])
+def sport_guess_resolve(act_id, choice):
+    """An upload whose file didn't say its sport but that moved like a run or a walk (services/sport_guess.py). choice 'use': make it that;
+    'keep': the file was right. act_id 'all': every one still asked about. Back to the activity's page when it came from there."""
+    from flask import abort, flash, redirect, url_for
+    from services import sport_guess
+    from services.ingest import after_ride_removed
+    if choice not in ('use', 'keep'):
+        abort(400)
+    db = get_db()
+    ids = [g['activityId'] for g in sport_guess.pending(db)] if act_id == 'all' else [act_id]
+    n, failed = sport_guess.answer(db, ids, choice == 'use')
+    db.commit()
+    if choice == 'use' and n:
+        after_ride_removed()                            # the Home Assistant ride totals drop the runs that moved out
+    back = request.form.get('back') or ''
+    if act_id != 'all' and back.startswith('/') and not back.startswith('//'):
+        if failed:
+            flash(failed[0][1], 'error')
+        return redirect(back)
+    if choice == 'use':
+        flash(f"{n:,} activit{'y' if n == 1 else 'ies'} changed to what {'its' if n == 1 else 'their'} pace says"
+              + (f"; {len(failed)} couldn't be changed: {failed[0][1]}" if failed else '') + '.', 'error' if failed else 'success')
+    else:
+        flash(f"{n:,} activit{'y' if n == 1 else 'ies'} left as {'it is' if n == 1 else 'they are'}.", 'success')
+    return redirect(url_for('import_rides.index') + '#sport-guess')
 
 
 @bp.route('/import/problems/clear', methods=['POST'])
@@ -502,6 +531,12 @@ def _process_single_file(path, original_name, rider_id=None, bike_id=None):
             log.error('Duplicate resolution failed for %s: %s', act['id'], e)
             db.rollback()
         kept = (dup or {}).get('kept', act['id'])
+        asked = None
+        if kept == act['id'] and act.get('sportGuess'):     # the file didn't say it was a run, but it moved like one: ask (services/sport_guess.py)
+            from services import sport_guess
+            sport_guess.note(db, kept, act)
+            db.commit()
+            asked = sport_guess.for_activity(db, kept)
         from services import auto_analyse
         auto_analyse.queue_ride(db, kept)               # this path does its own sanity and segment steps, not services/ingest.after_ride_added
         try:
@@ -513,7 +548,8 @@ def _process_single_file(path, original_name, rider_id=None, bike_id=None):
             log.warning('Home Assistant update after an import failed', exc_info=True)
         yield _progress(1, 1, 1, 0, 0)
         yield _event({'complete': True, 'imported': 0 if (dup and dup['parked'] == act['id']) else 1, 'skipped': 0, 'errors': 0,
-                      'activity': dict(act_summary, id=kept), 'duplicate': dup})
+                      'activity': dict(act_summary, id=kept), 'duplicate': dup,
+                      **({'sport_guess': {'id': kept, 'guess': label(asked['guess']), 'saved': label(asked['savedSport']), 'file': asked['fileSport']}} if asked else {})})
     except Exception as e:
         log.error('Single file import failed: %s\n%s', e, traceback.format_exc())
         yield _progress(1, 1, 0, 0, 1)
@@ -946,7 +982,7 @@ def _process_generic_zip(zf, names, rider_id=None):
     yield _event({'total': total, 'source': 'files'})
 
     db = get_db()
-    imported = skipped = errors = changed = unchanged = 0
+    imported = skipped = errors = changed = unchanged = guessed = 0
     parked, unread, kinds, new_ids = [], [], set(), set()
     from services import reimport
     from services.sports import is_ride
@@ -987,6 +1023,9 @@ def _process_generic_zip(zf, names, rider_id=None):
                     from services.ingest import after_ride_added
                     kept = (dup or {}).get('kept', act.get('id'))
                     after_ride_added(db, kept)
+                    if kept == act['id'] and act.get('sportGuess'):
+                        from services import sport_guess
+                        guessed += sport_guess.note(db, kept, act)
                     reimport.remember(db, seen_key, act['id'], seen_fp)
                     db.commit()
                     imported += _count_new(dup, act['id'], kept, act.get('name'), new_ids, parked)
@@ -1005,7 +1044,7 @@ def _process_generic_zip(zf, names, rider_id=None):
     log.info('Generic import done — imported=%d set aside as duplicates=%d skipped=%d (unchanged since the last import, not read: %d) '
              'files not read=%d errors=%d', imported, len(parked), skipped, unchanged, len(unread), errors)
     yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'unchanged': unchanged, 'changed': changed, 'errors': errors,
-                  'parked': parked, 'unread': unread, 'noun': _noun(kinds)})
+                  'parked': parked, 'unread': unread, 'noun': _noun(kinds), 'sport_guessed': guessed})
 
 
 def _clock_shift(act):

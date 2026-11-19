@@ -446,9 +446,10 @@ def dashboard():
         gear_due = []
     from services import merged_gear
     gear_merged = merged_gear.count(get_db(), rid)      # merged activities whose two recordings are on different gear
-    from services import merged_sport, sport_fix
+    from services import merged_sport, sport_fix, sport_guess
     sport_merged = merged_sport.count(get_db(), rid)    # ... or say different sports
     sport_fixes = sport_fix.count(get_db(), rid)        # Garmin activities saved with another sport than Garmin's type
+    sport_guesses = len(sport_guess.pending(get_db(), rid))     # uploads saved as rides that moved like runs
 
     try:
         from services import sanity
@@ -466,7 +467,7 @@ def dashboard():
         'dashboard.html',
         gear_due=gear_due,
         flagged=flagged,
-        gear_merged=gear_merged, sport_merged=sport_merged, sport_fixes=sport_fixes,
+        gear_merged=gear_merged, sport_merged=sport_merged, sport_fixes=sport_fixes, sport_guesses=sport_guesses,
         rider_goals=rider_goals,
         live_challenges=live_challenges,
         invitations=invitations,
