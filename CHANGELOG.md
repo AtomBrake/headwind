@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.41-beta] - 2026-11-19
 
 ### Added
 - **Friends' activities in the iPhone app.** The Activities tab has a **Whose** menu, next to the sport filter, once a friend has synced: Me, one friend, or Everyone together by date, with each friend's rows named under Everyone. A friend's activity opens with its map, stats and charts, says whose it is and when it was synced, and has no Delete and no photo editing, as on the web. The app keeps the choice. For the app, `GET /api/v1/friends` lists the friends synced here, and `GET /api/v1/rides` takes `rider` (a friend's rider id, or `all`). Another rider who lives on this instance is never listed there, and every change to a friend's activity is still refused.
