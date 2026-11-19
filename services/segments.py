@@ -29,6 +29,13 @@ CLOSE_MIN_PATH = 0.85   # ... and at least this much of it: a straighter line ne
 CLOSE_MEDIAN_M = 12     # ... and half its points within this of the shape: GPS drift wanders either side, while a road or path running beside
                         # the segment sits a steady 15-50 m off the whole way (exact efforts on a real export: half within 3 m, 9 in 10 within 5)
 CLOSE_MIN_LEN_M = 3 * CLOSE_TOL_M   # shorter segments get no close matching: within CLOSE_TOL_M of every sample, any track nearby would do
+OFF_ROUTE_M = 40        # an exact effort's track may stray this far from the segment's shape (GPS drift under trees, the far side of a road) ...
+OFF_ROUTE_RUN_M = 60    # ... for no more than this far in a row: further, it is another way between the same ends
+SIBLING_APART_M = 10    # where a track is further than this from one of two segments with the same ends, it is on one line or the other ...
+SIBLING_MIN_M = 20      # ... over at least this far along it ...
+SIBLING_NEARER_M = 3    # ... and running this much nearer the other segment's shape there, on average, it is that one's (on a real pair of lines
+                        # 25-40 m apart, passes ran 10-26 m nearer the line they took)
+ROUTE_NEAR_M = 15       # _offsets looks along the whole shape for a point further than this from the part of it the track was last near
 _BATCH = 50             # activities whose streams are read at a time in a full scan (~1 MB each)
 MISALIGNED_MAX = 10     # a track whose time stream has more points than its positions (records with no fix, stored before 0.7.7) is timed only
                         # when the gap is this small: at most that many seconds off. More, and an effort could be minutes out: not matched
@@ -301,10 +308,10 @@ def realign(streams):
     return out
 
 
-def match_segment(activity_streams_json, seg):
+def match_segment(activity_streams_json, seg, siblings=()):
     """
     Returns elapsed_secs (int) for the fastest valid effort on this segment,
-    or None if the activity never traverses it. The streams are JSON text or already parsed (_parsed).
+    or None if the activity never traverses it. The streams are JSON text or already parsed (_parsed). `siblings`: siblings_of the segment.
 
     Finds every entry into the start-zone (outside→inside TOLERANCE_M
     transition), tries each as a candidate start, then looks for the closest
@@ -370,7 +377,7 @@ def match_segment(activity_streams_json, seg):
             return
         end_idx = _past_wait(end_idx, end_win, end_dist, -1, lo=first)
         elapsed = times[end_idx] - times[start_idx]
-        if elapsed <= 0:
+        if elapsed <= 0 or (best_elapsed is not None and elapsed >= best_elapsed):
             return
         if dist_m and dist_m / elapsed > MAX_SPEED_MPS[seg_sport(seg)]:
             return  # too fast: a GPS jump, not an effort
@@ -401,6 +408,8 @@ def match_segment(activity_streams_json, seg):
                         break
                 if not hit:
                     return
+        if not _on_route(latlng, start_idx, end_idx, seg, siblings):
+            return
         if best_elapsed is None or elapsed < best_elapsed:
             best_elapsed = elapsed
 
@@ -451,19 +460,101 @@ def _fast_m(lat1, lng1, lat2, lng2):
 
 def _off_line(lat, lng, shape):
     """Metres from a point to the nearest part of a shape (a list of [lat, lng]), on a flat local projection."""
+    return _nearest_part(lat, lng, shape, 0, len(shape) - 1)[0]
+
+
+def _nearest_part(lat, lng, shape, lo, hi):
+    """(metres, k): the nearest of the shape's lines shape[k] - shape[k + 1], for k from lo to hi - 1, to a point, on a flat local projection."""
     kx, ky = 6_371_000 * radians(1) * cos(radians(lat)), 6_371_000 * radians(1)
-    best = float('inf')
-    for a, b in zip(shape, shape[1:]):
+    best, at = float('inf'), lo
+    for k in range(lo, hi):
+        a, b = shape[k], shape[k + 1]
         ax, ay, bx, by = (a[1] - lng) * kx, (a[0] - lat) * ky, (b[1] - lng) * kx, (b[0] - lat) * ky
         dx, dy = bx - ax, by - ay
         L = dx * dx + dy * dy
         t = 0.0 if L == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / L))
         x, y = ax + t * dx, ay + t * dy
-        best = min(best, x * x + y * y)
-    return sqrt(best)
+        if x * x + y * y < best:
+            best, at = x * x + y * y, k
+    return sqrt(best), at
 
 
-def match_segment_close(activity_streams_json, seg):
+def _offsets(latlng, i0, i1, shape):
+    """(metres along, metres off the shape) for each step of a track from point i0 to i1, measured at the step's end, against a segment's full
+    shape (a list of [lat, lng]). The track runs along the shape, so its nearest part is looked for just around the last one, and along the
+    whole shape only when that's further than ROUTE_NEAR_M (off the line, or round a loop)."""
+    n = len(shape) - 1
+    out, k = [], 0
+    for j in range(i0 + 1, i1 + 1):
+        lat, lng = latlng[j][0], latlng[j][1]
+        d, k2 = _nearest_part(lat, lng, shape, max(0, k - 3), min(n, k + 12))
+        if d > ROUTE_NEAR_M:
+            d, k2 = _nearest_part(lat, lng, shape, 0, n)
+        k = k2
+        out.append((_fast_m(latlng[j - 1][0], latlng[j - 1][1], lat, lng), d))
+    return out
+
+
+def _off_route(offsets):
+    """The longest stretch, in metres along the track, that stays further than OFF_ROUTE_M from the shape: steps with both ends that far off,
+    so a single stray GPS point (out and back in one step each) is no stretch at all."""
+    run = best = 0.0
+    prev = 0.0
+    for step, off in offsets:
+        run = run + step if off > OFF_ROUTE_M and prev > OFF_ROUTE_M else 0.0
+        best = max(best, run)
+        prev = off
+    return best
+
+
+def _on_route(latlng, i0, i1, seg, siblings=()):
+    """Does the track from point i0 to i1 ride this segment, not another way between the same ends? Not when it strays further than
+    OFF_ROUTE_M from the shape for more than OFF_ROUTE_RUN_M (a road round instead of a steep path: the checkpoints are passed within
+    CHECKPOINT_M, and a slow climb's speed floor lets the detour in). And not when it runs nearer a sibling's shape (_nearer_other): another
+    segment of the same kind with ends at the same places (two lines down one hill that split and join again, 25-40 m apart, which GPS drift
+    on either is too close to tell by distance from one alone). A segment with no usable shape is not checked."""
+    shape = [p[:2] for p in _poly(seg['polyline'] if 'polyline' in seg.keys() else None) if isinstance(p, list) and len(p) >= 2]
+    if len(shape) < 2:
+        return True
+    offs = _offsets(latlng, i0, i1, shape)
+    if _off_route(offs) > OFF_ROUTE_RUN_M:
+        return False
+    for other in siblings:
+        alt = [p[:2] for p in _poly(other) if isinstance(p, list) and len(p) >= 2]
+        if len(alt) >= 2 and _nearer_other(offs, _offsets(latlng, i0, i1, alt)) > SIBLING_NEARER_M:
+            return False
+    return True
+
+
+def _nearer_other(own, other):
+    """How much nearer, on average in metres, a track runs to another shape than to its own (each _offsets of it), over the stretch where
+    it is further than SIBLING_APART_M from either: where two lines that share their ends go their own ways. 0 when that stretch is under
+    SIBLING_MIN_M (the two shapes are one line drawn twice, or the track drifts the same either way)."""
+    num = length = 0.0
+    for (step, a), (_, b) in zip(own, other):
+        if max(a, b) > SIBLING_APART_M:
+            num += step * (a - b)
+            length += step
+    return num / length if length >= SIBLING_MIN_M else 0.0
+
+
+def siblings_of(seg, pool):
+    """The shapes (polyline JSON) of the other segments in `pool` of the same kind whose start and finish are both within 2 x TOLERANCE_M of
+    this one's: a pass by these ends could be either (_on_route)."""
+    out = []
+    for g in pool:
+        if g['id'] == seg['id'] or seg_sport(g) != seg_sport(seg) or not g['polyline']:
+            continue
+        try:
+            if (_haversine(seg['startLat'], seg['startLng'], g['startLat'], g['startLng']) < 2 * TOLERANCE_M
+                    and _haversine(seg['endLat'], seg['endLng'], g['endLat'], g['endLng']) < 2 * TOLERANCE_M):
+                out.append(g['polyline'])
+        except (TypeError, ValueError):
+            continue
+    return tuple(out)
+
+
+def match_segment_close(activity_streams_json, seg, siblings=()):
     """
     The forgiving second chance for a ride that follows a segment but is not PERFECTLY on it (a stop short of the end marker,
     GPS drift, a lane or path beside the road). Returns (estimated_elapsed_secs, covered_fraction) or None.
@@ -518,6 +609,8 @@ def match_segment_close(activity_streams_json, seg):
     offs = sorted(_off_line(ll[j][0], ll[j][1], shape) for j in range(i0, i1 + 1))
     if offs[len(offs) // 2] > CLOSE_MEDIAN_M:              # beside the segment, not on it (a road along a trail)
         return None
+    if not _on_route(ll, i0, i1, seg, siblings):          # another way between the same ends for part of it
+        return None
     secs = tm[i1] - tm[i0]
     if secs <= 0:
         return None
@@ -548,9 +641,10 @@ def _refresh_prs(db, segment_id):
         db.execute('UPDATE SegmentEffort SET isPR=1 WHERE id=?', [eid])
 
 
-def scan_activity_against_segments(db, activity, segments, track=None):
+def scan_activity_against_segments(db, activity, segments, track=None, pool=None):
     """Scan one activity against a list of segments. Commits nothing. The streams are parsed once, and a segment the track doesn't reach
-    (seg_reach) is skipped without looking at a single point. `track`: (box, cells) when the caller already has them (ActivityTrack)."""
+    (seg_reach) is skipped without looking at a single point. `track`: (box, cells) when the caller already has them (ActivityTrack). `pool`:
+    every segment, when `segments` is only some of them, for their siblings (siblings_of); a dict of segment id to siblings_of will do."""
     matched = 0
     fam = _activity_family(db, activity)
     if fam is None:                                     # an indoor ride, a swim, ...: no segments
@@ -571,10 +665,11 @@ def scan_activity_against_segments(db, activity, segments, track=None):
     for seg in segments:
         if not can_reach(box, cells, seg_reach(seg)):
             continue
-        elapsed = match_segment(streams, seg)
+        sib = pool.get(seg['id'], ()) if isinstance(pool, dict) else siblings_of(seg, pool if pool is not None else segments)
+        elapsed = match_segment(streams, seg, sib)
         approx = 0
         if elapsed is None:
-            close = match_segment_close(streams, seg)                  # not perfectly on it, but clearly rode it
+            close = match_segment_close(streams, seg, sib)             # not perfectly on it, but clearly rode it
             if close is None:
                 continue
             elapsed, approx = close[0], 1
@@ -642,11 +737,13 @@ def scan_all_activities(db, segment_ids=None):
         if any(can_reach(box, cells, reach) for reach in reaches):
             todo[r['activityId']] = (box, cells)
 
+    every = db.execute('SELECT * FROM Segment').fetchall() if segment_ids else segments
+    sibs = {seg['id']: siblings_of(seg, every) for seg in segments}
     ids_all = list(todo)
     for i in range(0, len(ids_all), _BATCH):
         ids = ids_all[i:i + _BATCH]
         for act in db.execute(f"SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall():
-            scan_activity_against_segments(db, act, segments, track=todo[act['id']])
+            scan_activity_against_segments(db, act, segments, track=todo[act['id']], pool=sibs)
 
     for seg in segments:
         _refresh_prs(db, seg['id'])
@@ -726,9 +823,10 @@ def regroup(db):
     scanned = found = 0
     if foot:
         before = db.execute("SELECT COUNT(*) FROM SegmentEffort e JOIN Segment s ON s.id=e.segmentId WHERE s.sport='foot'").fetchone()[0]
+        sibs = {g['id']: siblings_of(g, foot) for g in foot}
         for act in db.execute("SELECT id, startDateLocal, streams, sportType FROM Activity WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')"):
             if segment_family(act['sportType']) == 'foot':
-                scan_activity_against_segments(db, act, foot)
+                scan_activity_against_segments(db, act, foot, pool=sibs)
                 scanned += 1
         found = db.execute("SELECT COUNT(*) FROM SegmentEffort e JOIN Segment s ON s.id=e.segmentId WHERE s.sport='foot'").fetchone()[0] - before
     for sid in seg_fam:
@@ -756,13 +854,14 @@ def merge_bikes(db):
     found = scanned = 0
     if rides:
         before = db.execute('SELECT COUNT(*) FROM SegmentEffort').fetchone()[0]
+        sibs = {g['id']: siblings_of(g, rides) for g in rides}
         for act in db.execute("SELECT id, startDateLocal, streams, sportType FROM Activity WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')").fetchall():
             cls = class_of(db, act['id'])
             if cls not in ('bike', 'ebike'):
                 continue
             new_to_it = [g for g in rides if (g['id'] in was_e) == (cls == 'bike')]
             if new_to_it:
-                scan_activity_against_segments(db, act, new_to_it)
+                scan_activity_against_segments(db, act, new_to_it, pool=sibs)
                 scanned += 1
         found = db.execute('SELECT COUNT(*) FROM SegmentEffort').fetchone()[0] - before
         for g in rides:
@@ -846,31 +945,58 @@ def rematch_climbs(db):
     return {'ran': True, 'segments': len(ids), 'found': found}
 
 
+def _rematch_every(db):
+    """Match every segment again from scratch (scan_all_activities) and count what changed: {'segments', 'found' (new efforts), 'removed',
+    'shorter' (times), 'prs_moved'}. Commits."""
+    n = db.execute('SELECT COUNT(*) FROM Segment').fetchone()[0]
+    out = {'segments': n, 'found': 0, 'removed': 0, 'shorter': 0, 'prs_moved': 0}
+    if not n:
+        return out
+    held = lambda: {(r[0], r[1]) for r in db.execute('SELECT segmentId, activityId FROM SegmentEffort WHERE isPR=1')}   # efforts get new ids
+    times = {(r[0], r[1]): r[2] for r in db.execute('SELECT segmentId, activityId, elapsedSecs FROM SegmentEffort')}
+    prs = held()
+    scan_all_activities(db)
+    now = {(r[0], r[1]): r[2] for r in db.execute('SELECT segmentId, activityId, elapsedSecs FROM SegmentEffort')}
+    out['found'] = len(now.keys() - times.keys())
+    out['removed'] = len(times.keys() - now.keys())
+    out['shorter'] = sum(1 for k, t in now.items() if k in times and t < times[k])
+    out['prs_moved'] = len(held() - prs)
+    return out
+
+
 def rematch_stops(db):
     """Run once (Settings.segmentStopsDone), when the speed floor started to leave out the stops (_moving_secs) and an effort stopped taking a
     wait at the start or finish (_past_wait): every segment is matched again from scratch. Stops part way along (half way down a trail) had
     turned efforts away, even on the ride a segment was made on; waits at the top or bottom had made times too long. Efforts are only added;
-    times with a wait at a marker get shorter, and an approximate effort with a stop on it becomes an exact one, the stop in its time. Commits. Returns {'ran', 'segments', 'found', 'shorter', 'prs_moved'}."""
+    times with a wait at a marker get shorter, and an approximate effort with a stop on it becomes an exact one, the stop in its time. Commits.
+    Returns {'ran', 'segments', 'found', 'shorter', 'prs_moved'}. rematch_routes does this too, when it runs first."""
     s = db.execute('SELECT segmentStopsDone FROM Settings WHERE id=1').fetchone()
     if not s or s['segmentStopsDone']:
         return {'ran': False}
-    n = db.execute('SELECT COUNT(*) FROM Segment').fetchone()[0]
-    found = shorter = moved = 0
-    if n:
-        held = lambda: {(r[0], r[1]) for r in db.execute('SELECT segmentId, activityId FROM SegmentEffort WHERE isPR=1')}   # efforts get new ids
-        times = {(r[0], r[1]): r[2] for r in db.execute('SELECT segmentId, activityId, elapsedSecs FROM SegmentEffort')}
-        prs = held()
-        scan_all_activities(db)
-        for r in db.execute('SELECT segmentId, activityId, elapsedSecs FROM SegmentEffort'):
-            was = times.get((r[0], r[1]))
-            found += was is None
-            shorter += was is not None and r[2] < was
-        moved = len(held() - prs)
+    res = _rematch_every(db)
     db.execute('UPDATE Settings SET segmentStopsDone=1 WHERE id=1')
     db.commit()
-    if found or shorter:
-        log.warning('Segment stops: %d segments matched again, %d new efforts, %d shorter times, %d PRs changed', n, found, shorter, moved)
-    return {'ran': True, 'segments': n, 'found': found, 'shorter': shorter, 'prs_moved': moved}
+    if res['found'] or res['shorter']:
+        log.warning('Segment stops: %d segments matched again, %d new efforts, %d shorter times, %d PRs changed',
+                    res['segments'], res['found'], res['shorter'], res['prs_moved'])
+    return {'ran': True, **{k: res[k] for k in ('segments', 'found', 'shorter', 'prs_moved')}}
+
+
+def rematch_routes(db):
+    """Run once (Settings.segmentRouteDone), when an effort had to follow the segment's shape, not only pass its ends and checkpoints
+    (_on_route): every segment is matched again from scratch, and efforts that took another way between the same ends go. When rematch_stops
+    hadn't run yet, this one scan does its work too and marks it done. Commits. Returns {'ran', 'stops', 'segments', 'found', 'removed',
+    'shorter', 'prs_moved'}: `stops` when it did rematch_stops' work."""
+    s = db.execute('SELECT segmentRouteDone, segmentStopsDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['segmentRouteDone']:
+        return {'ran': False}
+    res = _rematch_every(db)
+    db.execute('UPDATE Settings SET segmentRouteDone=1, segmentStopsDone=1 WHERE id=1')
+    db.commit()
+    if res['found'] or res['removed'] or res['shorter']:
+        log.warning('Segment routes: %d segments matched again, %d efforts on another way removed, %d new, %d shorter times, %d PRs changed',
+                    res['segments'], res['removed'], res['found'], res['shorter'], res['prs_moved'])
+    return {'ran': True, 'stops': not s['segmentStopsDone'], **res}
 
 # ---------- segments from a Strava export (segments.csv) ----------
 IMPORT_TOL_M = 50       # a Strava segment's ends sit on the track it was drawn on; allow for a different recording of the same road

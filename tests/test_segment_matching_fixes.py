@@ -1,6 +1,6 @@
 """Impossible segment times (0.7.7): loop segments that collapsed to a few metres, short segments whose ends are close, the close matcher on short
 segments and on a straighter line nearby, impossible speeds, a speed floor that drops on a climb and leaves out the stops, waits at a segment's
-ends, GPS and time streams out of step, and Strava segments given the wrong family.
+ends, another way between the same ends, GPS and time streams out of step, and Strava segments given the wrong family.
 Throwaway DB, synthetic tracks."""
 import json
 from datetime import datetime, timedelta, timezone
@@ -195,6 +195,60 @@ def test_a_detour_off_the_segment_is_still_too_slow():
     out_and_back = [(-100, 0), (500, 0), (500, 2000), (500, 0), (1100, 0)]      # 4 km up a side road and back from half way along
     assert S.match_segment(walk(out_and_back, speed=6), seg) is None
     assert S.match_segment(walk([(-100, 0), (1100, 0)], speed=6), seg) is not None
+
+
+# ── Following the segment's own line ────────────────────────────
+
+def bulge(apart, start=300, end=700):
+    """Waypoints along the x axis from -100 to 1100 m that leave it `apart` metres to the north between `start` and `end`, and come back."""
+    return [(-100, 0), (start - 50, 0), (start + 50, apart), (end - 50, apart), (end + 50, 0), (1100, 0)]
+
+
+def test_another_way_between_the_same_ends_is_not_the_segment():
+    """A road round instead of a steep path: the checkpoints are within 60 m, and it's fast enough, but it isn't the segment."""
+    seg = climb(0)
+    assert S.match_segment(walk(bulge(55), speed=6), seg) is None
+    assert S.match_segment_close(walk(bulge(55), speed=6), seg) is None
+    assert S.match_segment(walk(bulge(30), speed=6), seg) is not None        # GPS drift, or the far side of a road
+    round_a_tree = [(-100, 0), (480, 0), (490, 50), (510, 50), (520, 0), (1100, 0)]
+    assert S.match_segment(walk(round_a_tree, speed=6), seg) is not None    # 50 m off, but for under OFF_ROUTE_RUN_M
+
+
+def test_a_single_stray_gps_point_is_not_another_way():
+    ride = walk([(-100, 0), (1100, 0)], speed=6)
+    i = len(ride['latlng']['data']) // 2
+    ride['latlng']['data'][i] = at(500, 90)
+    assert S.match_segment(ride, climb(0)) is not None
+
+
+def test_two_lines_with_the_same_ends_each_keep_their_own_efforts():
+    """Two lines down one hill that split and join again 30 m apart: close enough for GPS drift on either, so the pass goes to the line it
+    runs nearer. Drawn twice on one line, both segments keep it."""
+    a = {**seg_row(at(0, 0), at(1000, 0), 1000, [at(x, y) for x, y in [(0, 0), *bulge(30)[1:-1], (1000, 0)]]), 'id': 1}
+    b = {**seg_row(at(0, 0), at(1000, 0), 1000, [at(x, 0) for x in range(0, 1001, 50)]), 'id': 2}
+    on_a, on_b = walk(bulge(30), speed=6), walk([(-100, 0), (1100, 0)], speed=6)
+    assert S.siblings_of(a, [a, b]) == (b['polyline'],)
+    assert S.match_segment(on_a, a, S.siblings_of(a, [a, b])) is not None
+    assert S.match_segment(on_a, b, S.siblings_of(b, [a, b])) is None
+    assert S.match_segment(on_b, b, S.siblings_of(b, [a, b])) is not None
+    assert S.match_segment(on_b, a, S.siblings_of(a, [a, b])) is None
+    twice = {**b, 'id': 3}
+    assert S.match_segment(on_b, b, S.siblings_of(b, [b, twice])) is not None
+    assert S.match_segment(on_b, twice, S.siblings_of(twice, [b, twice])) is not None
+
+
+def test_every_segment_is_matched_again_once_on_its_own_line(db):
+    poly = [at(x, 0) for x in range(0, 1001, 50)]
+    db.execute("INSERT INTO Segment (name, startLat, startLng, endLat, endLng, distanceM, elevationGainM, polyline, sport) "
+               "VALUES ('Path', ?, ?, ?, ?, 1000, 0, ?, 'ride')", [*at(0, 0), *at(1000, 0), json.dumps(poly)])
+    add(db, 'r1', walk([(-100, 0), (1100, 0)], speed=6))
+    add(db, 'r2', walk(bulge(55), speed=6), day='2026-10-02')
+    db.execute("INSERT INTO SegmentEffort (segmentId, activityId, activityDate, elapsedSecs) VALUES (1, 'r2', '2026-10-02', 190)")   # an old match
+    db.execute('UPDATE Settings SET segmentRouteDone=0, segmentStopsDone=0 WHERE id=1')
+    res = S.rematch_routes(db)
+    assert res['ran'] and res['stops'] and res['removed'] == 1 and res['found'] == 1
+    assert [r[0] for r in db.execute('SELECT activityId FROM SegmentEffort')] == ['r1']
+    assert S.rematch_routes(db) == {'ran': False} and S.rematch_stops(db) == {'ran': False}
 
 
 def test_a_broken_altimeter_does_not_take_the_floor_away():

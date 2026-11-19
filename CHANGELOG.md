@@ -5,6 +5,9 @@
 ### Added
 - **Kitesurf and Wingfoil are sports of their own.** Pick either in **Change the type** on an activity or in the Activities page's **Select** bar, and set default gear for it. A Garmin kiteboarding activity or a FIT or GPX file of a kitesurf comes in as Kitesurf; before, Garmin's came in as Other and a file's as Surf. A Garmin or file wing foil session comes in as Wingfoil, where it was Other. Kitesurfs from a Strava export were already kept as Kitesurf, but couldn't be picked. Like the other water sports, neither has a climb, and each one's distance adds up on its own. Garmin kiteboarding and wing foil activities already saved as Other are offered their sport on the **Import** page, to apply or keep; a kitesurf saved as Surf from a file, or from a Garmin sync before 0.7, is changed by hand.
 
+### Fixed
+- **An effort has to follow the segment's own line.** A ride only had to pass near a segment's start and finish and four points along it, within 60 m, so another way between the same ends counted: a road round instead of a steep path, or the other of two trails down a hill that split and join again. Two segments drawn on such trails got the same efforts, each taking the faster of the ride's runs down either. Now a ride that strays more than 40 m from the segment's line for more than 60 m isn't on it, and neither is a ride that runs nearer the line of another segment with the same start and finish, where the two lines go their own ways. GPS drift and a single stray point still count. Approximate (≈) efforts are checked the same way. At the first start after updating, every segment is matched again, and the Tasks page says how many efforts were removed. Some PRs can change: on real data, a few had been set on the other way.
+
 ## [0.7.37-beta] - 2026-11-19
 
 ### Changed

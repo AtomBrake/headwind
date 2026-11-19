@@ -11,7 +11,7 @@ from flask import Blueprint, Response, abort, current_app, jsonify, redirect, re
 log = logging.getLogger(__name__)
 
 from database import get_db, query_db
-from services.segments import scan_activity_against_segments, scan_all_activities, _refresh_prs, seg_sport
+from services.segments import scan_activity_against_segments, scan_all_activities, _refresh_prs, seg_sport, siblings_of
 from services.limits import LimitExceeded, bounded_lines
 from services.peer_http import open_peer
 from services import feed_tokens, logs, qr, sanity, sports, vault
@@ -679,6 +679,8 @@ def _do_ride_sync(friend_id):
     # ── The received rides against the other segments (the pending ones have just seen them) ──
     affected = set(gone_segs)
     others = db.execute(f"SELECT * FROM Segment WHERE id NOT IN ({','.join('?' * len(pending))})", pending).fetchall()
+    every = db.execute('SELECT * FROM Segment').fetchall()
+    sibs = {g['id']: siblings_of(g, every) for g in others}
     if pull.rides:
         log.info('Friends sync: scanning %d rides against %d segments…', len(pull.rides), len(others))
         done = 0
@@ -691,7 +693,7 @@ def _do_ride_sync(friend_id):
             acts = db.execute(f"SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id IN ({marks}) "
                               "AND streams IS NOT NULL AND streams NOT IN ('null', '{}')", ids).fetchall() if others else []
             for act in acts:
-                scan_activity_against_segments(db, act, others)
+                scan_activity_against_segments(db, act, others, pool=sibs)
                 db.commit()   # one ride at a time, so other writes (a token, a Garmin sync) wait milliseconds, not a minute
                 done += 1
                 if done % BATCH == 0:

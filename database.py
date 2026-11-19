@@ -159,7 +159,8 @@ def heavy_last(db, table, heavy):
 _REPAIR_FLAGS = ('distanceBackfillDone', 'utcStartFixDone', 'awayStartRecheckDone', 'localZoneFixDone', 'workoutDupCheckDone', 'dupNameFixDone',
                  'segmentFamiliesDone', 'segmentBikesMergedDone', 'movingTimeFixDone', 'segmentMatchFixDone', 'sportEffortsDone',
                  'movingTimePausedDone', 'bestEffortsCleanDone', 'sensorTopSpeedDone', 'mmDistancesDone', 'stravaManualDone', 'sanityAllSportsDone',
-                 'liveParkedFixDone', 'strandedParkedFixDone', 'segmentClimbFloorDone', 'ebikeSportDone', 'segmentStopsDone')
+                 'liveParkedFixDone', 'strandedParkedFixDone', 'segmentClimbFloorDone', 'ebikeSportDone', 'segmentStopsDone',
+                 'segmentRouteDone')
 
 
 def migrate_db():
@@ -473,6 +474,7 @@ def migrate_db():
         ('sanityAllSportsDone',    'INTEGER DEFAULT 0'), # every sport checked once against the "looks wrong" limits, heart rate included (services/sanity.scan_every_sport)
         ('segmentClimbFloorDone',  'INTEGER DEFAULT 0'), # steep segments matched again with a speed floor that drops on a climb (services/segments.rematch_climbs)
         ('segmentStopsDone',       'INTEGER DEFAULT 0'), # every segment matched again with stops left out of the speed floor and waits at the ends out of the time (services/segments.rematch_stops)
+        ('segmentRouteDone',       'INTEGER DEFAULT 0'), # every segment matched again with efforts that must follow its shape (services/segments.rematch_routes)
         ('ebikeSportDone',         'INTEGER DEFAULT 0'), # rides on an e-bike made e-bike rides (services/gear.ebike_rides)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
@@ -1119,6 +1121,19 @@ def migrate_db():
                       f"{res['found']:,} new effort{'s' if res['found'] != 1 else ''} on {res['segments']} steep segment{'s' if res['segments'] != 1 else ''}: "
                       "a climb ridden or pushed up slowly now counts as long as it keeps climbing, where before a bike slower than a brisk walk "
                       "was turned away.")
+        db.commit()
+    from services.segments import rematch_routes as _rematch_routes
+    res = _rematch_routes(db)
+    if res.get('found') or res.get('removed') or res.get('shorter'):
+        s_ = lambda n, one, many: f"{n:,} {one if n == 1 else many}"
+        _tasks.record(db, 'startup:segment_routes', 'Segments follow their own line',
+                      f"Every segment was matched again: {s_(res['removed'], 'effort', 'efforts')} that took another way between the same start and "
+                      f"finish (a road round instead of the path, the other of two lines down a hill) {'was' if res['removed'] == 1 else 'were'} removed, "
+                      f"{s_(res['found'], 'new effort', 'new efforts')} found, {s_(res['shorter'], 'time', 'times')} shorter, "
+                      f"{s_(res['prs_moved'], 'segment PR', 'segment PRs')} changed. An effort now has to follow the segment's own line, not only "
+                      "pass near its start, finish and a few points along it."
+                      + (" A stop part way along a segment no longer turns the effort away, and counts in its time; a wait at the top before "
+                         "setting off, or at the bottom after finishing, doesn't." if res['stops'] else ''))
         db.commit()
     from services.segments import rematch_stops as _rematch_stops
     res = _rematch_stops(db)

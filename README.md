@@ -108,7 +108,7 @@ Everywhere you've been, filterable by date range and sport, on any of the map ty
 <img src="docs/screenshots/heatmap.jpg" alt="Heatmap" width="900">
 
 ### Segments and leaderboards
-Draw a segment on any ride; Headwind scans your whole history, ranks every effort, charts your trend, rates the difficulty and tracks PRs. A steep climb counts however slowly it's ridden or pushed up, as long as it keeps climbing. A stop part way along counts in the effort's time, as on Strava, but doesn't stop it counting; a wait at the top before setting off, or at the bottom after finishing, isn't in the time. Linked friends' segments and efforts appear on the same leaderboard.
+Draw a segment on any ride; Headwind scans your whole history, ranks every effort, charts your trend, rates the difficulty and tracks PRs. A steep climb counts however slowly it's ridden or pushed up, as long as it keeps climbing. A stop part way along counts in the effort's time, as on Strava, but doesn't stop it counting; a wait at the top before setting off, or at the bottom after finishing, isn't in the time. An effort has to follow the segment's own line: another way between the same start and finish, such as a road round a steep path or the other of two trails down a hill, isn't the segment. Linked friends' segments and efforts appear on the same leaderboard.
 
 <img src="docs/screenshots/segment-leaderboard.jpg" alt="Segment leaderboard" width="900">
 
