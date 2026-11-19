@@ -123,3 +123,59 @@ def test_units_module():
     assert units.fmt_dist(1609.344, 'imperial') == '1.0 mi' and units.fmt_dist(1500, 'metric') == '1.5 km'
     assert units.fmt_speed(10, 'metric') == '36.0 km/h' and units.fmt_elev(100, 'imperial') == '328 ft'
     assert units.fmt_pace(1000 / 300, 'metric') == '5:00 /km' and units.to_metres('2', 'metric') == 2000
+
+
+def _set(client, **cols):
+    with client.application.app_context():
+        db = database.get_db()
+        for k, v in cols.items():
+            db.execute(f'UPDATE Settings SET {k}=? WHERE id=1', [v])
+        db.commit()
+
+
+def test_weather_wind_follows_the_units_and_temperature_its_own_choice(client):
+    html = client.get('/rides/r1').get_data(as_text=True)
+    assert '12°C' in html and '20 km/h' in html                                 # stored as 12 °C and 20 km/h
+    _set(client, units='imperial')
+    html = client.get('/rides/r1').get_data(as_text=True)
+    assert '12°C' in html and '12 mph' in html and 'kph' not in html            # miles and mph, still °C: the default
+    assert client.post('/settings/', data={'tempUnit': 'F', 'units': 'imperial'}).status_code == 302
+    html = client.get('/rides/r1').get_data(as_text=True)
+    assert '54°F' in html and '°C' not in _what_a_reader_sees(html)
+    assert 'Speed vs Temperature (mph / °F)' in client.get('/data').get_data(as_text=True)
+    client.post('/settings/', data={'tempUnit': 'K', 'units': 'imperial'})        # nonsense keeps what's saved
+    assert '54°F' in client.get('/rides/r1').get_data(as_text=True)
+
+
+def test_weather_text_and_badge_wording():
+    t = 'Light rain, 9°C, wind 12kph (gusts 30kph)'
+    assert units.weather_text(t, 'metric', 'C') == 'Light rain, 9°C, wind 12 km/h (gusts 30 km/h)'
+    assert units.weather_text(t, 'imperial', 'F') == 'Light rain, 48°F, wind 7 mph (gusts 19 mph)'
+    assert units.weather_text('Ride when temp ≤ −5°C', 'imperial', 'C') == 'Ride when temp ≤ −5°C'
+    assert units.weather_text('Ride when temp ≤ −5°C', 'imperial', 'F') == 'Ride when temp ≤ 23°F'
+    assert units.weather_text('Ride when temp ≤ −20°C', 'metric', 'F') == 'Ride when temp ≤ −4°F'
+    assert units.weather_text('Ride into a 30+ kph headwind', 'imperial') == 'Ride into a 19+ mph headwind'
+    assert units.fmt_temp(None) == '—' and units.weather_text(None) is None
+
+
+def test_a_metric_riders_badges_count_against_the_round_figures_they_show(client):
+    assert [units.round_metric(v) for v in (8.05, 40.2, 48.3, 120.7, 152.4, 804.7, 1609.3, 16093, 40234)] == [8, 40, 50, 120, 150, 800, 1600, 16000, 40000]
+    assert units.localise('25 miles in one ride', 'metric') == '40 km in one ride' and units.localise('Ride with 500ft+ elevation', 'metric') == 'Ride with 150m+ elevation'
+    assert units.limit_dist(25, 'metric') == 40000 and units.limit_dist(25, 'imperial') == 25 * units.MI
+    assert units.limit_elev(500, 'metric') == 150 and round(units.limit_speed(30, 'metric') * 3.6, 6) == 48
+    from routes import riders
+    with client.application.app_context():
+        db = database.get_db()
+        db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, averageSpeed, maxSpeed, totalElevationGain) "
+                   "VALUES ('long', 'Long one', 'Ride', 1, '2026-01-02T08:00:00', 40100, 5400, 7.4, 13.4, 151)", [])   # 40.1 km: short of 25 miles
+        db.commit()
+
+    def earned(system):
+        _set(client, units=system)
+        with client.application.test_request_context('/riders/1'):
+            cats = riders._count_badges(1, {'rides': 3, 'dist': 79900, 'elev': 751})
+        return {b['desc'] for c in cats for b in c['badges'] if b['earned']}
+    metric = earned('metric')
+    assert '40 km in one ride' in metric and 'Ride with 150m+ elevation' in metric and '48 km/h top speed' in metric
+    imperial = earned('imperial')
+    assert '25 miles in one ride' not in imperial and '30 mph top speed' not in imperial         # 40.1 km and 29.97 mph: short in miles

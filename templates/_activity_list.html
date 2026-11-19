@@ -1,7 +1,8 @@
 {# The activity list: the search form, then search results or the history tree (years, months, days), with the "Select" bar.
    Shared by the dashboard and the Activities page (routes/dashboard.py); list_path is the page it's on, so its links stay there.
    Needs list_path, rider_query, sf, active_rider, q, date_from, date_to, min_dist, max_dist, is_filtered, search_results, grouped,
-   activities, typed, back_url, clear_url, sport_choices, and the gear filter's gear, gear_choices, gear_types, row_picker and gear_pickers. #}
+   activities, typed, back_url, clear_url, sport_choices, the gear filter's gear, gear_choices, gear_types, row_picker and gear_pickers, and the
+   more filters' af (services/activity_filters), narrowed, result_ids, result_total, page, pages, prev_url and next_url. #}
 {% from '_activity_row.html' import activity_row, gear_row %}
 {% set rq = rider_query %}
 {% macro list_url(f, t) %}{{ list_path }}?{% if rq %}{{ rq }}&amp;{% endif %}from={{ f }}&amp;to={{ t }}#ride-history{% endmacro %}
@@ -37,6 +38,41 @@
     </select>
   </div>
   {% endif %}
+  <details class="more-filters"{% if af.on or af.sort != 'newest' %} open{% endif %}>
+    <summary>More filters{% if af.on %} · {{ af.on }} on{% endif %}</summary>
+    <div class="more-filters-grid">
+      {% for key, label, _ in af.data_choices %}
+      <div class="form-group-sm">
+        <label for="f-{{ key }}">{{ label }}</label>
+        <select name="{{ key }}" id="f-{{ key }}">
+          <option value="">Either</option>
+          <option value="1" {{ 'selected' if af.data.get(key) == '1' }}>With</option>
+          <option value="0" {{ 'selected' if af.data.get(key) == '0' }}>Without</option>
+        </select>
+      </div>
+      {% endfor %}
+      <div class="form-group-sm">
+        <label for="f-place">Indoors or out</label>
+        <select name="place" id="f-place">
+          <option value="">Either</option>
+          {% for key, label, _ in af.place_choices %}<option value="{{ key }}" {{ 'selected' if af.place == key }}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group-sm">
+        <label for="f-source">From</label>
+        <select name="source" id="f-source">
+          <option value="">Anywhere</option>
+          {% for key, label, _ in af.source_choices %}<option value="{{ key }}" {{ 'selected' if af.source == key }}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group-sm">
+        <label for="f-sort">Order</label>
+        <select name="sort" id="f-sort">
+          {% for key, label, _ in af.sort_choices %}<option value="{{ '' if key == 'newest' else key }}" {{ 'selected' if af.sort == key }}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+  </details>
   <div style="display:flex; gap:0.4rem;">
     <button type="submit" class="btn btn-primary btn-sm">Search</button>
     {% if is_filtered or gear %}
@@ -48,7 +84,7 @@
 <div class="card" id="ride-history" data-pick-list>
   <div class="card-title" style="display:flex; align-items:center; gap:0.5rem;">
     Activities
-    {% if is_filtered %}<span style="font-size:0.8125rem; font-weight:400; color:var(--text-muted); margin-left:0.5rem;">{{ search_results | length }} result{{ 's' if search_results | length != 1 }}</span>{% endif %}
+    {% if is_filtered %}<span style="font-size:0.8125rem; font-weight:400; color:var(--text-muted); margin-left:0.5rem;">{{ '{:,}'.format(result_total) }} result{{ 's' if result_total != 1 }}{% if pages > 1 %} · page {{ page }} of {{ pages }}{% endif %}</span>{% endif %}
     {% if activities %}<button type="button" class="btn btn-secondary pick-toggle" data-pick-toggle title="Pick several activities to delete, re-type, move or download">Select</button>{% endif %}
   </div>
 
@@ -62,17 +98,26 @@
   {% if typed %}{% set t = typed.split('|') %}<div style="margin:0.4rem 0 0.8rem; padding:0.5rem 0.8rem; border:1px solid var(--border); border-radius:8px; font-size:0.85rem;">{{ t[0] }} activit{{ 'y' if t[0] == '1' else 'ies' }} changed to {{ t[2] }}{% if t[1] != '0' %}, {{ t[1] }} could not be changed{% endif %}.</div>{% endif %}
   {% if is_filtered %}
   {% if search_results %}
+  {% if narrowed %}
   <form method="POST" action="/rides/bulk-sport" style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; margin:0.2rem 0 0.8rem; padding:0.55rem 0.8rem; border:1px solid var(--border); border-radius:8px;"
-        onsubmit="return confirm('Change the type of these ' + {{ search_results | length }} + ' activities to ' + this.sport.options[this.sport.selectedIndex].text + '?')">
-    <input type="hidden" name="ids" value="{{ search_results | map(attribute='id') | join(',') }}">
+        onsubmit="return confirm('Change the type of these ' + {{ result_total }} + ' activities to ' + this.sport.options[this.sport.selectedIndex].text + '?')">
+    <input type="hidden" name="ids" value="{{ result_ids | join(',') }}">
     <input type="hidden" name="back" value="{{ back_url }}">
-    <span style="font-size:0.8125rem; color:var(--text-muted);">Change the type of all {{ search_results | length }} results to</span>
+    <span style="font-size:0.8125rem; color:var(--text-muted);">Change the type of all {{ '{:,}'.format(result_total) }} results to</span>
     <select name="sport" style="font-size:0.8125rem;">{% for v, l in sport_choices %}<option value="{{ v }}">{{ l }}</option>{% endfor %}</select>
     <button class="btn btn-secondary btn-sm" type="submit">Change type</button>
   </form>
+  {% endif %}
   <div>
     {% for a in search_results %}{% if row_picker %}{{ gear_row(a, gear_pickers, back_url) }}{% else %}{{ activity_row(a) }}{% endif %}{% endfor %}
   </div>
+  {% if pages > 1 %}
+  <nav class="pager" aria-label="Pages">
+    {% if prev_url %}<a class="btn btn-secondary btn-sm" href="{{ prev_url }}">‹ Previous</a>{% endif %}
+    <span>Page {{ page }} of {{ pages }}</span>
+    {% if next_url %}<a class="btn btn-secondary btn-sm" href="{{ next_url }}">Next ›</a>{% endif %}
+  </nav>
+  {% endif %}
   {% else %}
   <p class="hint" style="margin:0.5rem 0;">No activities match your filters.</p>
   {% endif %}

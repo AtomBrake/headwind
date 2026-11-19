@@ -127,6 +127,11 @@ def index():
                 flash(f'There is no CA file at {ca_file} on this server, so the broker connection will fail until there is.', 'error')
         if form.get('appearance') in APPEARANCES:       # anything else keeps what is saved
             db.execute('UPDATE Settings SET appearance=? WHERE id=1', [form['appearance']])
+        if form.get('tempUnit') in ('C', 'F'):          # services/units.TEMP_UNITS; anything else keeps what is saved
+            db.execute('UPDATE Settings SET tempUnit=? WHERE id=1', [form['tempUnit']])
+        if 'favouritesShown' in form:                   # the Display card, the only form with it: no box ticked posts no favourite
+            from services import favourites
+            favourites.save(db, request.form.getlist('favourite'))
         if 'timeZone' in form:                          # blank = the server's zone
             from services import tz
             zone = form['timeZone'].strip()
@@ -156,12 +161,17 @@ def index():
     from services import tz
     from services import backup, downloads, garmin, tasks
     last_backup = tasks.last(get_db(), f'download:{backup.KIND}')        # the size of the last one, said on the card
+    from services import favourites, page_facts
+    facts = page_facts.get()
+    owner = facts['ownerId'] if facts else (query_db('SELECT id FROM Rider WHERE isDefault=1 ORDER BY id LIMIT 1', one=True) or [None])[0]
     return render_template('settings.html', s=s, openai_models=OPENAI_MODELS, zones=tz.names(), server_zone=tz.server_zone_name(),
                            claude_models=CLAUDE_MODELS, garmin_on=garmin.connected(s),
                            current_username=current_username, min_password=credentials.MIN_PASSWORD, build_time=build_time,
                            app_version=__version__, backup_job=downloads.status(backup.KIND),
                            last_backup=last_backup if last_backup and last_backup['status'] == 'done' else None,
-                           address=external_url.describe(s), browser_url=request.host_url.rstrip('/'))
+                           address=external_url.describe(s), browser_url=request.host_url.rstrip('/'),
+                           favourite_choices=favourites.choices(get_db(), owner) if owner else [],
+                           favourites_on=favourites.parse(s['favouriteSports'] if s else None))
 
 
 @bp.route('/address', methods=['POST'])

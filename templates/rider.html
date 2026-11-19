@@ -140,11 +140,11 @@
       <tbody>
         {% if best_by_dist %}
         {% if sport_bests %}<tr><td colspan="3" style="{{ head }}">Rides</td></tr>{% endif %}
-        {% for dist in brackets %}
+        {% for dist, label in brackets %}
           {% if dist in best_by_dist %}
           {% set e = best_by_dist[dist] %}
           <tr>
-            <td style="font-weight:600;"><a href="/rides/{{ e.activityId }}">{{ (dist * 1609.344) | fmt_dist(0 if units != 'metric' else 1) }}</a></td>
+            <td style="font-weight:600;"><a href="/rides/{{ e.activityId }}">{{ label }}</a></td>
             <td class="num" style="font-weight:600; color:var(--accent);">
               {{ e.elapsedSecs | fmt_duration }}
             </td>
@@ -242,6 +242,8 @@
 {% if recent %}
 <div class="card" data-pick-list>
   <div class="card-title" style="display:flex; align-items:center; gap:0.5rem;">Recent Rides
+    <a href="{{ url_for('dashboard.activities_page', rider=None if rider.isDefault else rider.id) }}" style="font-size:0.8125rem; font-weight:400; text-transform:none; letter-spacing:0;"
+       title="Every activity of {{ rider.name }}'s, with the search, sport and more filters">All activities ›</a>
     <button type="button" class="btn btn-secondary pick-toggle" data-pick-toggle>Select</button></div>
   <div>{% for a in recent %}{{ activity_row(a) }}{% endfor %}</div>
 </div>

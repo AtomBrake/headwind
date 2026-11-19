@@ -63,10 +63,11 @@ def _same_sport(saved, new):
     return new == saved or new == from_type(saved)
 
 
-def _propose(db, rider_id, rows, types):
+def _propose(db, rider_id, rows, types, only_generic=()):
     """Write down a proposal for each of `rows` ({id: Activity row}) whose sport isn't the one its Garmin type (`types`: {id: typeKey}) gives,
-    unless the rider has already said to keep it. Returns how many."""
-    from services.sports import RIDES
+    unless the rider has already said to keep it. For the ids in `only_generic`, only when the activity has no sport in particular (Other,
+    Workout) and Garmin's type is a sport of its own that isn't a ride. Returns how many."""
+    from services.sports import GENERIC, RIDES, is_ride
     from services.garmin import garmin_sport
     kept = {r[0] for r in db.execute("SELECT rideId FROM SportFix WHERE status='kept'")}
     proposed = 0
@@ -75,6 +76,10 @@ def _propose(db, rider_id, rows, types):
         if not key or _same_sport(r['sportType'], new) or aid in kept:
             continue
         if new == 'Ride' and r['sportType'] in RIDES:      # a ride already labelled more closely (indoor, e-bike, mountain, gravel) stays so
+            continue
+        if new in GENERIC and not is_ride(r['sportType']):   # Garmin's "other" says nothing better than the workout's own sport
+            continue
+        if aid in only_generic and (r['sportType'] not in GENERIC or is_ride(new)):
             continue
         db.execute('INSERT OR REPLACE INTO SportFix (rideId, riderId, name, startDateLocal, distance, oldSport, newSport, typeKey) VALUES (?,?,?,?,?,?,?,?)',
                    [aid, rider_id, r['name'], r['startDateLocal'], r['distance'], r['sportType'], new, key])
@@ -86,7 +91,11 @@ def from_seen(db):
     """Every start, without asking Garmin: what the sync last read from Garmin's list for each activity (GarminSeen, services/garmin_changes)
     already has its type, so a Garmin activity saved with another sport is proposed the way scan proposes it. That catches the ones saved before
     Headwind knew their type (e-bike rides saved as rides before 0.7.3) and never mapped again. Proposals made stale by a change of sport since,
-    or by the activity going, are dropped. Friends' activities are left alone. Does not commit. Returns {rider id: proposals added}."""
+    or by the activity going, are dropped. Friends' activities are left alone. Does not commit. Returns {rider id: proposals added}.
+
+    A Garmin ride changed into a workout before every sport was a row of Activity has an id of its own, and the Garmin one in originId
+    (services/origin.py). Those are matched too, but only proposed when they were given no sport in particular: the older sync saved HIIT,
+    yoga and strength sessions as rides, and the type check of the day could only make them Other. A sport picked for one by hand stays."""
     from services import garmin_changes
     garmin_changes.ensure_schema(db)
     db.execute("""DELETE FROM SportFix WHERE status='pending' AND NOT EXISTS (SELECT 1 FROM Activity a WHERE a.id = SportFix.rideId
@@ -95,10 +104,13 @@ def from_seen(db):
         if _same_sport(r['oldSport'], r['newSport']):       # proposed before _same_sport knew another name for one sport
             db.execute('DELETE FROM SportFix WHERE rideId=?', [r['rideId']])
     pending = {r[0] for r in db.execute("SELECT rideId FROM SportFix WHERE status='pending'")}
-    by_rider = {}
-    for r in db.execute(r"""SELECT a.id, a.riderId, a.name, a.startDateLocal, a.distance, a.sportType, s.summary FROM Activity a
-                            JOIN GarminSeen s ON a.id = 'garmin_' || s.garminId
-                            WHERE a.riderId IS NOT NULL AND a.riderId NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)"""):
+    by_rider, converted = {}, set()
+    cols = 'a.id, a.riderId, a.name, a.startDateLocal, a.distance, a.sportType, s.summary'
+    not_friends = 'a.riderId IS NOT NULL AND a.riderId NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)'
+    for r in db.execute(rf"""SELECT {cols}, 0 AS conv FROM Activity a JOIN GarminSeen s ON a.id = 'garmin_' || s.garminId WHERE {not_friends}
+                             UNION ALL
+                             SELECT {cols}, 1 FROM Activity a JOIN GarminSeen s ON a.originId = 'garmin_' || s.garminId
+                             WHERE a.id NOT LIKE 'garmin\_%' ESCAPE '\' AND {not_friends}"""):
         if r['id'] in pending:
             continue
         try:
@@ -107,9 +119,11 @@ def from_seen(db):
             continue
         rows, types = by_rider.setdefault(r['riderId'], ({}, {}))
         rows[r['id']], types[r['id']] = r, key
+        if r['conv']:
+            converted.add(r['id'])
     out = {}
     for rider_id, (rows, types) in by_rider.items():
-        n = _propose(db, rider_id, rows, types)
+        n = _propose(db, rider_id, rows, types, only_generic=converted)
         if n:
             out[rider_id] = n
     if out:
@@ -149,7 +163,7 @@ def apply(db, rider_id, ride_ids):
             kept += 1
             continue
         try:
-            convert.change_sport(db, 'ride', p['rideId'], p['newSport'], discard_parked=True)
+            convert.change_sport(db, None, p['rideId'], p['newSport'], discard_parked=True)     # a workout saved as Other, too
             db.execute('DELETE FROM SportFix WHERE rideId=?', [p['rideId']])
             changed += 1
         except ValueError as e:                     # gone already
@@ -212,8 +226,11 @@ def fix_misfiled(db):
 def fix_spellings(db):
     """Every start, cheap when there is nothing to do: activities saved under Strava's name for a sport Headwind has a name of its own for
     (sports.STRAVA_NAMES: an older Strava import's "Virtual Ride" beside the Garmin sync's VirtualRide) take Headwind's, so the sport filter
-    shows the sport once. Nothing else needs doing: every sport test reads both spellings alike, and gear defaults are kept under a key that does.
-    Does not commit. Returns {Strava's name: activities renamed}."""
+    shows the sport once. Every sport test reads a spelling and Headwind's name alike, and gear defaults are kept under a key that does
+    (kit.sport_key), except for the sports that are more than a spelling: Strava's "Weight Training" is Strength here, so a default for it
+    moves to Strength's key (one Strength already has stays). Does not commit. Returns {Strava's name: activities renamed}."""
+    import sqlite3
+    from services.kit import sport_key
     from services.sports import STRAVA_NAMES
     out = {}
     for strava, ours in STRAVA_NAMES.items():
@@ -221,6 +238,13 @@ def fix_spellings(db):
         db.execute('UPDATE Activity SET type=? WHERE type=?', [ours, strava])
         if n:
             out[strava] = n
+        if sport_key(strava) != sport_key(ours):
+            for table in ('KitDefault', 'BikeDefault'):
+                try:
+                    db.execute(f'UPDATE OR IGNORE {table} SET sport=? WHERE sport=?', [sport_key(ours), sport_key(strava)])
+                    db.execute(f'DELETE FROM {table} WHERE sport=?', [sport_key(strava)])
+                except sqlite3.OperationalError:        # a bare database: no gear tables yet
+                    pass
     if out:
         log.warning('Sport fix: Strava spellings renamed: %s', ', '.join(f'{s} ({n})' for s, n in out.items()))
     return out

@@ -40,6 +40,8 @@ def test_canonical():
     assert [sports.canonical(s) for s in ('VirtualRide', 'Ride', 'Trail Run', 'E-Mountain Bike Ride', '', None)] == \
         ['VirtualRide', 'Ride', 'Trail Run', 'E-Mountain Bike Ride', '', None]          # no name of Headwind's for these: kept as they are
     for strava, ours in sports.STRAVA_NAMES.items():                                       # the same sport to every test that reads one
+        if ours in sports.NO_DISTANCE:                                                       # more than a spelling: tested below
+            continue
         assert (sports.is_ride(strava), sports.is_virtual(strava), sports.is_ebike(strava), sports.segment_family(strava), sports.stat_group(strava)) == \
                (sports.is_ride(ours), sports.is_virtual(ours), sports.is_ebike(ours), sports.segment_family(ours), sports.stat_group(ours))
 
@@ -79,3 +81,20 @@ def test_a_friend_on_an_older_headwind_is_saved_with_headwinds_name_and_not_chan
     aid, kind = friends._store_ride(db, 1, 1, obj)
     assert kind == 'new' and sport_of(db, aid) == ('VirtualRide', 'VirtualRide')
     assert friends._store_ride(db, 1, 1, obj)[1] is None
+
+
+def test_stravas_weight_training_and_hiit_are_strength_and_hiit_and_their_defaults_follow(db):
+    from services import kit
+    assert [sports.canonical(s) for s in ('Weight Training', 'Crossfit', 'High Intensity Interval Training', 'Yoga', 'Workout', 'Pilates')] == \
+        ['Strength', 'Strength', 'HIIT', 'Yoga', 'Workout', 'Pilates']
+    assert all(sports.from_type(s) == o for s, o in sports.STRAVA_NAMES.items() if o in sports.NO_DISTANCE)    # what a file of theirs gets
+    add(db, 'gym', 'Weight Training'); add(db, 'box', 'Crossfit'); add(db, 'hiit', 'High Intensity Interval Training'); add(db, 'flow', 'Yoga')
+    gloves, shoes = kit.create(db, 1, 'Gloves', kind='other'), kit.create(db, 1, 'Lifters', kind='shoes')
+    db.execute("INSERT INTO KitDefault (riderId, sport, kitId) VALUES (1, 'WeightTraining', ?), (1, 'Crossfit', ?), (1, 'Strength', ?)",
+               [gloves, gloves, shoes])
+    db.commit()
+    assert sport_fix.fix_spellings(db) == {'Weight Training': 1, 'Crossfit': 1, 'High Intensity Interval Training': 1}
+    assert [sport_of(db, a)[0] for a in ('gym', 'box', 'hiit', 'flow')] == ['Strength', 'Strength', 'HIIT', 'Yoga']
+    assert [tuple(r) for r in db.execute('SELECT sport, kitId FROM KitDefault ORDER BY sport')] == [('Strength', shoes)]    # the one Strength had stays
+    run_import(db, [row('w', 'Oct 17, 2026', 'Weight Training', km=0)])
+    assert sport_of(db, 'w') == ('Strength', 'Strength')

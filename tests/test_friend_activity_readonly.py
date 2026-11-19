@@ -82,6 +82,8 @@ def test_your_own_ride_page_still_has_every_control(client):
     ('/rides/f1_r1/flag/dismiss', {}),
     ('/rides/f1_r1/scan', {}),
     ('/rides/f1_r1/photos', {}),
+    ('/rides/f1_r1/photos/order', {'id': ['1']}),
+    ('/rides/f1_r1/photos/1/caption', {'caption': 'Mine'}),
     ('/rides/f1_r1/kudos', {}),
 ])
 def test_changing_a_friends_ride_is_refused(client, path, data):

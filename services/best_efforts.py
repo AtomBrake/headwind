@@ -6,6 +6,43 @@ log = logging.getLogger(__name__)
 
 BRACKETS_MI = [5, 10, 20, 30, 50, 75, 100]
 BRACKETS_M  = [mi * 1609.344 for mi in BRACKETS_MI]
+BRACKETS_KM = [5, 10, 20, 40, 50, 100, 160]              # a metric rider's: round kilometres, kept beside the miles (BestEffortKm)
+
+
+class EffortSet:
+    """One set of ride best efforts: the table, its distance column, the brackets in that unit and the metres in one."""
+    def __init__(self, table, col, brackets, unit_m):
+        self.table, self.col, self.brackets, self.unit_m = table, col, brackets, unit_m
+
+    def metres(self, d):
+        return d * self.unit_m
+
+
+SETS = {'imperial': EffortSet('BestEffort', 'distanceMi', BRACKETS_MI, 1609.344), 'metric': EffortSet('BestEffortKm', 'distanceKm', BRACKETS_KM, 1000.0)}
+TABLES = tuple(s.table for s in SETS.values())             # every table an activity's ride best efforts are in: delete from each
+
+
+def effort_set(system):
+    """The set the rider's units pick (services/units.current(), passed in: the file reader imports this module and shouldn't need units)."""
+    return SETS.get(system, SETS['imperial'])
+
+
+def ensure_schema(db):
+    db.execute('''CREATE TABLE IF NOT EXISTS BestEffortKm (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        activityId   TEXT NOT NULL,
+        activityDate TEXT NOT NULL,
+        distanceKm   REAL NOT NULL,
+        elapsedSecs  INTEGER NOT NULL,
+        avgSpeedMps  REAL,
+        UNIQUE(activityId, distanceKm)
+    )''')
+
+
+def delete_for(db, where, params=()):
+    """Remove the ride best efforts of the activities `where` picks (SQL on activityId) from every set. Does not commit."""
+    for table in TABLES:
+        db.execute(f'DELETE FROM {table} WHERE {where}', list(params))
 
 
 def _haversine(lat1, lon1, lat2, lon2):
@@ -99,41 +136,67 @@ def fastest(d, t, target):
     return best
 
 
-def compute_best_efforts(streams_json):
-    """[{distanceMi, elapsedSecs, avgSpeedMps}] for each bracket the ride is long enough to contain (effort_series: impossible stretches left out)."""
+def compute_best_efforts(streams_json, sets='imperial'):
+    """{system: [{distance, elapsedSecs, avgSpeedMps}]} for each bracket of each set the ride is long enough to contain (effort_series: impossible
+    stretches left out); distance is in the set's unit. One set given as a string gives its list alone, with the miles as distanceMi."""
+    one = isinstance(sets, str)
+    out = {k: [] for k in ([sets] if one else sets)}
     try:
         streams = json.loads(streams_json or '{}')
     except Exception:
-        return []
-    d, t = effort_series(streams, CEILING_MPS['ride'])
-    if not d:
-        return []
-    results = []
-    for dist_mi, target_m in zip(BRACKETS_MI, BRACKETS_M):
-        best_secs = fastest(d, t, target_m)
-        if best_secs is None:
-            if d[-1] - d[0] < target_m:
-                break
-            continue
-        results.append({'distanceMi': dist_mi, 'elapsedSecs': best_secs, 'avgSpeedMps': target_m / best_secs})
-    return results
+        streams = {}
+    d, t = effort_series(streams, CEILING_MPS['ride']) if streams else ([], [])
+    for k in (out if d else ()):
+        es = SETS[k]
+        for dist in es.brackets:
+            target_m = es.metres(dist)
+            best_secs = fastest(d, t, target_m)
+            if best_secs is None:
+                if d[-1] - d[0] < target_m:
+                    break
+                continue
+            out[k].append({'distance': dist, 'elapsedSecs': best_secs, 'avgSpeedMps': target_m / best_secs})
+    if one:
+        return [dict(e, distanceMi=e['distance']) for e in out[sets]] if sets == 'imperial' else out[sets]
+    return out
 
 
-def save_best_efforts(db, activity_id, activity_date, streams_json):
-    """Compute and upsert best efforts for one activity. Does not commit."""
-    efforts = compute_best_efforts(streams_json)
+def save_best_efforts(db, activity_id, activity_date, streams_json, sets=tuple(SETS)):
+    """Compute and store one activity's best efforts, in miles and in kilometres (or the `sets` given). Does not commit. Returns how many there
+    are in miles (in km when only those were asked for)."""
     date_str = str(activity_date or '')[:10]
-    db.execute('DELETE FROM BestEffort WHERE activityId=?', [activity_id])       # a bracket it no longer reaches must not keep an old time
-    for e in efforts:
-        db.execute('''
-            INSERT INTO BestEffort (activityId, activityDate, distanceMi, elapsedSecs, avgSpeedMps)
-            VALUES (?,?,?,?,?)
-            ON CONFLICT(activityId, distanceMi) DO UPDATE SET
-                elapsedSecs=excluded.elapsedSecs,
-                avgSpeedMps=excluded.avgSpeedMps,
-                activityDate=excluded.activityDate
-        ''', [activity_id, date_str, e['distanceMi'], e['elapsedSecs'], e['avgSpeedMps']])
-    return len(efforts)
+    found = compute_best_efforts(streams_json, tuple(sets))
+    for k, efforts in found.items():
+        es = SETS[k]
+        db.execute(f'DELETE FROM {es.table} WHERE activityId=?', [activity_id])      # a bracket it no longer reaches must not keep an old time
+        for e in efforts:
+            db.execute(f'''
+                INSERT INTO {es.table} (activityId, activityDate, {es.col}, elapsedSecs, avgSpeedMps)
+                VALUES (?,?,?,?,?)
+                ON CONFLICT(activityId, {es.col}) DO UPDATE SET
+                    elapsedSecs=excluded.elapsedSecs,
+                    avgSpeedMps=excluded.avgSpeedMps,
+                    activityDate=excluded.activityDate
+            ''', [activity_id, date_str, e['distance'], e['elapsedSecs'], e['avgSpeedMps']])
+    return len(found.get('imperial', found.get('metric', [])))
+
+
+def fill_km(db):
+    """Once (Settings.bestEffortsKmDone), in the background after start-up: every ride's best efforts in kilometres, which rides saved before
+    there were any lack. Commits every 50, so no write is held open across the whole history. Returns how many rides were read, or None when
+    it has been done."""
+    s = db.execute('SELECT bestEffortsKmDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['bestEffortsKmDone']:
+        return None
+    ids = [r[0] for r in db.execute("SELECT id FROM Ride WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')")]
+    for i in range(0, len(ids), 50):
+        chunk = ids[i:i + 50]
+        for r in db.execute(f"SELECT id, startDateLocal, streams FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
+            save_best_efforts(db, r['id'], r['startDateLocal'], r['streams'], sets=('metric',))
+        db.commit()
+    db.execute('UPDATE Settings SET bestEffortsKmDone=1 WHERE id=1')
+    db.commit()
+    return len(ids)
 
 
 def scan_all_best_efforts(db):

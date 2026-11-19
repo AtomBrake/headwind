@@ -721,7 +721,7 @@
         <div class="form-group"><label>Daily steps goal</label><input type="number" id="sgSteps" min="1000" step="500" inputmode="numeric"></div>
       </div>
       <div class="form-grid">
-        <div class="form-group"><label>Loss rate (lb/week)</label><input type="number" id="sgLoss" min="0" max="2.5" step="0.25" inputmode="decimal"></div>
+        <div class="form-group"><label id="sgLossLabel" for="sgLoss">Loss rate (lb/week)</label><input type="number" id="sgLoss" min="0" max="2.5" step="0.25" inputmode="decimal"></div>
       </div>
       <div class="form-grid">
         <div class="form-group"><label>Typical rides (kcal / week)</label><input type="number" id="sgRides" min="0" step="100" inputmode="numeric"></div>
@@ -1837,10 +1837,24 @@ async function sgLoad() {
   document.getElementById('sgHeight').value = p.height_cm || '';
   document.getElementById('sgRides').value = p.ride_kcal_week;
   document.getElementById('sgRideGoal').value = p.ride_goal_week;
-  document.getElementById('sgLoss').value = p.loss_lb_week;
+  sgLossShow(p.loss_lb_week, d.weight_unit);
   document.getElementById('sgSteps').value = p.step_goal;
   document.getElementById('sgAuto').checked = !!p.auto;
   sgRender(d.plan, d.current);
+}
+// The loss rate is kept in lb a week, and shown and typed in kg a week when weights are shown in kg (0.25-1.1 kg for 0.5-2.5 lb)
+const SG_KG_PER_LB = 0.45359237;
+function sgLossShow(lb, unit) {
+  const kg = unit === 'kg', box = document.getElementById('sgLoss');
+  document.getElementById('sgLossLabel').textContent = kg ? 'Loss rate (kg/week)' : 'Loss rate (lb/week)';
+  box.max = kg ? 1.1 : 2.5; box.step = kg ? 0.05 : 0.25; box.dataset.unit = kg ? 'kg' : 'lb';
+  box.value = lb == null || lb === '' ? '' : (kg ? Math.round(lb * SG_KG_PER_LB * 20) / 20 : lb);
+  box.dataset.lb = box.value === '' ? '' : lb; box.dataset.shown = box.value;       // the exact lb, while the figure shown is left alone
+}
+function sgLossLb() {
+  const box = document.getElementById('sgLoss'), v = parseFloat(box.value);
+  if (box.value === box.dataset.shown && box.dataset.lb !== '') return parseFloat(box.dataset.lb);
+  return isNaN(v) ? '' : (box.dataset.unit === 'kg' ? Math.round(v / SG_KG_PER_LB * 1000) / 1000 : v);
 }
 function sgBornShow(p) {
   document.getElementById('sgBorn').value = (!p.birth_date_guessed && p.birth_date) || '';
@@ -1861,7 +1875,7 @@ function sgRender(pl, cur) {
 async function sgSave() {
   const r = await fetch('/nutrition/api/goal-profile', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
     sex: document.getElementById('sgSex').value, birth_date: document.getElementById('sgBorn').value, height_cm: document.getElementById('sgHeight').value,
-    ride_kcal_week: document.getElementById('sgRides').value, ride_goal_week: document.getElementById('sgRideGoal').value, loss_lb_week: document.getElementById('sgLoss').value,
+    ride_kcal_week: document.getElementById('sgRides').value, ride_goal_week: document.getElementById('sgRideGoal').value, loss_lb_week: sgLossLb(),
     step_goal: document.getElementById('sgSteps').value, auto: document.getElementById('sgAuto').checked }) });
   const d = await r.json();
   if (!r.ok) { document.getElementById('sgPlan').textContent = d.error; return; }
@@ -1944,7 +1958,9 @@ document.getElementById('saveGoals').addEventListener('click', async () => {
       goalWeightKg:  gGoalKg(),
     }),
   });
+  const lossLb = sgLossLb();
   weightUnit = document.getElementById('gWeightUnit').value;
+  sgLossShow(lossLb, weightUnit);
   document.getElementById('goalsModal').classList.remove('open');
   loadDay();
 });

@@ -78,7 +78,8 @@ def recheck_away_starts(db):
 
 _WEATHER = ('weatherTempC', 'weatherWindKph', 'weatherGustKph', 'weatherWindDir', 'weatherHumidity', 'weatherRainMm', 'weatherCode', 'weatherSummary',
             'weatherWindRel')
-_DATED = (('BestEffort', 'activityId', 'activityDate'), ('SegmentEffort', 'activityId', 'activityDate'), ('SportEffort', 'activityId', 'activityDate'),
+_DATED = (('BestEffort', 'activityId', 'activityDate'), ('BestEffortKm', 'activityId', 'activityDate'), ('SegmentEffort', 'activityId', 'activityDate'),
+          ('SportEffort', 'activityId', 'activityDate'),
           ('RideMemory', 'rideId', 'rideDate'))
 
 

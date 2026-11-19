@@ -27,6 +27,10 @@ LABELS = {'VirtualRide': 'Indoor ride', 'EBikeRide': 'E-bike ride', 'MountainBik
 # Strava's names for sports Headwind has a name of its own for: saved under Headwind's (canonical), so one sport is never two in the sport filter
 STRAVA_NAMES = {'Virtual Ride': 'VirtualRide', 'Virtual Run': 'VirtualRun', 'E-Bike Ride': 'EBikeRide', 'Mountain Bike Ride': 'MountainBikeRide',
                 'Gravel Ride': 'GravelRide'}
+# ... and for the timed-only ones (NO_DISTANCE), which aren't merely spelt differently: renamed, they lose a distance and pace and take Strength's
+# MET figure and stat group, as from_type already gives a file of theirs. Strava's "Workout" and "Pilates" stay as they are: no sport in particular.
+STRAVA_NAMES.update({'Weight Training': 'Strength', 'WeightTraining': 'Strength', 'Crossfit': 'Strength',
+                     'High Intensity Interval Training': 'HIIT', 'HighIntensityIntervalTraining': 'HIIT'})
 
 FAMILIES = ('ride', 'foot')
 FAMILY_LABELS = {'ride': 'Ride', 'foot': 'On foot'}
@@ -141,7 +145,7 @@ _TYPE_NEEDLES = (('run', 'Run'), ('walk', 'Walk'), ('hik', 'Hike'), ('mountainee
                  # Apple's TraditionalStrengthTraining / FunctionalStrengthTraining / CoreTraining / HighIntensityIntervalTraining / Yoga.
                  # Pilates and Apple's MindAndBody stay Other: neither is quite yoga.
                  ('strength', 'Strength'), ('weight', 'Strength'), ('crossfit', 'Strength'), ('coretraining', 'Strength'), ('core_training', 'Strength'),
-                 ('hiit', 'HIIT'), ('highintensity', 'HIIT'), ('high_intensity', 'HIIT'), ('yoga', 'Yoga'))
+                 ('hiit', 'HIIT'), ('highintensity', 'HIIT'), ('high_intensity', 'HIIT'), ('high intensity', 'HIIT'), ('yoga', 'Yoga'))
 _INDOOR_SUBS = ('indoor_cycling', 'virtual_activity')
 _INDOOR_RUN_SUBS = ('treadmill', 'indoor_running', 'virtual_activity')
 

@@ -7,7 +7,6 @@ from flask import Blueprint, abort, flash, redirect, render_template, request, u
 
 from database import get_db, query_db
 from services import limits
-from services.best_efforts import BRACKETS_MI
 
 bp = Blueprint('riders', __name__)
 
@@ -20,13 +19,13 @@ _BADGES_LOCK = threading.Lock()   # page threads and the MQTT heartbeat share it
 
 
 def _badge_key(rid, totals):
-    """What a rider's badges depend on: the database, the rider, the totals passed in, the units they're worded in, and the version of the tables
+    """What a rider's badges depend on: the database, the rider, the totals passed in, the units they're worded and counted in, and the version of the tables
     they are counted from (services/data_version.py). None when the version can't be read: then nothing is kept."""
     from services import data_version, units
     v = data_version.current(get_db())
     if v is None:
         return None
-    return (current_app.config.get('DATABASE'), rid, tuple(totals[k] for k in ('rides', 'dist', 'elev')), units.current(), v)
+    return (current_app.config.get('DATABASE'), rid, tuple(totals[k] for k in ('rides', 'dist', 'elev')), units.current(), units.temp_unit(), v)
 
 
 def _compute_badges(rid, totals):
@@ -66,7 +65,6 @@ def _count_badges(rid, totals):
     total_rides   = totals['rides'] or 0                # every ride, indoors too: the profile's count
     total_dist_m  = out_totals['dist'] or 0
     total_elev_m  = out_totals['elev'] or 0
-    total_dist_mi = total_dist_m / 1609.344
     total_elev_ft = total_elev_m * 3.28084
     everests      = total_elev_m / 8849
 
@@ -76,14 +74,14 @@ def _count_badges(rid, totals):
             [rid, n - 1], one=True)
         return (row['startDateLocal'][:10], row['id']) if row else (None, None)
 
-    def _dist_milestone(threshold_mi):
+    def _dist_milestone(threshold_m):
         row = query_db('''
             SELECT id, startDateLocal FROM (
                 SELECT id, startDateLocal,
                        SUM(distance) OVER (ORDER BY startDateLocal) as running
                 FROM Ride WHERE riderId=? AND {outdoor}
             ) WHERE running >= ? LIMIT 1
-        '''.format(outdoor=outdoor), [rid, threshold_mi * 1609.344], one=True)
+        '''.format(outdoor=outdoor), [rid, threshold_m], one=True)
         return (row['startDateLocal'][:10], row['id']) if row else (None, None)
 
     def _elev_milestone(threshold_m):
@@ -135,11 +133,10 @@ def _count_badges(rid, totals):
     max_dist_mi   = (peak['max_dist']  or 0) / 1609.344
     max_elev_ft   = (peak['max_elev']  or 0) * 3.28084
     max_speed_mph = (peak['max_speed'] or 0) * 2.23694
-    top_speed_mph = (peak['top_speed'] or 0) * 2.23694
 
     def _fts(mph):  # first ride hitting top speed threshold
-        d, i = _first_ride('maxSpeed >= ?', [mph / 2.23694])
-        return {'earned': top_speed_mph >= mph, 'earned_date': d, 'ride_id': i}
+        d, i = _first_ride('maxSpeed >= ?', [units.limit_speed(mph)])
+        return {'earned': (peak['top_speed'] or 0) >= units.limit_speed(mph), 'earned_date': d, 'ride_id': i}
 
     wx = query_db(f'''
         SELECT MIN(weatherTempC) as min_temp FROM Ride
@@ -166,10 +163,11 @@ def _count_badges(rid, totals):
         d, i = _nth_ride(n) if total_rides >= n else (None, None)
         return {'earned': total_rides >= n, 'earned_date': d, 'ride_id': i,
                 'progress': total_rides, 'target': n}
-    def _dm(mi):  # distance milestone helper
-        d, i = _dist_milestone(mi) if total_dist_mi >= mi else (None, None)
-        return {'earned': total_dist_mi >= mi, 'earned_date': d, 'ride_id': i,
-                'progress': round(units.dist(total_dist_mi * units.MI)), 'target': round(units.dist(mi * units.MI))}
+    def _dm(mi):  # distance milestone helper: miles, or the round km for a metric rider (units.limit_dist)
+        m = units.limit_dist(mi)
+        d, i = _dist_milestone(m) if total_dist_m >= m else (None, None)
+        return {'earned': total_dist_m >= m, 'earned_date': d, 'ride_id': i,
+                'progress': round(units.dist(total_dist_m)), 'target': round(units.dist(m))}
     def _em(m):   # elevation milestone helper
         d, i = _elev_milestone(m) if everests >= m / 8849 else (None, None)
         ev_target = round(m / 8849, 1)
@@ -180,8 +178,8 @@ def _count_badges(rid, totals):
         return {'earned': bool(d), 'earned_date': d, 'ride_id': i}
     from services import units
     from services.sports import class_sql
-    def _b(icon, name, desc, r):   # the limits are in miles / mph / feet; the wording follows the rider's units
-        return {'icon': icon, 'name': units.localise(name), 'desc': units.localise(desc), **r}
+    def _b(icon, name, desc, r):   # the limits are in miles / mph / feet, °C and km/h; the wording follows the rider's units
+        return {'icon': icon, 'name': units.localise(name), 'desc': units.weather_text(units.localise(desc)), **r}
 
     ride_count = [
         _b('🚴', 'First Pedal',     '1 ride',           _rc(1)),
@@ -217,59 +215,59 @@ def _count_badges(rid, totals):
     ]
     epic_rides = [
         # ── Single ride milestones ─────────────────────────────────
-        _b('🌟', 'Quarter Century', '25 miles in one ride',  _fr('distance >= ?', [25  * 1609.344])),
-        _b('💎', 'Half Century',    '50 miles in one ride',  _fr('distance >= ?', [50  * 1609.344])),
-        _b('🔥', '75 Miler',        '75 miles in one ride',  _fr('distance >= ?', [75  * 1609.344])),
-        _b('👑', 'Century Club',    '100 miles in one ride', _fr('distance >= ?', [100 * 1609.344])),
+        _b('🌟', 'Quarter Century', '25 miles in one ride',  _fr('distance >= ?', [units.limit_dist(25)])),
+        _b('💎', 'Half Century',    '50 miles in one ride',  _fr('distance >= ?', [units.limit_dist(50)])),
+        _b('🔥', '75 Miler',        '75 miles in one ride',  _fr('distance >= ?', [units.limit_dist(75)])),
+        _b('👑', 'Century Club',    '100 miles in one ride', _fr('distance >= ?', [units.limit_dist(100)])),
         # ── 25mi ride count ────────────────────────────────────────
-        _b('🎯', '5 × 25mi',   '5 rides of 25+ miles',   _wc(5,   'distance >= ?', [25 * 1609.344])),
-        _b('📍', '10 × 25mi',  '10 rides of 25+ miles',  _wc(10,  'distance >= ?', [25 * 1609.344])),
-        _b('🗺️',  '25 × 25mi',  '25 rides of 25+ miles',  _wc(25,  'distance >= ?', [25 * 1609.344])),
-        _b('💫', '50 × 25mi',  '50 rides of 25+ miles',  _wc(50,  'distance >= ?', [25 * 1609.344])),
-        _b('🌟', '100 × 25mi', '100 rides of 25+ miles', _wc(100, 'distance >= ?', [25 * 1609.344])),
+        _b('🎯', '5 × 25mi',   '5 rides of 25+ miles',   _wc(5,   'distance >= ?', [units.limit_dist(25)])),
+        _b('📍', '10 × 25mi',  '10 rides of 25+ miles',  _wc(10,  'distance >= ?', [units.limit_dist(25)])),
+        _b('🗺️',  '25 × 25mi',  '25 rides of 25+ miles',  _wc(25,  'distance >= ?', [units.limit_dist(25)])),
+        _b('💫', '50 × 25mi',  '50 rides of 25+ miles',  _wc(50,  'distance >= ?', [units.limit_dist(25)])),
+        _b('🌟', '100 × 25mi', '100 rides of 25+ miles', _wc(100, 'distance >= ?', [units.limit_dist(25)])),
         # ── 50mi ride count ────────────────────────────────────────
-        _b('⭐', '5 × 50mi',   '5 rides of 50+ miles',   _wc(5,  'distance >= ?', [50 * 1609.344])),
-        _b('🔥', '10 × 50mi',  '10 rides of 50+ miles',  _wc(10, 'distance >= ?', [50 * 1609.344])),
-        _b('💪', '25 × 50mi',  '25 rides of 50+ miles',  _wc(25, 'distance >= ?', [50 * 1609.344])),
-        _b('👑', '50 × 50mi',  '50 rides of 50+ miles',  _wc(50, 'distance >= ?', [50 * 1609.344])),
+        _b('⭐', '5 × 50mi',   '5 rides of 50+ miles',   _wc(5,  'distance >= ?', [units.limit_dist(50)])),
+        _b('🔥', '10 × 50mi',  '10 rides of 50+ miles',  _wc(10, 'distance >= ?', [units.limit_dist(50)])),
+        _b('💪', '25 × 50mi',  '25 rides of 50+ miles',  _wc(25, 'distance >= ?', [units.limit_dist(50)])),
+        _b('👑', '50 × 50mi',  '50 rides of 50+ miles',  _wc(50, 'distance >= ?', [units.limit_dist(50)])),
         # ── Century count ──────────────────────────────────────────
-        _b('🏆', '3 × Century',  '3 rides of 100+ miles',  _wc(3,  'distance >= ?', [100 * 1609.344])),
-        _b('💎', '10 × Century', '10 rides of 100+ miles', _wc(10, 'distance >= ?', [100 * 1609.344])),
+        _b('🏆', '3 × Century',  '3 rides of 100+ miles',  _wc(3,  'distance >= ?', [units.limit_dist(100)])),
+        _b('💎', '10 × Century', '10 rides of 100+ miles', _wc(10, 'distance >= ?', [units.limit_dist(100)])),
     ]
     speed = [
-        _b('🐢', 'Rolling',        '8 mph avg on a ride',  _fr('averageSpeed >= ?', [8  / 2.23694])),
-        _b('🚲', 'Cruising',       '10 mph avg on a ride', _fr('averageSpeed >= ?', [10 / 2.23694])),
-        _b('🏃', 'Getting There',  '12 mph avg on a ride', _fr('averageSpeed >= ?', [12 / 2.23694])),
-        _b('💨', 'Building Speed', '14 mph avg on a ride', _fr('averageSpeed >= ?', [14 / 2.23694])),
-        _b('⚡', 'Respectable',    '16 mph avg on a ride', _fr('averageSpeed >= ?', [16 / 2.23694])),
-        _b('🔥', 'Quick',          '18 mph avg on a ride', _fr('averageSpeed >= ?', [18 / 2.23694])),
-        _b('🚀', 'Speed Merchant', '20 mph avg on a ride', _fr('averageSpeed >= ?', [20 / 2.23694])),
-        _b('💫', 'Rocket',         '22 mph avg on a ride', _fr('averageSpeed >= ?', [22 / 2.23694])),
-        _b('🌟', 'Flying',         '24 mph avg on a ride', _fr('averageSpeed >= ?', [24 / 2.23694])),
-        _b('👑', 'Supersonic',     '25 mph avg on a ride', _fr('averageSpeed >= ?', [25 / 2.23694])),
+        _b('🐢', 'Rolling',        '8 mph avg on a ride',  _fr('averageSpeed >= ?', [units.limit_speed(8)])),
+        _b('🚲', 'Cruising',       '10 mph avg on a ride', _fr('averageSpeed >= ?', [units.limit_speed(10)])),
+        _b('🏃', 'Getting There',  '12 mph avg on a ride', _fr('averageSpeed >= ?', [units.limit_speed(12)])),
+        _b('💨', 'Building Speed', '14 mph avg on a ride', _fr('averageSpeed >= ?', [units.limit_speed(14)])),
+        _b('⚡', 'Respectable',    '16 mph avg on a ride', _fr('averageSpeed >= ?', [units.limit_speed(16)])),
+        _b('🔥', 'Quick',          '18 mph avg on a ride', _fr('averageSpeed >= ?', [units.limit_speed(18)])),
+        _b('🚀', 'Speed Merchant', '20 mph avg on a ride', _fr('averageSpeed >= ?', [units.limit_speed(20)])),
+        _b('💫', 'Rocket',         '22 mph avg on a ride', _fr('averageSpeed >= ?', [units.limit_speed(22)])),
+        _b('🌟', 'Flying',         '24 mph avg on a ride', _fr('averageSpeed >= ?', [units.limit_speed(24)])),
+        _b('👑', 'Supersonic',     '25 mph avg on a ride', _fr('averageSpeed >= ?', [units.limit_speed(25)])),
         _b('💨', 'Quick Descent',  '30 mph top speed',     _fts(30)),
         _b('⚡', 'Bullet',         '40 mph top speed',     _fts(40)),
         _b('🚀', 'Missile',        '50 mph top speed',     _fts(50)),
     ]
     climbing = [
         # ── Big elevation days ────────────────────────────────────
-        _b('🏔️', 'Hills Exist',   'Ride with 500ft+ elevation',    _fr('totalElevationGain >= ?', [500  / 3.28084])),
-        _b('⛰️',  'Proper Climb',  'Ride with 1,000ft+ elevation',  _fr('totalElevationGain >= ?', [1000 / 3.28084])),
-        _b('🌋', 'Mountain Day', 'Ride with 2,000ft+ elevation',  _fr('totalElevationGain >= ?', [2000 / 3.28084])),
-        _b('💪', 'Epic Climb',   'Ride with 3,000ft+ elevation',  _fr('totalElevationGain >= ?', [3000 / 3.28084])),
-        _b('🏆', 'Alpine',       'Ride with 5,000ft+ elevation',  _fr('totalElevationGain >= ?', [5000 / 3.28084])),
-        _b('👑', 'Gran Fondo',   'Ride with 7,500ft+ elevation',  _fr('totalElevationGain >= ?', [7500 / 3.28084])),
-        _b('🌟', 'Everest Day',  'Ride with 10,000ft+ elevation', _fr('totalElevationGain >= ?', [10000 / 3.28084])),
+        _b('🏔️', 'Hills Exist',   'Ride with 500ft+ elevation',    _fr('totalElevationGain >= ?', [units.limit_elev(500)])),
+        _b('⛰️',  'Proper Climb',  'Ride with 1,000ft+ elevation',  _fr('totalElevationGain >= ?', [units.limit_elev(1000)])),
+        _b('🌋', 'Mountain Day', 'Ride with 2,000ft+ elevation',  _fr('totalElevationGain >= ?', [units.limit_elev(2000)])),
+        _b('💪', 'Epic Climb',   'Ride with 3,000ft+ elevation',  _fr('totalElevationGain >= ?', [units.limit_elev(3000)])),
+        _b('🏆', 'Alpine',       'Ride with 5,000ft+ elevation',  _fr('totalElevationGain >= ?', [units.limit_elev(5000)])),
+        _b('👑', 'Gran Fondo',   'Ride with 7,500ft+ elevation',  _fr('totalElevationGain >= ?', [units.limit_elev(7500)])),
+        _b('🌟', 'Everest Day',  'Ride with 10,000ft+ elevation', _fr('totalElevationGain >= ?', [units.limit_elev(10000)])),
         # ── Hilly regulars ────────────────────────────────────────
-        _b('🎯', 'Hill Regular', '10 rides with 1,000ft+ elevation',  _wc(10,  'totalElevationGain >= ?', [1000 / 3.28084])),
-        _b('💦', 'Hill Addict',  '100 rides with 1,000ft+ elevation', _wc(100, 'totalElevationGain >= ?', [1000 / 3.28084])),
-        _b('🦵', 'King of Hills', '500 rides with 1,000ft+ elevation', _wc(500, 'totalElevationGain >= ?', [1000 / 3.28084])),
+        _b('🎯', 'Hill Regular', '10 rides with 1,000ft+ elevation',  _wc(10,  'totalElevationGain >= ?', [units.limit_elev(1000)])),
+        _b('💦', 'Hill Addict',  '100 rides with 1,000ft+ elevation', _wc(100, 'totalElevationGain >= ?', [units.limit_elev(1000)])),
+        _b('🦵', 'King of Hills', '500 rides with 1,000ft+ elevation', _wc(500, 'totalElevationGain >= ?', [units.limit_elev(1000)])),
         # ── Speed on hilly rides (≥2% avg gradient, ≥5mi) ────────
-        _b('🐢', 'Up the Hill',      '8mph avg on a hilly ride (≥2% gradient)',  _fr('averageSpeed >= ? AND distance >= 8047 AND CAST(totalElevationGain AS FLOAT)/distance*100 >= 2', [8  / 2.23694])),
-        _b('🚵', 'Grinder',          '10mph avg on a hilly ride (≥2% gradient)', _fr('averageSpeed >= ? AND distance >= 8047 AND CAST(totalElevationGain AS FLOAT)/distance*100 >= 2', [10 / 2.23694])),
-        _b('💪', 'Hill Chaser',      '12mph avg on a hilly ride (≥2% gradient)', _fr('averageSpeed >= ? AND distance >= 8047 AND CAST(totalElevationGain AS FLOAT)/distance*100 >= 2', [12 / 2.23694])),
-        _b('🔥', 'Gradient Burner',  '15mph avg on a hilly ride (≥2% gradient)', _fr('averageSpeed >= ? AND distance >= 8047 AND CAST(totalElevationGain AS FLOAT)/distance*100 >= 2', [15 / 2.23694])),
-        _b('⚡', 'Gradient King',    '18mph avg on a hilly ride (≥2% gradient)', _fr('averageSpeed >= ? AND distance >= 8047 AND CAST(totalElevationGain AS FLOAT)/distance*100 >= 2', [18 / 2.23694])),
+        _b('🐢', 'Up the Hill',      '8mph avg on a hilly ride (≥2% gradient)',  _fr('averageSpeed >= ? AND distance >= 8047 AND CAST(totalElevationGain AS FLOAT)/distance*100 >= 2', [units.limit_speed(8)])),
+        _b('🚵', 'Grinder',          '10mph avg on a hilly ride (≥2% gradient)', _fr('averageSpeed >= ? AND distance >= 8047 AND CAST(totalElevationGain AS FLOAT)/distance*100 >= 2', [units.limit_speed(10)])),
+        _b('💪', 'Hill Chaser',      '12mph avg on a hilly ride (≥2% gradient)', _fr('averageSpeed >= ? AND distance >= 8047 AND CAST(totalElevationGain AS FLOAT)/distance*100 >= 2', [units.limit_speed(12)])),
+        _b('🔥', 'Gradient Burner',  '15mph avg on a hilly ride (≥2% gradient)', _fr('averageSpeed >= ? AND distance >= 8047 AND CAST(totalElevationGain AS FLOAT)/distance*100 >= 2', [units.limit_speed(15)])),
+        _b('⚡', 'Gradient King',    '18mph avg on a hilly ride (≥2% gradient)', _fr('averageSpeed >= ? AND distance >= 8047 AND CAST(totalElevationGain AS FLOAT)/distance*100 >= 2', [units.limit_speed(18)])),
     ]
     weather = [
         # ── Winter ───────────────────────────────────────────────
@@ -367,15 +365,15 @@ def _count_badges(rid, totals):
         'effort': 'segment effort', 'noun': 'segment', 'verb': 'Ride', 'first_pr': 'First PR', 'king': 'King of the Road',
         'counts': [('📐', 'First Effort'), ('🔄', '10 Efforts'), ('💪', '50 Efforts'), ('💯', '100 Efforts'), ('⚡', '250 Efforts'), ('🏆', '500 Efforts')],
         'repeats': [('🔁', 'Creature of Habit'), ('😤', 'Obsessed'), ('🏠', 'Local Legend')],
-        'fast': [('💨', 'Segment Flyer', '20 mph avg on a segment', 20 / 2.23694), ('🚀', 'Segment Rocket', '25 mph avg on a segment', 25 / 2.23694),
-                 ('💫', 'Segment Missile', '30 mph avg on a segment', 30 / 2.23694), ('👑', 'Flying Machine', '35 mph avg on a segment', 35 / 2.23694)],
+        'fast': [('💨', 'Segment Flyer', '20 mph avg on a segment', units.limit_speed(20)), ('🚀', 'Segment Rocket', '25 mph avg on a segment', units.limit_speed(25)),
+                 ('💫', 'Segment Missile', '30 mph avg on a segment', units.limit_speed(30)), ('👑', 'Flying Machine', '35 mph avg on a segment', units.limit_speed(35))],
     })
     seg_eride = _segment_badges('ebike', {
         'effort': 'e-bike segment effort', 'noun': 'segment', 'how': ' on an e-bike', 'verb': 'Ride', 'first_pr': 'First E-Bike PR', 'king': 'King of the E-Road',
         'counts': [('🔌', 'Plugged In'), ('🔋', '10 E-Efforts'), ('🔋', '50 E-Efforts'), ('⚡', '100 E-Efforts'), ('⚡', '250 E-Efforts'), ('🏆', '500 E-Efforts')],
         'repeats': [('🔁', 'Daily Charge'), ('😤', 'Battery Obsessed'), ('🏠', 'E-Local Legend')],
-        'fast': [('💨', 'Turbo Mode', '25 mph avg on a segment (e-bike)', 25 / 2.23694), ('🚀', 'Boost', '30 mph avg on a segment (e-bike)', 30 / 2.23694),
-                 ('💫', 'Overdrive', '35 mph avg on a segment (e-bike)', 35 / 2.23694), ('👑', 'Ludicrous Mode', '40 mph avg on a segment (e-bike)', 40 / 2.23694)],
+        'fast': [('💨', 'Turbo Mode', '25 mph avg on a segment (e-bike)', units.limit_speed(25)), ('🚀', 'Boost', '30 mph avg on a segment (e-bike)', units.limit_speed(30)),
+                 ('💫', 'Overdrive', '35 mph avg on a segment (e-bike)', units.limit_speed(35)), ('👑', 'Ludicrous Mode', '40 mph avg on a segment (e-bike)', units.limit_speed(40))],
     })
     seg_foot = _segment_badges('foot', {
         'effort': 'foot segment effort', 'noun': 'foot segment', 'verb': 'Walk or run', 'first_pr': 'First Foot PR', 'king': 'King of the Trail',
@@ -458,7 +456,7 @@ def _sport_badges(rid, _b):
             *[_b(icon, name, f'{label} in one run', single(runs, 'distance', m * finished)) for icon, name, label, m in (
                 ('🏅', '5K Finisher', '5 km', 5000), ('🎽', '10K Finisher', '10 km', 10000), ('🥈', 'Half Marathoner', 'A half marathon', 21097.5),
                 ('🥇', 'Marathoner', 'A marathon', 42195), ('🦄', 'Ultra Runner', '50 km', 50000))],
-            *[_b(icon, name, f'{mi:,} miles run in total', total(runs, mi * units.MI)) for icon, name, mi in (
+            *[_b(icon, name, f'{mi:,} miles run in total', total(runs, units.limit_dist(mi))) for icon, name, mi in (
                 ('📍', 'Hundred Miler', 100), ('🗺️', 'Long Haul Runner', 500), ('🌍', 'Thousand Mile Club', 1000), ('🚀', 'Road Warrior', 2500))],
             *[_b(icon, name, desc, under('run', m, secs)) for icon, name, desc, m, secs in (
                 ('🐢', '5K Under 30', '5 km in under 30:00', 5000, 1800), ('🏃', '5K Under 25', '5 km in under 25:00', 5000, 1500),
@@ -471,11 +469,11 @@ def _sport_badges(rid, _b):
             *[_b(icon, name, f"{n:,} walk{'s' if n != 1 else ''} or hike{'s' if n != 1 else ''}", count(walks, n)) for icon, name, n in (
                 ('🚶', 'Out for a Walk', 1), ('🌳', 'Stroller', 10), ('🥾', 'Rambler', 50), ('🧭', 'Wanderer', 100), ('🏕️', 'Trekker', 250),
                 ('🗺️', 'Pathfinder', 500))],
-            *[_b(icon, name, f'{mi} miles in one walk or hike', single(walks, 'distance', mi * units.MI)) for icon, name, mi in (
+            *[_b(icon, name, f'{mi} miles in one walk or hike', single(walks, 'distance', units.limit_dist(mi))) for icon, name, mi in (
                 ('📍', 'Long Walk', 5), ('🌄', 'Big Day Out', 10), ('💪', 'Long Haul', 20), ('🏆', 'Marathon Walker', 26))],
             *[_b(icon, name, f'{ft:,}ft+ on one walk or hike', single(walks, 'totalElevationGain', ft / units.FT_PER_M)) for icon, name, ft in (
                 ('⛰️', 'Hill Walker', 1000), ('🏔️', 'Fell Walker', 2000), ('🧗', 'Mountaineer', 3000), ('👑', 'High Peaks', 5000))],
-            *[_b(icon, name, f'{mi:,} miles walked in total', total(walks, mi * units.MI)) for icon, name, mi in (
+            *[_b(icon, name, f'{mi:,} miles walked in total', total(walks, units.limit_dist(mi))) for icon, name, mi in (
                 ('👣', 'Hundred Mile Walker', 100), ('🌍', 'Long Walk Home', 500), ('💎', 'Thousand Mile Walker', 1000))],
         ]})
     if swims:
@@ -612,27 +610,27 @@ def detail(rid):
         ORDER BY s.name
     ''', [rid])
 
-    effort_rows = query_db('''
-        SELECT e.distanceMi, e.elapsedSecs, e.avgSpeedMps, e.activityDate,
+    from services import best_efforts, sports, units
+    es = best_efforts.effort_set(units.current())   # 5 to 100 miles, or 5 to 160 km for a metric rider
+    effort_rows = query_db(f'''
+        SELECT e.{es.col} AS dist, e.elapsedSecs, e.avgSpeedMps, e.activityDate,
                a.name AS rideName, e.activityId, a.sportType
-        FROM BestEffort e
+        FROM {es.table} e
         JOIN Ride a ON a.id = e.activityId
         WHERE a.riderId=?
-        ORDER BY e.distanceMi, e.elapsedSecs ASC
+        ORDER BY e.{es.col}, e.elapsedSecs ASC
     ''', [rid])      # the Ride view: BestEffort has rows for anything with a track, and a ski run is not a ride's best 5 miles
 
-    from services import sports, units
     best_by_dist, indoor_by_dist = {}, {}           # an indoor ride's best times (Zwift, a turbo) are its own, never a ride's best 5 miles
     for e in effort_rows:
-        (indoor_by_dist if sports.is_virtual(e['sportType']) else best_by_dist).setdefault(int(e['distanceMi']), e)
+        (indoor_by_dist if sports.is_virtual(e['sportType']) else best_by_dist).setdefault(int(e['dist']), e)
+    brackets = [(d, units.fmt_dist(es.metres(d), places=0)) for d in es.brackets]
 
     badges = _compute_badges(rid, totals)        # works out any run and swim best times still missing (services/sport_records.ensure)
     from services import sport_records
     sport_bests = []                                # [(heading, kind, [(distance label, effort row, m/s)])]: indoor rides, runs, indoor runs, swims
     if indoor_by_dist:
-        places = 0 if units.spec()['system'] != 'metric' else 1
-        sport_bests.append(('Indoor rides', 'ride', [(units.fmt_dist(d * units.MI, places=places), indoor_by_dist[d], indoor_by_dist[d]['avgSpeedMps'])
-                                                    for d in BRACKETS_MI if d in indoor_by_dist]))
+        sport_bests.append(('Indoor rides', 'ride', [(label, indoor_by_dist[d], indoor_by_dist[d]['avgSpeedMps']) for d, label in brackets if d in indoor_by_dist]))
     for k, indoor in (('run', False), ('run', True), ('swim', False)):
         got = sport_records.bests(get_db(), rid, k, indoor=indoor)
         rows = [(label, got[d], d / got[d]['elapsedSecs']) for d, label in sport_records.DISTANCES[k] if d in got]
@@ -643,7 +641,7 @@ def detail(rid):
     rider_bikes = gear_svc.list_bikes(get_db(), rid)
     return render_template('rider.html', rider=rider, totals=totals, rider_bikes=rider_bikes,
                            recent=recent, seg_prs=seg_prs,
-                           best_by_dist=best_by_dist, brackets=BRACKETS_MI, sport_bests=sport_bests,
+                           best_by_dist=best_by_dist, brackets=brackets, sport_bests=sport_bests,
                            badges=badges)
 
 
@@ -743,8 +741,8 @@ def delete(rid):
     seg_ids = [r[0] for r in db.execute(
         'SELECT DISTINCT e.segmentId FROM SegmentEffort e JOIN Activity a ON a.id=e.activityId WHERE a.riderId=?', [rid])]
     db.execute('DELETE FROM SegmentEffort WHERE activityId IN (SELECT id FROM Activity WHERE riderId=?)', [rid])
-    db.execute('DELETE FROM BestEffort WHERE activityId IN '
-               '(SELECT id FROM Activity WHERE riderId=?)', [rid])
+    from services import best_efforts
+    best_efforts.delete_for(db, 'activityId IN (SELECT id FROM Activity WHERE riderId=?)', [rid])
     db.execute('DELETE FROM RideMemory WHERE rideId IN '
                '(SELECT id FROM Activity WHERE riderId=?)', [rid])
     db.execute('DELETE FROM SportEffort WHERE activityId IN '

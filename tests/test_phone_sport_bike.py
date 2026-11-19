@@ -111,3 +111,12 @@ def test_walks_have_no_bike(phone):
     with phone.app_.app_context():
         assert database.get_db().execute('SELECT source FROM Activity WHERE id=?', [wid]).fetchone()[0] == 'ios'
     assert phone.post(f'/api/v1/rides/workout/{wid}/bike', json={'bike_id': 1}, headers=phone.H).status_code == 400
+
+
+def test_a_ride_from_the_phone_says_so_for_the_lists_source_filter(phone):
+    first = upload(phone, gpx()).get_json()['ride']['id']
+    second = upload(phone, gpx(start=datetime(2026, 10, 9, 8, 0, tzinfo=timezone.utc)), source='ios').get_json()['ride']['id']
+    with phone.app_.app_context():
+        src = dict(database.get_db().execute('SELECT id, source FROM Activity WHERE id IN (?, ?)', [first, second]).fetchall())
+    assert src == {first: 'phone', second: 'ios'}
+    assert upload(phone, gpx()).get_json()['status'] != 'imported'                  # sent again: nothing changes

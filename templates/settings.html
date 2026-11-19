@@ -33,17 +33,24 @@
     <div class="form-grid">
       <div class="form-group"><label>Sex</label><select id="pfSex"><option value="">—</option><option value="female">Female</option><option value="male">Male</option></select></div>
       <div class="form-group"><label>Date of birth</label><input type="date" id="pfBorn" style="width:100%;"><small id="pfBornHint" class="hint"></small></div>
-      <div class="form-group"><label>Height</label>
-        <div style="display:flex; gap:0.4rem;"><input type="number" id="pfFt" min="3" max="7" inputmode="numeric" placeholder="ft" style="flex:1; min-width:0; width:100%;"><input type="number" id="pfIn" min="0" max="11.9" step="0.5" inputmode="decimal" placeholder="in" style="flex:1; min-width:0; width:100%;"></div>
-        <small class="hint">or <input type="number" id="pfCm" min="100" max="250" inputmode="numeric" placeholder="cm" style="width:5rem; display:inline;"> cm</small></div>
+      <div class="form-group"><label>Height</label>{# the metric/imperial setting picks which comes first; each fills in the other #}
+        {% if units == 'metric' %}
+        <input type="number" id="pfCm" min="100" max="250" inputmode="numeric" placeholder="cm" style="width:100%;" oninput="pfHeightFrom('cm')">
+        <small class="hint" style="white-space:nowrap;">or <input type="number" id="pfFt" min="3" max="7" inputmode="numeric" placeholder="ft" style="width:2.6rem; display:inline; padding:0.3rem;" oninput="pfHeightFrom('ft')"> ft
+          <input type="number" id="pfIn" min="0" max="11.9" step="0.5" inputmode="decimal" placeholder="in" style="width:2.6rem; display:inline; padding:0.3rem;" oninput="pfHeightFrom('ft')"> in</small>
+        {% else %}
+        <div style="display:flex; gap:0.4rem;"><input type="number" id="pfFt" min="3" max="7" inputmode="numeric" placeholder="ft" style="flex:1; min-width:0; width:100%;" oninput="pfHeightFrom('ft')"><input type="number" id="pfIn" min="0" max="11.9" step="0.5" inputmode="decimal" placeholder="in" style="flex:1; min-width:0; width:100%;" oninput="pfHeightFrom('ft')"></div>
+        <small class="hint">or <input type="number" id="pfCm" min="100" max="250" inputmode="numeric" placeholder="cm" style="width:5rem; display:inline;" oninput="pfHeightFrom('cm')"> cm</small>
+        {% endif %}</div>
       <div class="form-group"><label>Weight now</label>
         <div id="pfWtStlb" style="display:flex; gap:0.4rem;"><input type="number" id="pfSt" min="0" inputmode="numeric" placeholder="st" style="flex:1; min-width:0; width:100%;"><input type="number" id="pfLb" min="0" max="13.9" step="0.1" inputmode="decimal" placeholder="lb" style="flex:1; min-width:0; width:100%;"></div>
         <input type="number" id="pfKg" min="0" step="0.1" inputmode="decimal" placeholder="kg" style="display:none;"></div>
       <div class="form-group"><label>Goal weight</label>
         <div id="pfGoalStlb" style="display:flex; gap:0.4rem;"><input type="number" id="pfGSt" min="0" inputmode="numeric" placeholder="st" style="flex:1; min-width:0; width:100%;"><input type="number" id="pfGLb" min="0" max="13.9" step="0.1" inputmode="decimal" placeholder="lb" style="flex:1; min-width:0; width:100%;"></div>
         <input type="number" id="pfGKg" min="0" step="0.1" inputmode="decimal" placeholder="kg" style="display:none;"></div>
-      <div class="form-group"><label>Show weights as</label><select id="pfUnit"><option value="stlb">Stone &amp; lb</option><option value="kg">kg</option></select></div>
-      <div class="form-group"><label>Loss target (lb / week)</label><input type="number" id="pfLoss" min="0" max="2.5" step="0.25" inputmode="decimal" style="flex:1; min-width:0; width:100%;"></div>
+      <div class="form-group"><label>Show weights as</label><select id="pfUnit"><option value="stlb">Stone &amp; lb</option><option value="kg">kg</option></select>
+        <small class="hint">Its own choice, apart from the units under Display Preferences.</small></div>
+      <div class="form-group"><label id="pfLossLabel" for="pfLoss">Loss target (lb / week)</label><input type="number" id="pfLoss" min="0" max="2.5" step="0.25" inputmode="decimal" style="flex:1; min-width:0; width:100%;"></div>
       <div class="form-group"><label>Daily steps goal</label><input type="number" id="pfSteps" min="1000" step="500" inputmode="numeric" style="flex:1; min-width:0; width:100%;"></div>
     </div>
     <div class="form-actions">
@@ -72,6 +79,15 @@
       </div>
     </fieldset>
     <fieldset>
+      <legend>Temperature</legend>
+      <div class="checks">
+        {% for value, label in [('C', '°C'), ('F', '°F')] %}
+        <label class="check"><input type="radio" name="tempUnit" value="{{ value }}" {% if (s.tempUnit if s and s.tempUnit else 'C') == value %}checked{% endif %}> {{ label }}</label>
+        {% endfor %}
+      </div>
+      <p class="hint" style="margin:0.3rem 0 0;">For the weather. Its wind follows the units above.</p>
+    </fieldset>
+    <fieldset>
       <legend>Appearance</legend>
       <div class="checks">
         {% for value, label in [('auto', 'Auto'), ('light', 'Light'), ('dark', 'Dark')] %}
@@ -84,6 +100,19 @@
       </div>
       <p class="hint" style="margin:0.3rem 0 0;">Auto follows each device's light or dark setting, and switches with it (at sunset, say). Light and Dark apply on every device.</p>
     </fieldset>
+    {% if favourite_choices %}
+    <fieldset>
+      <legend>Favourite sports</legend>
+      <input type="hidden" name="favouritesShown" value="1">
+      <div class="checks">
+        {% for f in favourite_choices %}
+        <label class="check"><input type="checkbox" name="favourite" value="{{ f.key }}" {% if f.key in favourites_on %}checked{% endif %}> {{ f.icon }} {{ f.label }}</label>
+        {% endfor %}
+      </div>
+      <p class="hint" style="margin:0.3rem 0 0;">Each one gets its own item under Activities in the sidebar, opening the list with only that sport.
+        Cycling takes in every kind of ride (indoor, e-bike, mountain bike, gravel), On foot runs, walks and hikes, and a kind first recorded later joins in by itself.</p>
+    </fieldset>
+    {% endif %}
     <div class="form-group">
       <label for="timeZone">Time zone</label>
       <select name="timeZone" id="timeZone" style="max-width:22rem;">
@@ -1008,11 +1037,37 @@ async function pfLoad() {
   document.getElementById('pfSex').value = p.sex || '';
   document.getElementById('pfBorn').value = (!p.birth_date_guessed && p.birth_date) || '';
   document.getElementById('pfBornHint').textContent = p.birth_date_guessed ? 'Only the year (' + p.birth_date.slice(0, 4) + ') is known: enter the full date.' : (p.age ? 'Age ' + p.age : '');
-  if (p.height_cm) { var inch = p.height_cm / 2.54; document.getElementById('pfFt').value = Math.floor(inch / 12); document.getElementById('pfIn').value = Math.round((inch % 12) * 2) / 2; document.getElementById('pfCm').value = Math.round(p.height_cm); }
+  if (p.height_cm) { document.getElementById('pfCm').value = Math.round(p.height_cm); pfHeightFrom('cm'); }
   document.getElementById('pfUnit').value = d.weight_unit; pfShowUnit(d.weight_unit);
   pfFill('pfSt', 'pfLb', 'pfKg', d.weight_kg); pfFill('pfGSt', 'pfGLb', 'pfGKg', d.goal_weight_kg);
-  document.getElementById('pfLoss').value = p.loss_lb_week; document.getElementById('pfSteps').value = p.step_goal;
+  pfLossShow(p.loss_lb_week, d.weight_unit); document.getElementById('pfSteps').value = p.step_goal;
   pfRender(d);
+}
+function pfHeightFrom(which) {                  // the cm field and the ft / in fields say the same height, whichever was typed in
+  if (which === 'cm') {
+    var cm = pfNum('pfCm'), inch = cm === null ? null : cm / 2.54;
+    document.getElementById('pfFt').value = inch === null ? '' : Math.floor(inch / 12);
+    document.getElementById('pfIn').value = inch === null ? '' : Math.round((inch % 12) * 2) / 2;
+  } else {
+    var ft = pfNum('pfFt'), i = pfNum('pfIn');
+    document.getElementById('pfCm').value = ft === null && i === null ? '' : Math.round(((ft || 0) * 12 + (i || 0)) * 2.54);
+  }
+}
+// The loss target is kept in lb a week; it's shown and typed in the unit weights are shown in (0.5-2.5 lb is about 0.25-1.1 kg)
+function pfLossShow(lb, unit) {
+  var kg = unit === 'kg', box = document.getElementById('pfLoss');
+  document.getElementById('pfLossLabel').textContent = 'Loss target (' + (kg ? 'kg' : 'lb') + ' / week)';
+  box.max = kg ? 1.1 : 2.5; box.step = kg ? 0.05 : 0.25; box.dataset.unit = kg ? 'kg' : 'lb';
+  box.value = lb === null || lb === undefined || lb === '' ? '' : (kg ? Math.round(lb * KG_PER_LB * 20) / 20 : lb);
+  box.dataset.lb = box.value === '' ? '' : lb; box.dataset.shown = box.value;      // the exact lb, while the figure shown is left alone
+}
+function pfLossLb() {
+  var box = document.getElementById('pfLoss'), v = pfNum('pfLoss');
+  if (box.value === box.dataset.shown && box.dataset.lb !== '') return parseFloat(box.dataset.lb);
+  return v === null ? '' : (box.dataset.unit === 'kg' ? Math.round(v / KG_PER_LB * 1000) / 1000 : v);
+}
+function pfLossText(lb, unit) {
+  return unit === 'kg' ? (Math.round(lb * KG_PER_LB * 20) / 20) + ' kg' : lb + ' lb';
 }
 function pfRender(d) {
   var st = document.getElementById('pfStatus'), box = document.getElementById('pfPlan'), apply = document.getElementById('pfApply');
@@ -1023,16 +1078,15 @@ function pfRender(d) {
   apply.disabled = !!d.plan_error;
   if (d.plan_error) { box.textContent = d.plan_error + ' — fill those in above and save.'; return; }
   var pl = d.plan, f = function(n) { return Number(n).toLocaleString('en-GB'); };
-  box.innerHTML = '<b>' + f(pl.goal) + ' kcal</b> a day &nbsp;·&nbsp; protein ' + pl.protein + ' g · carbs ' + pl.carbs + ' g · fat ' + pl.fat + ' g<br><span style="color:var(--text-muted)">From a resting burn of ' + f(pl.bmr) + ' kcal, your step goal and riding, minus the deficit for your loss target.</span>';
+  box.innerHTML = '<b>' + f(pl.goal) + ' kcal</b> a day &nbsp;·&nbsp; protein ' + pl.protein + ' g · carbs ' + pl.carbs + ' g · fat ' + pl.fat + ' g<br><span style="color:var(--text-muted)">From a resting burn of ' + f(pl.bmr) + ' kcal, your step goal and riding, minus the deficit for losing ' + pfLossText(p.loss_lb_week, d.weight_unit) + ' a week.</span>';
 }
 async function pfSave() {
   var msg = document.getElementById('pfMsg'); msg.textContent = 'Saving…';
   var unit = document.getElementById('pfUnit').value;
-  var cm = pfNum('pfCm'); var ft = pfNum('pfFt'), inch = pfNum('pfIn');
-  var height = ft !== null ? Math.round((ft * 12 + (inch || 0)) * 2.54) : cm;
+  var height = pfNum('pfCm');                    // kept in step with ft / in as either is typed (pfHeightFrom)
   var post = function(url, body) { return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); };
   var r = await post('/nutrition/api/goal-profile', { sex: document.getElementById('pfSex').value, birth_date: document.getElementById('pfBorn').value, height_cm: height,
-    loss_lb_week: document.getElementById('pfLoss').value, step_goal: document.getElementById('pfSteps').value, ride_kcal_week: PF.rides, ride_goal_week: PF.rideGoal, auto: !!PF.auto });
+    loss_lb_week: pfLossLb(), step_goal: document.getElementById('pfSteps').value, ride_kcal_week: PF.rides, ride_goal_week: PF.rideGoal, auto: !!PF.auto });
   if (!r.ok) { msg.textContent = (await r.json()).error || 'Could not save.'; return; }
   var kg = pfKgFrom(unit, 'pfSt', 'pfLb', 'pfKg');
   if (kg) {
@@ -1049,7 +1103,7 @@ async function pfApply() {
   var r = await fetch('/nutrition/api/goal-plan/apply', { method: 'POST' });
   document.getElementById('pfMsg').textContent = r.ok ? 'Your calorie and macro goals are updated.' : ((await r.json()).error || 'Could not apply.');
 }
-document.getElementById('pfUnit').addEventListener('change', function() { pfShowUnit(this.value); });
+document.getElementById('pfUnit').addEventListener('change', function() { var lb = pfLossLb(); pfShowUnit(this.value); pfLossShow(lb, this.value); });
 pfLoad();
 (function () {
   try {

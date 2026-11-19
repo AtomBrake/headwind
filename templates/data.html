@@ -268,7 +268,7 @@
 
 <div class="chart-grid-2" style="margin-bottom:1.5rem;">
   <div class="card">
-    <div class="card-title">Speed vs Temperature ({{ U.speed }} / °C)</div>
+    <div class="card-title">Speed vs Temperature ({{ U.speed }} / {{ TEMP }})</div>
     <div class="cbox cbox-scatter"><canvas id="wxTempChart"></canvas></div>
   </div>
   <div class="card">
@@ -312,7 +312,7 @@
     <div style="max-height:24rem; overflow:auto; font-size:0.8125rem;">
       {% for r in claimed + other %}
       <div id="storm_{{ r.id }}" style="display:flex; align-items:center; gap:0.6rem; padding:0.35rem 0; border-top:1px solid var(--border); flex-wrap:wrap;">
-        <a href="/rides/{{ r.id }}" style="flex:1 1 13rem;">{{ r.date_txt }} · {{ r.name or 'Ride' }}<br><span style="color:var(--text-muted);">Storm {{ r.storm }} · {{ r.distance | fmt_dist }} · {% if r.gust_kph is not none %}gusts {{ r.gust_kph | round | int }} kph{% else %}no wind data{% endif %}{% if r.condition and r.condition != 'Storm' %} · {{ r.condition }}{% endif %}</span></a>
+        <a href="/rides/{{ r.id }}" style="flex:1 1 13rem;">{{ r.date_txt }} · {{ r.name or 'Ride' }}<br><span style="color:var(--text-muted);">Storm {{ r.storm }} · {{ r.distance | fmt_dist }} · {% if r.gust_kph is not none %}gusts {{ r.gust_kph | fmt_wind }}{% else %}no wind data{% endif %}{% if r.condition and r.condition != 'Storm' %} · {{ r.condition }}{% endif %}</span></a>
         {% if r.condition == 'Storm' %}
         <button class="btn btn-secondary btn-sm" onclick="stormPick('{{ r.id }}','notstorm')">Not a storm</button>
         {% else %}
@@ -332,7 +332,7 @@
       {% for f in wx_fog %}
       <div class="fogRow" id="fog_{{ f.id }}" style="display:flex; align-items:center; gap:0.6rem; padding:0.35rem 0; border-top:1px solid var(--border); flex-wrap:wrap;">
         <a href="/rides/{{ f.id }}" style="flex:1 1 11rem;">{{ f.date }} · {{ f.name or 'Ride' }}</a>
-        <span style="color:var(--text-muted);">{{ f.weatherHumidity }}% humidity · {{ f.weatherWindKph|round|int }} kph{% if f.weatherTempC is not none %} · {{ f.weatherTempC|round|int }}°C{% endif %}</span>
+        <span style="color:var(--text-muted);">{{ f.weatherHumidity }}% humidity · {{ f.weatherWindKph | fmt_wind }}{% if f.weatherTempC is not none %} · {{ f.weatherTempC | fmt_temp }}{% endif %}</span>
         <button class="btn btn-secondary btn-sm" onclick="fogPick('{{ f.id }}','Fog')">Fog</button>
         <button class="btn btn-secondary btn-sm" onclick="fogPick('{{ f.id }}','keep')">Not fog</button>
       </div>
@@ -853,7 +853,7 @@ new Chart(document.getElementById('dowChart'), {
       },
       plugins: { legend: { labels: { color: cssVar('--text-soft'), boxWidth: 10, font: { size: 11 } } } },
       scales: {
-        x: { title: { display: true, text: 'Temperature (°C)', color: cssVar('--text-muted') },
+        x: { title: { display: true, text: 'Temperature ({{ TEMP }})', color: cssVar('--text-muted') },
              ticks: { color: cssVar('--text-muted') }, grid: { color: cssVar('--border') } },
         y: { title: { display: true, text: 'Avg Speed (' + UNITS.speed + ')', color: cssVar('--text-muted') },
              ticks: { color: cssVar('--text-muted') }, grid: { color: cssVar('--border') } },

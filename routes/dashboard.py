@@ -61,7 +61,7 @@ def _group_totals(where, params, sf, link):
                       f"WHERE {' AND '.join(where)} GROUP BY a.sportType", params):
         g = out.setdefault(sports.stat_group(r['sportType']), {'n': 0, 'dist': 0, 'secs': 0})
         g['n'] += r['n']; g['dist'] += r['dist'] or 0; g['secs'] += r['secs'] or 0
-    return [dict(v, group=k, label=sports.stat_label(k), icon=sports.STAT_ICONS.get(k, ''), href=link(sf.only(k)))
+    return [dict(v, group=k, label=sports.stat_label(k), icon=sports.STAT_ICONS.get(k, ''), href=link(group=k))
             for k, v in sorted(out.items(), key=lambda kv: -kv[1]['secs'])]
 
 
@@ -178,8 +178,9 @@ def _rider_args(active_rider):
     return [] if not active_rider or active_rider['isDefault'] else [('rider', active_rider['id'])]
 
 
-def _activities(where, params):
-    """The history list's activities under these filters, newest first."""
+def _activities(where, params, order='a.startDateLocal DESC', limit=None, offset=0):
+    """The history list's activities under these filters, newest first or in `order`, all of them or a page."""
+    page = f' LIMIT {int(limit)} OFFSET {int(offset)}' if limit else ''
     rows = query_db(f'''
         SELECT a.id, a.name, a.sportType, a.startDateLocal, a.distance, a.movingTime,
                a.totalElevationGain, {speed_sql('a.')} AS averageSpeed, a.averageWatts, a.averageHeartrate,
@@ -189,7 +190,7 @@ def _activities(where, params):
         FROM Activity a
         LEFT JOIN Rider r ON r.id = a.riderId
         WHERE {' AND '.join(where)}
-        ORDER BY a.startDateLocal DESC
+        ORDER BY {order}{page}
     ''', params)
     return [dict(a, name=_name(a), isRide=sports.is_ride(a['sportType'])) for a in rows]
 
@@ -271,8 +272,10 @@ def _gear_types(db, rid, value, sf, link):
 
 def _activity_list(args, list_path):
     """The activity list's filters and rows, shared by the dashboard and the Activities page: (the template's values, where, params, the rider
-    links' args). Name, dates, distance, gear and the sports left in (services/sport_filter) all come from the URL, so a filtered list can be
-    linked."""
+    links' args). Name, dates, distance, gear, the sports left in (services/sport_filter), what each has, where it came from and the order
+    (services/activity_filters) all come from the URL, so a filtered list can be linked. A search or one of the more filters gives one flat list,
+    a page at a time; otherwise it's the history tree."""
+    from services.activity_filters import PAGE, ActivityFilters
     all_riders, active_rider, rid = _riders(args)
     q         = args.get('q', '').strip()
     date_from = args.get('from', '').strip()
@@ -280,7 +283,8 @@ def _activity_list(args, list_path):
     min_dist, max_dist, min_m, max_m = dist_filters(args)
     sf        = SportFilter(get_db(), rid, args)     # the sports left in, for the totals, the chart and the list alike
     gf        = _gear_filter(get_db(), rid, args.get('gear', '').strip())    # kept in the history tree: a gear filter's list is paged by month
-    is_filtered = any([q, date_from, date_to, min_dist, max_dist])
+    af        = ActivityFilters(args)
+    is_filtered = any([q, date_from, date_to, min_dist, max_dist]) or af.flat
 
     where  = ['a.riderId=?']
     params = [rid]
@@ -298,13 +302,23 @@ def _activity_list(args, list_path):
         where.append(gf['sql']); params += gf['params']
     clause, cparams = sf.sql('a.sportType')
     where.append(clause); params += cparams
+    where += af.sql()
 
     rider_args = _rider_args(active_rider)
-    def link(skip):
-        args_ = rider_args + sf.args(skip) + gf['args']
+    def link(skip=None, group=None):
+        args_ = rider_args + sf.args(skip, group) + gf['args'] + af.args()
         return list_path + ('?' + urlencode(args_) if args_ else '')
 
-    activities = _activities(where, params)
+    total, ids = None, []
+    if is_filtered:                                     # one flat list, a page at a time
+        ids = [r[0] for r in query_db(f"SELECT a.id FROM Activity a WHERE {' AND '.join(where)}", params)]
+        total = len(ids)
+        activities = _activities(where, params, af.order, PAGE, (af.page - 1) * PAGE)
+    else:
+        activities = _activities(where, params)
+    pages = -(-(total or 0) // PAGE)
+    keep = rider_args + sf.args() + gf['args'] + af.args() + [(k, v) for k in ('q', 'from', 'to', 'min_dist', 'max_dist') for v in [args.get(k, '').strip()] if v]
+    page_url = lambda n: list_path + '?' + urlencode(keep + ([('page', n)] if n > 1 else [])) + '#ride-history'
     ctx = dict(
         rid=rid,
         list_path=list_path,
@@ -314,16 +328,19 @@ def _activity_list(args, list_path):
         activities=activities,
         grouped=_open_newest(_group_activities(activities)) if not is_filtered else [],
         search_results=activities if is_filtered else [],
+        result_ids=ids, result_total=total, af=af,
+        narrowed=any([q, date_from, date_to, min_dist, max_dist]) or bool(af.on),     # not merely in another order: "change the type of all results" is offered
+        page=af.page, pages=pages, prev_url=page_url(af.page - 1) if af.page > 1 else None, next_url=page_url(af.page + 1) if af.page < pages else None,
         is_filtered=is_filtered,
         q=q, date_from=date_from, date_to=date_to,
         min_dist=min_dist, max_dist=max_dist,
         gear=gf['value'], gear_choices=gf['choices'], row_picker=gf['row_picker'], gear_pickers=gf['pickers'],
         gear_types=_gear_types(get_db(), rid, gf['value'], sf, link),
         sf=sf,
-        sport_links=[(label, icon, link(skip), active) for label, icon, skip, active in sf.shortcuts()],
+        sport_links=[(label, icon, link(group=g), active) for label, icon, g, active in sf.shortcuts()],
         all_riders=all_riders,
         active_rider=active_rider,
-        rider_query=urlencode(rider_args + sf.args() + gf['args']),     # kept on every link the page makes: the rider, the sports left out, the gear
+        rider_query=urlencode(rider_args + sf.args() + gf['args'] + af.args()),     # kept on every link the page makes: the rider, the sports left out, the gear, the more filters
         clear_url=list_path + ('?' + urlencode(rider_args + sf.args()) if rider_args or sf.args() else ''),     # Clear drops the search and the gear
     )
     return ctx, where, params, link

@@ -297,7 +297,7 @@ def detail(rid):
     future_start = bool(activity['flagReason'] and _sanity.future_start(activity))
     from services import sport_guess as _sport_guess
     sport_guess = None if friend else _sport_guess.for_activity(get_db(), activity['id'])    # an upload whose file didn't say it was a run
-    return render_template('ride.html', friend=friend, kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), phone_sensors=phone_sensors, activity=activity, coords=coords, zwift_world=zwift_world, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
+    return render_template('ride.html', friend=friend, kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), photo_caption_max=_photos.MAX_CAPTION, phone_sensors=phone_sensors, activity=activity, coords=coords, zwift_world=zwift_world, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
                            file_climb=file_climb, file_moving=file_moving, elapsed_fix=elapsed_fix, future_start=future_start, sport_guess=sport_guess, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
                            charts=charts, has_memory=memory_count > 0, ai_pending=_auto_analyse.is_pending(activity['id']),
                            seg_efforts=seg_efforts, alt_raw=alt_raw, coords_from_stream=coords_from_stream, dist_raw=dist_raw,
@@ -484,6 +484,31 @@ def delete_photo(rid, pid):
     photos.delete(db, pid, rid, current_app.config['DATABASE'])
     db.commit()
     return redirect(url_for('rides.detail', rid=rid) + '#photosCard')
+
+
+@bp.route('/<rid>/photos/<int:pid>/caption', methods=['POST'])
+def caption_photo(rid, pid):
+    """A photo's caption from the activity page (field 'caption'; empty clears it). 204, or 404 for a photo that isn't on this activity."""
+    from services import photos
+    db = get_db()
+    if not photos.set_caption(db, pid, rid, request.form.get('caption')):
+        abort(404)
+    db.commit()
+    return ('', 204)
+
+
+@bp.route('/<rid>/photos/order', methods=['POST'])
+def order_photos(rid):
+    """The activity's photos in the order dragged on the page (field 'id', repeated, every photo once). The first is the cover. 204, or 409 when
+    the list doesn't match the photos there now (one added or deleted in another tab), so the page reloads."""
+    from services import photos
+    db = get_db()
+    try:
+        photos.reorder(db, rid, [int(i) for i in request.form.getlist('id') if i.isdigit()])
+    except ValueError:
+        return ('', 409)
+    db.commit()
+    return ('', 204)
 
 
 def gpx_for(activity):

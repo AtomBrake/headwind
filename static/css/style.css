@@ -266,6 +266,9 @@ body {
   font-weight: 500;
 }
 .nav-item.active svg { opacity: 1; color: var(--accent); }
+/* A favourite sport (services/favourites.py) under Activities: indented, its emoji in the icon's place */
+.nav-item.nav-sub { padding-left: 1.75rem; font-size: 0.8125rem; }
+.nav-emoji { width: 16px; text-align: center; font-size: 0.8125rem; line-height: 1; flex-shrink: 0; }
 
 .nav-divider {
   height: 1px;
@@ -1124,3 +1127,9 @@ body.bulk-mode { padding-bottom: 6rem; }
 .standing-main { flex: 1; min-width: 0; }
 .standing-main .goal-bar { margin: 0.2rem 0 0; height: 6px; }
 .standing-value { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* The activity list's more filters (services/activity_filters.py): folded away until one is on */
+.more-filters { flex-basis: 100%; order: 10; font-size: 0.8125rem; }
+.more-filters > summary { cursor: pointer; color: var(--text-muted); padding: 0.15rem 0; }
+.more-filters-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.5rem 0.75rem; margin-top: 0.4rem; }
+.pager { display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin-top: 0.8rem; font-size: 0.8125rem; color: var(--text-muted); }

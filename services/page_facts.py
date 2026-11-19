@@ -1,4 +1,4 @@
-"""What the frame of every page needs from the database (units, appearance, the rider mode, the Tasks and Import badges), read in one statement
+"""What the frame of every page needs from the database (units, appearance, favourite sports, the rider mode, the Tasks and Import badges), read in one statement
 and kept in g for the rest of the request, where it used to be six queries a page. Only inside a request: a background job's app context can
 live for minutes, and these can change under it.
 
@@ -17,6 +17,8 @@ def _statement():
     advised = f'({strava_export.ADVISED_COUNT_SQL})' if n else '0'
     return (f'''SELECT (SELECT units FROM Settings WHERE id=1) AS units,
                        (SELECT appearance FROM Settings WHERE id=1) AS appearance,
+                       (SELECT favouriteSports FROM Settings WHERE id=1) AS favouriteSports,
+                       (SELECT tempUnit FROM Settings WHERE id=1) AS tempUnit,
                        (SELECT COUNT(*) FROM Rider r WHERE NOT EXISTS (SELECT 1 FROM Friend f WHERE f.riderId = r.id)) AS localRiders,
                        (SELECT id FROM Rider WHERE isDefault=1 ORDER BY id LIMIT 1) AS ownerId,
                        ({tasks.UNSEEN_STARTUP_SQL}) AS startupUnseen,
@@ -24,7 +26,7 @@ def _statement():
 
 
 def get():
-    """The row (units, appearance, localRiders, ownerId, startupUnseen, reimportAdvised) for this request, or None."""
+    """The row (units, appearance, favouriteSports, tempUnit, localRiders, ownerId, startupUnseen, reimportAdvised) for this request, or None."""
     if not has_request_context():
         return None
     if '_page_facts' not in g:

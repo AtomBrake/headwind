@@ -75,7 +75,7 @@ def restore(db, act_id):
 def empty(db, ids, db_path):
     """Cut these bin entries down to the bare tombstone now: their photos (files too) and the copies set aside behind them go; the id stays
     remembered, so no sync brings it back. Returns how many. Does not commit."""
-    from services import photos
+    from services import best_efforts, photos
     done = []
     for act_id in ids:
         if not db.execute(f'SELECT 1 FROM ActivityDuplicate WHERE id=? AND {_BINNED}', [act_id]).fetchone():
@@ -84,7 +84,7 @@ def empty(db, ids, db_path):
             db.execute("UPDATE ActivityDuplicate SET rowJson='{}', status='discarded' WHERE primaryId=? AND status='parked' AND id<>?", [act_id, act_id])
             db.execute("UPDATE ActivityDuplicate SET primaryId='' WHERE primaryId=? AND status='kept_both'", [act_id])
             photos.delete_for(db, [act_id], db_path)
-            db.execute('DELETE FROM BestEffort WHERE activityId=?', [act_id])     # a run's from a Strava export, which workouts.forget leaves
+            best_efforts.delete_for(db, 'activityId=?', [act_id])     # a run's from a Strava export, which workouts.forget leaves
         db.execute("UPDATE ActivityDuplicate SET rowJson='{}', primaryId='' WHERE id=? AND status='deleted'", [act_id])
         done.append(act_id)
     return len(done)

@@ -213,10 +213,12 @@ def _build_segment_context(activity_id):
 def _build_achievement_context(activity_id, activity_date):
     # The Ride view, and this rider's own: BestEffort has rows for anything with a track, and a walk is neither a ride's best 5 miles nor the
     # best another rider's ride has to beat. An indoor ride (Zwift, a turbo) is held against the indoor rides only, an outdoor one the outdoor ones.
+    from services.best_efforts import effort_set
     from services.sports import indoor_sql, is_virtual
-    achievements = query_db('''
-        SELECT e.distanceMi, e.elapsedSecs, e.avgSpeedMps, a.riderId, a.sportType
-        FROM BestEffort e JOIN Ride a ON a.id = e.activityId
+    es = effort_set(units.current())                    # in miles, or in km for a metric rider
+    achievements = query_db(f'''
+        SELECT e.{es.col} AS dist, e.elapsedSecs, e.avgSpeedMps, a.riderId, a.sportType
+        FROM {es.table} e JOIN Ride a ON a.id = e.activityId
         WHERE e.activityId = ?
     ''', [activity_id])
 
@@ -227,17 +229,17 @@ def _build_achievement_context(activity_id, activity_date):
     yr = str(activity_date)[:4]
 
     for ach in achievements:
-        d_mi   = units.fmt_dist(float(ach['distanceMi']) * units.MI, places=0 if units.spec()['system'] == 'imperial' else 1)
+        d_mi   = units.fmt_dist(es.metres(float(ach['dist'])), places=0)
         secs   = ach['elapsedSecs']
         mph    = units.fmt_speed(ach['avgSpeedMps'])
 
         # What was the previous best for this distance bracket?
         prev = query_db(f'''
             SELECT e.elapsedSecs, e.activityDate
-            FROM BestEffort e JOIN Ride a ON a.id = e.activityId
-            WHERE e.distanceMi = ? AND e.activityId != ? AND a.riderId IS ? AND {indoor_sql(is_virtual(ach['sportType']))}
+            FROM {es.table} e JOIN Ride a ON a.id = e.activityId
+            WHERE e.{es.col} = ? AND e.activityId != ? AND a.riderId IS ? AND {indoor_sql(is_virtual(ach['sportType']))}
             ORDER BY e.elapsedSecs ASC LIMIT 1
-        ''', [ach['distanceMi'], activity_id, ach['riderId']], one=True)
+        ''', [ach['dist'], activity_id, ach['riderId']], one=True)
 
         if prev:
             improvement = prev['elapsedSecs'] - secs

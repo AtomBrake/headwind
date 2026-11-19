@@ -4,7 +4,7 @@ from urllib.parse import urlencode
 from flask import Blueprint, g, jsonify, render_template, request, url_for
 
 from database import get_db, query_db
-from services.best_efforts import BRACKETS_MI, scan_all_best_efforts
+from services.best_efforts import effort_set, scan_all_best_efforts
 from services.sanity import SANE_SQL
 
 bp = Blueprint('data', __name__)
@@ -147,11 +147,12 @@ def index():
     from services.sports import indoor_sql
     achievements = []
     if sf.has_rides:
-        brackets = [(str(d), units.fmt_dist(d * units.MI, places=0 if system != 'metric' else 1)) for d in BRACKETS_MI]
-        ride_rows = {indoor: query_db(f'''SELECT e.distanceMi AS dist, e.activityDate, e.elapsedSecs, e.avgSpeedMps, e.activityId, a.name
-                                         FROM BestEffort e JOIN Ride a ON a.id = e.activityId
+        es = effort_set(system)                         # 5 to 100 miles, or 5 to 160 km
+        brackets = [(str(d), units.fmt_dist(es.metres(d), places=0)) for d in es.brackets]
+        ride_rows = {indoor: query_db(f'''SELECT e.{es.col} AS dist, e.activityDate, e.elapsedSecs, e.avgSpeedMps, e.activityId, a.name
+                                         FROM {es.table} e JOIN Ride a ON a.id = e.activityId
                                          WHERE a.riderId=? AND {indoor_sql(indoor)} AND {sf.sql('a.sportType')[0]}
-                                         ORDER BY e.distanceMi, e.elapsedSecs''', [rid] + fparams) for indoor in (False, True)}
+                                         ORDER BY e.{es.col}, e.elapsedSecs''', [rid] + fparams) for indoor in (False, True)}
         for indoor, key, title, noun in ((False, 'ride', 'Achievements', 'Ride'), (True, 'vride', 'Indoor ride best times', 'Indoor ride')):
             if ride_rows[indoor] or not (indoor or ride_rows[True]):        # the empty outdoor table offers the scan, unless the rides are all indoors
                 achievements.append(_achievements(key, title, noun, 'Avg Speed', 'speed', brackets,
@@ -244,7 +245,7 @@ def index():
         mph = round(units.speed(r['averageSpeed']), 1)       # in the rider's units, despite the name
         mo  = r['mo'] or '01'
 
-        wx_temp_x.append(round(float(r['weatherTempC']), 1))
+        wx_temp_x.append(round(units.temp(r['weatherTempC']), 1))      # °C or °F (Settings.tempUnit)
         wx_temp_y.append(mph)
         wx_temp_season.append(_season(mo))
         wx_temp_ids.append(r['id'])
@@ -325,7 +326,7 @@ def index():
         all_riders=all_riders,
         active_rider=active_rider,
         sf=sf,
-        sport_links=[(label, icon, url_for('data.index') + '?' + urlencode(rider_args + sf.args(skip)), active) for label, icon, skip, active in sf.shortcuts()],
+        sport_links=[(label, icon, url_for('data.index') + '?' + urlencode(rider_args + sf.args(group=g)), active) for label, icon, g, active in sf.shortcuts()],
     )
 
 

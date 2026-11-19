@@ -89,32 +89,9 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
 
 ### Activities and stats
 
-- [ ] **Units: what still ignores the metric setting.** Every distance, climb, speed and pace on the pages follows the setting (`services/units.py`, `tests/test_units.py`). Left:
-  - [ ] **Home Assistant sensors** are still published in miles, mph and feet (`services/mqtt.py`, `services/live.py`). Changing a sensor's unit breaks its long-term statistics in HA, so it needs a plan: new sensor IDs, or a one-off migration. (HA can already show a sensor in other units from its own settings.)
-  - [ ] **Best efforts and badges are defined in miles.** Best efforts are timed over 1, 5, 10 mi and so on, and shown converted ("16.1 km"). Badge limits are miles and mph and only their wording is converted ("25 miles" becomes "40 km"). Metric riders would want 5 / 10 / 20 / 40 / 100 km efforts and round-kilometre badges, which means recomputing the stored efforts.
-  - [ ] **Weather is always metric** (°C, km/h wind and gusts), so an imperial rider sees km/h wind next to mph speeds. Follow the setting there too, or add a separate choice for temperature.
-  - [ ] **The loss target is always in lb/week**, even when weights are shown in kg: "Loss target (lb / week)" in Settings → Profile & goals (`pfLoss`) and "Loss rate (lb/week)" on Nutrition → Goals (`sgLoss`). Show and accept kg/week when the weight unit is kg (about 0.25–1.1 kg/week for the current 0.5–2.5 lb range), and convert on save. `Settings.lossLbPerWeek`, `loss_lb_week` in the API and the 2.5 lb/week limit in `routes/nutrition.py` can stay in lb. The plan line under the form ("minus the deficit for your loss target") should name the rate in the same unit.
-  - [ ] **Height is ft/in first, with cm as a secondary "or"** (Settings → Profile & goals, `pfFt` / `pfIn` / `pfCm`). A metric rider should get cm as the main field. Pick the order from the units setting (or the weight unit), keeping the other as the alternative. Also, "Show weights as" is a separate choice from Display Preferences' metric/imperial: either default it from that setting or say on the form that it's separate.
-  - [ ] `RideMemory` stores miles, mph and feet. It's only read through the converters now, but storing metres and m/s like everything else would remove the special case.
+- [ ] **Units: `RideMemory` is the one table left in miles.** Every page, badge, best effort and the weather follow the settings (`services/units.py`, `tests/test_units.py`); Home Assistant's sensors stay in mi, ft and mph with a `device_class`, so HA converts them. `RideMemory` stores miles, mph and feet (`distanceMi`, `avgSpeedMph`, `elevationFt`), read through the converters in `routes/ai_page.py` and `services/context.py`. Storing metres and m/s like everything else would remove the special case, but the coach's similar-ride searches (`context.py`: `distanceMi BETWEEN`, `elevationFt BETWEEN`) are written in those units and would change with it.
 
-- [ ] **More filters on the activity lists.** The dashboard and Activities page (`routes/dashboard.py`) filter by name, dates, distance, sports to leave out (`skip=`) and gear (`?gear=bike-<id>`, `kit-<id>`, `none`, ...). Add:
-  - [ ] sensors and data the activity has: power, heart rate, cadence, GPS or indoor
-  - [ ] source (Garmin, Strava, import, phone) and rider
-  - [ ] Keep the filters in the URL so a filtered list can be bookmarked and linked, as `from` / `to` already are, and use the same filters on the rider pages.
-  - [ ] The Activities list (`_activity_list.html`) isn't a table: it's grouped by year, month and day and loads months lazily (`/dashboard/history`), so it can only be sorted on the server. Add a sort choice there (date, distance, time, climbing, speed) that drops the grouping and pages through the results, using the same `?sort=` in `dashboard._activity_list`.
-
-- [ ] **Favourite sports in the sidebar** (asked 2026-11-01). Let the rider pick favourite sports, each of which gets a sidebar item under Activity ("Cycling", "Running") opening the Activities page filtered to it. Picking cycling and running adds two items.
-  - [ ] What a favourite is: a stat group (rides, on foot, swims, each other sport: `sports.stat_group`, with `stat_label` and `STAT_ICONS` for the item's name and icon), as the "only rides" / "only on foot" shortcuts already are (`SportFilter.shortcuts` in `services/sport_filter.py`), or a single sport (Trail Run only)? Groups fit "cycling" best: e-bike, indoor and gravel rides come with it.
-  - [ ] Filter by what's kept, not what's left out. The filter's URL lists sports to leave out (`skip=`), so a link saved today would let in a sport first done tomorrow. Add `group=ride` (and `only=<sport>` if single sports are allowed) that `SportFilter` turns into a skip list on each request, as `sport=` already does. The item is highlighted while that filter is the only one on.
-  - [ ] Where they're kept: a list on `Settings` (one row for the instance today), or on `Rider` so each rider has their own once **Proper multi-user support, with roles** lands. Chosen in Settings → Display, and perhaps with a star on the dashboard's sport chips.
-  - [ ] The phone app's Activities tab could offer the same favourites (it already filters by sport), read from `/api/v1`.
-  - [ ] Tests: a favourite adds its sidebar item and the list it opens holds only that sport or group; a sport added later in that group shows up in it; removing it takes the item away.
-
-- [ ] **Captions and reordering for photos on the web.** The activity page shows a caption (`templates/ride.html`) but can't set one, and photos show in the order they were added. The server side is there (`photos.set_caption`, `photos.reorder`, used by the app's endpoints in `routes/api_v1.py`); the page needs the controls and two routes in `routes/rides.py`, which has only the upload and delete.
-
-- [ ] **Strength, HIIT and yoga: what's left.** They're sports of their own (`services/sports.py` `OTHER` and `from_type`, MET calories in `workouts.estimate_met_calories`), and the Garmin sync imports every type.
-  - [ ] Strava export: activities already saved as Other from these types can be changed with a one-off pass at start-up, as `sport_fix` does, reading the original type from `rawData`.
-  - [ ] Check the places that list sports: the type picker on the activity page, the Activities page's sport filter (`services/sport_filter.py`), the dashboard history, goals (`services/goals.py`) and the phone API's `sport` values.
+- [ ] **Favourite sports in the iPhone app.** The web's favourites (`services/favourites.py`, Settings → Display) reach the app as `favourite_sports` in `GET /api/v1/ping`, each `{label, icon, group}` or `{label, icon, sport}`, the arguments `GET /api/v1/rides` filters by. The Activities tab could offer them as one-tap filters beside its sport menu.
 
 ### Health
 

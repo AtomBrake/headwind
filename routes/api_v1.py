@@ -1,7 +1,8 @@
 """Endpoints for the phone app (Bearer device token, see services/device_auth.py).
 
   GET  /api/v1/ping        who this instance is (the app calls it right after pairing), the rider's bikes for the app's bike picker, and
-                            server_url, the https outside address set in Settings (null when there's none)
+                            server_url, the https outside address set in Settings (null when there's none), and favourite_sports: the
+                            rider's favourites ({label, icon, group} or {label, icon, sport}, for GET /api/v1/rides' group= or sport=)
   GET  /api/v1/today       everything the app's home screen needs in ONE request (fast start)
   POST /api/v1/workouts    upload a recorded walk/run/swim (multipart: file=GPX, optional sport, name, client_id, steps, calories, source=android|ios) — idempotent
   GET  /api/v1/workouts    recent workouts
@@ -56,9 +57,12 @@ def _public(w):
 @bp.route('/ping')
 def ping():
     r = _rider()
-    s = query_db('SELECT units, calorieAdjustPct FROM Settings WHERE id=1', one=True)
+    from services import favourites
+    s = query_db('SELECT units, calorieAdjustPct, favouriteSports FROM Settings WHERE id=1', one=True)
     return jsonify({'ok': True, 'api': 1, 'rider': r['name'] if r else None, 'units': (s['units'] if s else None) or 'imperial',
                     'calorie_adjust_pct': (s['calorieAdjustPct'] if s and s['calorieAdjustPct'] is not None else 0),
+                    'favourite_sports': [{'label': d['label'], 'icon': d['icon'], ('group' if d['arg'][0] == 'group' else 'sport'): d['arg'][1]}
+                                         for d in map(favourites.describe, favourites.parse(s['favouriteSports'] if s else None))],
                     'server_time': tz.now().isoformat(timespec='seconds'), 'bikes': _bikes(r['id']) if r else [],
                     'server_url': external_url.https() or None})        # the outside address: an app that paired on another can offer to move
 
@@ -343,6 +347,10 @@ def upload_ride():
 
     if result['errors']:
         return jsonify({'error': 'could not parse that recording', **result}), 500
+    if result['imported'] and ride and ride.get('id'):          # recorded on the phone, not a file imported on the web (the list's source filter)
+        src = request.form.get('source') if request.form.get('source') in ('android', 'ios') else 'phone'
+        get_db().execute(r"UPDATE Activity SET source=? WHERE id=? AND source IS NULL AND id LIKE 'imp\_%' ESCAPE '\'", [src, str(ride['id'])])
+        get_db().commit()
 
     # imported=0/skipped=1 means it was already uploaded (retry after a dropped connection) — not an error,
     # ride/activity still identifies which one so the app can show "Uploaded X mi" either way.

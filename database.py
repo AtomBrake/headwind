@@ -158,7 +158,7 @@ def heavy_last(db, table, heavy):
 # are downloads still to do.
 _REPAIR_FLAGS = ('distanceBackfillDone', 'utcStartFixDone', 'awayStartRecheckDone', 'localZoneFixDone', 'workoutDupCheckDone', 'dupNameFixDone',
                  'segmentFamiliesDone', 'segmentBikesMergedDone', 'movingTimeFixDone', 'segmentMatchFixDone', 'sportEffortsDone',
-                 'movingTimePausedDone', 'bestEffortsCleanDone', 'sensorTopSpeedDone', 'mmDistancesDone', 'stravaManualDone', 'sanityAllSportsDone',
+                 'movingTimePausedDone', 'bestEffortsCleanDone', 'bestEffortsKmDone', 'sensorTopSpeedDone', 'mmDistancesDone', 'stravaManualDone', 'sanityAllSportsDone',
                  'liveParkedFixDone', 'strandedParkedFixDone', 'segmentClimbFloorDone', 'ebikeSportDone', 'segmentStopsDone',
                  'segmentRouteDone', 'segmentLapsDone', 'dupMatchFixDone')
 
@@ -359,6 +359,8 @@ def migrate_db():
             UNIQUE(activityId, distanceMi)
         )
     ''')
+    from services.best_efforts import ensure_schema as _best_efforts_km_schema
+    _best_efforts_km_schema(db)                 # the same in kilometres, for a metric rider
 
     db.execute('''
         CREATE TABLE IF NOT EXISTS FoodLog (
@@ -487,6 +489,7 @@ def migrate_db():
         ('segmentMatchFixDone',    'INTEGER DEFAULT 0'), # 0.7.7's matching fixes: loops cut again, tracks realigned, every segment matched again (services/segments.repair_matching)
         ('sportEffortsDone',       'INTEGER DEFAULT 0'), # best times worked out for every run and swim already saved (services/sport_records.ensure)
         ('movingTimePausedDone',   'INTEGER DEFAULT 0'), # moving times that counted the stops (auto-pause off) taken from the track (services/moving_time.repair_paused)
+        ('bestEffortsKmDone',      'INTEGER DEFAULT 0'), # every ride's best efforts in km as well as miles, once, in the background (services/best_efforts.fill_km)
         ('bestEffortsCleanDone',   'INTEGER DEFAULT 0'), # best times worked out again without GPS jumps and speed-sensor faults (services/best_efforts.rescan_clean)
         ('sensorTopSpeedDone',     'INTEGER DEFAULT 0'), # top speeds from the GPS where the speed sensor went wrong (services/max_stats.fix_sensor_top_speed)
         ('mmDistancesDone',        'INTEGER DEFAULT 0'), # distances an old Strava import stored in mm, of every sport (services/mm_distances.fix)
@@ -526,6 +529,8 @@ def migrate_db():
         ('nutritionBmrKcal',     'INTEGER'),
         ('units',                "TEXT DEFAULT 'imperial'"),
         ('appearance',           "TEXT DEFAULT 'auto'"),     # the web UI: auto (follows the device), light or dark (routes/settings.APPEARANCES)
+        ('favouriteSports',      'TEXT'),                    # JSON list of services/favourites keys ('group:ride', 'sport:Run'): sidebar items
+        ('tempUnit',             "TEXT DEFAULT 'C'"),        # the weather's temperature, C or F, apart from units: a UK rider rides in miles and °C
         ('distanceBackfillDone', 'INTEGER DEFAULT 0'),
         ('nutritionWeightUnit',     "TEXT DEFAULT 'stlb'"),
         ('nutritionWeightEmaAlpha', 'REAL DEFAULT 0.1'),
@@ -985,7 +990,7 @@ def migrate_db():
                          + '; '.join(b[1] or b[0] for b in back[:5]) + ('…' if len(back) > 5 else '') if back else '') + '.')
         db.commit()
 
-    # ── Strava's "Virtual Ride", "E-Bike Ride", ... saved as Headwind's VirtualRide, EBikeRide, ...: one sport, not two, in the sport filter ──
+    # ── Strava's "Virtual Ride", "E-Bike Ride", "Weight Training", ... saved as Headwind's VirtualRide, EBikeRide, Strength, ...: one sport, not two ──
     from services import sport_fix as _sport_fix
     res = _sport_fix.fix_spellings(db)
     if res:
@@ -993,7 +998,7 @@ def migrate_db():
         n = sum(res.values())
         _tasks.record(db, 'startup:strava_spellings', "Strava's names for sports",
                       f"{n:,} activit{'y' if n == 1 else 'ies'} saved under Strava's name for a sport now {'has' if n == 1 else 'have'} Headwind's, "
-                      "so the sport filter lists each sport once: "
+                      "so each sport is listed and counted as one: "
                       + '; '.join(f"{c:,} {s} → {_canonical(s)} ({_sport_label(_canonical(s))})" for s, c in res.items()) + '.')
         db.commit()
 

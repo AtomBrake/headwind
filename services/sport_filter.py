@@ -2,11 +2,16 @@
 those (skip=…), so a sport that turns up later is shown. Old links with sport=X (one sport, matched on part of its name) still work: they leave out
 every sport that doesn't match.
 
+A link can also say what's kept: group=ride (a stat group: every kind of ride, a kind first ridden tomorrow too) or only=Run (one sport). Each
+request turns it into the skip list for the sports there are now, and links made from that page keep the group= or only= rather than the list,
+so a favourite in the sidebar (services/favourites.py) or a saved "only rides" link never goes stale.
+
 The commute filter sits beside it: commute=only leaves in the activities ticked as a commute (Activity.commute), commute=no the rest (unticked, or
 never said). It's offered once the rider has a commute, or while it's on.
 
 Distances only add up within a stat group (services/sports.stat_group). When everything left is in one group the pages show its distance and its speed
-or pace; when it isn't, they show time, calories and climbing, with each group's distance on its own."""
+or pace; when it isn't, or the group is a timed-only sport (sports.NO_DISTANCE), they show time, calories and climbing, with each group's distance
+on its own."""
 from itertools import cycle
 from urllib.parse import urlencode
 
@@ -45,14 +50,22 @@ class SportFilter:
         left = {r[0] for r in rows if (r[2] or 0) > 0} if self.commute == 'only' else \
                {r[0] for r in rows if r[1] > (r[2] or 0)} if self.commute == 'no' else {r[0] for r in rows}    # sports with an activity the commute filter keeps
         names = [s for s, _ in self.sports]
-        only = (args.get('sport') or '').strip()
-        if only:
-            self.skip = [s for s in names if only.lower() not in s.lower()]
+        part = (args.get('sport') or '').strip()
+        self.keep = None                                # ('group', 'ride') or ('only', 'Run'): kept on links instead of the skip list
+        if part:
+            self.skip = [s for s in names if part.lower() not in s.lower()]
+        elif (args.get('group') or '').strip():
+            self.keep = ('group', args['group'].strip())
+            self.skip = self.only(self.keep[1])
+        elif (args.get('only') or '').strip():
+            self.keep = ('only', sports.canonical(args['only'].strip()))
+            self.skip = [s for s in names if s != self.keep[1]]
         else:
             self.skip = [x for x in dict.fromkeys(args.getlist('skip')) if x][:50]
         self.kept = [s for s in names if s not in self.skip]
         self.groups = list(dict.fromkeys(sorted((sports.stat_group(s) for s in self.kept if s in left), key=sports.stat_order)))
-        self.group = self.groups[0] if len(self.groups) == 1 else None         # None: nothing left, or distances that don't add up
+        self.group = self.groups[0] if len(self.groups) == 1 and self.groups[0] not in sports.NO_DISTANCE else None     # None: nothing left,
+        # distances that don't add up, or a sport that has none (yoga, strength): the pages count its time
         self.style = sports.rate_style(group=self.group) if self.group else None
         self.has_rides = 'ride' in self.groups
         self.all_groups = list(dict.fromkeys(sorted((sports.stat_group(s) for s in names), key=sports.stat_order)))
@@ -72,9 +85,15 @@ class SportFilter:
             conds.append(COMMUTE_SQL[self.commute].format(p=col[:col.rfind('.') + 1]))
         return ' AND '.join(conds) or '1=1', params
 
-    def args(self, skip=None):
-        """The query args that keep the filter, with another skip list when given (the commute filter is kept either way)."""
-        return [('skip', s) for s in (self.skip if skip is None else skip)] + ([('commute', self.commute)] if self.commute else [])
+    def args(self, skip=None, group=None):
+        """The query args that keep the filter, with another skip list or a stat group when given (the commute filter is kept either way)."""
+        if group is not None:
+            sport = [('group', group)]
+        elif skip is None and self.keep:
+            sport = [self.keep]
+        else:
+            sport = [('skip', s) for s in (self.skip if skip is None else skip)]
+        return sport + ([('commute', self.commute)] if self.commute else [])
 
     @property
     def query(self):
@@ -86,7 +105,7 @@ class SportFilter:
         return [s for s, _ in self.sports if sports.stat_group(s) != group]
 
     def shortcuts(self):
-        """(label, icon, skip list, active) for each stat group, when there are several: a one-click "only rides" / "only on foot"."""
+        """(label, icon, group, active) for each stat group, when there are several: a one-click "only rides" / "only on foot"."""
         if len(self.all_groups) < 2:
             return []
-        return [(sports.stat_label(g), sports.STAT_ICONS.get(g, ''), self.only(g), self.groups == [g]) for g in self.all_groups]
+        return [(sports.stat_label(g), sports.STAT_ICONS.get(g, ''), g, self.groups == [g]) for g in self.all_groups]

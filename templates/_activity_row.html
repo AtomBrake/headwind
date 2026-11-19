@@ -15,7 +15,7 @@
       {%- elif a.id.startswith('imp_') %}<span class="act-tag import">IMPORT</span>{% endif %}</div>
     <div class="act-meta">
       {%- if date %}{{ a.startDateLocal | fmt_date }} · {% endif -%}
-      <span class="act-dist">{{ a.distance | fmt_dist }}</span> · {{ a.movingTime | fmt_duration }}
+      {%- if sport | has_distance %}<span class="act-dist">{{ a.distance | fmt_dist }}</span> · {% endif %}{{ a.movingTime | fmt_duration }}
       {%- if a.averageSpeed %} · {{ a.averageSpeed | fmt_rate(sport) }}{% endif %}
       {%- if a.totalElevationGain and sport | has_climbing %} · {{ a.totalElevationGain | fmt_elev }}{% endif %}
       {%- for m in more if m %} · {{ m }}{% endfor %}</div>

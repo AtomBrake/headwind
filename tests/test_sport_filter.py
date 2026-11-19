@@ -84,7 +84,9 @@ def test_leaving_out_rides_and_swims_gives_distance_and_pace_on_foot(client):
 def test_only_shortcuts_and_old_one_sport_links(client):
     html = client.get('/dashboard').get_data(as_text=True)
     hrefs = re.findall(r'<a class="sport-only[^"]*" href="([^"]+)"', html)
-    assert len(hrefs) == 3 and any('skip=Run' in h and 'skip=Walk' in h and 'skip=Ride' not in h for h in hrefs)    # "only rides"
+    assert len(hrefs) == 3 and '/dashboard?group=ride' in hrefs          # "only rides", by what it keeps: a kind of ride done later joins it
+    html = client.get('/dashboard?group=foot').get_data(as_text=True)
+    assert '/rides/run1' in html and '/rides/walk1' in html and '/rides/r1' not in html and _json(html, 'rateStyle') == 'pace'
     html = client.get('/dashboard?sport=swim').get_data(as_text=True)              # an old link: one sport, by part of its name
     assert '/rides/swim1' in html and '/rides/r1' not in html and '· 2:00 /100 m</div>' in html
 
@@ -146,3 +148,15 @@ def test_the_commute_filter_needs_no_second_sport(client):
         db.commit()
     html = client.get('/dashboard').get_data(as_text=True)
     assert 'aria-label="Commutes"' in html and 'data-sport value=' not in html
+
+
+def test_only_a_timed_sport_shows_its_time_not_a_distance(client):
+    with client.application.app_context():
+        db = database.get_db()
+        db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime, calories) "
+                   "VALUES ('yoga1', 'Flow', 1, 'Yoga', ?, 0, 2700, 150)", [f'{date.today().isoformat()}T07:00:00'])
+        db.commit()
+    html = client.get('/dashboard?skip=Ride&skip=Run&skip=Walk&skip=Swim').get_data(as_text=True)
+    assert '/rides/yoga1' in html and 'Total Distance' not in html and 'Total Time' in html
+    assert _json(html, 'rateStyle') is None and 'data-metric="distance"' not in html
+    assert client.get('/data?skip=Ride&skip=Run&skip=Walk&skip=Swim').status_code == 200

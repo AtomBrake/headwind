@@ -64,7 +64,8 @@ FRAME = ('FROM Rider r WHERE NOT EXISTS', 'FROM Rider WHERE isDefault=1 ORDER BY
 
 def test_a_page_pays_for_its_frame_with_one_statement(client, statements):
     client.get('/settings/')                    # the first request after start-up also checks a rider exists
-    for url, most in (('/settings/', 3), ('/friends', 5)):        # 7 and 9 before (2026-11-01); /friends lists the riders a code can share
+    for url, most in (('/settings/', 4), ('/friends', 5)):        # 7 and 9 before (2026-11-01); /friends lists the riders a code can share,
+        # /settings/ the sports a favourite can be (services/favourites.choices)
         statements.clear()
         assert client.get(url).status_code == 200
         # per connection only the settings that aren't kept in the database file (not journal_mode)

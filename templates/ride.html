@@ -418,7 +418,7 @@ function typeChanged(sel) {
 
     {% if activity.weatherTempC is not none %}
     <div>
-      <div style="font-size:1.5rem; font-weight:700; color:var(--text); line-height:1;">{{ activity.weatherTempC | int }}°C</div>
+      <div style="font-size:1.5rem; font-weight:700; color:var(--text); line-height:1;">{{ activity.weatherTempC | fmt_temp }}</div>
       {% if activity.weatherCode is not none %}
       <div class="hint" style="margin-top:0.25rem;">{{ activity.weatherCode | wmo_label }}</div>
       {% endif %}
@@ -428,9 +428,9 @@ function typeChanged(sel) {
     {% if activity.weatherWindKph %}
     <div>
       <div style="font-size:1.25rem; font-weight:700; color:var(--text); line-height:1;">
-        {{ activity.weatherWindKph | int }} kph <span id="wdCompass" style="font-size:0.9rem; color:var(--text-muted); font-weight:400;"></span>
+        {{ activity.weatherWindKph | fmt_wind }} <span id="wdCompass" style="font-size:0.9rem; color:var(--text-muted); font-weight:400;"></span>
         {% if activity.weatherGustKph and activity.weatherGustKph > activity.weatherWindKph * 1.2 and activity.weatherGustKph > 15 %}
-        <span style="font-size:0.8125rem; color:var(--text-muted); font-weight:400;">· gusts {{ activity.weatherGustKph | int }}</span>
+        <span style="font-size:0.8125rem; color:var(--text-muted); font-weight:400;">· gusts {{ activity.weatherGustKph | wind_val }}</span>
         {% endif %}
       </div>
       {% if view in ('ride', 'foot') %}{# into the wind or with it: a sail, a kite or a paddle goes every way the wind allows #}
@@ -675,9 +675,10 @@ function typeChanged(sel) {
     {% endif %}
   </div>
   {% if photos %}
-  <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:0.5rem;">
+  {% set edit_photos = not (demo_mode or friend) %}
+  <div id="photoGrid" style="display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:0.5rem;">
     {% for p in photos %}
-    <figure style="margin:0; position:relative;">
+    <figure style="margin:0; position:relative;" data-pid="{{ p.id }}">
       <a href="{{ url_for('rides.photo', name=p.filename) }}" onclick="return openPhoto(this)" data-caption="{{ p.caption or '' }}">
         <img src="{{ url_for('rides.photo', name=p.filename[:-4] ~ '_t.jpg') }}" alt="{{ p.caption or 'Photo from this activity' }}" loading="lazy"
              style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; display:block;">
@@ -685,14 +686,21 @@ function typeChanged(sel) {
       {% if not friend %}
       <form method="POST" action="{{ url_for('rides.delete_photo', rid=activity.id, pid=p.id) }}" onsubmit="return confirm('Delete this photo? The activity keeps its other photos. This cannot be undone.')"
             style="position:absolute; top:4px; right:4px; margin:0;">
-        <button type="submit" aria-label="Remove this photo" title="Remove"
-                style="border:none; border-radius:50%; width:24px; height:24px; line-height:24px; padding:0; background:var(--overlay); color:var(--white); cursor:pointer;">×</button>
+        <button type="submit" aria-label="Remove this photo" title="Remove" class="photo-btn">×</button>
       </form>
       {% endif %}
-      {% if p.caption %}<figcaption style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem; line-height:1.3;">{{ p.caption }}</figcaption>{% endif %}
+      {% if edit_photos and photos | length > 1 %}
+      <button type="button" class="photo-btn photo-earlier" onclick="movePhoto(this, -1)" aria-label="Move this photo earlier" title="Move earlier">‹</button>
+      <button type="button" class="photo-btn photo-later" onclick="movePhoto(this, 1)" aria-label="Move this photo later" title="Move later">›</button>
+      {% endif %}
+      {% if edit_photos %}
+      <input type="text" class="photo-caption" value="{{ p.caption or '' }}" maxlength="{{ photo_caption_max }}" placeholder="Add a caption" aria-label="Caption"
+             onchange="savePhotoCaption(this)" onkeydown="if (event.key === 'Enter') { event.preventDefault(); this.blur(); }">
+      {% elif p.caption %}<figcaption style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem; line-height:1.3;">{{ p.caption }}</figcaption>{% endif %}
     </figure>
     {% endfor %}
   </div>
+  {% if edit_photos and photos | length > 1 %}<div class="hint" style="margin-top:0.5rem;">Drag the photos, or use ‹ ›, to put them in order. The first one is the activity's cover.</div>{% endif %}
   {% else %}
   <div class="hint">No photos yet. Location and camera details are taken out of the ones you add.</div>
   {% endif %}
@@ -713,7 +721,77 @@ function openPhoto(a) {
   d.showModal();
   return false;
 }
+{% if not (demo_mode or friend) %}
+function savePhotoCaption(input) {
+  var fig = input.closest('figure');
+  fetch('/rides/{{ activity.id }}/photos/' + fig.getAttribute('data-pid') + '/caption', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'caption=' + encodeURIComponent(input.value)
+  }).then(function(r) {
+    if (r.status !== 204) { input.classList.add('is-error'); return; }
+    var text = input.value.trim();
+    input.value = text;
+    input.classList.remove('is-error');
+    fig.querySelector('a').setAttribute('data-caption', text);
+    fig.querySelector('img').alt = text || 'Photo from this activity';
+  }).catch(function() { input.classList.add('is-error'); });
+}
+function photoOrder(grid) {
+  return Array.prototype.map.call(grid.querySelectorAll('figure[data-pid]'), function(f) { return f.getAttribute('data-pid'); });
+}
+function savePhotoOrder(grid) {
+  var body = new URLSearchParams();
+  photoOrder(grid).forEach(function(id) { body.append('id', id); });
+  fetch('/rides/{{ activity.id }}/photos/order', { method: 'POST', body: body })
+    .then(function(r) { if (r.status !== 204) location.reload(); })       // added or deleted in another tab: show what's there now
+    .catch(function() { location.reload(); });
+}
+function movePhoto(btn, step) {
+  var fig = btn.closest('figure'), grid = fig.parentNode;
+  var other = step < 0 ? fig.previousElementSibling : fig.nextElementSibling;
+  if (!other) return;
+  grid.insertBefore(fig, step < 0 ? other : other.nextSibling);
+  btn.focus();
+  savePhotoOrder(grid);
+}
+(function() {
+  var grid = document.getElementById('photoGrid'), dragged = null, before = '';
+  if (!grid || grid.children.length < 2) return;
+  grid.addEventListener('dragstart', function(e) {         // the thumbnail is the handle (a link and an image drag anyway), not the caption field
+    if (!e.target.closest || !e.target.closest('a')) return;
+    dragged = e.target.closest('figure');
+    before = photoOrder(grid).join();
+    e.dataTransfer.effectAllowed = 'move';
+    dragged.style.opacity = '0.4';
+  });
+  grid.addEventListener('dragover', function(e) {
+    if (!dragged) return;
+    e.preventDefault();
+    var over = e.target.closest && e.target.closest('figure');
+    if (!over || over === dragged) return;
+    var box = over.getBoundingClientRect();
+    grid.insertBefore(dragged, e.clientX > box.left + box.width / 2 ? over.nextSibling : over);
+  });
+  grid.addEventListener('drop', function(e) { if (dragged) e.preventDefault(); });
+  grid.addEventListener('dragend', function() {
+    if (!dragged) return;
+    dragged.style.opacity = '';
+    dragged = null;
+    if (photoOrder(grid).join() !== before) savePhotoOrder(grid);
+  });
+})();
+{% endif %}
 </script>
+<style>
+  #photoGrid .photo-btn { border:none; border-radius:50%; width:24px; height:24px; line-height:24px; padding:0; background:var(--overlay); color:var(--white); cursor:pointer; }
+  #photoGrid .photo-earlier, #photoGrid .photo-later { position:absolute; top:calc(50% - 12px); }
+  #photoGrid .photo-earlier { left:4px; } #photoGrid .photo-later { right:4px; }
+  #photoGrid figure:first-child .photo-earlier, #photoGrid figure:last-child .photo-later { display:none; }
+  #photoGrid .photo-caption { margin-top:0.25rem; padding:0.2rem 0.4rem; font-size:0.75rem; border-color:transparent; background:transparent; }
+  #photoGrid .photo-caption:hover, #photoGrid .photo-caption:focus { border-color:var(--border); background:var(--field-bg); }
+  #photoGrid .photo-caption.is-error { border-color:var(--danger); }
+</style>
 {% endif %}
 
 {% if phone_sensors %}

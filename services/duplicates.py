@@ -538,7 +538,8 @@ def _drop_derived(db, act_id):
     from services.segments import _refresh_prs
     seg_ids = [r[0] for r in db.execute('SELECT DISTINCT segmentId FROM SegmentEffort WHERE activityId=?', [act_id])]
     db.execute('DELETE FROM SegmentEffort WHERE activityId=?', [act_id])
-    db.execute('DELETE FROM BestEffort WHERE activityId=?', [act_id])
+    from services import best_efforts
+    best_efforts.delete_for(db, 'activityId=?', [act_id])
     db.execute('DELETE FROM RideMemory WHERE rideId=?', [act_id])
     db.execute('DELETE FROM SportEffort WHERE activityId=?', [act_id])
     return seg_ids

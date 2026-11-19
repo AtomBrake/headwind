@@ -67,7 +67,8 @@ def _friends_autosync(app):
 
 def _track_summaries(app):
     """Once after start-up: the track summaries (services/tracks.py) of activities that have none, so the heatmap and the first new segment don't
-    wait for them. After an upgrade that is every activity, reading each one's streams once; after that, only what arrived without one."""
+    wait for them. After an upgrade that is every activity, reading each one's streams once; after that, only what arrived without one. Then,
+    in the same thread so they never write at once, the km best efforts rides saved before there were any lack (services/best_efforts.fill_km)."""
     time.sleep(20)                              # let the app finish starting up
     try:
         with app.app_context():
@@ -82,6 +83,17 @@ def _track_summaries(app):
                 tasks.finish(db, task_id, f"{n:,} activit{'y' if n == 1 else 'ies'} summarised for the heatmap and new segments")
     except Exception as e:
         log.warning('Track summaries: %s', e)
+    try:                                        # then, once after the update that brought them, every ride's best efforts in km
+        with app.app_context():
+            from database import get_db
+            from services import best_efforts, tasks
+            db = get_db()
+            if not db.execute('SELECT bestEffortsKmDone FROM Settings WHERE id=1').fetchone()[0]:
+                task_id = tasks.start(db, 'best_efforts_km', 'Best efforts in kilometres')
+                n = best_efforts.fill_km(db)
+                tasks.finish(db, task_id, f"Worked out for {n:,} ride{'' if n == 1 else 's'}: 5 to 160 km, shown when the units are metric")
+    except Exception as e:
+        log.warning('Best efforts in km: %s', e)
 
 
 def _ensure_default_avatar(app):
@@ -339,7 +351,12 @@ def create_app():
     app.template_filter('pace_mi')(lambda mps: _units.fmt_pace(mps))       # old name, still used by a few templates
     from services import sports as _sports
     app.template_filter('has_climbing')(lambda sport: _sports.has_climbing(sport))       # no climb on the water: it's GPS noise
+    app.template_filter('has_distance')(lambda sport: sport not in _sports.NO_DISTANCE)  # yoga, strength, HIIT: timed only
     app.template_filter('fmt_rate')(lambda mps, sport: _units.fmt_rate(mps, _sports.rate_style(sport)))   # speed, pace or per 100 m, by sport
+    app.template_filter('fmt_temp')(lambda c: _units.fmt_temp(c))                   # weather: °C or °F (Settings.tempUnit)
+    app.template_filter('fmt_wind')(lambda kph: _units.fmt_wind(kph))                # and the wind in mph or km/h, as the speeds are
+    app.template_filter('wind_val')(lambda kph: round(_units.wind(kph)))
+    app.template_filter('weather_text')(lambda text: _units.weather_text(text))
     app.template_filter('dist_val')(lambda m: _units.dist(m))
     app.template_filter('elev_val')(lambda m: _units.elev(m))
     app.template_filter('speed_val')(lambda mps: _units.speed(mps))
@@ -547,12 +564,24 @@ def create_app():
 
     @app.context_processor
     def inject_units():
-        return {'units': _get_units(), 'U': _units.spec()}
+        return {'units': _get_units(), 'U': _units.spec(), 'TEMP': '°' + _units.temp_unit()}
 
     @app.context_processor
     def inject_appearance():
         from routes.settings import appearance
         return {'appearance': appearance()}
+
+    @app.context_processor
+    def inject_favourites():
+        """The favourite sports' sidebar items (services/favourites.py)."""
+        if not session.get('logged_in'):
+            return {'favourite_sports': []}
+        from services import favourites, page_facts
+        try:
+            row = page_facts.get() or get_db().execute('SELECT favouriteSports FROM Settings WHERE id=1').fetchone()
+            return {'favourite_sports': favourites.sidebar(row['favouriteSports'] if row else None, request.endpoint, request.args)}
+        except Exception:                                   # a database from before the column: nothing to show
+            return {'favourite_sports': []}
 
     @app.context_processor
     def inject_task_notice():

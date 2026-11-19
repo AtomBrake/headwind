@@ -181,6 +181,12 @@ HISTORY_UIDS = {"nutrition_weight_history", "nutrition_diary_history", "nutritio
 _NON_NUMERIC_OK = HISTORY_UIDS | {"nutrition_activity_status", "nutrition_garmin_watch_sync", "nutrition_steps_source", "nutrition_garmin_last_sync", "nutrition_garmin_status", "nutrition_calories_burned", "nutrition_weight_trend_kg", "nutrition_weight_rate_kg_wk"}
 
 
+# Distances, climbs and speeds stay in mi, ft and mph (their ids say so, and dashboards read them), but tagged as a distance or a speed so Home
+# Assistant can show each in km, m or km/h: the entity's settings offer the units once it has a device class. Their unit never changes, so
+# nothing recorded under them is lost.
+DEVICE_CLASSES = {'mi': 'distance', 'ft': 'distance', 'm': 'distance', 'mph': 'speed'}
+
+
 def _discovery(uid, name, icon, unit):
     """(config_topic, state_topic, config_json) for one sensor."""
     p = _prefix()
@@ -192,6 +198,8 @@ def _discovery(uid, name, icon, unit):
         config["default_entity_id"] = f"sensor.{p}_{uid}"      # predictable entity ids for a second instance
     if unit:
         config["unit_of_measurement"] = unit
+    if unit in DEVICE_CLASSES:
+        config["device_class"] = DEVICE_CLASSES[unit]
     if uid in ("nutrition_garmin_last_sync", "nutrition_garmin_watch_sync"):
         config["device_class"] = "timestamp"
     if uid in HISTORY_UIDS:

@@ -167,6 +167,7 @@ def test_a_proposal_kept_or_made_stale_is_not_offered(db):
     assert [p['rideId'] for p in sport_fix.pending(db, 1)] == ['garmin_2']
 
 
+
 def test_another_name_for_garmins_sport_is_not_offered_and_an_old_proposal_of_one_goes(db):
     """Strava's "Stand Up Paddling" is Garmin's stand_up_paddleboarding_v2 (Paddle): applying it would only rename it, and remove the recording set aside."""
     for gid, sport, key in (('1', 'Stand Up Paddling', 'stand_up_paddleboarding_v2'), ('2', 'Nordic Ski', 'cross_country_skiing_ws'),
@@ -178,6 +179,32 @@ def test_another_name_for_garmins_sport_is_not_offered_and_an_old_proposal_of_on
                "'stand_up_paddleboarding_v2')")                                # listed by an older Headwind
     assert sport_fix.from_seen(db) == {1: 1}
     assert [(p['rideId'], p['newSport']) for p in sport_fix.pending(db, 1)] == [('garmin_5', 'Surf')]
+
+
+def test_a_workout_saved_as_other_takes_garmins_strength_hiit_or_yoga(db):
+    _add(db, 'garmin_1', 'Other')                                       # saved before Headwind knew Garmin's yoga
+    _seen(db, '1', 'yoga')
+    _add(db, 'garmin_2', 'Kitesurf', day='2026-02-11')                 # Garmin says only "other": the sport it has stays
+    _seen(db, '2', 'other')
+    assert sport_fix.from_seen(db) == {1: 1}
+    assert sport_fix.apply(db, 1, ['garmin_1']) == {'changed': 1, 'failed': 0, 'kept': 0}     # a workout already: not "that ride was not found"
+    assert _sport(db, 'garmin_1') == 'Yoga'
+
+
+def test_a_ride_changed_to_a_workout_long_ago_is_matched_through_its_garmin_id(db):
+    """Before every sport was a row of Activity, changing a ride into a workout gave it an id of its own; its Garmin id is kept in originId."""
+    for wid, gid, sport, key in (('wk_a', '1', 'Other', 'hiit'), ('wk_b', '2', 'Other', 'strength_training'), ('wk_c', '3', 'Workout', 'kiteboarding_v2'),
+                                 ('wk_d', '4', 'Kitesurf', 'cycling'),         # picked by hand: Garmin's type is never offered over it
+                                 ('wk_e', '5', 'Other', 'cycling'),            # nor made a ride again: someone made it a workout
+                                 ('wk_f', '6', 'Other', 'auto_racing')):       # karting: still Other
+        _add(db, wid, sport, day=f'2026-02-1{gid}')
+        db.execute("UPDATE Activity SET source='converted', originId=? WHERE id=?", [f'garmin_{gid}', wid])
+        _seen(db, gid, key)
+    assert sport_fix.from_seen(db) == {1: 3}
+    assert {p['rideId']: p['newSport'] for p in sport_fix.pending(db, 1)} == {'wk_a': 'HIIT', 'wk_b': 'Strength', 'wk_c': 'Kitesurf'}
+    assert sport_fix.apply(db, 1, ['wk_a', 'wk_b', 'wk_c'])['changed'] == 3
+    assert [_sport(db, w) for w in ('wk_a', 'wk_b', 'wk_c', 'wk_d', 'wk_e')] == ['HIIT', 'Strength', 'Kitesurf', 'Kitesurf', 'Other']
+    assert sport_fix.from_seen(db) == {}
 
 
 # ---------- a ride on an e-bike ----------

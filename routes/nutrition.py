@@ -357,7 +357,8 @@ def estimate_meal_photo():
 @bp.route('/api/goal-plan', methods=['GET'])
 def goal_plan():
     from services import goal_model
-    return jsonify({'plan': goal_model.plan(), 'profile': goal_model.profile(), 'current': _get_goals()})
+    return jsonify({'plan': goal_model.plan(), 'profile': goal_model.profile(), 'current': _get_goals(),
+                    'weight_unit': _weight_settings()['unit']})      # the loss rate is shown in kg a week when weights are
 
 
 @bp.route('/api/profile', methods=['GET'])
@@ -387,7 +388,7 @@ def save_goal_profile():
     except (TypeError, ValueError):
         return jsonify({'error': 'invalid number'}), 400
     if loss is not None and not (0 <= loss <= 2.5):
-        return jsonify({'error': 'loss rate must be between 0 and 2.5 lb/week'}), 400
+        return jsonify({'error': 'loss rate must be between 0 and 2.5 lb (1.1 kg) a week'}), 400
     if ride_goal is not None and not (1 <= ride_goal <= 14):
         return jsonify({'error': 'rides per week must be between 1 and 14'}), 400
     if height_cm is not None and not (100 <= height_cm <= 250):

@@ -372,7 +372,8 @@ def delete(fid):
                                             'WHERE a.riderId=?', [friend['riderId']])}
         db.execute('DELETE FROM SegmentEffort WHERE activityId IN '
                    '(SELECT id FROM Activity WHERE riderId=?)', [friend['riderId']])
-        db.execute('DELETE FROM BestEffort WHERE activityId IN (SELECT id FROM Activity WHERE riderId=?)', [friend['riderId']])
+        from services import best_efforts
+        best_efforts.delete_for(db, 'activityId IN (SELECT id FROM Activity WHERE riderId=?)', [friend['riderId']])
         db.execute('DELETE FROM RideMemory WHERE rideId IN (SELECT id FROM Activity WHERE riderId=?)', [friend['riderId']])
         db.execute('DELETE FROM Activity WHERE riderId=?', [friend['riderId']])
         db.execute('DELETE FROM Rider WHERE id=?', [friend['riderId']])
