@@ -1,0 +1,9 @@
+{
+  // Suggested when the folder is opened in VS Code. None are required.
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "samuelcolvin.jinjahtml",
+    "ms-azuretools.vscode-docker"
+  ]
+}
