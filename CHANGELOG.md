@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.40-beta] - 2026-11-19
+
+### Fixed
+- **Activities with GPS and times out of step are put right, or pointed out.** A Headwind before 0.7.7 (and the original project) kept a time for every second a device recorded, but a position only when it had a GPS fix. So on an activity that lost the signal, or took a while to find it, the times along the track are off, and segments leave it out altogether. Only reading the file again puts it right. Now the daily Garmin check does that for Garmin's: it downloads the activity's file again and puts the track right, so segments count it again. **Full re-sync** on the Settings page does them all at once, where the daily check works back through your history a block at a time. The **Import** page lists the ones left out of segments and says how each gets put right: Garmin's by that check, a friend's on their own Headwind (they come back with the next sync), and the rest by importing their files again. Anything else in a file read again that differs from what's saved waits on the Import page for you to decide, as before. At the first start after updating, the map summaries of every activity are made again, which takes a minute or so on a long history.
+
 ## [0.7.39-beta] - 2026-11-19
 
 ### Fixed
