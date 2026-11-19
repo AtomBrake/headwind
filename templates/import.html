@@ -198,38 +198,45 @@
 </div>
 
 {% if changes %}
+{% set n = changes | length %}
+{% set any_fills = changes | selectattr('fills') | list %}
 <div class="card" id="changes" style="margin-top:1.25rem;">
   <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
-    <div class="card-title" style="margin:0;">{{ changes | length }} ride{{ 's' if changes | length != 1 }} differ{{ 's' if changes | length == 1 }} from what's saved</div>
+    <div class="card-title" style="margin:0;">{{ '{:,}'.format(n) }} activit{{ 'ies' if n != 1 else 'y' }} in the import differ{{ 's' if n == 1 }} from what's saved</div>
+    {% if n > 1 %}
     <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
       <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id='all', choice='replace') }}" style="margin:0;"
-            onsubmit="return confirm('Use the imported version of all {{ changes | length }}? Names, bikes, notes and types you set are kept.')">
-        <button class="btn btn-secondary btn-sm">Use all imports</button></form>
+            onsubmit="return confirm('Use the file\'s figures for all {{ '{:,}'.format(n) }}? Names, bikes, notes and types you set are kept.')">
+        <button class="btn btn-secondary btn-sm">Use all the file's</button></form>
+      {% if any_fills %}
       <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id='all', choice='fill') }}" style="margin:0;">
-        <button class="btn btn-secondary btn-sm">Fill in all gaps</button></form>
+        <button class="btn btn-secondary btn-sm">Fill in all gaps ({{ any_fills | length }})</button></form>
+      {% endif %}
       <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id='all', choice='keep') }}" style="margin:0;">
         <button class="btn btn-secondary btn-sm">Keep all saved</button></form>
     </div>
+    {% endif %}
   </div>
   <p class="hint" style="margin:0.5rem 0 0;">
-    These were imported before, and the file now reads differently, e.g. a ride that came in broken. <strong>Use import</strong> takes the file's
-    values wherever it has one; <strong>Fill in gaps</strong> only adds what the saved ride is missing (a GPS track, heart rate); <strong>Keep saved</strong>
-    leaves it as it is. Names, bikes, notes, the activity type and a ride you marked as right are never changed.</p>
+    These were imported before, and reading the file again gives different figures: saved → <span style="color:var(--accent);">in the file</span>.
+    Nothing changes until you choose. <strong>Use the file's</strong> takes the file's figures; <strong>Fill in gaps</strong>, offered when the saved
+    activity is missing something the file has, adds only that; <strong>Keep saved</strong> leaves it as it is. Names, bikes, notes, the activity
+    type and an activity you marked as right are never changed.</p>
   {% for c in changes %}
-  <div style="border-top:1px solid var(--border); padding:0.75rem 0;">
-    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; margin-bottom:0.4rem;">
-      <a href="/rides/{{ c.rideId }}" style="font-weight:600; color:var(--text);">{{ c.rideName or 'Ride' }}</a>
-      <span style="color:var(--text-muted); font-size:0.8125rem;">from {{ c.source }}</span>
-      <span style="flex:1;"></span>
-      {% for choice, label in (('replace', 'Use import'), ('fill', 'Fill in gaps'), ('keep', 'Keep saved')) %}
+  <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;{% if loop.first %} margin-top:0.75rem;{% endif %}">
+    <span style="flex:1; min-width:12rem;">
+      <a href="/rides/{{ c.rideId }}" style="color:var(--text);">{% if c.startDateLocal %}{{ c.startDateLocal | fmt_date }} · {% endif %}{{ c.rideName or 'Activity' }}</a>
+      <span style="color:var(--text-muted);">{% if c.sportType %} · {{ c.sportType | sport_label }}{% endif %} · from {{ c.source }}</span>
+      {% for d in c.diffs %}<br><span style="color:var(--text-muted);">{{ d.label }}:</span>
+        {{ d.old }} → <span style="color:var(--accent);">{{ d.new }}</span>{% endfor %}
+      {% if c.fills %}<br><span style="color:var(--text-muted);">Fill in gaps adds {{ c.fills | join(', ') }}.</span>{% endif %}
+    </span>
+    <div style="display:flex; gap:0.4rem;">
+      {% for choice, label in (('replace', "Use the file's"), ('fill', 'Fill in gaps'), ('keep', 'Keep saved')) if choice != 'fill' or c.fills %}
       <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id=c.rideId, choice=choice) }}" style="margin:0;">
         <button class="btn btn-secondary btn-sm">{{ label }}</button></form>
       {% endfor %}
     </div>
-    <table class="table table-compact" style="font-size:0.8125rem;">
-      <thead><tr><th></th><th>Saved</th><th>In the file</th></tr></thead>
-      <tbody>{% for d in c.diffs %}<tr><td class="text-muted">{{ d.label }}</td><td>{{ d.old }}</td><td style="color:var(--accent);">{{ d.new }}</td></tr>{% endfor %}</tbody>
-    </table>
   </div>
   {% endfor %}
 </div>

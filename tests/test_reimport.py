@@ -135,11 +135,26 @@ def test_import_page_lists_changes_and_applies_a_choice(tmp_path, monkeypatch):
         s['logged_in'] = True
         s['av'] = av
     html = c.get('/import').get_data(as_text=True)
-    assert '1 ride differs from what' in html and 'Use import' in html and 'from Strava export' in html
+    assert '1 activity in the import differs from what' in html and 'Use the file' in html and 'from Strava export' in html
+    assert 'Fill in gaps</button>' not in html                                      # nothing missing from the saved ride: not offered
+    assert c.post('/import/changes/all/fill').status_code == 302
+    with app.app_context():
+        assert len(reimport.pending(database.get_db())) == 1                        # filling all gaps leaves it to be chosen
     assert c.post('/import/changes/all/replace').status_code == 302
     with app.app_context():
         assert database.get_db().execute("SELECT distance FROM Activity").fetchone()[0] == 45959.5
     assert 'id="changes"' not in c.get('/import').get_data(as_text=True)
+
+
+def test_fill_in_gaps_is_offered_only_for_what_the_saved_ride_lacks(db):
+    db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, streams, rawData, riderId, createdAt, updatedAt) "
+               "VALUES ('6', 'Tour', 'Ride', 'Ride', '2026-07-04T09:00:00', '2026-07-04T10:00:00', 45959, 590, 600, '{}', '{}', 1, 'n', 'n')")
+    reimport.propose(db, db.execute("SELECT * FROM Activity").fetchone(),
+                     {'distance': 45959, 'movingTime': 900, 'averageHeartrate': 140, 'maxHeartrate': 170, 'calories': 300}, 'Garmin')
+    [c] = reimport.pending(db)
+    assert c['fills'] == ['heart rate', 'calories'] and c['sportType'] == 'Ride'     # moving time is there already: a difference, not a gap
+    assert reimport.fill_adds({**{k: 1 for k in reimport.FILL_LABELS}, 'streams': 1}, {'streams': '{}'},
+                              [{'label': 'Recorded data', 'old': 'GPS, altitude', 'new': 'GPS, altitude, heart rate'}]) == ['heart rate']
 
 
 def _saved_track(db, ride_id):

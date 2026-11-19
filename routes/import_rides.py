@@ -122,11 +122,12 @@ def clear_problems():
 
 @bp.route('/import/changes/<path:ride_id>/<choice>', methods=['POST'])
 def resolve_change(ride_id, choice):
-    """Settle a re-imported ride that differs from the saved one: keep | replace | fill (services/reimport.py). ride_id 'all' settles every one."""
+    """Settle a re-imported ride that differs from the saved one: keep | replace | fill (services/reimport.py). ride_id 'all' settles every one,
+    or for fill every one with a gap to fill: the rest stay to be chosen."""
     from flask import flash, redirect, url_for
     from services import reimport
     db = get_db()
-    ids = [c['rideId'] for c in reimport.pending(db)] if ride_id == 'all' else [ride_id]
+    ids = [c['rideId'] for c in reimport.pending(db) if choice != 'fill' or c['fills']] if ride_id == 'all' else [ride_id]
     try:
         changed = sum(1 for i in ids if reimport.resolve(db, i, choice))
     except ValueError as e:

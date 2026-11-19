@@ -213,8 +213,38 @@ def propose(db, saved, act, source):
 
 
 def pending(db):
-    rows = db.execute('SELECT * FROM ImportChange ORDER BY foundAt DESC, rideId').fetchall()
-    return [dict(r, diffs=json.loads(r['diffs'])) for r in rows]
+    """The activities waiting on the Import page, newest found first, with the saved one's date and sport and `fills`: what Fill in gaps would
+    add (fill_adds)."""
+    cols = ', '.join(f'a.{c}' for c in COLUMNS if c not in ('streams', 'rawData'))
+    rows = db.execute(f'''SELECT c.*, a.sportType, a.calories, {cols},
+                                 CASE WHEN a.streams IS NULL OR a.streams IN ('', '{{}}', 'null', '[]') THEN NULL ELSE 1 END AS streams
+                          FROM ImportChange c LEFT JOIN Activity a ON a.id = c.rideId ORDER BY c.foundAt DESC, c.rideId''').fetchall()
+    out = []
+    for r in rows:
+        diffs = json.loads(r['diffs'])
+        out.append(dict(r, diffs=diffs, fills=fill_adds(r, json.loads(r['act']), diffs) if r['startDateLocal'] else []))
+    return out
+
+
+# What Fill in gaps adds, as the page names it (rawData isn't shown anywhere, averageSpeed comes with distance and time)
+FILL_LABELS = {'distance': 'distance', 'movingTime': 'moving time', 'elapsedTime': 'elapsed time', 'totalElevationGain': 'climb',
+               'maxSpeed': 'top speed', 'averageHeartrate': 'heart rate', 'maxHeartrate': 'heart rate', 'averageWatts': 'power',
+               'maxWatts': 'power', 'averageCadence': 'cadence', 'startLat': 'start point', 'startLng': 'start point',
+               'streams': 'the recorded track', 'calories': 'calories'}
+
+
+def fill_adds(saved, act, diffs):
+    """What resolve(..., 'fill') would add to the saved activity, as labels for the page: [] when it would change nothing, and the page doesn't
+    offer it. `saved` needs FILL_LABELS' columns, with streams only empty or not (reading them is slow): the streams a saved track lacks are in
+    the Recorded data difference."""
+    out = []
+    for col, label in FILL_LABELS.items():
+        if not _empty(act.get(col)) and _empty(saved[col]) and label not in out:
+            out.append(label)
+    for d in diffs:
+        if d['label'] == 'Recorded data' and 'the recorded track' not in out:
+            out += [s for s in d['new'].split(', ') if s not in d['old'].split(', ') and s not in out]
+    return out
 
 
 def note_problem(db, ride_id, rider_id, ride_name, file, problem):
