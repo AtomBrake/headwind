@@ -18,7 +18,7 @@ KIND_SQL = f"(CASE WHEN {RIDE_SQL} THEN 'ride' ELSE 'workout' END)"     # the ph
 RIDES = ('Ride', 'VirtualRide', 'EBikeRide', 'MountainBikeRide', 'GravelRide')     # Strava's names for the last two, squashed: a default bike can follow them
 ON_FOOT = ('Walk', 'Run', 'Hike')                     # what the phone records, and what calories can be estimated for (workouts.estimate_calories)
 INDOOR_RUN = 'VirtualRun'                              # a treadmill, or Zwift's running: Garmin's, a FIT file's and Strava's name for it
-OTHER = ('Swim', 'Surf', 'Paddle', 'Row', 'Ski', 'Skate', 'Golf', 'Climb', 'Strength', 'HIIT', 'Yoga', 'Other')   # neither rides nor on foot
+OTHER = ('Swim', 'Surf', 'Kitesurf', 'Wingfoil', 'Paddle', 'Row', 'Ski', 'Skate', 'Golf', 'Climb', 'Strength', 'HIIT', 'Yoga', 'Other')   # neither rides nor on foot
 NO_DISTANCE = ('Strength', 'HIIT', 'Yoga')            # timed only: no distance, pace or climb (a pool swim has a distance, so it isn't here)
 WORKOUTS = ON_FOOT + (INDOOR_RUN,) + OTHER
 SPORTS = RIDES + WORKOUTS
@@ -59,6 +59,8 @@ def icon(sport):
     if 'ride' in t or 'cycling' in t: return '🚴'
     if 'run'  in t: return '🏃'
     if 'swim' in t: return '🏊'
+    if 'kite' in t: return '🪁'
+    if 'foil' in t: return '🪽'
     if 'surf' in t: return '🏄'
     if 'paddl' in t or 'row' in t or 'kayak' in t or 'canoe' in t or 'water' in t: return '🛶'     # Strava's "Water Sport"
     if 'ski' in t: return '⛷️'
@@ -72,11 +74,11 @@ def icon(sport):
     return '🏅'
 
 
-_WATER = ('swim', 'surf', 'sail', 'paddl', 'kayak', 'canoe', 'row', 'water')     # 'water': Strava's "Water Sport" (whitewater kayaking, say)
+_WATER = ('swim', 'surf', 'foil', 'sail', 'paddl', 'kayak', 'canoe', 'row', 'water')     # 'water': Strava's "Water Sport" (whitewater kayaking, say)
 
 
 def on_water(sport):
-    """Swims, surfs, sails, paddles, rows."""
+    """Swims, surfs, foils, sails, paddles, rows."""
     t = (sport or '').lower()
     return any(w in t for w in _WATER)
 
@@ -131,8 +133,9 @@ def is_ebike(sport):
     return s.startswith('ebike') or s.startswith('emountainbike')
 
 
-_TYPE_NEEDLES = (('run', 'Run'), ('walk', 'Walk'), ('hik', 'Hike'), ('mountaineer', 'Hike'), ('swim', 'Swim'), ('surf', 'Surf'),
-                 ('paddl', 'Paddle'), ('kayak', 'Paddle'), ('canoe', 'Paddle'), ('raft', 'Paddle'), ('row', 'Row'),
+_TYPE_NEEDLES = (('run', 'Run'), ('walk', 'Walk'), ('hik', 'Hike'), ('mountaineer', 'Hike'), ('swim', 'Swim'),
+                 ('kitesurf', 'Kitesurf'), ('kiteboard', 'Kitesurf'), ('wingfoil', 'Wingfoil'), ('wing_foil', 'Wingfoil'), ('wing foil', 'Wingfoil'),
+                 ('surf', 'Surf'), ('paddl', 'Paddle'), ('kayak', 'Paddle'), ('canoe', 'Paddle'), ('raft', 'Paddle'), ('row', 'Row'),
                  ('ski', 'Ski'), ('snowboard', 'Ski'), ('skat', 'Skate'), ('golf', 'Golf'), ('climb', 'Climb'),
                  # last, so they only ever take what would have been Other: Garmin's strength_training, Strava's "Weight Training" and "Crossfit",
                  # Apple's TraditionalStrengthTraining / FunctionalStrengthTraining / CoreTraining / HighIntensityIntervalTraining / Yoga.

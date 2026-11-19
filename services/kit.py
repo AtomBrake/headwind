@@ -27,7 +27,7 @@ REPLACE_DEFAULT_M = {'shoes': 700_000}       # running shoes are usually done so
 SOON, DUE, OVERDUE = 0.9, 1.0, 1.25
 LEVEL_ORDER = {'ok': 0, 'soon': 1, 'due': 2, 'overdue': 3}
 # The sports a default can be set for: what Headwind records, Strava's names for the same, then the rest
-DEFAULT_SPORTS = ['Run', 'TrailRun', 'VirtualRun', 'Walk', 'Hike', 'Swim', 'Ski', 'AlpineSki', 'NordicSki', 'Snowboard', 'Surf', 'Paddle', 'Row', 'Skate', 'Other']
+DEFAULT_SPORTS = ['Run', 'TrailRun', 'VirtualRun', 'Walk', 'Hike', 'Swim', 'Ski', 'AlpineSki', 'NordicSki', 'Snowboard', 'Surf', 'Kitesurf', 'Wingfoil', 'Paddle', 'Row', 'Skate', 'Other']
 COMMUTE = 'Commute'          # a default for commutes (Activity.commute), kept beside the sports' (KitDefault, gear's BikeDefault)
 
 

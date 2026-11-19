@@ -36,7 +36,7 @@ def add_ride(db, rid, sport='Ride', name='Activity', dist=20000.0, max_speed=8.0
     ('cycling', 'Ride'), ('road_biking', 'Ride'), ('mountain_biking', 'MountainBikeRide'), ('gravel_cycling', 'GravelRide'), ('downhill_biking', 'MountainBikeRide'), ('e_bike_mountain', 'EBikeRide'), ('e_bike_fitness', 'EBikeRide'),
     ('indoor_cycling', 'VirtualRide'), ('virtual_ride', 'VirtualRide'),
     ('running', 'Run'), ('trail_running', 'Run'), ('treadmill_running', 'VirtualRun'), ('virtual_run', 'VirtualRun'), ('indoor_running', 'VirtualRun'), ('walking', 'Walk'), ('hiking', 'Hike'),
-    ('lap_swimming', 'Swim'), ('open_water_swimming', 'Swim'), ('surfing', 'Surf'), ('kayaking', 'Paddle'), ('stand_up_paddleboarding', 'Paddle'),
+    ('lap_swimming', 'Swim'), ('open_water_swimming', 'Swim'), ('surfing', 'Surf'), ('kiteboarding', 'Kitesurf'), ('wingfoiling', 'Wingfoil'), ('kayaking', 'Paddle'), ('stand_up_paddleboarding', 'Paddle'),
     ('rowing', 'Row'), ('resort_skiing_snowboarding', 'Ski'), ('golf', 'Golf'), ('rock_climbing', 'Climb'),
     ('motorcycling', 'Other'), ('multi_sport', 'Other'), ('', 'Other'),
 ])

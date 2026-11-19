@@ -13,6 +13,8 @@ from services import credentials, parser, sports
 
 def test_water_sport_is_on_the_water():
     assert sports.on_water('Water Sport') and not sports.has_climbing('Water Sport') and sports.icon('Water Sport') == '🛶'
+    assert sports.on_water('Kitesurf') and sports.icon('Kitesurf') == '🪁' and 'Kitesurf' in sports.SPORTS
+    assert sports.on_water('Wingfoil') and not sports.has_climbing('Wingfoil') and sports.icon('Wingfoil') == '🪽' and 'Wingfoil' in sports.SPORTS
     assert parser.pick_moving_time(7000, 3000, 7644, 'Water Sport') == 7000          # drifting isn't a stop
     assert parser.pick_moving_time(7000, 3000, 7644, 'Ride') == 3000
 

@@ -16,7 +16,7 @@ from services.garmin import garmin_sport
     ('swimming', 'lap_swimming', 'Swim'), ('swimming', 'open_water', 'Swim'),
     ('alpine_skiing', 'generic', 'Ski'), ('cross_country_skiing', 'generic', 'Ski'),
     ('stand_up_paddleboarding', 'generic', 'Paddle'), ('kayaking', 'generic', 'Paddle'),
-    ('windsurfing', 'generic', 'Surf'), ('kitesurfing', 'generic', 'Surf'), ('surfing', 'generic', 'Surf'),
+    ('windsurfing', 'generic', 'Surf'), ('kitesurfing', 'generic', 'Kitesurf'), ('surfing', 'generic', 'Surf'),
     ('training', 'yoga', 'Other'), ('training', 'strength_training', 'Other'), ('training', 'cardio_training', 'Other'),
     ('tennis', 'generic', 'Other'), ('snowshoeing', 'generic', 'Other'), (62, 'generic', 'Other'), (64, 85, 'Other'),
     # GPX <type>
@@ -27,7 +27,7 @@ from services.garmin import garmin_sport
     ('Biking', None, 'Ride'), ('Running', None, 'Run'), ('Other', None, 'Other'),
     # the phone apps' GPX types, and Headwind's own names
     ('ebike', None, 'EBikeRide'), ('vride', None, 'VirtualRide'), ('EBikeRide', None, 'EBikeRide'), ('VirtualRide', None, 'VirtualRide'),
-    ('Paddle', None, 'Paddle'), ('Golf', None, 'Golf'),
+    ('Paddle', None, 'Paddle'), ('Golf', None, 'Golf'), ('Kitesurf', None, 'Kitesurf'), ('wing_foiling', None, 'Wingfoil'), ('WingFoil', None, 'Wingfoil'),
 ])
 def test_a_files_sport(sport, sub, want):
     assert parser._map_sport(sport, sub) == want

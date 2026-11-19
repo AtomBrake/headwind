@@ -18,7 +18,7 @@ log = logging.getLogger(__name__)
 # A workout as the phone API and the Workouts page have always seen it (before 0.7 it had a table of its own, with `sport` for sportType)
 COLS = ('id, riderId, sportType AS sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, averageSpeed, maxSpeed, '
         'averageHeartrate, calories, steps, startLat, startLng, streams, weatherSummary, source, createdAt, caloriesRaw, originId')
-_ICON = {'Walk': '🚶', 'Run': '🏃', 'VirtualRun': '🏃', 'Hike': '🥾', 'Swim': '🏊', 'Surf': '🏄', 'Paddle': '🛶', 'Row': '🚣', 'Ski': '⛷️', 'Skate': '⛸️', 'Golf': '⛳', 'Climb': '🧗',
+_ICON = {'Walk': '🚶', 'Run': '🏃', 'VirtualRun': '🏃', 'Hike': '🥾', 'Swim': '🏊', 'Surf': '🏄', 'Kitesurf': '🪁', 'Wingfoil': '🪽', 'Paddle': '🛶', 'Row': '🚣', 'Ski': '⛷️', 'Skate': '⛸️', 'Golf': '⛳', 'Climb': '🧗',
          'Strength': '🏋️', 'HIIT': '🔥', 'Yoga': '🧘'}
 MI = 1609.344
 

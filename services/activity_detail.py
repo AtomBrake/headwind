@@ -3,7 +3,7 @@ device's laps and a pool swim's lengths (Activity.laps, services/parser.fit_laps
 
 - view(sport): which page an activity gets. 'ride'; 'foot' (walk, run, hike): pace, splits per mile or km, cadence in steps a minute;
   'swim': pace per 100 m, splits per 100 m, and a pool swim's lengths in sets; 'ski' (downhill): runs and lift time read off the altitude;
-  'water' (paddle, surf, sail, row, windsurf): speed, no climbing; 'other'.
+  'water' (paddle, surf, kitesurf, wing foil, sail, row, windsurf): speed, no climbing; 'other'.
 - splits(): one row per mile, km or 100 m, from the distance and time streams. The time is moving time, as Strava's splits are: a stop (or a
   pause the device skipped over) isn't in it.
 - pace_series(): pace along the activity for the chart, for runs and walks that have no speed stream (most don't).
