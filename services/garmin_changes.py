@@ -11,6 +11,8 @@ nothing flagged). A later check compares Garmin's list with that, not with Headw
   distance and time was cropped in Garmin before it came in, so its file is read again and offered for review the same way (_missed_crop).
 - an activity stored with its GPS and time streams out of step (before 0.7.7) has its file read again, which puts them right on the spot
   (_put_in_step): segments can't time it until then.
+- one typed into Garmin Connect (manualActivity) is marked as typed in, as an older sync didn't, and takes Garmin's distance and time when it
+  was saved with neither (_typed_in). Once, one whose figures differ from Garmin's either way is offered for review (_missed_crop).
 Only a successful listing counts, and only for the days it reaches: an error raises, an empty listing judges nothing, and an activity older than
 the oldest one listed isn't judged. A Garmin copy set aside as a duplicate (ActivityDuplicate) isn't live, so it and the activity kept in its place
 are left alone.
@@ -90,7 +92,7 @@ def _accept(db, gid, now):
 def _garmin_rows(db, rider_id):
     """{Garmin id: row} for this rider's live activities that came from Garmin (under its id, or kept in originId by an older sport change)."""
     out = {}
-    for r in db.execute(r"""SELECT id, originId, name, sportType, startDateLocal, distance, elapsedTime FROM Activity
+    for r in db.execute(r"""SELECT id, originId, name, sportType, startDateLocal, distance, movingTime, elapsedTime, source FROM Activity
                             WHERE riderId=? AND (id LIKE 'garmin\_%' ESCAPE '\' OR originId LIKE 'garmin\_%' ESCAPE '\')""", [rider_id]):
         src = r['id'] if str(r['id']).startswith('garmin_') else r['originId']
         out[str(src)[7:]] = r
@@ -169,15 +171,44 @@ def _put_in_step(db, api, a, act_id):
     return act_id not in _out_of_step(db, [act_id])
 
 
+def _typed_in(db, a, row):
+    """An activity typed into Garmin Connect has no file: read_recording makes it from Garmin's list. Marked as typed in (source 'manual',
+    services/duplicates.is_manual), which a sync before 0.7.41 didn't do, so the duplicate check never takes it for a recording. One saved with
+    no distance and no time takes Garmin's (a swim of 1 Nov 2016 came in as 0 m in 0 s where Garmin says 500 m in 40 minutes): there's nothing
+    here to lose. Returns its row as it is now, or None when that set it aside as a copy of another. Does not commit."""
+    from services import duplicates, sanity
+    from services.calorie_adjust import pair
+    from services.garmin import _from_summary
+    if row['source'] != 'manual':
+        db.execute("UPDATE Activity SET source='manual' WHERE id=?", [row['id']])
+    s = _from_summary(a)
+    if (row['distance'] or row['movingTime'] or row['elapsedTime']) or not (s['distance'] or s['movingTime'] or s['elapsedTime']):
+        return db.execute('SELECT * FROM Activity WHERE id=?', [row['id']]).fetchone()
+    raw, kcal = pair(s['calories'])
+    speed = s['averageSpeed'] or (s['distance'] / s['movingTime'] if s['movingTime'] else 0)
+    db.execute('''UPDATE Activity SET distance=?, movingTime=?, elapsedTime=?, averageSpeed=?, averageHeartrate=COALESCE(averageHeartrate, ?),
+                  calories=COALESCE(calories, ?), caloriesRaw=COALESCE(caloriesRaw, ?), updatedAt=datetime('now') WHERE id=?''',
+               [s['distance'], s['movingTime'], s['elapsedTime'], speed, s['averageHeartrate'], kcal, raw, row['id']])
+    log.info('Garmin activity %s was saved with no distance and no time; took Garmin\'s', a.get('activityId'))
+    sanity.flag(db, row['id'])                          # "nothing was recorded" no longer
+    duplicates.resolve(db, row['id'])                   # its copy from Strava, which had its figures all along
+    return db.execute('SELECT * FROM Activity WHERE id=?', [row['id']]).fetchone()
+
+
 def _missed_crop(db, api, a, row, now):
     """Once for an activity imported before the sync cut files to Garmin's crop (garmin.garmin_window), compared with Garmin's summary `now`:
     longer here in both distance and time, it was cropped in Garmin before it came in, so the file is read again and the cut offered for review
-    (_recording_changed). True when something was offered. Does not commit."""
+    (_recording_changed). One typed in has no file and no crop: different here either way (made by an older sync from what Garmin said then),
+    Garmin's figures are offered. True when something was offered. Does not commit."""
     gid = str(a.get('activityId'))
     if db.execute('SELECT cropChecked FROM GarminSeen WHERE garminId=?', [gid]).fetchone()[0]:
         return False
     here_m, here_s = float(row['distance'] or 0), float(row['elapsedTime'] or 0)
-    if here_m - float(now['distance'] or 0) > max(50, 0.01 * here_m) and here_s - float(now['duration'] or 0) > 60:
+    if a.get('manualActivity'):
+        changed = _moved({'distance': here_m, 'duration': here_s}, now)
+    else:
+        changed = here_m - float(now['distance'] or 0) > max(50, 0.01 * here_m) and here_s - float(now['duration'] or 0) > 60
+    if changed:
         return bool(_recording_changed(db, api, a, row['id']))          # None, unread: tried again next time
     db.execute('UPDATE GarminSeen SET cropChecked=1 WHERE garminId=?', [gid])
     return False
@@ -200,7 +231,7 @@ def check(db, api, rider_id, start, end, whole=False):
     result: that was so."""
     ensure_schema(db)
     res = {'listed': 0, 'baseline': 0, 'deleted': 0, 'edited': 0, 'recordings': 0, 'back': 0, 'suspect': False, 'whole': False,
-           'imported': 0, 'failed': 0, 'missing': 0, 'deleted_here': 0, 'in_step': 0}
+           'imported': 0, 'failed': 0, 'missing': 0, 'deleted_here': 0, 'in_step': 0, 'filled': 0}
     end_q = (date.fromisoformat(end) + timedelta(days=1)).isoformat()           # a day either side: Headwind's local date can differ from Garmin's
     listing = api.get_activities_by_date(start, end_q) or []
     if not listing:
@@ -226,6 +257,12 @@ def check(db, api, rider_id, start, end, whole=False):
             res['in_step'] += 1
             if not db.execute('SELECT 1 FROM Activity WHERE id=?', [row['id']]).fetchone():
                 continue                                        # its track compares now, and it was set aside as a copy of another
+        if a.get('manualActivity'):
+            was_empty = not (row['distance'] or row['movingTime'] or row['elapsedTime'])
+            row = _typed_in(db, a, row)
+            if not row:
+                continue                                        # given its figures, it was set aside as a copy of another
+            res['filled'] += int(was_empty and bool(row['distance'] or row['movingTime'] or row['elapsedTime']))
         old, new = _seen(db, gid), summary(a)
         if old is None:
             remember(db, a, read=False)
@@ -412,6 +449,9 @@ def describe(res):
         n = res['in_step']
         line += (f" {n} activit{'ies' if n != 1 else 'y'} stored with GPS and times out of step read again from Garmin and put right, so "
                  f"{'they count' if n != 1 else 'it counts'} on segments again.")
+    if res.get('filled'):
+        n = res['filled']
+        line += f" {n} typed into Garmin Connect but saved with no distance and no time {'were' if n != 1 else 'was'} given Garmin's."
     if res.get('imported') or res.get('failed'):
         line += f" Brought in {res['imported']} strength, yoga or other gym activit{'ies' if res['imported'] != 1 else 'y'} an older sync skipped" + \
                 (f" ({res['failed']} couldn't be read: tried again next time)." if res['failed'] else '.')

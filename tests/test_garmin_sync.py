@@ -605,8 +605,16 @@ def test_a_manual_activity_comes_in_from_the_list_without_a_download(fenv):
     api = CountingAPI([a])
     run(api)
     assert api.downloads == []
-    row = db.execute("SELECT distance, movingTime, elapsedTime, streams FROM Activity WHERE id='garmin_4'").fetchone()
+    row = db.execute("SELECT distance, movingTime, elapsedTime, streams, source FROM Activity WHERE id='garmin_4'").fetchone()
     assert (row['distance'], row['movingTime'], row['elapsedTime'], row['streams']) == (10000, 3500, 3600, None)
+    assert row['source'] == 'manual'                     # typed in: never taken for a recording by the duplicate check
+
+
+def test_a_manual_swim_is_saved_as_typed_in_and_a_recording_isnt(fenv):
+    db, run, later = fenv
+    swim = {**_act(4, '2026-10-11 07:00:00', dist=500), 'manualActivity': True, 'duration': 2400, 'activityType': {'typeKey': 'lap_swimming'}}
+    run(CountingAPI([swim, _act(5, '2026-10-12 09:00:00')]))
+    assert dict(db.execute("SELECT id, source FROM Activity").fetchall()) == {'garmin_4': 'manual', 'garmin_5': None}
 
 
 def test_a_zip_with_no_file_comes_in_from_the_list(fenv):

@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
 {% block title %}{{ activity.name }}{% endblock %}
-{% block page_title %}{{ activity.sportType | sport_icon }} {{ activity.name }}<span style="font-size:0.875rem;font-weight:400;color:var(--text-muted);margin-left:0.6rem;">{{ activity.startDateLocal | fmt_date }}</span>{% endblock %}
+{% block page_title %}{{ activity.sportType | sport_icon }} {{ activity.name }}<span style="font-size:0.875rem;font-weight:400;color:var(--text-muted);margin-left:0.6rem;">{{ activity.startDateLocal | fmt_date }}{% if typed_in %} · typed in{% endif %}</span>{% endblock %}
 
 {# Back to the list this was opened from, filters and all (routes/dashboard.remember_list); the plain list for the sport when there's none yet. #}
 {% block parent %}{% set back = session.get('list_back') %}{% if back %}<a href="{{ back.url }}">{{ back.label }}</a>{% else %}<a href="{{ url_for('dashboard.activities_page') }}">Activities</a>{% endif %}{% endblock %}
@@ -34,11 +34,11 @@
   {% else %}
     <span class="btn btn-secondary" style="opacity:0.3;cursor:default;"><span class="wide-only">Next </span>›</span>
   {% endif %}
-  {% if not is_workout or source_links or not friend %}
+  {% if (not is_workout and coords_from_stream) or source_links or not friend %}
   <details class="more-menu">
     <summary class="btn btn-secondary" title="More" aria-label="More actions">⋯</summary>
     <div class="more-menu-list">
-      {% if not is_workout %}<a href="{{ url_for('rides.export_gpx', rid=activity.id) }}">Download GPX</a>{% endif %}
+      {% if not is_workout and coords_from_stream %}<a href="{{ url_for('rides.export_gpx', rid=activity.id) }}">Download GPX</a>{% endif %}{# a GPX is the track: none without one (typed in) #}
       {% for l in source_links %}<a href="{{ l.url }}" target="_blank" rel="noopener">Open on {{ l.name }} ↗</a>{% endfor %}
       {% if not friend %}
       <form method="POST" action="{{ url_for('rides.delete', rid=activity.id) }}" onsubmit="return confirm('Delete this activity? It goes to Recently deleted on the Import page for 30 days, to restore from there, and no sync brings it back.')">
@@ -182,7 +182,7 @@ function typeChanged(sel) {
 
 {% if dups %}
 <div class="card" style="margin-bottom:1.25rem;border-color:var(--accent);">
-  <div style="font-weight:600;margin-bottom:.35rem;">This ride was also recorded by another device</div>
+  <div style="font-weight:600;margin-bottom:.35rem;">This {{ 'activity' if is_workout else 'ride' }} was also recorded by another device</div>
   {% for d in dups %}
   <div style="margin:.5rem 0 .75rem;color:var(--text-muted);font-size:.9rem;">
     <strong style="color:var(--text);">{{ d.source }}</strong> &middot; {{ d.start | fmt_date }} &middot; {{ d.distance | fmt_dist }} &middot; {{ d.moving | fmt_duration }}{% if d.hr %} &middot; avg HR {{ d.hr | round | int }}{% endif %}{% if d.watts %} &middot; {{ d.watts | round | int }} W{% endif %}
@@ -281,7 +281,7 @@ function typeChanged(sel) {
     <div class="stat-label">Vertical Descent</div>
     {% if activity.totalElevationGain %}<div class="stat-sub">&uarr; {{ activity.totalElevationGain | fmt_elev }} up, mostly lifts</div>{% endif %}
   </div>
-  {% elif has_climbing and (moved or activity.totalElevationGain) %}
+  {% elif has_climbing and (activity.totalElevationGain or (moved and (alt_raw or coords))) %}{# typed in, with no climb: none to show, not 0 m #}
   <div class="stat-card">
     <div class="stat-value">{{ activity.totalElevationGain | fmt_elev }}</div>
     <div class="stat-label">Elevation Gain</div>

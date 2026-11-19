@@ -384,6 +384,67 @@ def test_only_one_longer_in_distance_and_time_is_read_again(db):
     assert db.execute('SELECT COUNT(*) FROM GarminSeen WHERE cropChecked=1').fetchone()[0] == 2
 
 
+def _typed_in_earlier(db, gid=1, dist=0.0, secs=0, key='swimming', name='Swimming'):
+    """A Garmin activity typed into Garmin Connect as a sync before 0.7.41 saved it: no mark, no streams, and whatever figures it was given then.
+    Garmin's list now says 500 m in 40 minutes."""
+    a = {**act(gid, '2016-11-01', name=name, key=key, dist=500.0, dur=2400.0), 'manualActivity': True, 'calories': 180}
+    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime, streams, rawData) "
+               "VALUES (?, ?, 'Swim', 'Swim', 1, '2016-11-01T08:00:00', '2016-11-01T09:00:00', ?, ?, ?, '{}', '{}')", [f'garmin_{gid}', name, dist, secs, secs])
+    from services import sanity
+    sanity.flag(db, f'garmin_{gid}')
+    gc.remember(db, a, read=False)
+    db.commit()
+    return a
+
+
+def test_one_typed_in_and_saved_empty_takes_garmins_figures(db):
+    """garmin_1430559984, 1 Nov 2016: saved as 0 m in 0 s; Garmin says 500 m in 40 minutes."""
+    a = _typed_in_earlier(db)
+    assert 'nothing was recorded' in db.execute("SELECT flagReason FROM Activity WHERE id='garmin_1'").fetchone()[0]
+    res = gc.check(db, FakeAPI([a]), 1, '2016-10-01', '2016-12-01')
+    r = db.execute("SELECT * FROM Activity WHERE id='garmin_1'").fetchone()
+    assert (r['distance'], r['movingTime'], r['elapsedTime'], r['source'], r['flagReason']) == (500, 2400, 2400, 'manual', None)
+    assert r['averageSpeed'] == pytest.approx(500 / 2400) and r['caloriesRaw'] == 180
+    assert res['filled'] == 1 and res['recordings'] == 0 and reimport.pending(db) == []
+    assert "given Garmin's" in gc.describe(res)
+    assert gc.check(db, FakeAPI([a]), 1, '2016-10-01', '2016-12-01')['filled'] == 0
+
+
+def test_one_typed_in_and_saved_empty_is_then_matched_with_its_strava_copy(db):
+    a = _typed_in_earlier(db)
+    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime, source) "
+               "VALUES ('776859134', 'Swim', 'Swim', 'Swim', 1, '2016-11-01T08:00:00', '2016-11-01T09:00:00', 500, 2400, 2400, 'manual')")
+    db.commit()
+    gc.check(db, FakeAPI([a]), 1, '2016-10-01', '2016-12-01')
+    assert db.execute('SELECT COUNT(*) FROM Activity').fetchone()[0] == 1          # one swim, the other set aside behind it
+
+
+def test_one_typed_in_that_differs_from_garmin_is_offered_once_either_way(db):
+    a = _typed_in_earlier(db, dist=300.0, secs=1200)                               # shorter here: a crop check alone never looked
+    res = gc.check(db, FakeAPI([a]), 1, '2016-10-01', '2016-12-01')
+    assert res['recordings'] == 1 and res['filled'] == 0
+    [c] = reimport.pending(db)
+    assert {d['label'] for d in c['diffs']} >= {'Distance', 'Moving time', 'Elapsed time'}
+    assert db.execute("SELECT distance FROM Activity WHERE id='garmin_1'").fetchone()[0] == 300     # nothing changed until it's reviewed
+    db.execute('DELETE FROM ImportChange')
+    assert gc.check(db, FakeAPI([a]), 1, '2016-10-01', '2016-12-01')['recordings'] == 0
+
+
+def test_one_typed_in_that_matches_garmin_is_only_marked(db):
+    a = _typed_in_earlier(db, dist=500.0, secs=2400)
+    res = gc.check(db, FakeAPI([a]), 1, '2016-10-01', '2016-12-01')
+    assert (res['recordings'], res['filled']) == (0, 0)
+    r = db.execute("SELECT source, streams FROM Activity WHERE id='garmin_1'").fetchone()
+    assert r['source'] == 'manual' and r['streams'] == '{}'
+    assert duplicates.is_manual(db.execute("SELECT * FROM Activity WHERE id='garmin_1'").fetchone())
+
+
+def test_a_recording_is_never_marked_typed_in(db):
+    imported(db, act(1, '2026-09-01'))
+    gc.check(db, FakeAPI([act(1, '2026-09-01')]), 1, '2026-08-01', '2026-10-01')
+    assert db.execute("SELECT source FROM Activity WHERE id='garmin_1'").fetchone()[0] is None
+
+
 def test_garmin_seen_from_before_gets_the_crop_check_column(db):
     db.execute('DROP TABLE IF EXISTS GarminSeen')
     db.execute("CREATE TABLE GarminSeen (garminId TEXT PRIMARY KEY, summary TEXT NOT NULL, seenAt TEXT DEFAULT (datetime('now')))")

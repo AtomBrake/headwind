@@ -725,9 +725,9 @@ def save_laps(db, act_id, laps):
         db.execute('UPDATE Activity SET laps=? WHERE id=? AND laps IS NULL', [laps, act_id])
 
 
-def _save_workout(db, wid, rider_id, sport, name, start_utc, start_local, parsed, max_speed):
+def _save_workout(db, wid, rider_id, sport, name, start_utc, start_local, parsed, max_speed, source='garmin'):
     """Store a Garmin activity that is not a ride (a workout), keeping the watch's calories (the walking/running estimate would be wrong for a swim).
-    Does not commit."""
+    `source` 'manual' for one typed into Garmin Connect. Does not commit."""
     from services.calorie_adjust import pair as _kcal_pair
     from services import workouts
     cal_raw, cal_adj = _kcal_pair(parsed.get('calories'))
@@ -736,7 +736,7 @@ def _save_workout(db, wid, rider_id, sport, name, start_utc, start_local, parsed
                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
                [wid, rider_id, sport, sport, (name or '').strip() or None, start_utc, start_local, parsed.get('distance') or 0, parsed.get('movingTime') or 0,
                 parsed.get('elapsedTime') or 0, parsed.get('totalElevationGain') or 0, parsed.get('averageSpeed') or 0, max_speed,
-                parsed.get('averageHeartrate'), cal_adj, parsed.get('startLat'), parsed.get('startLng'), parsed.get('streams'), 'garmin', cal_raw])
+                parsed.get('averageHeartrate'), cal_adj, parsed.get('startLat'), parsed.get('startLng'), parsed.get('streams'), source, cal_raw])
     save_laps(db, wid, parsed.get('laps'))
     workouts.refresh_derived(db, wid)                     # a run gets its best times and run-segment efforts
     from services import duplicates, gear
@@ -892,10 +892,12 @@ def save_activity(db, api, a, rider_id):
 
     # The parser's max ignores impossible spikes (a raw max of the speed stream let one GPS jump make a 137 mph mountain-bike ride)
     max_speed = parsed.get('maxSpeed') or 0.0
+    manual = bool(a.get('manualActivity'))                  # typed into Garmin Connect: never taken for a recording (duplicates.is_manual)
 
     if not is_ride(sport_type):                             # a run, walk, swim, ...: a workout, not a ride
         try:
-            _save_workout(db, db_id, rider_id, sport_type, a.get('activityName') or parsed.get('name'), start_utc, start_local, parsed, max_speed)
+            _save_workout(db, db_id, rider_id, sport_type, a.get('activityName') or parsed.get('name'), start_utc, start_local, parsed, max_speed,
+                          'manual' if manual else 'garmin')
         except Exception as e:
             return 'insert', f'{sport_type}: {e}'
         garmin_failures.clear(db, activity_id)
@@ -912,9 +914,9 @@ def save_activity(db, api, a, rider_id):
                 distance, movingTime, elapsedTime, totalElevationGain,
                 averageSpeed, maxSpeed, averageHeartrate, averageWatts,
                 averageCadence, calories,
-                startLat, startLng, streams, rawData, riderId, caloriesRaw,
+                startLat, startLng, streams, rawData, riderId, caloriesRaw, source,
                 createdAt, updatedAt
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
             ON CONFLICT(id) DO NOTHING
         ''', [
             db_id, name, sport_type, sport_type,
@@ -935,6 +937,7 @@ def save_activity(db, api, a, rider_id):
             '{}',
             rider_id,
             cal_raw,
+            'manual' if manual else None,
         ])
     except Exception as e:
         return 'insert', e

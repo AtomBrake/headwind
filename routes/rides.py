@@ -306,7 +306,7 @@ def detail(rid):
                            is_ride=is_ride, seg_family=seg_family, seg_family_label=(sports.CLASS_LABELS['ebike'] if seg_class == 'ebike' else sports.FAMILY_LABELS.get(seg_family)), is_workout=is_workout,
                            wx_categories=list(_wx.CATEGORIES), wx_condition=_wx.bucket(activity['weatherCode'] if not is_workout else None),
                            wx_manual=(not is_workout and activity['weatherSource'] == 'manual'), wx_storm=(not is_workout and activity['weatherSource'] == 'storm'),
-                           is_virtual=sports.is_virtual(activity['sportType']),
+                           is_virtual=sports.is_virtual(activity['sportType']), typed_in=duplicates.is_manual(activity),
                            ride_badges=ride_badges,
                            personalities=PERSONALITIES,
                            current_personality=query_db('SELECT coachPersonality FROM Settings WHERE id=1', one=True) or {},
