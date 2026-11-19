@@ -56,6 +56,7 @@ def tom(tmp_path):
         d = database.get_db()
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
         d.execute("INSERT INTO FeedToken (name, tokenHash) VALUES ('Alex', ?)", [feed_tokens._hash(TOKEN)])
+        d.execute('INSERT INTO FeedTokenRider (tokenId, riderId) VALUES (1, 1)')
         d.commit()
     return app
 

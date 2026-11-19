@@ -1,0 +1,34 @@
+name: Windows lock
+
+# Makes requirements-windows.lock, the exact versions and hashes the Windows build installs. pip-compile leaves out what doesn't
+# apply where it runs (tzdata, pystray, waitress and colorama are Windows-only), so this lock is made on Windows, as
+# requirements.lock is made on Linux. Run it from the Actions tab after changing requirements.txt, then commit the file it uploads.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upgrade:
+        description: Take newer versions (else keep the current pins and only add what requirements.txt changed)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  lock:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Install pip-tools
+        run: pip install pip-tools
+      - name: Compile
+        run: pip-compile ${{ inputs.upgrade && '--upgrade' || '' }} --generate-hashes --allow-unsafe --strip-extras --newline=lf --output-file=requirements-windows.lock requirements.txt requirements-windows-build.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: requirements-windows.lock
+          path: requirements-windows.lock

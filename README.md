@@ -508,7 +508,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 
 ### Social (peer-to-peer)
 - Add a friend's Headwind with the code they made for you: paste it on the Friends page, or scan their QR code with the iPhone app. Their activities (rides, runs, walks, any sport), segments and shared foods sync directly into your database. No central server.
-- **One code per friend**, made on the Friends page or in the iPhone app, each choosing what it shares (activities, segments, foods) and the date range (all, past 6 months, past month, from today, or your own dates), so you can cut one person off without touching the others. A code holds your address and that friend's feed token; a Headwind that doesn't read codes can still be given the address and token separately.
+- **One code per friend**, made on the Friends page or in the iPhone app, each choosing what it shares (activities, segments, foods), whose activities when the instance has more than one rider (a new code shares only the main rider's unless you tick others, and a rider added later isn't shared until you tick them on a code), and the date range (all, past 6 months, past month, from today, or your own dates), so you can cut one person off without touching the others. A code holds your address and that friend's feed token; a Headwind that doesn't read codes can still be given the address and token separately.
 - A friend's activities are shown, never changed, on your instance. The heatmap shows yours, one friend's or everyone's together.
 - **Challenges** — a race over set dates, sent to the friends you invite.
 - Auto-sync every 15 minutes by default (off / 15 / 30 / 60 / 120). Only new or changed activities are fetched, and edits and deletions reach your friends at their next sync. **Sync** on the Friends page runs in the background (a first sync can take minutes): you can leave the page, and the result shows on the Tasks page.
@@ -636,7 +636,7 @@ Set these in a `.env` file next to `docker-compose.yml` (Compose reads it automa
 | `HEADWIND_MULTI_RIDER` | *(unset)* | `1` enables the advanced multi-rider mode (several local riders on one instance). |
 | `RIDE_UPLOAD_TOKEN` | *(unset)* | Enables `POST /import/api/upload-ride` (authenticated by the `X-Upload-Token` header). Disabled when unset. |
 | `SESSION_COOKIE_SECURE` | `false` | Set to `true` when serving over HTTPS so the login cookie is never sent over plain HTTP. |
-| `TRUSTED_PROXIES` | private addresses | Where a reverse proxy may connect from for Headwind to believe its `X-Forwarded-*` headers: comma-separated addresses or networks (e.g. `203.0.113.7` or `10.8.0.0/24`), or `none`. Unset, any loopback or private address is trusted (a proxy on the same machine, LAN or Docker network, or a local tunnel). Set it if your proxy reaches Headwind from a public address. |
+| `TRUSTED_PROXIES` | private addresses | Where a reverse proxy may connect from for Headwind to believe its `X-Forwarded-*` headers: comma-separated addresses or networks (e.g. `203.0.113.7` or `10.8.0.0/24`), or `none`. Unset, any loopback or private address is trusted (a proxy on the same machine, LAN or Docker network, or a local tunnel), and the first forwarded request from a private address that isn't loopback is noted once in the log. Set it if your proxy reaches Headwind from a public address, or to your proxy's address to close the gap described under [Other reverse proxies](#other-reverse-proxies). |
 | `HEADWIND_APK` | `headwind.apk` in the data folder | The Android APK offered on **Phones → App**. A `version.txt` beside it is shown on that page. |
 | `HEADWIND_MQTT_PREFIX` / `HEADWIND_MQTT_NAME` | *(defaults)* | Give a second instance on the same MQTT broker its own entity prefix and device name so they don't collide. |
 | `HEADWIND_MQTT_NUTRITION` | `1` | `0` publishes only the ride sensors, not nutrition. |
@@ -665,7 +665,7 @@ The Garmin sign-in, the MQTT broker, Home Assistant URL/token and mappings, AI p
 | `/data/rideimg/` | Photos added to activities (or brought in from a Strava export). |
 | `/data/strava_exports/` | The latest Strava export imported, per rider, kept for **Import again**. Not in backups. |
 | `/data/logs/` | `headwind.log` and its rotated copies. |
-| `/data/.secret_key`, `/data/.admin_login` | The generated session key, and the login: username and a scrypt hash of the password (mode 600). |
+| `/data/.secret_key`, `/data/.admin_login` | The generated session key, and the login: username, a scrypt hash of the password, and a scrypt hash of the environment's credentials it was saved under (mode 600). |
 | `/data/prepared-downloads/` | A backup or a copy for troubleshooting while it's waiting to be downloaded (a day at most). Emptied at every start. Not in backups. |
 | `/data/.secrets_key` | The key those saved secrets, and the Garmin token file, are encrypted with (mode 600). Not in backups unless you tick **Include the secrets key**: otherwise keep a copy to move to another server with them. |
 | `/app/.garmin_tokens/` | Garmin login tokens (so MFA isn't needed every sync), encrypted with `.secrets_key`: a copy of this folder without the data folder doesn't sign anyone in. |
@@ -829,7 +829,7 @@ headwind.example.com {
 
 Behind a proxy Headwind trusts one `X-Forwarded-*` hop, but only from a loopback or private address (or the ones in `TRUSTED_PROXIES`), so a client reaching port 5001 directly can't fake its address to get round the sign-in lockout. Make sure your proxy sets those headers, and keep port 5001 unreachable from outside anyway.
 
-Where a direct client can still arrive from a private address (Docker Desktop on Mac or Windows, Docker's userland proxy, a port published on your LAN), it can claim a new address on each attempt and dodge the per-address lockout (8 failures in 5 minutes). A second limit covers that: 30 failures from all addresses together in 5 minutes closes sign-in to everyone until they age out, whatever the headers say. Signed-in browsers and paired phones carry on as normal. If your proxy runs on the same machine as Headwind, `TRUSTED_PROXIES=127.0.0.1,::1` closes the gap completely.
+Where a direct client can still arrive from a private address (Docker Desktop on Mac or Windows, Docker's userland proxy, a port published on your LAN), it can claim a new address on each attempt and dodge the per-address lockout (8 failures in 5 minutes). A second limit covers that: 30 failures from all addresses together in 5 minutes closes sign-in to everyone until they age out, whatever the headers say. Signed-in browsers and paired phones carry on as normal. If your proxy runs on the same machine as Headwind, `TRUSTED_PROXIES=127.0.0.1,::1` closes the gap completely; if it runs in another container, set its Docker network instead (e.g. `TRUSTED_PROXIES=172.18.0.0/16`, from `docker network inspect`). While `TRUSTED_PROXIES` is unset, the log says once when it believed forwarded headers from a private address that isn't loopback, naming the address.
 
 ---
 
@@ -880,7 +880,7 @@ Since then:
 - **Saved secrets are encrypted** — the AI keys, Home Assistant token, MQTT password, friends' feed tokens and the Garmin sign-in are encrypted in the database with a key kept beside it (`.secrets_key`), and never sent back to the Settings page.
 - **The Garmin password isn't kept** — only the sign-in tokens Garmin gives back.
 - **The login password is stored as a hash** (scrypt, in `.admin_login`) and never written to `.env`; new passwords need at least 10 characters. A password saved in plain text by an older version is hashed at the next start, and browsers signed in then stay signed in.
-- **Feed tokens are per friend**, sent in a header only and compared in constant time; `X-Forwarded-*` headers are only believed from a trusted proxy.
+- **Feed tokens are per friend**, each sharing only the riders ticked for it, sent in a header only and compared in constant time; `X-Forwarded-*` headers are only believed from a trusted proxy.
 - **A friend's activities can't be changed** on your instance.
 - **Phone tokens not used for 90 days** are flagged on **Phones**, with a button to revoke them.
 - **MQTT can use TLS**, with your own CA certificate for a self-signed broker.
@@ -989,7 +989,7 @@ Other smoke scripts: `smoke_client_ops`, `smoke_api_v1`, `smoke_recipes_sync`, `
   ```bash
   docker run --rm -v "$PWD":/src -w /src python:3.14-slim sh -c "pip install -q pip-tools && pip-compile --upgrade --generate-hashes --allow-unsafe --strip-extras --output-file=requirements.lock requirements.txt"
   ```
-  Leave out `--upgrade` to keep the current pins and only add what `requirements.txt` changed. CI runs `pip-audit` against the lock on every push.
+  Leave out `--upgrade` to keep the current pins and only add what `requirements.txt` changed. CI runs `pip-audit` against the lock on every push. The Windows build has a lock of its own, `requirements-windows.lock`, from `requirements.txt` and `requirements-windows-build.txt` (PyInstaller), because pip-compile leaves out the Windows-only packages when it runs on Linux. Make it by running the **Windows lock** workflow from the Actions tab (tick **upgrade** for newer versions) and committing the file it uploads. Until that file is in the repo, the Windows build installs loosely.
 - Contributions are welcome — open an issue first for anything big. Please include a test or a smoke check with behaviour changes.
 
 ---

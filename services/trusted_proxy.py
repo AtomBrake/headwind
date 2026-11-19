@@ -3,7 +3,8 @@ address on every sign-in attempt and never hit the login lockout.
 
 TRUSTED_PROXIES (env) is a comma-separated list of addresses / networks the proxy connects from, or "none". Unset, any
 loopback or private address is trusted: a proxy on the same machine, LAN, Docker network or a local tunnel (cloudflared,
-Tailscale Serve). Set it if your proxy reaches Headwind from a public address."""
+Tailscale Serve). Set it if your proxy reaches Headwind from a public address. Unset, the first forwarded request from a
+private address that isn't loopback is noted in the log once: a client elsewhere on that network could send the headers too."""
 import ipaddress
 import logging
 import os
@@ -48,17 +49,24 @@ def _peer(addr):
 class TrustedProxyFix:
     """ProxyFix (one hop) for requests whose socket peer is a trusted proxy; everything else passes through untouched."""
 
-    def __init__(self, app, networks):
+    def __init__(self, app, networks, warn=False):
         self.app = app
         self.networks = networks
         self.fixed = ProxyFix(app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+        self.warn = warn            # TRUSTED_PROXIES unset: say once that a private address was believed
 
     def __call__(self, environ, start_response):
         ip = _peer(environ.get('REMOTE_ADDR'))
         if ip is not None and any(ip.version == n.version and ip in n for n in self.networks):
+            if self.warn and not ip.is_loopback and environ.get('HTTP_X_FORWARDED_FOR'):
+                self.warn = False
+                log.warning('Believing X-Forwarded-For from %s, a private address, as TRUSTED_PROXIES is unset. If that is your '
+                            'reverse proxy, set TRUSTED_PROXIES to its address or network, so a client elsewhere on that network '
+                            "can't claim a new address on each sign-in attempt (see the README's reverse proxy section).", ip)
             return self.fixed(environ, start_response)
         return self.app(environ, start_response)
 
 
 def wrap(app):
-    return TrustedProxyFix(app, parse(os.environ.get('TRUSTED_PROXIES')))
+    value = os.environ.get('TRUSTED_PROXIES')
+    return TrustedProxyFix(app, parse(value), warn=not (value or '').strip())

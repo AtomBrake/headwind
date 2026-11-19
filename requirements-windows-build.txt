@@ -1,0 +1,3 @@
+# Only for building the Windows app: PyInstaller makes Headwind.exe, and isn't shipped in it. Locked with requirements.txt into
+# requirements-windows.lock, on Windows, by .github/workflows/windows-lock.yml.
+pyinstaller

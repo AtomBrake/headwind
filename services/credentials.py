@@ -69,11 +69,37 @@ MIN_PASSWORD = 10
 _unsaved = None      # the login file's contents when the data folder wouldn't take them: kept for the life of the process
 _generated = None    # the generated password in plain, while it's in force and this process made it (Windows tray, console)
 _av = None           # (what it was worked out from, auth_version): see _av_key
+_sig_checked = None  # ((env_sig, the environment's credentials), whether they match): see _env_sig_matches
+
+
+def _env_creds():
+    return f"{os.environ.get('APP_USERNAME', '')}\0{os.environ.get('APP_PASSWORD', '')}"
 
 
 def _env_sig():
-    """Fingerprint of the credentials currently supplied through the environment (Compose / .env)."""
-    return hashlib.sha256(f"{os.environ.get('APP_USERNAME', '')}\0{os.environ.get('APP_PASSWORD', '')}".encode()).hexdigest()[:16]
+    """Which credentials the environment (Compose / .env) supplied when the login was saved: a salted, slow hash of them, as a
+    password's is, so the login file doesn't give the environment's password away to someone with the data folder."""
+    return generate_password_hash(_env_creds())
+
+
+def _old_env_sig(creds):
+    """env_sig as it was written before 0.7.41: a quick, unsalted hash."""
+    return hashlib.sha256(creds.encode()).hexdigest()[:16]
+
+
+def _env_sig_matches(recorded):
+    """Whether the login file's env_sig is of the environment's credentials now. Slow to work out, and asked on every
+    admin_login, so the answer is kept until either changes."""
+    global _sig_checked
+    key = (recorded, _env_creds())
+    if _sig_checked and _sig_checked[0] == key:
+        return _sig_checked[1]
+    if '$' in recorded:
+        ok = check_password_hash(recorded, key[1])
+    else:
+        ok = hmac.compare_digest(recorded, _old_env_sig(key[1]))
+    _sig_checked = (key, ok)
+    return ok
 
 
 def _env_user():
@@ -135,7 +161,10 @@ def admin_login():
     if d:
         recorded = d.get('env_sig')
         # files written before env_sig existed: honour them only in the old situation (placeholder env)
-        if recorded == _env_sig() or (recorded is None and not env_real):
+        if (isinstance(recorded, str) and recorded and _env_sig_matches(recorded)) or (recorded is None and not env_real):
+            if recorded and '$' not in recorded:               # the quick hash from before: write the slow one in its place
+                d['env_sig'] = _env_sig()
+                _save(d)
             return Login(d.get('username') or env_user, d['password_hash'], None, bool(d.get('generated')), d.get('old_av'))
     if env_real:
         return Login(env_user, None, env_pw, False, None)

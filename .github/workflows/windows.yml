@@ -18,7 +18,15 @@ jobs:
           python-version: '3.14'
           cache: pip
       - name: Install
-        run: pip install -r requirements-dev.txt waitress pyinstaller
+        shell: pwsh
+        run: |
+          # The exact versions and hashes in requirements-windows.lock (made by windows-lock.yml); loosely until that's committed
+          if (Test-Path requirements-windows.lock) {
+            pip install --require-hashes -r requirements-windows.lock
+            pip install pytest pytest-xdist     # only for the tests below; PyInstaller leaves out what the app doesn't import
+          } else {
+            pip install -r requirements-dev.txt -r requirements-windows-build.txt
+          }
       - name: Tests
         run: python -m pytest tests -q -n auto
       - name: Build Headwind.exe

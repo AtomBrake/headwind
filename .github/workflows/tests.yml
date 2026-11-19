@@ -42,3 +42,6 @@ jobs:
         run: pip install pip-audit
       - name: Audit requirements.lock
         run: pip-audit --requirement requirements.lock --require-hashes --progress-spinner off
+      - name: Audit requirements-windows.lock
+        if: hashFiles('requirements-windows.lock') != ''
+        run: pip-audit --requirement requirements-windows.lock --require-hashes --progress-spinner off

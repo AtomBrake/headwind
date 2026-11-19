@@ -758,6 +758,8 @@ def delete(rid):
     strava_export.forget_read(db, rid)
     from services import goals
     goals.forget_rider(db, rid)
+    from services import feed_tokens
+    feed_tokens.forget_rider(db, rid)
     db.execute('DELETE FROM Activity WHERE riderId=?', [rid])
     db.execute('DELETE FROM Rider WHERE id=?', [rid])
     for sid in seg_ids:
@@ -776,4 +778,6 @@ def create():
     db.execute('INSERT INTO Rider (name, isDefault) VALUES (?, 0)', [name])
     db.commit()
     new_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
+    if db.execute('SELECT 1 FROM FeedToken WHERE revokedAt IS NULL LIMIT 1').fetchone():
+        flash(f"Friends can't see {name}'s activities yet. To share them, tick {name} on a friend's code under Friends.", 'warning')
     return redirect(url_for('riders.detail', rid=new_id))

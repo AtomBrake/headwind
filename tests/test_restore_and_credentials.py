@@ -17,6 +17,7 @@ def creds(tmp_path, monkeypatch):
     monkeypatch.setattr(credentials, '_data_dir', lambda: str(tmp_path))
     monkeypatch.setattr(credentials, '_unsaved', None)
     monkeypatch.setattr(credentials, '_generated', None)
+    monkeypatch.setattr(credentials, '_sig_checked', None)
     for k in ('APP_USERNAME', 'APP_PASSWORD'):
         monkeypatch.delenv(k, raising=False)
     return monkeypatch
@@ -69,6 +70,40 @@ def test_only_a_hash_is_saved(creds, tmp_path):
     assert d['username'] == 'rob' and d['password_hash'].startswith('scrypt:')
     assert 'a-long-password' not in (tmp_path / '.admin_login').read_text()
     assert oct((tmp_path / '.admin_login').stat().st_mode & 0o777) == '0o600'
+
+
+def test_env_sig_is_a_salted_slow_hash(creds, tmp_path):
+    """It says which environment credentials the login was saved under, so it mustn't give the environment's password away."""
+    creds.setenv('APP_USERNAME', 'rob'); creds.setenv('APP_PASSWORD', 'compose-pw-1')
+    credentials.save_login(None, 'changed-in-settings')
+    sig = _login_file(tmp_path)['env_sig']
+    assert sig.startswith('scrypt:') and sig != credentials._env_sig()           # salted: a new one each time
+    assert sig != credentials._old_env_sig('rob\0compose-pw-1')
+    assert credentials.check('rob', 'changed-in-settings')
+
+
+def test_the_quick_env_sig_from_before_still_matches_and_is_replaced(creds, tmp_path):
+    creds.setenv('APP_USERNAME', 'rob'); creds.setenv('APP_PASSWORD', 'compose-pw-1')
+    credentials.save_login(None, 'changed-in-settings')
+    d = _login_file(tmp_path)
+    d['env_sig'] = credentials._old_env_sig('rob\0compose-pw-1')
+    (tmp_path / '.admin_login').write_text(json.dumps(d))
+    assert credentials.check('rob', 'changed-in-settings') and not credentials.check('rob', 'compose-pw-1')
+    assert _login_file(tmp_path)['env_sig'].startswith('scrypt:')
+    assert credentials.check('rob', 'changed-in-settings')
+    creds.setenv('APP_PASSWORD', 'operator-new-pw')                                # and an edited environment still wins
+    assert credentials.check('rob', 'operator-new-pw')
+
+
+def test_the_env_sig_is_checked_once(creds, monkeypatch):
+    creds.setenv('APP_PASSWORD', 'compose-pw-1')
+    credentials.save_login(None, 'changed-in-settings')
+    calls = []
+    real = credentials.check_password_hash
+    monkeypatch.setattr(credentials, 'check_password_hash', lambda h, p: calls.append(h) or real(h, p))
+    for _ in range(3):
+        credentials.admin_login()
+    assert len(calls) == 1
 
 
 def test_changing_only_the_username_keeps_the_password(creds):
@@ -162,6 +197,7 @@ def app_client(tmp_path, monkeypatch):
     monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)
     monkeypatch.setattr(credentials, '_unsaved', None)
     monkeypatch.setattr(credentials, '_generated', None)
+    monkeypatch.setattr(credentials, '_sig_checked', None)
     for k in ('APP_USERNAME', 'APP_PASSWORD'):
         monkeypatch.delenv(k, raising=False)
     env = tmp_path / 'env'

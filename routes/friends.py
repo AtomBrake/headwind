@@ -21,9 +21,7 @@ bp = Blueprint('friends', __name__)
 BATCH = 50
 MAX_IDS = 100        # rides asked for by id in one request (?ids=): a short URL, and an interrupted request loses little
 
-# Riders who live on this instance. A synced friend is stored as a Rider too, and their rides were shared with us, not with
-# whoever holds our feed token, so the feed never offers them.
-OWN_RIDERS_SQL = 'id NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)'
+OWN_RIDERS_SQL = feed_tokens.OWN_RIDERS_SQL       # riders who live here, not friends synced to here
 
 
 def _feed_token():
@@ -38,9 +36,11 @@ def _feed_token():
 @bp.route('/api/riders')
 def riders_list():
     """Token-authenticated rider list — lets a friend's instance discover who's here."""
-    if not _feed_token()['shareRides']:
+    scope = _feed_token()
+    if not scope['shareRides']:
         return jsonify([])
-    riders = query_db(f'SELECT id, name, isDefault FROM Rider WHERE {OWN_RIDERS_SQL} ORDER BY isDefault DESC, name ASC')
+    riders = query_db(f'SELECT r.id, r.name, r.isDefault FROM Rider r JOIN FeedTokenRider t ON t.riderId = r.id '
+                      f'WHERE t.tokenId=? AND r.{OWN_RIDERS_SQL} ORDER BY r.isDefault DESC, r.name ASC', [scope['id']])
     return jsonify([dict(r) for r in riders])
 
 
@@ -85,7 +85,8 @@ def feed():
     older friends ignore the line.
     shareRides on the token: share the activities, and the challenges (a race needs the activities).
     Accepts ?since=YYYY-MM-DD and ?rider=<name> to filter. The token decides whether segments and rides are sent at all, and
-    its date window (inclusive) narrows the rides.
+    its date window (inclusive) narrows the rides. A rider the token doesn't share is sent like one sharing no rides: no name, no
+    rides or challenges, and an empty manifest.
     Since 0.7.6 a friend asks ?manifest=1 instead: the segments and a manifest, [id, updatedAt] of every ride it may have, and no rides; then
     ?ids=<id>,<id>,... for just the rides it is missing or that changed here (no segments). A friend on an older version sends neither and gets
     the rides that started after `since`, as before.
@@ -105,7 +106,10 @@ def feed():
             rider = db.execute(f'SELECT * FROM Rider WHERE name=? COLLATE NOCASE AND {OWN_RIDERS_SQL}', [rider_name]).fetchone()
         else:
             rider = db.execute('SELECT * FROM Rider WHERE isDefault=1').fetchone()
-        yield json.dumps({'type': 'meta', 'name': rider['name'] if rider else 'Unknown'}) + '\n'
+        shared = bool(rider) and feed_tokens.shares_rider(scope['id'], rider['id'])
+        # No name for one not shared: the friend keeps calling them what they did, and learns nothing new
+        yield json.dumps({'type': 'meta', 'name': rider['name'] if shared else None if rider else 'Unknown'}) + '\n'
+        share_rides = scope['shareRides'] and shared
 
         if scope['shareSegments'] and ids is None:
             for s in db.execute('SELECT id, name, startLat, startLng, endLat, endLng, '
@@ -114,7 +118,7 @@ def feed():
                 yield json.dumps({'type': 'segment', **dict(s), 'sport': 'run' if s['family'] == 'foot' else 'ride'}) + '\n'
 
         owner_id = rider['id'] if rider else None
-        if rider and scope['shareRides'] and ids is None:
+        if share_rides and ids is None:
             from services import goals
             for line in goals.feed_lines(db, rider, scope['id']):
                 yield json.dumps(line) + '\n'
@@ -131,9 +135,9 @@ def feed():
             # No such rider (renamed?): no manifest, so the friend deletes nothing. Rides no longer shared: an empty one, so they go.
             if owner_id:
                 rides = db.execute(f"SELECT id, COALESCE(updatedAt, createdAt, '') FROM Activity WHERE {' AND '.join(where)}", args).fetchall() \
-                    if scope['shareRides'] else []
+                    if share_rides else []
                 yield json.dumps({'type': 'manifest', 'rides': [[r[0], r[1]] for r in rides]}) + '\n'
-        elif owner_id and scope['shareRides']:
+        elif share_rides:
             if ids is not None:
                 where.append('id IN ({})'.format(','.join('?' * len(ids)) or "''"))
                 args.extend(ids)
@@ -173,7 +177,7 @@ def index():
 
     with _syncing_lock:
         syncing = set(_syncing)
-    return render_template('friends.html', friends=friends, feed_tokens=feed_tokens.tokens(),
+    return render_template('friends.html', friends=friends, feed_tokens=feed_tokens.tokens(), own_riders=feed_tokens.own_riders(),
                            sync_interval=sync_interval, syncing=syncing)
 
 

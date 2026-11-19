@@ -25,6 +25,7 @@ def make_app(path, rider, other, token_in, token_out, url):
         d.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, ?, 1)", [rider])
         d.execute("INSERT INTO FeedToken (name, tokenHash) VALUES (?, ?)", [other, feed_tokens._hash(token_in)])
+        d.execute('INSERT INTO FeedTokenRider (tokenId, riderId) VALUES (1, 1)')
         d.execute("INSERT INTO Friend (id, name, url, token) VALUES (1, ?, ?, ?)", [other, url, token_out])
         d.commit()
     return app
@@ -173,6 +174,7 @@ def test_a_challenge_isnt_offered_to_a_token_that_doesnt_share_rides(pair):
 def test_a_challenge_goes_only_to_the_friends_invited(pair):
     tom, alex = pair
     sam = on(tom, lambda d: d.execute("INSERT INTO FeedToken (name, tokenHash) VALUES ('Sam', ?)", [feed_tokens._hash('for-sam')]).lastrowid)
+    on(tom, lambda d: d.execute('INSERT INTO FeedTokenRider (tokenId, riderId) VALUES (?, 1)', [sam]))
     assert start(tom, tokens=[]) == 'Pick at least one friend to invite.'
     assert start(tom, tokens=[sam]) is None                              # Sam only
     sync(alex)
@@ -187,7 +189,8 @@ def test_joining_a_friends_challenge_invites_nobody_else(pair):
     start(tom)
     sync(alex)
     on(alex, lambda d: goals.set_joined(d, d.execute('SELECT id FROM Challenge').fetchone()[0], True))
-    on(alex, lambda d: d.execute("INSERT INTO FeedToken (name, tokenHash) VALUES ('Sam', ?)", [feed_tokens._hash('for-sam')]))
+    on(alex, lambda d: d.execute('INSERT INTO FeedTokenRider (tokenId, riderId) VALUES (?, 1)',
+                                 [d.execute("INSERT INTO FeedToken (name, tokenHash) VALUES ('Sam', ?)", [feed_tokens._hash('for-sam')]).lastrowid]))
     lines = [json.loads(x) for x in alex.test_client().get('/api/feed?manifest=1', headers={'X-Feed-Token': 'for-sam'}).get_data(as_text=True).splitlines()]
     line = next(x for x in lines if x['type'] == 'challenge')
     assert line['own'] is False and line['creator'] == 'Tom'           # Sam's instance sees Alex is in it...

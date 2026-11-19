@@ -832,8 +832,9 @@ def watch_token():
 @bp.route('/friends/tokens', methods=['POST'])
 def friend_token():
     """A feed token for one friend, as on the Friends page: JSON {name, rides, segments, foods (true when left out), since, until
-    ('YYYY-MM-DD' or empty), server_url (the address the phone paired with, which a friend can reach)}. Returns the token once, with
-    its share code and the headwind://friend link for the app to show as a QR code."""
+    ('YYYY-MM-DD' or empty), riders (the ids of the riders here it shares; just the default rider when left out), server_url (the
+    address the phone paired with, which a friend can reach)}. Returns the token once, with its share code and the headwind://friend
+    link for the app to show as a QR code."""
     from routes.friends import new_token, share_url
     d = request.get_json(silent=True) or {}
     name = (d.get('name') or '').strip()
@@ -843,7 +844,7 @@ def friend_token():
     if not url.startswith(('https://', 'http://')):
         url = share_url()
     scope = {'shareRides': d.get('rides', True), 'shareSegments': d.get('segments', True), 'shareFoods': d.get('foods', True),
-             'sinceDate': d.get('since'), 'untilDate': d.get('until')}
+             'sinceDate': d.get('since'), 'untilDate': d.get('until'), 'riders': d.get('riders')}
     return jsonify(new_token(name, scope, url)), 201
 
 

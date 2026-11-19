@@ -74,3 +74,26 @@ def test_a_trusted_proxy_hands_on_only_the_last_hop():
     """One hop (x_for=1): a client can't pick its address by sending its own X-Forwarded-For through the proxy."""
     env = _seen(parse(None), '127.0.0.1', {'X-Forwarded-For': '203.0.113.66, 198.51.100.9'})
     assert env['REMOTE_ADDR'] == '198.51.100.9'
+
+
+def test_unset_notes_a_private_proxy_once(caplog):
+    fix = TrustedProxyFix(lambda e, s: [b''], parse(None), warn=True)
+    env = lambda addr, **h: {'REMOTE_ADDR': addr, 'HTTP_HOST': 'x', 'wsgi.url_scheme': 'http', 'REQUEST_METHOD': 'GET',
+                             'PATH_INFO': '/', 'SERVER_NAME': 'x', 'SERVER_PORT': '5001', **h}
+    with caplog.at_level('WARNING', logger='services.trusted_proxy'):
+        fix(env('127.0.0.1', HTTP_X_FORWARDED_FOR='198.51.100.9'), lambda *a: None)      # a proxy on this machine: nothing to say
+        fix(env('172.18.0.2'), lambda *a: None)                                          # nothing forwarded
+        assert not caplog.records
+        fix(env('172.18.0.2', HTTP_X_FORWARDED_FOR='198.51.100.9'), lambda *a: None)
+        fix(env('172.18.0.3', HTTP_X_FORWARDED_FOR='198.51.100.9'), lambda *a: None)
+    assert len(caplog.records) == 1 and '172.18.0.2' in caplog.text and 'TRUSTED_PROXIES' in caplog.text
+
+
+def test_set_says_nothing(caplog, monkeypatch):
+    from services import trusted_proxy
+    monkeypatch.setenv('TRUSTED_PROXIES', '172.18.0.0/16')
+    fix = trusted_proxy.wrap(lambda e, s: [b''])
+    with caplog.at_level('WARNING', logger='services.trusted_proxy'):
+        fix({'REMOTE_ADDR': '172.18.0.2', 'HTTP_X_FORWARDED_FOR': '198.51.100.9', 'HTTP_HOST': 'x', 'wsgi.url_scheme': 'http',
+             'REQUEST_METHOD': 'GET', 'PATH_INFO': '/', 'SERVER_NAME': 'x', 'SERVER_PORT': '5001'}, lambda *a: None)
+    assert not caplog.records
