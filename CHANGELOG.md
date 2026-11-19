@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.39-beta] - 2026-11-19
+
+### Fixed
+- **Every lap of a segment counts.** An activity that rode a segment more than once (laps of a trail centre's loop, a climb ridden twice) kept only its fastest time there, so six laps over three rides showed as three efforts at most. Now each time round is an effort of its own, as on Strava: the leaderboard lists them all and the PR is the best of any lap. The activity page marks them lap 1, lap 2, ..., and each lap's trend is against the effort before it (lap 2 against lap 1). A friend's time on the same day is their best lap. An approximate (≈) lap, ridden a little off the line, counts too. At the first start after updating, every segment is matched again, and the Tasks page says how many more laps were found. On a real mountain-biking history: 141.
+
 ## [0.7.38-beta] - 2026-11-19
 
 ### Added
