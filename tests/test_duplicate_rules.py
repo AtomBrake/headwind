@@ -214,3 +214,22 @@ def test_zwift_longer_than_half_a_watch_session_is_kept_over_it():
     zwift = _row('6508139881', '2022-01-11T18:43:27', 1816, 11752.0, 'VirtualRide', averageWatts=180, streams=_track(1816))
     watch = _row('garmin_8100935383', '2022-01-11T18:43:32', 3111, 13446.0, 'VirtualRide', averageHeartrate=140, averageWatts=180)
     assert dup.same_ride(watch, zwift) and dup.pick_winner(watch, zwift)[0] is zwift
+
+
+def test_a_copy_whose_figures_are_impossible_loses_whatever_recorded_it():
+    """"Walk in the dark to see the planets" (24 Dec 2020): Garmin's GPS made 1.7 km into 31.2 km, 33 km/h on foot. Strava's copy has a 115 km/h
+    spike of its own, but its distance and time are right."""
+    garmin = _row('garmin_5998508292', '2020-12-24T16:42:24', 5653, 31171.5, 'Walk', movingTime=3389, averageSpeed=9.1978, maxSpeed=29.998,
+                  totalElevationGain=385.0, averageHeartrate=87.0, averageCadence=50, streams=_track(5653))
+    strava = _row('4513468214', '2020-12-24T16:42:24', 3193, 1717.1, 'Walk', movingTime=1873, averageSpeed=0.9168, maxSpeed=31.9,
+                  totalElevationGain=100.0, averageHeartrate=93.6, averageCadence=47.2, streams=_track(3193))
+    assert dup.same_ride(garmin, strava)
+    for existing, new in ((garmin, strava), (strava, garmin)):
+        winner, loser, reason = dup.pick_winner(existing, new)
+        assert winner is strava and 'Garmin one looks wrong' in reason and 'not possible walking' in reason
+    assert dup.pick_winner(strava, dict(garmin, flagDismissed=1))[0]['id'] == garmin['id']        # the rider said it's right
+    wrong_too = dict(strava, distance=31000.0, averageSpeed=16.5)
+    assert dup.pick_winner(wrong_too, garmin)[0] is garmin                                         # both wrong: the better recording, as before
+    sane = dict(garmin, distance=1717.1, averageSpeed=0.9168, totalElevationGain=100.0)
+    for fault in ({'maxSpeed': 40.0}, {'averageHeartrate': 250}, {'maxHeartrate': 260}, {'calories': 20000}):
+        assert dup.pick_winner(strava, dict(sane, **fault))[0]['id'] == garmin['id']               # a spike or a sensor fault: totals still right

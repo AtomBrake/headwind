@@ -1,6 +1,6 @@
 """The phone API the iPhone and Watch apps use beyond recording rides: every sport in the Overview, sessions with no track (strength, a pool swim),
 Apple Health's daily figures, photos, and the Watch's own token."""
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 
 import pytest
@@ -383,7 +383,8 @@ def test_an_open_water_swim_from_the_watch_is_a_swim_with_its_calories(phone):
     w = r.get_json()['workout']
     assert (w['sport'], w['calories'], w['source']) == ('Swim', 210, 'ios')
     walk = phone.post('/api/v1/workouts', headers=phone.H, content_type='multipart/form-data',
-                      data={'file': (BytesIO(gpx('walking')), 'Walk.gpx'), 'sport': 'Strength', 'client_id': 'w2'})
+                      data={'file': (BytesIO(gpx('walking', start=datetime(2026, 10, 12, 9, 0, tzinfo=timezone.utc))), 'Walk.gpx'),
+                            'sport': 'Strength', 'client_id': 'w2'})           # an hour after the swim: not a copy of it
     assert walk.get_json()['workout']['sport'] == 'Walk'          # a timed-only sport can't have a track: the file's own sport
 
 

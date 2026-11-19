@@ -449,9 +449,34 @@ def _real_beats_empty(existing, new):
     return None
 
 
+def _looks_wrong(row):
+    """sanity.reasons for the figures the totals count (distance, time, average speed, climb, the start), [] once the rider has said it is
+    right. A top-speed spike is left out (one bad GPS point, which both copies often have: Strava's of that walk said 115 km/h), and so are
+    heart-rate and calorie faults: none of them makes the distance wrong, and a Garmin with a flaky strap still has the better track."""
+    from services import sanity
+    if _get(row, 'flagDismissed'):
+        return []
+    cols = [c.strip() for c in sanity.COLS.split(',')]
+    r = {c: _get(row, c) for c in cols if c != 'startLat'}  # emptiness is _real_beats_empty's
+    r.update(maxSpeed=None, averageHeartrate=None, maxHeartrate=None, calories=None)
+    return sanity.reasons(r)
+
+
+def _sane_beats_wrong(existing, new):
+    """(sane, wrong, reason) when one copy's figures are impossible (_looks_wrong) and the other's aren't, whatever recorded them: a Garmin walk
+    whose GPS made 1.7 km into 31 km (33 km/h on foot) loses to Strava's 1.7 km. None when both pass or both fail."""
+    for sane, wrong in ((existing, new), (new, existing)):
+        bad = _looks_wrong(wrong)
+        if bad and not _looks_wrong(sane):
+            other = 'other' if source_label(wrong) == source_label(sane) else source_label(wrong)
+            return sane, wrong, ('Kept the ' + source_label(sane) + ' recording: the ' + other + ' one looks wrong (' + '; '.join(bad) + ').')
+    return None
+
+
 def pick_winner(existing, new):
     """Returns (winner, loser, reason_text). A tie in quality is broken by _tie_break, not by which came first."""
-    piece = _real_beats_empty(existing, new) or _app_beats_watch(existing, new) or _whole_beats_fragment(existing, new)
+    piece = (_real_beats_empty(existing, new) or _sane_beats_wrong(existing, new) or _app_beats_watch(existing, new)
+             or _whole_beats_fragment(existing, new))
     if piece:
         return piece
     se, we = quality(existing)
