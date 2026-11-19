@@ -241,7 +241,8 @@ def sync(days=None):
                         value=excluded.value, unit=excluded.unit, updatedAt=datetime('now')
                 ''', [rider_id, day, target, val, unit or TARGETS[target][1]])
                 summary['metrics'] += 1
-    now = datetime.now(timezone.utc).isoformat(timespec='seconds')
+        db.commit()                                     # an entity at a time: no write held open across the next one's calls to Home Assistant
+    now =datetime.now(timezone.utc).isoformat(timespec='seconds')
     msg = f"{summary['weights']} weigh-in(s), {summary['metrics']} other reading(s)"
     if summary['replaced_manual']:
         msg += f", {summary['replaced_manual']} hand-typed weigh-in(s) replaced by the scale"

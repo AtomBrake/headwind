@@ -529,6 +529,7 @@ def sync_garmin(days=7, api=None, strict=False):
     for i in range(days):
         d = (today - timedelta(days=i)).isoformat()
         _save_day(db, d, _fetch_day(call, api, d))
+        db.commit()                                     # a day at a time: no write held open across the next day's calls
     if strict and days and not call.ok:
         raise RuntimeError('Garmin answered none of the daily-metric calls')
 
@@ -640,6 +641,7 @@ def backfill_history(today=None, pause=0.5):
             while d >= start:
                 ds = d.isoformat()
                 if ds not in have and (active is None or ds in active):
+                    db.commit()                     # no write held open across Garmin's calls; a day saved stays saved, and is skipped on a retry
                     m = _fetch_day(call, api, ds)
                     if _day_has_data(m):
                         _save_day(db, ds, m)
@@ -850,7 +852,8 @@ def garmin_twin(db, a, rider_id):
 def save_activity(db, api, a, rider_id):
     """Fetch an activity from Garmin's list and save it: a ride with its weather, anything else as a workout, then what follows any import (the
     better of two recordings kept, default gear, Garmin's summary remembered for services/garmin_changes). Returns None, or (kind, error) when it
-    couldn't be read or saved, for services/garmin_failures. Does not commit."""
+    couldn't be read or saved, for services/garmin_failures. Commits what's waiting before the download, and asks for the weather before it
+    writes, so no write is held open across either; does not commit its own."""
     from services import duplicates, garmin_changes, garmin_failures
     from services.parser import _map_sport
     from services.sports import is_ride
@@ -861,6 +864,7 @@ def save_activity(db, api, a, rider_id):
     type_key    = ((a.get('activityType') or {}).get('typeKey') or '').lower()
     start_local, start_gmt, zoneless = _list_times(a)
 
+    db.commit()
     parsed, fail = read_recording(api, a)
     if not parsed:
         return fail
@@ -904,6 +908,13 @@ def save_activity(db, api, a, rider_id):
         garmin_changes.remember(db, a)                      # what Garmin said, for services/garmin_changes to compare with later
         return None
 
+    w = None
+    if parsed.get('startLat') and parsed.get('startLng') and start_local:
+        try:
+            w = fetch_weather(parsed['startLat'], parsed['startLng'], start_local, parsed.get('streams'), sport_type)
+        except Exception:
+            log.warning('Weather for a Garmin activity failed', exc_info=True)
+
     try:
         from services.calorie_adjust import pair as _kcal_pair
         cal_raw, cal_adj = _kcal_pair(parsed.get('calories'))     # global burn adjustment, applied as the figure is pulled in
@@ -944,14 +955,11 @@ def save_activity(db, api, a, rider_id):
     save_laps(db, db_id, parsed.get('laps'))
     garmin_failures.clear(db, activity_id)
     garmin_changes.remember(db, a)
-
-    if parsed.get('startLat') and parsed.get('startLng') and start_local:
+    if w:
         try:
-            w = fetch_weather(parsed['startLat'], parsed['startLng'], start_local, parsed.get('streams'), sport_type)
-            if w:
-                save_weather(db, db_id, w)
+            save_weather(db, db_id, w)
         except Exception:
-            log.warning('Weather for a Garmin activity failed', exc_info=True)
+            log.warning('Saving the weather for a Garmin activity failed', exc_info=True)
 
     try:
         dup = duplicates.resolve(db, db_id)
@@ -1029,6 +1037,7 @@ def sync_garmin_activities(rider_id, api=None):
 
     while not done:
         older_page = False      # this page reached past the cursor: no need for the next
+        db.commit()             # nothing held open across Garmin's calls (save_activity commits before each download too)
         try:
             activities = api.get_activities(start=offset, limit=limit)
         except Exception as e:

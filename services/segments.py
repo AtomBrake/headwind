@@ -747,7 +747,8 @@ def scan_all_activities(db, segment_ids=None):
     Returns the number of activities with a GPS track (all of them were considered).
 
     Only the activities whose track box (services/tracks.py) reaches one of the segments, and of a family that has segments among them, have their
-    streams read, _BATCH at a time: a new segment on a big history reads a few dozen rides, not all of them.
+    streams read, _BATCH at a time: a new segment on a big history reads a few dozen rides, not all of them. Commits each batch, so a full scan
+    (seconds to minutes) never holds the write lock long enough for another writer to give up; the PRs are picked at the end.
     """
     if segment_ids:
         placeholders = ','.join('?' * len(segment_ids))
@@ -790,6 +791,7 @@ def scan_all_activities(db, segment_ids=None):
         ids = ids_all[i:i + _BATCH]
         for act in db.execute(f"SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall():
             scan_activity_against_segments(db, act, segments, track=todo[act['id']], pool=sibs)
+        db.commit()
 
     for seg in segments:
         _refresh_prs(db, seg['id'])

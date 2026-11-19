@@ -654,3 +654,30 @@ def test_one_out_of_step_that_cant_be_downloaded_is_tried_again_next_time(db, mo
     api.download_activity = lambda aid, dl_fmt=None: (_ for _ in ()).throw(RuntimeError('Garmin is busy'))
     assert gc.check(db, api, 1, '2026-08-01', '2026-10-01')['in_step'] == 0
     assert gc._out_of_step(db, ['garmin_1']) == {'garmin_1'}
+
+
+def test_no_write_is_held_open_across_a_download_or_the_weather(db, monkeypatch):
+    """A full re-sync on a live server (19 Nov 2026) held its first write open across every download after it: a page, a duplicate swap and the
+    Tasks page all waited their 60 s for the lock and failed with "database is locked". The sync and the check commit before each call out."""
+    held = []
+
+    def weather(*a, **k):
+        held.append(('weather', db.in_transaction))
+    monkeypatch.setattr('services.weather.fetch_weather', weather)
+    monkeypatch.setattr('services.parser.parse_fit', lambda b: {'distance': 15000, 'movingTime': 2700, 'elapsedTime': 2700, 'streams': None,
+                                                                'startLat': 50.5, 'startLng': -3.5})
+    rides = [act(i, f'2026-09-0{i}') for i in (1, 2, 3)]
+    api = FakeAPI(rides)
+    download = api.download_activity
+
+    def watched(aid, dl_fmt=None):
+        held.append(('download', db.in_transaction))
+        return download(aid, dl_fmt)
+    api.download_activity = watched
+    for _ in garmin.sync_garmin_activities(1, api=api):
+        pass
+    assert len(held) == 6 and not any(h for _, h in held)
+    held.clear()
+    api.acts = [act(i, f'2026-09-0{i}', dist=12000, dur=2000) for i in (1, 2, 3)]       # all three cropped in Garmin: each file read again
+    assert gc.full(db, api, 1)['recordings'] == 3
+    assert len(held) == 3 and not any(h for _, h in held)

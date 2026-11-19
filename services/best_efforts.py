@@ -137,14 +137,16 @@ def save_best_efforts(db, activity_id, activity_date, streams_json):
 
 
 def scan_all_best_efforts(db):
-    """Backfill every activity. Commits at the end."""
+    """Backfill every activity. Commits every 50, so a big history never holds the write lock long enough for another writer to give up."""
     activities = db.execute(
         "SELECT id, startDateLocal, streams FROM Ride "
         "WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')"
     ).fetchall()
     total = 0
-    for act in activities:
+    for i, act in enumerate(activities, 1):
         total += save_best_efforts(db, act['id'], act['startDateLocal'], act['streams'])
+        if i % 50 == 0:
+            db.commit()
     db.commit()
     log.warning('Best efforts scan — %d efforts across %d activities', total, len(activities))
     return len(activities)

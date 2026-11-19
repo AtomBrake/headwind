@@ -131,9 +131,11 @@ def _starts(a, parsed):
 
 def _recording_changed(db, api, a, act_id):
     """Read the activity's file again and offer the difference for review (services/reimport). True when something differs and is offered,
-    False when nothing does, None when it couldn't be read: try again next time."""
+    False when nothing does, None when it couldn't be read: try again next time. Commits what's waiting first: reading the file is a download,
+    and a write held open across it locks every other writer out (a full re-sync reads hundreds)."""
     from services import reimport
     from services.garmin import read_recording
+    db.commit()
     parsed, fail = read_recording(api, a)
     if not parsed:
         log.warning('Garmin activity %s changed in Garmin, but reading it again failed (%s): %s', a.get('activityId'), *fail)
@@ -164,8 +166,8 @@ def _out_of_step(db, act_ids):
 
 def _put_in_step(db, api, a, act_id):
     """An activity whose streams are out of step (_out_of_step) has its file read from Garmin again: reimport.propose puts the file's streams in
-    and matches it against the segments, and offers anything else that differs for review. True when its streams are in step now. Does not
-    commit."""
+    and matches it against the segments, and offers anything else that differs for review. True when its streams are in step now. Commits only
+    before the download (_recording_changed)."""
     if act_id in _out_of_step(db, [act_id]) and _recording_changed(db, api, a, act_id) is None:
         return False                                    # couldn't be read: tried again next time
     return act_id not in _out_of_step(db, [act_id])
@@ -199,7 +201,7 @@ def _missed_crop(db, api, a, row, now):
     """Once for an activity imported before the sync cut files to Garmin's crop (garmin.garmin_window), compared with Garmin's summary `now`:
     longer here in both distance and time, it was cropped in Garmin before it came in, so the file is read again and the cut offered for review
     (_recording_changed). One typed in has no file and no crop: different here either way (made by an older sync from what Garmin said then),
-    Garmin's figures are offered. True when something was offered. Does not commit."""
+    Garmin's figures are offered. True when something was offered. Commits only before a download (_recording_changed)."""
     gid = str(a.get('activityId'))
     if db.execute('SELECT cropChecked FROM GarminSeen WHERE garminId=?', [gid]).fetchone()[0]:
         return False

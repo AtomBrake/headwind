@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **A Full re-sync no longer locks everything else out.** It saved its first change, then held it open while it read the rest of Garmin's list, downloading files as it went, so anything else that saved, from a duplicate's **Use this recording** to opening the Tasks page, waited a minute and failed with "database is locked" until it finished. It now saves before each download. The regular Garmin sync did the same thing on a smaller scale: up to 20 downloads, and each day's health figures, behind one save. It now saves each activity and each day as it goes, and gets an activity's weather before saving it. Matching every activity against the segments again, scanning for best efforts, and importing from Home Assistant also save as they go now, so none of them hold everything else up while they run.
+
 ## [0.7.42-beta] - 2026-11-19
 
 ### Changed
