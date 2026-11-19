@@ -196,6 +196,7 @@
           <a href="{{ url_for('rides.detail', rid=e.ride_id) }}" style="font-size:0.9375rem;">
             {% if on_foot %}<span title="{{ e.sportType | sport_label }}">{{ e.sportType | sport_icon }}</span> {% elif e.cls == 'ebike' %}<span title="E-bike">⚡</span> {% endif %}{{ e.ride_name }}
           </a>
+          {% if laps.get(e.id) %}<span style="margin-left:0.3rem; font-size:0.75rem; color:var(--text-muted);">lap {{ laps[e.id] }}</span>{% endif %}
           {% if e.isPR %}<span style="margin-left:0.5rem; font-size:0.7rem; background:var(--accent); color:var(--on-accent); padding:0.1rem 0.4rem; border-radius:4px; vertical-align:middle;"{% if e.cls == 'ebike' %} title="E-bike PR"{% elif e.cls == 'bike' %} title="Bike PR"{% endif %}>PR</span>{% endif %}
         </td>
         <td class="num" data-sort="{{ e.elapsedSecs }}" style="font-weight:600;

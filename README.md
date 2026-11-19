@@ -108,7 +108,7 @@ Everywhere you've been, filterable by date range and sport, on any of the map ty
 <img src="docs/screenshots/heatmap.jpg" alt="Heatmap" width="900">
 
 ### Segments and leaderboards
-Draw a segment on any ride; Headwind scans your whole history, ranks every effort, charts your trend, rates the difficulty and tracks PRs. A steep climb counts however slowly it's ridden or pushed up, as long as it keeps climbing. A stop part way along counts in the effort's time, as on Strava, but doesn't stop it counting; a wait at the top before setting off, or at the bottom after finishing, isn't in the time. An effort has to follow the segment's own line: another way between the same start and finish, such as a road round a steep path or the other of two trails down a hill, isn't the segment. Linked friends' segments and efforts appear on the same leaderboard.
+Draw a segment on any ride; Headwind scans your whole history, ranks every effort, charts your trend, rates the difficulty and tracks PRs. A steep climb counts however slowly it's ridden or pushed up, as long as it keeps climbing. A stop part way along counts in the effort's time, as on Strava, but doesn't stop it counting; a wait at the top before setting off, or at the bottom after finishing, isn't in the time. An effort has to follow the segment's own line: another way between the same start and finish, such as a road round a steep path or the other of two trails down a hill, isn't the segment. Every lap counts: an activity that rides a segment more than once has an effort for each time round, marked lap 1, lap 2, ... on the activity and on the leaderboard. Linked friends' segments and efforts appear on the same leaderboard.
 
 <img src="docs/screenshots/segment-leaderboard.jpg" alt="Segment leaderboard" width="900">
 
@@ -471,7 +471,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 
 ### Segments
 - Define a segment by clicking start and end on an activity's map; Headwind **retroactively scans** every activity of that kind.
-- Per-effort history, PRs, trend chart, difficulty rating, rolling average.
+- Per-effort history, PRs, trend chart, difficulty rating, rolling average. Each lap of a segment on one activity is an effort of its own, as on Strava.
 - If a segment's stored route shape is missing, Headwind rebuilds it from the activity it was drawn on (or a matching effort) — and says "route shape unavailable" instead of drawing a misleading straight line.
 - Segments are shared both ways with linked friends.
 - **Ride segments and on-foot segments.** Rides (bike and e-bike) only match ride segments; runs, walks and hikes only match on-foot segments, which show pace. The Segments page has a tab for each, a segment can be switched between them from its own page, and ride leaderboards filter **All / Bike / E-bike** so e-bike efforts never take a pedal PR.

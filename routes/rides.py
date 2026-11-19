@@ -159,6 +159,8 @@ def detail(rid):
         WHERE e.activityId = ?
         ORDER BY e.elapsedSecs ASC
     ''', [rid])
+    from services.segments import lap_numbers
+    seg_laps = lap_numbers(seg_efforts)
 
     # For each segment on this ride, get other riders' efforts on the SAME DAY
     seg_rivals = {}
@@ -176,23 +178,31 @@ def detail(rid):
               AND a.riderId != ?
               AND a.riderId IS NOT NULL
         ''', seg_ids + [activity['startDateLocal'], activity['riderId'] or -1])
+        best = {}                                         # a rival's fastest lap that day on each segment
         for r in rivals:
+            k = (r['segmentId'], r['rider_id'])
+            if k not in best or r['elapsedSecs'] < best[k]['elapsedSecs']:
+                best[k] = r
+        for r in best.values():
             seg_rivals.setdefault(r['segmentId'], []).append(r)
 
     seg_trends = {}
     seg_class = sports.class_of(get_db(), activity['id'])      # bike / ebike / foot: an e-bike ride is compared with the last e-bike effort, and so on
     same_class = sports.class_sql(seg_class, 'a2.sportType', 'b2.kind')
     for e in seg_efforts:
+        # the effort before this one: an earlier lap of this ride, else the last on an earlier activity
         prev = query_db(f'''
             SELECT e2.elapsedSecs FROM SegmentEffort e2
             JOIN Activity a2 ON a2.id = e2.activityId
             LEFT JOIN Bike b2 ON b2.id = a2.bikeId
-            WHERE e2.segmentId=? AND a2.riderId IS ? AND a2.startDateLocal < ? AND e2.activityId != ? AND {same_class}
-            ORDER BY a2.startDateLocal DESC LIMIT 1
-        ''', [e['seg_id'], activity['riderId'], activity['startDateLocal'], rid], one=True)
+            WHERE e2.segmentId=? AND a2.riderId IS ? AND {same_class}
+              AND ((a2.startDateLocal < ? AND e2.activityId != ?) OR (e2.activityId = ? AND e2.startSecs < ?))
+            ORDER BY e2.activityId = ? DESC, a2.startDateLocal DESC, e2.startSecs DESC LIMIT 1
+        ''', [e['seg_id'], activity['riderId'], activity['startDateLocal'], rid, rid, e['startSecs'] if e['startSecs'] is not None else -1, rid],
+            one=True)
         if prev:
             delta = e['elapsedSecs'] - prev['elapsedSecs']
-            seg_trends[e['seg_id']] = {'dir': 'up' if delta < 0 else ('down' if delta > 0 else 'flat'), 'delta': abs(delta)}
+            seg_trends[e['id']] = {'dir': 'up' if delta < 0 else ('down' if delta > 0 else 'flat'), 'delta': abs(delta)}
 
     # Trends for rival riders: compare each rival's today time vs their previous effort
     rival_trends = {}  # {rider_id: {seg_id: {dir, delta}}}
@@ -290,7 +300,7 @@ def detail(rid):
                            charts=charts, has_memory=memory_count > 0, ai_pending=_auto_analyse.is_pending(activity['id']),
                            seg_efforts=seg_efforts, alt_raw=alt_raw, coords_from_stream=coords_from_stream, dist_raw=dist_raw,
                            co_riders=co_riders, seg_rivals=seg_rivals,
-                           seg_trends=seg_trends, rival_trends=rival_trends,
+                           seg_trends=seg_trends, rival_trends=rival_trends, seg_laps=seg_laps,
                            elev_loss_m=elev_loss_m,
                            prev_ride=prev_ride, next_ride=next_ride,
                            is_ride=is_ride, seg_family=seg_family, seg_family_label=(sports.CLASS_LABELS['ebike'] if seg_class == 'ebike' else sports.FAMILY_LABELS.get(seg_family)), is_workout=is_workout,

@@ -5,7 +5,7 @@ from flask import Blueprint, abort, jsonify, redirect, render_template, request,
 
 from database import get_db, query_db
 from services.segments import (scan_all_activities, scan_activity_against_segments, _refresh_prs,
-                               clean_polyline, recover_polyline, seg_sport, valid_coord, MIN_SEGMENT_M)
+                               clean_polyline, lap_numbers, recover_polyline, seg_sport, valid_coord, MIN_SEGMENT_M)
 from services.sports import CLASS_ICONS, CLASS_LABELS, FAMILIES, FAMILY_ICONS, FAMILY_LABELS, class_sql, ebike_sql, family_of
 
 log = logging.getLogger(__name__)
@@ -295,7 +295,8 @@ def detail(sid):
              'avgSpeedMps': sum(speeds) / len(speeds) if speeds else None,
              'total': len(efforts)}
 
-    trend = sorted(({'activityDate': e['activityDate'], 'elapsedSecs': e['elapsedSecs']} for e in efforts), key=lambda t: t['activityDate'] or '')
+    trend = [{'activityDate': e['activityDate'], 'elapsedSecs': e['elapsedSecs']}
+             for e in sorted(efforts, key=lambda e: (e['activityDate'] or '', e['activityId'], e['startSecs'] or 0))]   # laps in the order ridden
 
     # 3-effort rolling average for the trend chart
     secs_list = [e['elapsedSecs'] for e in trend]
@@ -309,7 +310,7 @@ def detail(sid):
 
     return render_template('segment.html', seg=seg, efforts=efforts, map_data=map_data,
                            trend=trend, trend_rolling=trend_rolling, family=family, family_label=FAMILY_LABELS[family],
-                           stats=stats, diff_label=diff_label, on_foot=(family == 'foot'),
+                           stats=stats, diff_label=diff_label, on_foot=(family == 'foot'), laps=lap_numbers(efforts),
                            only=only, only_links=_only_links('segments.detail', only, class_counts, sid=sid) if family == 'ride' else [],
                            diff_colour=diff_colour, sub_segs=sub_segs)
 

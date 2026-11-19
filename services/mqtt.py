@@ -480,7 +480,10 @@ def _ride_route_payloads(rid):
             sp = json.loads(e['polyline'] or '[]')
         except Exception:
             sp = []
-        if sp:
+        seen = next((g for g in segs if g['n'] == e['name']), None)     # its shape once, however many laps
+        if seen:
+            seen['pr'] = seen['pr'] or bool(e['isPR'])
+        elif sp:
             segs.append({'n': e['name'], 'pr': bool(e['isPR']), 'pts': _thin(sp, 22)})
     allsegs = query_db(f"""SELECT s.id, s.name, s.distanceM, MIN(x.secs) best, COUNT(x.secs) tries, MAX(x.d) last
                            FROM Segment s LEFT JOIN (SELECT e.segmentId sid, e.elapsedSecs secs, a2.startDateLocal d FROM SegmentEffort e

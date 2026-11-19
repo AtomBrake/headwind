@@ -160,7 +160,41 @@ _REPAIR_FLAGS = ('distanceBackfillDone', 'utcStartFixDone', 'awayStartRecheckDon
                  'segmentFamiliesDone', 'segmentBikesMergedDone', 'movingTimeFixDone', 'segmentMatchFixDone', 'sportEffortsDone',
                  'movingTimePausedDone', 'bestEffortsCleanDone', 'sensorTopSpeedDone', 'mmDistancesDone', 'stravaManualDone', 'sanityAllSportsDone',
                  'liveParkedFixDone', 'strandedParkedFixDone', 'segmentClimbFloorDone', 'ebikeSportDone', 'segmentStopsDone',
-                 'segmentRouteDone')
+                 'segmentRouteDone', 'segmentLapsDone')
+
+
+# One row per effort: an activity that rides a segment twice (two laps of a trail centre's loop) has two, told apart by startSecs, the seconds
+# into the activity's time stream where each starts (services/segments.match_segment_efforts). NULL on an effort kept from before laps counted.
+_SEGMENT_EFFORT_SQL = '''
+    CREATE TABLE IF NOT EXISTS {name} (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        segmentId    INTEGER NOT NULL REFERENCES Segment(id) ON DELETE CASCADE,
+        activityId   TEXT NOT NULL,
+        activityDate TEXT,
+        elapsedSecs  INTEGER NOT NULL,
+        avgSpeedMps  REAL,
+        isPR         INTEGER DEFAULT 0,
+        createdAt    TEXT DEFAULT (datetime('now')),
+        approx       INTEGER DEFAULT 0,
+        startSecs    INTEGER,
+        UNIQUE(segmentId, activityId, startSecs)
+    )
+'''
+
+
+def _efforts_per_lap(db):
+    """SegmentEffort as it was before laps counted (UNIQUE(segmentId, activityId): one effort per activity, its fastest lap) rebuilt as
+    _SEGMENT_EFFORT_SQL, rows and ids kept. Small (a row per effort), so one transaction. Its index and triggers are made again further on in
+    migrate_db (idx_effort_activity, services/data_version.ensure_schema); services/segments.rematch_laps finds the other laps. Commits."""
+    cols = 'id, segmentId, activityId, activityDate, elapsedSecs, avgSpeedMps, isPR, createdAt, approx'
+    db.commit()
+    db.execute('BEGIN IMMEDIATE')
+    db.execute('DROP TABLE IF EXISTS SegmentEffort_new')
+    db.execute(_SEGMENT_EFFORT_SQL.format(name='SegmentEffort_new'))
+    db.execute(f'INSERT INTO SegmentEffort_new ({cols}) SELECT {cols} FROM SegmentEffort')
+    db.execute('DROP TABLE SegmentEffort')
+    db.execute('ALTER TABLE SegmentEffort_new RENAME TO SegmentEffort')
+    db.commit()
 
 
 def migrate_db():
@@ -280,19 +314,7 @@ def migrate_db():
         )
     ''')
 
-    db.execute('''
-        CREATE TABLE IF NOT EXISTS SegmentEffort (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            segmentId    INTEGER NOT NULL REFERENCES Segment(id) ON DELETE CASCADE,
-            activityId   TEXT NOT NULL,
-            activityDate TEXT,
-            elapsedSecs  INTEGER NOT NULL,
-            avgSpeedMps  REAL,
-            isPR         INTEGER DEFAULT 0,
-            createdAt    TEXT DEFAULT (datetime('now')),
-            UNIQUE(segmentId, activityId)
-        )
-    ''')
+    db.execute(_SEGMENT_EFFORT_SQL.format(name='SegmentEffort'))
 
     db.execute('''
         CREATE TABLE IF NOT EXISTS RideMemory (
@@ -475,6 +497,7 @@ def migrate_db():
         ('segmentClimbFloorDone',  'INTEGER DEFAULT 0'), # steep segments matched again with a speed floor that drops on a climb (services/segments.rematch_climbs)
         ('segmentStopsDone',       'INTEGER DEFAULT 0'), # every segment matched again with stops left out of the speed floor and waits at the ends out of the time (services/segments.rematch_stops)
         ('segmentRouteDone',       'INTEGER DEFAULT 0'), # every segment matched again with efforts that must follow its shape (services/segments.rematch_routes)
+        ('segmentLapsDone',        'INTEGER DEFAULT 0'), # every segment matched again with an effort for each lap, not one per activity (services/segments.rematch_laps)
         ('ebikeSportDone',         'INTEGER DEFAULT 0'), # rides on an e-bike made e-bike rides (services/gear.ebike_rides)
         ('garminWeightsDone',    'INTEGER DEFAULT 0'),   # weigh-in history fetched on its own (services/garmin.backfill_weigh_ins)
         ('garminWeightsRetryAt', 'TEXT'),
@@ -563,6 +586,8 @@ def migrate_db():
     eff_cols = {r[1] for r in db.execute('PRAGMA table_info(SegmentEffort)').fetchall()}
     if 'approx' not in eff_cols:        # 1 = close-but-not-exact match (time estimated); see services/segments.match_segment_close
         db.execute('ALTER TABLE SegmentEffort ADD COLUMN approx INTEGER DEFAULT 0')
+    if 'startSecs' not in eff_cols:
+        _efforts_per_lap(db)
 
     friend_cols = {r[1] for r in db.execute('PRAGMA table_info(Friend)').fetchall()}
     if 'riderName' not in friend_cols:
@@ -1124,7 +1149,7 @@ def migrate_db():
         db.commit()
     from services.segments import rematch_routes as _rematch_routes
     res = _rematch_routes(db)
-    if res.get('found') or res.get('removed') or res.get('shorter'):
+    if res.get('found') or res.get('removed') or res.get('shorter') or res.get('laps'):
         s_ = lambda n, one, many: f"{n:,} {one if n == 1 else many}"
         _tasks.record(db, 'startup:segment_routes', 'Segments follow their own line',
                       f"Every segment was matched again: {s_(res['removed'], 'effort', 'efforts')} that took another way between the same start and "
@@ -1133,7 +1158,18 @@ def migrate_db():
                       f"{s_(res['prs_moved'], 'segment PR', 'segment PRs')} changed. An effort now has to follow the segment's own line, not only "
                       "pass near its start, finish and a few points along it."
                       + (" A stop part way along a segment no longer turns the effort away, and counts in its time; a wait at the top before "
-                         "setting off, or at the bottom after finishing, doesn't." if res['stops'] else ''))
+                         "setting off, or at the bottom after finishing, doesn't." if res['stops'] else '')
+                      + (f" Every lap counts now, not only an activity's fastest: {s_(res['laps'], 'more lap', 'more laps')} found."
+                         if res['laps'] else ''))
+        db.commit()
+    from services.segments import rematch_laps as _rematch_laps
+    res = _rematch_laps(db)
+    if res.get('laps') or res.get('found'):
+        _tasks.record(db, 'startup:segment_laps', 'Every lap of a segment',
+                      f"Every segment was matched again: {res['laps']:,} more lap{'s' if res['laps'] != 1 else ''} found, "
+                      f"{res['found']:,} new effort{'s' if res['found'] != 1 else ''}, {res['prs_moved']} segment PR{'s' if res['prs_moved'] != 1 else ''} "
+                      "changed. An activity that rides a segment more than once (laps of a trail centre's loop, a climb ridden twice) now has an "
+                      "effort for each time round, as on Strava, where only the fastest was kept.")
         db.commit()
     from services.segments import rematch_stops as _rematch_stops
     res = _rematch_stops(db)

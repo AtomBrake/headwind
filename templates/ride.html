@@ -892,6 +892,7 @@ function openPhoto(a) {
       <tr>
         <td data-sort="{{ e.seg_name }}">
           <a href="{{ url_for('segments.detail', sid=e.seg_id) }}" style="font-size:0.9375rem;">{{ e.seg_name }}</a>
+          {% if seg_laps.get(e.id) %}<span style="margin-left:0.3rem; font-size:0.75rem; color:var(--text-muted);">lap {{ seg_laps[e.id] }}</span>{% endif %}
           {% if e.isPR %}<span style="margin-left:0.4rem; font-size:0.7rem; background:var(--accent); color:var(--on-accent); padding:0.1rem 0.35rem; border-radius:4px;">PR</span>{% endif %}
         </td>
         <td class="num" data-sort="{{ e.elapsedSecs }}" style="vertical-align:middle;">
@@ -925,7 +926,7 @@ function openPhoto(a) {
         <td class="num" style="vertical-align:middle; white-space:nowrap;">
           <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.25rem;">
             {# Owner's trend #}
-            {% set trend = seg_trends.get(e.seg_id) %}
+            {% set trend = seg_trends.get(e.id) %}
             <span style="display:inline-flex; align-items:center; gap:0.25rem;">
               {% if activity.riderAvatar %}
                 <img src="{{ url_for('static', filename='avatars/' + activity.riderAvatar) }}" alt="{{ activity.riderName }}" data-rider-id="{{ activity.riderId }}" style="width:14px;height:14px;border-radius:50%;object-fit:cover;cursor:pointer;">

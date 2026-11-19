@@ -107,6 +107,9 @@ def _segment_efforts(rid, run):
             sp = json.loads(e['polyline'] or '[]')
         except Exception:
             sp = []
-        if sp:
+        seen = next((g for g in segs if g['n'] == e['name']), None)     # its shape once, however many laps
+        if seen:
+            seen['pr'] = seen['pr'] or bool(e['isPR'])
+        elif sp:
             segs.append({'n': e['name'], 'pr': bool(e['isPR']), 'pts': _thin(sp, 22)})
     return efforts, segs

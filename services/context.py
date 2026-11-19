@@ -89,16 +89,18 @@ def _fmt_date(d):
 
 def _build_segment_context(activity_id):
     efforts = query_db('''
-        SELECT e.elapsedSecs, e.isPR, e.activityDate,
+        SELECT e.id, e.segmentId, e.activityId, e.startSecs, e.elapsedSecs, e.isPR, e.activityDate,
                s.id AS seg_id, s.name AS seg_name, s.distanceM
         FROM SegmentEffort e
         JOIN Segment s ON s.id = e.segmentId
         WHERE e.activityId = ?
-        ORDER BY s.name
+        ORDER BY s.name, e.startSecs
     ''', [activity_id])
 
     if not efforts:
         return ''
+    from services.segments import lap_numbers
+    laps = lap_numbers(efforts)
 
     lines = ['Segments ridden today:']
 
@@ -144,7 +146,8 @@ def _build_segment_context(activity_id):
         else:
             status = f'#{rank} of {total} (gap to PR: {_fmt_dur(gap_to_pr)})'
 
-        line = f'- {seg_name}: {_fmt_dur(this_secs)} — {status}'
+        lap = f" (lap {laps[eff['id']]})" if eff['id'] in laps else ''
+        line = f'- {seg_name}{lap}: {_fmt_dur(this_secs)} — {status}'
         line += f'\n  All-time: {total} efforts, avg {_fmt_dur(avg_secs)}, best {_fmt_dur(best_secs)} ({best_date})'
 
         if recent:
