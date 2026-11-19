@@ -3,9 +3,26 @@
 {% block title %}Import Rides{% endblock %}
 {% block page_title %}Import Rides{% endblock %}
 
+{% block head %}
+<style>
+  /* The upload card on the left, what to look at on the right; the long lists under both, as wide as the two */
+  .imp-page { max-width:1240px; }
+  .imp-cols { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:1.25rem; align-items:start; }
+  .imp-cols:not(.has-side) { grid-template-columns:minmax(0,600px); }
+  .imp-col { display:flex; flex-direction:column; gap:1.25rem; min-width:0; }
+  @media (max-width:1150px) { .imp-cols { grid-template-columns:minmax(0,1fr); } .imp-cols:not(.has-side) { grid-template-columns:minmax(0,600px); } }
+</style>
+{% endblock %}
+
 {% block content %}
+{% set oos_files = out_of_step.files + ([] if garmin_on else out_of_step.garmin) %}
+{% set oos_garmin = out_of_step.garmin if garmin_on else [] %}
+{% set oos_n = oos_files | length + oos_garmin | length + out_of_step.friend | length %}
+<div class="imp-page">
+<div class="imp-cols{% if kept or strava_pending or problems or oos_n or sport_fixes %} has-side{% endif %}">
+<div class="imp-col">
 {% for a in advice %}
-<div class="card" id="advice-{{ a.riderId }}" style="max-width:600px;margin-bottom:1.25rem;border-color:var(--accent);">
+<div class="card" id="advice-{{ a.riderId }}" style="border-color:var(--accent);">
   <div class="card-title">Import {{ a.riderName ~ "'s" if riders | length > 1 else 'your' }} Strava export again</div>
   <p style="font-size:0.875rem;line-height:1.6;margin:0 0 0.5rem;">
     Headwind reads more from it than when it was last imported{% if a.readAt %} ({{ a.readAt | fmt_date }}){% endif %}.
@@ -26,7 +43,7 @@
 </div>
 {% endfor %}
 
-<div class="card" style="max-width:600px;">
+<div class="card">
   <div class="card-title">Import Rides</div>
 
   <p class="hint" style="margin-bottom:1.25rem;">
@@ -83,7 +100,7 @@
   </button>
 </div>
 
-<div id="progressCard" class="card" style="max-width:600px;margin-top:1.25rem;display:none;">
+<div id="progressCard" class="card" style="display:none;">
   <div class="card-title">Importing…</div>
   <div class="progress-bar-wrap">
     <div class="progress-bar-fill" id="progressFill" style="width:0%"></div>
@@ -94,18 +111,21 @@
   <div id="progressStats" style="display:flex;gap:1.5rem;margin-top:1rem;font-size:0.875rem;"></div>
 </div>
 
-<div id="doneCard" class="card" style="max-width:600px;margin-top:1.25rem;display:none;">
+<div id="doneCard" class="card" style="display:none;">
   <div class="card-title">Done</div>
   <div id="doneStats" style="font-size:0.9375rem;line-height:2;"></div>
   <a href="/dashboard" class="btn btn-primary" style="margin-top:1rem;">View Dashboard</a>
 </div>
+</div>
+
+<div class="imp-col">
 
 {% for k in kept %}
-<div class="card"{% if loop.first %} id="kept"{% endif %} style="max-width:600px;margin-top:1.25rem;">
+<div class="card"{% if loop.first %} id="kept"{% endif %}>
   <div class="card-title">Strava export kept{% if riders | length > 1 %} for {{ k.riderName }}{% endif %}</div>
   <p class="hint" style="margin:0 0 0.75rem;">
     Uploaded {{ k.keptAt | fmt_date }}: {{ k.sizeBytes | filesizeformat }}, {{ k.activities or 'its' }} activities.
-    Last imported {{ k.readAt | fmt_date }}. Import it again to pick up what a newer version of Headwind reads from it, with the options ticked above.
+    Last imported {{ k.readAt | fmt_date }}. Import it again to pick up what a newer version of Headwind reads from it, with the options ticked under Import Rides.
   </p>
   {% if k.stale %}
   <p style="font-size:0.875rem;line-height:1.6;margin:0 0 0.75rem;">This version of Headwind reads exports differently from the one that last imported it: importing it again may fix or add to activities already here. Anything that differs from what's saved waits below for you to decide.</p>
@@ -120,7 +140,7 @@
 {% endfor %}
 
 {% if strava_pending %}
-<div class="card" style="max-width:600px;margin-top:1.25rem;">
+<div class="card">
   <div class="card-title">{{ strava_pending }} bike{{ 's' if strava_pending != 1 }} from Strava to match</div>
   <p class="hint" style="margin:0 0 0.75rem;">Your Strava export says which bike rode each ride. Say which of your bikes each one is, or add it as a new one, and its rides go on it.</p>
   <a class="btn btn-secondary" href="{{ url_for('gear.strava_page') }}">Match Strava bikes</a>
@@ -128,7 +148,7 @@
 {% endif %}
 
 {% if problems %}
-<div class="card" id="problems" style="max-width:600px;margin-top:1.25rem;">
+<div class="card" id="problems">
   <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
     <div class="card-title" style="margin:0;">{{ problems | length }} file{{ 's' if problems | length != 1 }} couldn't be read</div>
     <form method="POST" action="{{ url_for('import_rides.clear_problems') }}" style="margin:0;">
@@ -143,11 +163,8 @@
 </div>
 {% endif %}
 
-{% set oos_files = out_of_step.files + ([] if garmin_on else out_of_step.garmin) %}
-{% set oos_garmin = out_of_step.garmin if garmin_on else [] %}
-{% set oos_n = oos_files | length + oos_garmin | length + out_of_step.friend | length %}
 {% if oos_n %}
-<div class="card" id="out-of-step" style="max-width:600px;margin-top:1.25rem;">
+<div class="card" id="out-of-step">
   <div class="card-title">{{ oos_n }} activit{{ 'ies' if oos_n != 1 else 'y' }} left out of segments</div>
   <p class="hint" style="margin:0 0 0.5rem;">Their GPS and times are out of step: an older Headwind kept a time for every second the device had
     no GPS fix, so the times along the track are off, and segments can't time them. Reading the file again puts that right. Nothing you
@@ -159,7 +176,7 @@
       put right on their own Headwind (by its Garmin check, or by importing the file{{ 's' if out_of_step.friend | length != 1 }} again), and here
       with the next sync.</li>{% endif %}
     {% if oos_files %}<li>{{ oos_files | length }} need{{ 's' if oos_files | length == 1 }} {{ 'their files' if oos_files | length != 1 else 'its file' }}
-      imported again, above (a zip of them all will do):
+      imported again under Import Rides (a zip of them all will do):
       <ul style="margin:0.25rem 0 0 1rem; padding:0;">
         {% for a in oos_files[:20] %}<li><a href="/rides/{{ a.id }}" style="color:var(--accent);">{{ a.name or a.id }}</a>
           <span style="color:var(--text-muted);">{{ a.startDateLocal | fmt_date }}</span></li>{% endfor %}
@@ -168,6 +185,17 @@
   </ul>
 </div>
 {% endif %}
+
+{% if sport_fixes %}
+<div class="card">
+  <div class="card-title">{{ '{:,}'.format(sport_fixes) }} Garmin activit{{ 'y is' if sport_fixes == 1 else 'ies are' }} saved with another sport than Garmin's</div>
+  <p class="hint" style="margin:0 0 0.75rem;">Saved before Headwind knew Garmin's type for {{ 'it' if sport_fixes == 1 else 'them' }}: e-bike or mountain bike rides saved as plain rides, say. Nothing changes until you apply it.</p>
+  <a class="btn btn-secondary" href="{{ url_for('garmin.sports_page') }}">Review activity types</a>
+</div>
+{% endif %}
+
+</div>
+</div>
 
 {% if changes %}
 <div class="card" id="changes" style="margin-top:1.25rem;">
@@ -340,14 +368,6 @@
 </div>
 {% endif %}
 
-{% if sport_fixes %}
-<div class="card" style="max-width:600px;margin-top:1.25rem;">
-  <div class="card-title">{{ '{:,}'.format(sport_fixes) }} Garmin activit{{ 'y is' if sport_fixes == 1 else 'ies are' }} saved with another sport than Garmin's</div>
-  <p class="hint" style="margin:0 0 0.75rem;">Saved before Headwind knew Garmin's type for {{ 'it' if sport_fixes == 1 else 'them' }}: e-bike or mountain bike rides saved as plain rides, say. Nothing changes until you apply it.</p>
-  <a class="btn btn-secondary" href="{{ url_for('garmin.sports_page') }}">Review activity types</a>
-</div>
-{% endif %}
-
 {% if sport_groups %}
 {% set n_sports = sport_groups | sum(attribute='rows', start=[]) | length %}
 <div class="card" id="sports" style="margin-top:1.25rem;">
@@ -413,6 +433,7 @@
   {% endfor %}
 </div>
 {% endif %}
+</div>
 {% endblock %}
 
 {% block scripts %}

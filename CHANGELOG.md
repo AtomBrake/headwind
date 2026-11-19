@@ -4,6 +4,7 @@
 
 ### Changed
 - **Activities in the log are links.** On the Tasks page's Logs card, an activity's id in a line (a duplicate set aside, the one kept, a repair that moved it) opens that activity, or the view of the copy set aside, with its name in the tooltip. A number that isn't an activity here, or a copy since discarded, stays plain text.
+- **The Import page uses the width of the screen.** On a wide screen the upload card sits on the left and what's waiting for you (a kept Strava export, files that couldn't be read, activities left out of segments, Garmin sports to review) on the right, with the longer lists under both, as wide as the two. Before, every card was stacked down a narrow column, and one or two ran right across the screen. A narrower screen still shows one column.
 
 ## [0.7.41-beta] - 2026-11-19
 
