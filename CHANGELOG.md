@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.38-beta] - 2026-11-19
 
 ### Added
 - **Kitesurf and Wingfoil are sports of their own.** Pick either in **Change the type** on an activity or in the Activities page's **Select** bar, and set default gear for it. A Garmin kiteboarding activity or a FIT or GPX file of a kitesurf comes in as Kitesurf; before, Garmin's came in as Other and a file's as Surf. A Garmin or file wing foil session comes in as Wingfoil, where it was Other. Kitesurfs from a Strava export were already kept as Kitesurf, but couldn't be picked. Like the other water sports, neither has a climb, and each one's distance adds up on its own. Garmin kiteboarding and wing foil activities already saved as Other are offered their sport on the **Import** page, to apply or keep; a kitesurf saved as Surf from a file, or from a Garmin sync before 0.7, is changed by hand.
