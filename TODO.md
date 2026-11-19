@@ -60,7 +60,7 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
   - [ ] the copy for troubleshooting (`services/troubleshooting_copy.py`): move GPS away from home instead of dropping it
   - [ ] the live tracking page, and the tracks sent for the elevation check (see those entries)
 
-- [ ] **Commit the Windows lock.** The **Windows lock** workflow (`.github/workflows/windows-lock.yml`) makes `requirements-windows.lock` on Windows, and `windows.yml` installs from it with `--require-hashes` once it's in the repo (loosely until then). Push, run the workflow from the Actions tab, commit the file it uploads, then check the next Windows build passes its smoke test with it.
+- [ ] **Check the Windows build on its lock.** `requirements-windows.lock` (made by `.github/workflows/windows-lock.yml`) is committed, and `windows.yml` now installs from it with `--require-hashes`. Run the next Windows build (a `v*` tag, or **Windows build** from the Actions tab) and check its smoke test passes; if PyInstaller or a newer package breaks it, pin that one in `requirements-windows-build.txt` or `requirements.txt` and run **Windows lock** again.
 
 ### Routes and maps
 
