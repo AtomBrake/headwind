@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.37-beta] - 2026-11-19
 
 ### Changed
 - **A day's steps come from one source.** Each day took the highest count from Garmin, the phone, Apple Health and a watch, and a phone counts pedalling as steps, so on a ride day the phone's count won, thousands of steps too high. Now the **Steps** page has **Count steps from**: Automatic (Garmin when it has given steps on 5 of the last 14 days, otherwise the phone), Garmin, or Phone (Apple Health, the Android app, or a watch through Home Assistant). If the chosen source has nothing for a day, the day has no steps; another source's count isn't used instead. A number you enter on the Steps page is still the count for its day. The Home Assistant sensors, the recovery charts and the phone apps all use the same count.
