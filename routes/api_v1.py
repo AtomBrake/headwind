@@ -16,7 +16,8 @@
                             DELETE /api/v1/health forgets it all (services/health.py)
   POST /api/v1/devices/watch   a token of its own for the phone's Apple Watch (services/device_auth.create_child)
   POST /api/v1/friends/tokens  a feed token for a friend, with its share code (services/feed_tokens.py), for the app to show as a QR code;
-                            POST /api/v1/friends/probe {code} who a friend's code connects to, POST /api/v1/friends {code, rider, name} adds them
+                            POST /api/v1/friends/probe {code} who a friend's code connects to, POST /api/v1/friends {code, rider, name} adds them;
+                            GET /api/v1/friends lists them, for GET /api/v1/rides?rider=<their rider id>|all (a friend's activities, read-only)
 The nutrition endpoints the app also uses (/nutrition/api/log, /water, /search, /lookup/<barcode> ...) accept the same token.
 """
 import logging
@@ -347,14 +348,37 @@ def upload_ride():
     return jsonify({'status': 'duplicate' if duplicate else ('imported' if result['imported'] else 'skipped'), **result, 'ride': ride, 'duplicate': duplicate})
 
 
+def _friend_riders():
+    """{riderId: name} for each friend synced to here (Friend.riderId, made by routes/friends._do_ride_sync), by the name they're shown as."""
+    return {r['riderId']: r['name'] for r in query_db('SELECT riderId, name FROM Friend WHERE riderId IS NOT NULL ORDER BY name COLLATE NOCASE')}
+
+
+def _listed_riders(rider, which):
+    """{riderId: name} for GET /api/v1/rides?rider=: empty for the phone's own rider, a friend's rider id, or 'all' for both. None for anything
+    else, another local rider's included: the app only ever sees its own and its friends'."""
+    friends = _friend_riders()
+    if not which:
+        return {rider['id']: rider['name']}
+    if which == 'all':
+        return {rider['id']: rider['name'], **friends}
+    try:
+        fid = int(which)
+    except ValueError:
+        return None
+    return {fid: friends[fid]} if fid in friends else None
+
+
 @bp.route('/rides')
 def rides():
-    """Every activity, rides and the rest, as one newest-first list, paged: ?offset=0&limit=30&sport=Ride&group=foot&q=text. group is a stat group
-    (services/sports.stat_group: ride, foot, swim, or the sport itself)."""
+    """Every activity, rides and the rest, as one newest-first list, paged: ?offset=0&limit=30&sport=Ride&group=foot&q=text&rider=. group is a stat group
+    (services/sports.stat_group: ride, foot, swim, or the sport itself); rider is a friend's rider id (GET /api/v1/friends) or 'all' for yours and
+    every friend's, and each item says whose it is (rider, own)."""
     rider = _rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
-    rid = rider['id']
+    riders = _listed_riders(rider, (request.args.get('rider') or '').strip())
+    if riders is None:
+        return jsonify({'error': 'not found'}), 404
     try:
         offset = max(0, int(request.args.get('offset', 0))); limit = min(100, max(1, int(request.args.get('limit', 30))))
     except ValueError:
@@ -362,15 +386,16 @@ def rides():
     sport = (request.args.get('sport') or '').strip().lower()
     group = (request.args.get('group') or '').strip()
     q = (request.args.get('q') or '').strip()[:100]
+    who = ','.join('?' * len(riders))
     src = (
-        f"SELECT {KIND_SQL} kind, CAST(id AS TEXT) id, name, sportType sport, startDateLocal, distance, movingTime, totalElevationGain elev, averageSpeed spd, "
-        "averageHeartrate hr, calories, city, summaryPolyline FROM Activity WHERE riderId=?")
-    where, args = [], [rid]
+        f"SELECT {KIND_SQL} kind, CAST(id AS TEXT) id, riderId, name, sportType sport, startDateLocal, distance, movingTime, totalElevationGain elev, averageSpeed spd, "
+        f"averageHeartrate hr, calories, city, summaryPolyline FROM Activity WHERE riderId IN ({who})")
+    where, args = [], list(riders)
     if sport:
         where.append('lower(sport)=?'); args.append(sport)
     if group:
         from services import sports as sp
-        names = [r[0] for r in query_db('SELECT DISTINCT sportType FROM Activity WHERE riderId=?', [rid]) if sp.stat_group(r[0]) == group]
+        names = [r[0] for r in query_db(f'SELECT DISTINCT sportType FROM Activity WHERE riderId IN ({who})', list(riders)) if sp.stat_group(r[0]) == group]
         if not names:
             return jsonify({'total': 0, 'offset': offset, 'items': []})
         where.append(f"COALESCE(sport, '') IN ({','.join('?' * len(names))})"); args += [n or '' for n in names]
@@ -401,7 +426,8 @@ def rides():
               'label': sp.label(r['sport']), 'group': sp.stat_group(r['sport']), 'date': str(r['startDateLocal'])[:19],
               'distance_m': round(r['distance'] or 0), 'moving_s': int(r['movingTime'] or 0), 'elev_m': round(r['elev'] or 0),
               'avg_speed_mps': round(r['spd'] or 0, 2), 'avg_hr': round(r['hr']) if r['hr'] else None,
-              'calories': round(r['calories']) if r['calories'] else None, 'city': r['city']} for r in rows]
+              'calories': round(r['calories']) if r['calories'] else None, 'city': r['city'],
+              'rider': riders.get(r['riderId']), 'own': r['riderId'] == rider['id']} for r in rows]
     return jsonify({'total': total, 'offset': offset, 'items': items})
 
 
@@ -446,18 +472,21 @@ def live():
 @bp.route('/rides/<kind>/<rid>')
 def ride_detail(kind, rid):
     """One activity, a ride or a workout: all the stats, a route for the map and small elevation/speed/heart-rate series. The kind in the URL is
-    what the app had in hand; the answer carries the activity's own kind (services/sports), so a stale one still finds it."""
+    what the app had in hand; the answer carries the activity's own kind (services/sports), so a stale one still finds it. A friend's opens too,
+    with own false, their name and when it was synced (services/friend_rides), for the app to show and leave unchanged."""
     import json as _json
+    from services.friend_rides import FRIEND_RIDERS_SQL, friend_of
     rider = _rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     if kind not in ('ride', 'workout'):
         return jsonify({'error': 'bad kind'}), 400
-    row = query_db('SELECT * FROM Activity WHERE id=? AND riderId=?', [rid, rider['id']], one=True)
+    row = query_db(f'SELECT * FROM Activity WHERE id=? AND (riderId=? OR riderId IN ({FRIEND_RIDERS_SQL}))', [rid, rider['id']], one=True)
     if not row:
         return jsonify({'error': 'not found'}), 404
     r = dict(row)
     kind = sport_kind(r['sportType'])
+    friend = friend_of(get_db(), r['id']) if r['riderId'] != rider['id'] else None
     try:
         streams = _json.loads(r.get('streams') or '{}')
     except Exception:
@@ -484,7 +513,7 @@ def ride_detail(kind, rid):
         return None if v is None else (round(v, nd) if nd is not None else v)
 
     dups = []
-    if kind == 'ride':
+    if kind == 'ride' and not friend:
         from services import duplicates
         for d in duplicates.parked_for(get_db(), str(r['id'])):
             try:
@@ -496,6 +525,8 @@ def ride_detail(kind, rid):
 
     return jsonify({
         'duplicates': dups,
+        'own': not friend, 'rider': friend['name'] if friend else rider['name'],
+        'synced': str(r.get('updatedAt') or r.get('createdAt'))[:19] if friend else None,
         'kind': kind, 'id': str(r['id']), 'name': r.get('name'), 'sport': r.get('sportType'),
         'date': str(r.get('startDateLocal'))[:19], 'city': r.get('city'), 'source': r.get('source'), 'commute': r.get('commute') == 1,
         'distance_m': num('distance', 0), 'moving_s': r.get('movingTime'), 'elapsed_s': r.get('elapsedTime'), 'elev_m': num('totalElevationGain', 0),
@@ -878,6 +909,14 @@ def friend_add():
         return jsonify({'error': 'Enter a name to show them as'}), 400
     rider = None if rider in ('', 'Default rider') else rider
     return jsonify({'id': add_friend(name, shared[0], shared[1], rider), 'name': name}), 201
+
+
+@bp.route('/friends')
+def friend_list():
+    """The friends synced to here, for the Activities list's Whose picker: [{rider_id (for GET /api/v1/rides?rider=), name, last_synced}].
+    A friend added but not synced yet has no rider, so isn't listed."""
+    rows = query_db('SELECT riderId, name, lastSynced FROM Friend WHERE riderId IS NOT NULL ORDER BY name COLLATE NOCASE')
+    return jsonify({'friends': [{'rider_id': r['riderId'], 'name': r['name'], 'last_synced': r['lastSynced']} for r in rows]})
 
 
 @bp.route('/rides/<kind>/<rid>/sport', methods=['POST'])

@@ -3,7 +3,7 @@ import MapKit
 import SwiftUI
 
 /// One activity from the server (GET /api/v1/rides/<kind>/<id>): its map (a Zwift world's for a virtual ride), the numbers that suit its sport, its charts and its photos
-/// (PhotosCard, which adds, deletes, orders and captions them).
+/// (PhotosCard, which adds, deletes, orders and captions them). A friend's is only shown: no Delete and no photo editing, as on the web.
 struct ActivityDetailView: View {
     var item: ActivityItem
     var onDelete: (String) -> Void
@@ -17,6 +17,7 @@ struct ActivityDetailView: View {
         Loaded(value: detail, error: error, retry: load) { d in
             ScrollView {
                 VStack(spacing: 16) {
+                    if !own { FriendNote(detail: d, item: item) }
                     if let track = d.track, track.count > 1 {
                         Group {
                             if let world = d.zwiftWorld { ZwiftTrackMap(track: track, world: world) } else { TrackMap(track: track) }
@@ -38,8 +39,10 @@ struct ActivityDetailView: View {
                         ForEach(charts(d), id: \.title) { chart in
                             Card(title: chart.title) { SeriesChart(points: chart.points, tint: chart.tint) }
                         }
-                        PhotosCard(path: "rides/\(item.kind)/\(item.id)/photos",
-                                   photos: Binding(get: { detail?.photos ?? [] }, set: { detail?.photos = $0 }))
+                        if own || !(d.photos ?? []).isEmpty {
+                            PhotosCard(path: "rides/\(item.kind)/\(item.id)/photos",
+                                       photos: Binding(get: { detail?.photos ?? [] }, set: { detail?.photos = $0 }), editable: own)
+                        }
                         if let notes = [d.description, d.notes].compactMap({ $0?.isEmpty == false ? $0 : nil }).first {
                             Card(title: "Notes") { Text(notes) }
                         }
@@ -58,7 +61,9 @@ struct ActivityDetailView: View {
                     if let server = session.pairing?.server {
                         Link(destination: server.appending(path: "rides/\(item.id)")) { Label("Open in Safari", systemImage: "safari") }
                     }
-                    Button("Delete", systemImage: "trash", role: .destructive) { confirmDelete = true }
+                    if own {
+                        Button("Delete", systemImage: "trash", role: .destructive) { confirmDelete = true }
+                    }
                 } label: {
                     Label("More", systemImage: "ellipsis.circle")
                 }
@@ -85,6 +90,9 @@ struct ActivityDetailView: View {
         }
         .task { await load() }
     }
+
+    /// False for a friend's: the list said so, and the detail confirms it.
+    private var own: Bool { detail?.own ?? item.isOwn }
 
     private struct ChartSpec {
         var title: String
@@ -125,6 +133,30 @@ struct ActivityDetailView: View {
             onDelete(item.id)
         } catch {
             actionError = error
+        }
+    }
+}
+
+/// "Sam's ride, synced from their instance on …", as the web's activity page says it.
+private struct FriendNote: View {
+    var detail: ActivityDetail
+    var item: ActivityItem
+
+    var body: some View {
+        let whose = detail.rider ?? item.rider ?? "A friend"
+        let what = ActivitySport.group(detail.sport) == "ride" ? "ride" : "activity"
+        let when = ActivityDates.synced(detail.synced)
+        Card(title: nil) {
+            Label {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(whose)'s \(what), synced from their instance\(when.isEmpty ? "" : " on \(when)").").font(.subheadline)
+                    Text("It's shown as they recorded it: changes are made there and arrive with the next sync.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } icon: {
+                Image(systemName: "person.2").foregroundStyle(Color.accentColor)
+            }
         }
     }
 }

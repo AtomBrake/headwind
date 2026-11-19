@@ -507,7 +507,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - Mileage is always **computed from your rides**, so fixing a ride's bike fixes every part. Photos are included in backups. See [docs/GEAR.md](docs/GEAR.md).
 
 ### Social (peer-to-peer)
-- Add a friend's Headwind with the code they made for you: paste it on the Friends page, or scan their QR code with the iPhone app. Their activities (rides, runs, walks, any sport), segments and shared foods sync directly into your database. No central server.
+- Add a friend's Headwind with the code they made for you: paste it on the Friends page, or scan their QR code with the iPhone app. Their activities (rides, runs, walks, any sport), segments and shared foods sync directly into your database. No central server. In the iPhone app, the **Whose** menu on the Activities tab shows one friend's activities, or everyone's together, to look at but not change.
 - **One code per friend**, made on the Friends page or in the iPhone app, each choosing what it shares (activities, segments, foods), whose activities when the instance has more than one rider (a new code shares only the main rider's unless you tick others, and a rider added later isn't shared until you tick them on a code), and the date range (all, past 6 months, past month, from today, or your own dates), so you can cut one person off without touching the others. A code holds your address and that friend's feed token; a Headwind that doesn't read codes can still be given the address and token separately.
 - A friend's activities are shown, never changed, on your instance. The heatmap shows yours, one friend's or everyone's together.
 - **Challenges** — a race over set dates, sent to the friends you invite.

@@ -27,6 +27,8 @@ struct PhotosCard: View {
     /// e.g. "rides/ride/123/photos"
     var path: String
     @Binding var photos: [ActivityDetail.Photo]
+    /// False on a friend's activity: the photos are only looked at, with nothing to add, order, caption or delete.
+    var editable = true
     @Environment(Session.self) private var session
     @State private var uploads: [PhotoUpload] = []
     @State private var sending = false
@@ -48,10 +50,12 @@ struct PhotosCard: View {
     var body: some View {
         Card(title: "Photos") {
             if photos.isEmpty && uploads.isEmpty {
-                Text("No photos yet.").foregroundStyle(.secondary)
+                Text(editable ? "No photos yet." : "No photos.").foregroundStyle(.secondary)
             }
             grid
-            if selecting { selectBar } else { addBar }
+            if editable {
+                if selecting { selectBar } else { addBar }
+            }
         }
         .onChange(of: picked) { _, items in
             guard !items.isEmpty else { return }
@@ -83,7 +87,9 @@ struct PhotosCard: View {
 
     private func viewer(_ photo: ActivityDetail.Photo) -> some View {
         let current: ActivityDetail.Photo = photos.first { $0.id == photo.id } ?? photo
-        return PhotoViewer(photo: current, caption: editCaption, delete: deleteFromViewer)
+        var caption: ((ActivityDetail.Photo) -> Void)?, delete: ((ActivityDetail.Photo) -> Void)?
+        if editable { caption = editCaption; delete = deleteFromViewer }
+        return PhotoViewer(photo: current, caption: caption, delete: delete)
             .modifier(CaptionEditor(captioning: captionHere(viewer: true), text: $captionText, save: saveCaption))
     }
 
@@ -190,8 +196,10 @@ struct PhotosCard: View {
             Button { viewing = photo } label: { thumb }
                 .buttonStyle(.plain)
                 .contextMenu {
-                    Button(photo.caption == nil ? "Add caption" : "Edit caption", systemImage: "text.below.photo") { editCaption(photo) }
-                    Button("Delete photo", systemImage: "trash", role: .destructive) { toDelete = [photo] }
+                    if editable {
+                        Button(photo.caption == nil ? "Add caption" : "Edit caption", systemImage: "text.below.photo") { editCaption(photo) }
+                        Button("Delete photo", systemImage: "trash", role: .destructive) { toDelete = [photo] }
+                    }
                 }
                 .accessibilityLabel(photo.caption ?? "Photo")
         }
@@ -402,8 +410,9 @@ private struct ReorderDrop: DropDelegate {
 /// The full-size photo with its caption under it, and Caption and Delete in the toolbar.
 private struct PhotoViewer: View {
     var photo: ActivityDetail.Photo
-    var caption: (ActivityDetail.Photo) -> Void
-    var delete: (ActivityDetail.Photo) -> Void
+    /// nil for a photo that's only looked at (a friend's activity): no caption or Delete buttons.
+    var caption: ((ActivityDetail.Photo) -> Void)?
+    var delete: ((ActivityDetail.Photo) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var confirm = false
 
@@ -423,14 +432,16 @@ private struct PhotoViewer: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
-                ToolbarItemGroup(placement: .bottomBar) {
-                    Button(photo.caption == nil ? "Add caption" : "Edit caption", systemImage: "text.below.photo") { caption(photo) }
-                    Spacer()
-                    Button("Delete", systemImage: "trash", role: .destructive) { confirm = true }
+                if let caption, delete != nil {
+                    ToolbarItemGroup(placement: .bottomBar) {
+                        Button(photo.caption == nil ? "Add caption" : "Edit caption", systemImage: "text.below.photo") { caption(photo) }
+                        Spacer()
+                        Button("Delete", systemImage: "trash", role: .destructive) { confirm = true }
+                    }
                 }
             }
             .confirmationDialog("Delete this photo?", isPresented: $confirm, titleVisibility: .visible) {
-                Button("Delete", role: .destructive) { delete(photo) }
+                Button("Delete", role: .destructive) { delete?(photo) }
             } message: {
                 Text("It's removed from the server for good.")
             }

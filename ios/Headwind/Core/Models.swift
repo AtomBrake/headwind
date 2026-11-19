@@ -223,14 +223,34 @@ struct ActivityItem: Decodable, Identifiable, Hashable {
     var avgHr: Double?
     var calories: Double?
     var city: String?
+    /// Whose it is: your rider's name, or the friend's as they're shown here. A server from before friends' activities sends neither.
+    var rider: String?
+    var own: Bool?
 
     var title: String { (name?.isEmpty == false ? name : nil) ?? label ?? sport ?? "Activity" }
+    var isOwn: Bool { own ?? true }
+}
+
+/// GET /api/v1/friends: the friends synced to this server, for the Activities list's Whose picker (sent back as ?rider=<riderId>).
+struct FriendList: Decodable, Sendable {
+    struct Friend: Decodable, Sendable, Hashable, Identifiable {
+        var riderId: Int
+        var name: String
+        var lastSynced: String?
+        var id: Int { riderId }
+    }
+    var friends: [Friend]
 }
 
 /// GET /api/v1/rides/<kind>/<id>: one activity with its track, series and photos.
 struct ActivityDetail: Decodable {
     var kind: String
     var id: String
+    /// False for a friend's, synced from their instance: shown here, changed only there (the server refuses any change).
+    var own: Bool?
+    var rider: String?
+    /// When a friend's was last synced ("2026-10-20 08:00:00", the server's UTC); nil for your own.
+    var synced: String?
     var name: String?
     var sport: String?
     var label: String?
