@@ -29,7 +29,7 @@ def index():
     from services import reimport, strava_gear
     from services import strava_export
     from services.rider_mode import owner_rider_id
-    from services import garmin_changes, merged_sport, recently_deleted, sport_fix, tasks
+    from services import garmin, garmin_changes, merged_sport, recently_deleted, sport_fix, tasks
     riders = query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name ASC')
     return render_template('import.html', riders=riders, changes=reimport.pending(get_db()), problems=reimport.problems(get_db()),
                            binned=recently_deleted.listing(get_db()), bin_days=recently_deleted.DAYS,
@@ -39,7 +39,9 @@ def index():
                            strava_pending=strava_gear.pending(get_db(), owner_rider_id()),
                            sport_groups=merged_sport.groups(merged_sport.conflicts(get_db())), sport_fixes=sport_fix.count(get_db(), owner_rider_id()),
                            kept=strava_export.kept(get_db(), current_app.config['DATABASE']),
-                           advice=strava_export.advice(get_db(), current_app.config['DATABASE']))
+                           advice=strava_export.advice(get_db(), current_app.config['DATABASE']),
+                           out_of_step=reimport.out_of_step(get_db()),
+                           garmin_on=garmin.connected(query_db('SELECT garminEmail, garminPassword FROM Settings WHERE id=1', one=True)))
 
 
 @bp.route('/import/deleted/<path:act_id>/<choice>', methods=['POST'])

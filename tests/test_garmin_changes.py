@@ -536,3 +536,38 @@ def test_import_page_lists_the_missing_and_its_buttons_work(tmp_path, monkeypatc
     c.post('/garmin/missing/all/restore')
     assert started[1][1] == ['4']
     garmin_routes._changes_lock.release()
+
+
+def in_step_ride(b):
+    """A ride whose file reads with one time for each position, as the parser has read files since 0.7.7."""
+    t = list(range(0, 600))
+    streams = {'time': {'data': t}, 'latlng': {'data': [[50.5 + x * 5 / 111_000, -3.5] for x in t]}, 'distance': {'data': [x * 5.0 for x in t]}}
+    return {'distance': 2995.0, 'movingTime': 599, 'elapsedTime': 599, 'startDateLocal': '2026-09-01T08:00:00', 'streams': json.dumps(streams)}
+
+
+def test_one_stored_out_of_step_is_read_again_and_put_right_once(db, monkeypatch):
+    monkeypatch.setattr('services.parser.parse_fit', in_step_ride)
+    ride = act(1, '2026-09-01', dist=2995, dur=599)
+    imported(db, ride)
+    st = json.loads(db.execute("SELECT streams FROM Activity WHERE id='garmin_1'").fetchone()[0])
+    st['time']['data'] = list(range(630))                         # as an older Headwind kept it: a time for each record, 30 with no fix
+    db.execute("UPDATE Activity SET streams=? WHERE id='garmin_1'", [json.dumps(st)])
+    db.commit()
+    api = counted(FakeAPI([ride]))
+    res = gc.check(db, api, 1, '2026-08-01', '2026-10-01')
+    assert res['in_step'] == 1 and api.downloads == 1 and 'out of step' in gc.describe(res)
+    st = json.loads(db.execute("SELECT streams FROM Activity WHERE id='garmin_1'").fetchone()[0])
+    assert len(st['time']['data']) == len(st['latlng']['data']) == 600
+    assert gc.check(db, api, 1, '2026-08-01', '2026-10-01')['in_step'] == 0 and api.downloads == 1   # once only
+
+
+def test_one_out_of_step_that_cant_be_downloaded_is_tried_again_next_time(db, monkeypatch):
+    monkeypatch.setattr('services.parser.parse_fit', in_step_ride)
+    ride = act(1, '2026-09-01', dist=2995, dur=599)
+    imported(db, ride)
+    db.execute("UPDATE Activity SET streams=json_set(streams, '$.time.data', json('[0,1,2]')) WHERE id='garmin_1'")
+    db.commit()
+    api = FakeAPI([ride])
+    api.download_activity = lambda aid, dl_fmt=None: (_ for _ in ()).throw(RuntimeError('Garmin is busy'))
+    assert gc.check(db, api, 1, '2026-08-01', '2026-10-01')['in_step'] == 0
+    assert gc._out_of_step(db, ['garmin_1']) == {'garmin_1'}

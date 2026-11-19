@@ -9,6 +9,8 @@ nothing flagged). A later check compares Garmin's list with that, not with Headw
 - another distance or length: cropped or recalculated, so the file is read again and handed to the re-import review (services/reimport.propose).
 - once for each activity imported before the sync cut a file to Garmin's crop (garmin.garmin_window): one longer here than Garmin's in both
   distance and time was cropped in Garmin before it came in, so its file is read again and offered for review the same way (_missed_crop).
+- an activity stored with its GPS and time streams out of step (before 0.7.7) has its file read again, which puts them right on the spot
+  (_put_in_step): segments can't time it until then.
 Only a successful listing counts, and only for the days it reaches: an error raises, an empty listing judges nothing, and an activity older than
 the oldest one listed isn't judged. A Garmin copy set aside as a duplicate (ActivityDuplicate) isn't live, so it and the activity kept in its place
 are left alone.
@@ -143,6 +145,30 @@ def _recording_changed(db, api, a, act_id):
     return reimport.propose(db, saved, act, 'Garmin')
 
 
+_OUT_OF_STEP_SQL = ("json_valid(streams) AND json_array_length(streams, '$.latlng.data') > 0 "
+                    "AND json_array_length(streams, '$.latlng.data') != json_array_length(streams, '$.time.data')")
+
+
+def _out_of_step(db, act_ids):
+    """The activities among these whose GPS and time streams have different lengths: stored before 0.7.7 (services/parser.aligned_streams), with
+    a record kept for each second the device had no GPS fix, so every time read against a position is off and segments leave them out."""
+    out = set()
+    act_ids = list(act_ids)
+    for i in range(0, len(act_ids), 500):
+        chunk = act_ids[i:i + 500]
+        out.update(r[0] for r in db.execute(f"SELECT id FROM Activity WHERE id IN ({','.join('?' * len(chunk))}) AND {_OUT_OF_STEP_SQL}", chunk))
+    return out
+
+
+def _put_in_step(db, api, a, act_id):
+    """An activity whose streams are out of step (_out_of_step) has its file read from Garmin again: reimport.propose puts the file's streams in
+    and matches it against the segments, and offers anything else that differs for review. True when its streams are in step now. Does not
+    commit."""
+    if act_id in _out_of_step(db, [act_id]) and _recording_changed(db, api, a, act_id) is None:
+        return False                                    # couldn't be read: tried again next time
+    return act_id not in _out_of_step(db, [act_id])
+
+
 def _missed_crop(db, api, a, row, now):
     """Once for an activity imported before the sync cut files to Garmin's crop (garmin.garmin_window), compared with Garmin's summary `now`:
     longer here in both distance and time, it was cropped in Garmin before it came in, so the file is read again and the cut offered for review
@@ -174,7 +200,7 @@ def check(db, api, rider_id, start, end, whole=False):
     result: that was so."""
     ensure_schema(db)
     res = {'listed': 0, 'baseline': 0, 'deleted': 0, 'edited': 0, 'recordings': 0, 'back': 0, 'suspect': False, 'whole': False,
-           'imported': 0, 'failed': 0, 'missing': 0, 'deleted_here': 0}
+           'imported': 0, 'failed': 0, 'missing': 0, 'deleted_here': 0, 'in_step': 0}
     end_q = (date.fromisoformat(end) + timedelta(days=1)).isoformat()           # a day either side: Headwind's local date can differ from Garmin's
     listing = api.get_activities_by_date(start, end_q) or []
     if not listing:
@@ -183,6 +209,7 @@ def check(db, api, rider_id, start, end, whole=False):
     res['whole'] = whole and _complete(api, listing)
     rows = _garmin_rows(db, rider_id)
     flags = {r['garminId']: r for r in db.execute('SELECT * FROM GarminChange WHERE riderId=?', [rider_id])}
+    stepped = _out_of_step(db, [rows[str(a.get('activityId'))]['id'] for a in listing if str(a.get('activityId')) in rows])
     listed = set()
     for a in listing:
         gid = str(a.get('activityId'))
@@ -195,6 +222,8 @@ def check(db, api, rider_id, start, end, whole=False):
             db.execute('DELETE FROM GarminChange WHERE rideId=?', [flag['rideId']])
             res['back'] += 1
             flag = None
+        if row['id'] in stepped and _put_in_step(db, api, a, row['id']):
+            res['in_step'] += 1
         old, new = _seen(db, gid), summary(a)
         if old is None:
             remember(db, a, read=False)
@@ -377,6 +406,10 @@ def describe(res):
     bits = [f"{res[k]} {label}" for k, label in (('deleted', 'deleted in Garmin'), ('edited', 'renamed or given a new sport'),
                                                  ('recordings', 'with a changed recording')) if res[k]]
     line = ('Flagged for review: ' + ', '.join(bits) + '.') if bits else 'Nothing changed in Garmin.'
+    if res.get('in_step'):
+        n = res['in_step']
+        line += (f" {n} activit{'ies' if n != 1 else 'y'} stored with GPS and times out of step read again from Garmin and put right, so "
+                 f"{'they count' if n != 1 else 'it counts'} on segments again.")
     if res.get('imported') or res.get('failed'):
         line += f" Brought in {res['imported']} strength, yoga or other gym activit{'ies' if res['imported'] != 1 else 'y'} an older sync skipped" + \
                 (f" ({res['failed']} couldn't be read: tried again next time)." if res['failed'] else '.')

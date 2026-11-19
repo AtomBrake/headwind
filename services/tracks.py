@@ -3,7 +3,8 @@ ride), so anything that only needs to know where it went keeps a small summary h
 
   - its bounding box and the map cells it passes through (CELL degrees square), so a new segment is matched only against the activities that
     went near it (services/segments.scan_all_activities);
-  - the sampled lines the heatmap draws (routes/heatmap.py), worked out exactly as the heatmap used to on every request.
+  - the sampled lines the heatmap draws (routes/heatmap.py), worked out exactly as the heatmap used to on every request;
+  - how far its GPS and time streams are out of step (services/reimport.out_of_step: the Import page lists those segments can't time).
 
 A row is made from the streams the first time it is needed (fill), and triggers drop it when the streams change or the activity is deleted, so it
 is never stale. An activity with no GPS gets a row with no box, so it is not read again."""
@@ -23,8 +24,12 @@ def ensure_schema(db):
         minLat REAL, maxLat REAL, minLng REAL, maxLng REAL,     -- NULL: no GPS track
         line   TEXT,                                            -- JSON [[lat, lng], ...], SAMPLE points at 4 places, or NULL
         lineHd TEXT,                                            -- the same at SAMPLE_HD points and 5 places
-        cells  TEXT                                             -- the cells (cell_of) of every point, space-separated; NULL: unknown
+        cells  TEXT,                                            -- the cells (cell_of) of every point, space-separated; NULL: unknown
+        outOfStep INTEGER                                       -- how many more times than positions (stored before 0.7.7); 0 in step
     )''')
+    if 'outOfStep' not in {r[1] for r in db.execute('PRAGMA table_info(ActivityTrack)')}:
+        db.execute('ALTER TABLE ActivityTrack ADD COLUMN outOfStep INTEGER')
+        db.execute('DELETE FROM ActivityTrack')                 # made again from the streams, with it (app._fill_tracks, or the next fill)
     # Any write that can change an activity's track, or its id, drops the summary; fill() makes it again when it's next needed. AFTER INSERT
     # covers INSERT OR REPLACE, whose implicit delete fires no trigger.
     db.execute('''CREATE TRIGGER IF NOT EXISTS ActivityTrack_insert AFTER INSERT ON Activity
@@ -99,10 +104,29 @@ def summarize(latlng):
             cells)
 
 
+def out_of_step(streams):
+    """How many more points the time stream has than the GPS (records with no fix, kept by a parser before 0.7.7), or fewer as a negative; 0
+    with no GPS. Streams as JSON text or parsed."""
+    if isinstance(streams, (str, bytes)):
+        try:
+            streams = json.loads(streams or '{}')
+        except Exception:
+            return 0
+    if not isinstance(streams, dict):
+        return 0
+    ll, tm = latlng_of(streams), (streams.get('time') or {}).get('data') or []
+    return len(tm) - len(ll) if ll and tm else 0
+
+
 def store(db, activity_id, streams):
     """Summarize streams (JSON text, parsed, or None) we already have in hand for an activity. Does not commit."""
-    db.execute('INSERT OR REPLACE INTO ActivityTrack (activityId, minLat, maxLat, minLng, maxLng, line, lineHd, cells) VALUES (?,?,?,?,?,?,?,?)',
-               [activity_id, *summarize(latlng_of(streams))])
+    if isinstance(streams, (str, bytes)):
+        try:
+            streams = json.loads(streams or '{}')
+        except Exception:
+            streams = {}
+    db.execute('INSERT OR REPLACE INTO ActivityTrack (activityId, minLat, maxLat, minLng, maxLng, line, lineHd, cells, outOfStep) '
+               'VALUES (?,?,?,?,?,?,?,?,?)', [activity_id, *summarize(latlng_of(streams)), out_of_step(streams)])
 
 
 def fill(db):

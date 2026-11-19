@@ -271,3 +271,20 @@ def resolve(db, ride_id, choice):
     if sets.keys() & {'distance', 'movingTime', 'elapsedTime', 'startDate', 'startDateLocal', 'streams'}:
         duplicates.recheck_parked(db, ride_id)                       # a copy set aside behind it may not be the same ride any more
     return True
+
+
+def out_of_step(db):
+    """The activities whose GPS and time streams are too far out of step for segments to time them (services/segments.MISALIGNED_MAX, counted in
+    services/tracks.out_of_step): read by a parser before 0.7.7, which kept a time for every second the device had no GPS fix, and put right only
+    by reading their file again (propose). {'garmin': [...], 'friend': [...], 'files': [...]}, each a list of rows (id, name, startDateLocal,
+    sportType), newest first: Garmin's are read again by the daily Garmin check (services/garmin_changes._put_in_step), a friend's are put right
+    on the friend's Headwind and come back with the next sync, and the rest need their files imported again."""
+    from services.friend_rides import FRIEND_RIDERS_SQL
+    from services.segments import MISALIGNED_MAX
+    out = {'garmin': [], 'friend': [], 'files': []}
+    for r in db.execute(f'''SELECT a.id, a.name, a.startDateLocal, a.sportType, a.originId, a.riderId IN ({FRIEND_RIDERS_SQL}) AS friend
+                            FROM ActivityTrack t JOIN Activity a ON a.id = t.activityId
+                            WHERE abs(t.outOfStep) > ? ORDER BY a.startDateLocal DESC''', [MISALIGNED_MAX]):
+        garmin = str(r['id']).startswith('garmin_') or str(r['originId'] or '').startswith('garmin_')
+        out['friend' if r['friend'] else 'garmin' if garmin else 'files'].append(r)
+    return out

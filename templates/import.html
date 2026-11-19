@@ -143,6 +143,32 @@
 </div>
 {% endif %}
 
+{% set oos_files = out_of_step.files + ([] if garmin_on else out_of_step.garmin) %}
+{% set oos_garmin = out_of_step.garmin if garmin_on else [] %}
+{% set oos_n = oos_files | length + oos_garmin | length + out_of_step.friend | length %}
+{% if oos_n %}
+<div class="card" id="out-of-step" style="max-width:600px;margin-top:1.25rem;">
+  <div class="card-title">{{ oos_n }} activit{{ 'ies' if oos_n != 1 else 'y' }} left out of segments</div>
+  <p class="hint" style="margin:0 0 0.5rem;">Their GPS and times are out of step: an older Headwind kept a time for every second the device had
+    no GPS fix, so the times along the track are off, and segments can't time them. Reading the file again puts that right. Nothing you
+    changed here is touched, and anything else that differs from what's saved waits on this page for you to decide.</p>
+  <ul style="margin:0 0 0 1.25rem; padding:0; font-size:0.875rem; line-height:1.7;">
+    {% if oos_garmin %}<li>{{ oos_garmin | length }} from Garmin are read again from Garmin by the daily check, a block of dates at a time.
+      <strong>Full re-sync</strong> on the <a href="{{ url_for('settings.index') }}#garmin" style="color:var(--accent);">Settings</a> page does them all at once.</li>{% endif %}
+    {% if out_of_step.friend %}<li>{{ out_of_step.friend | length }} {{ 'are' if out_of_step.friend | length != 1 else 'is' }} a friend's:
+      put right on their own Headwind (by its Garmin check, or by importing the file{{ 's' if out_of_step.friend | length != 1 }} again), and here
+      with the next sync.</li>{% endif %}
+    {% if oos_files %}<li>{{ oos_files | length }} need{{ 's' if oos_files | length == 1 }} {{ 'their files' if oos_files | length != 1 else 'its file' }}
+      imported again, above (a zip of them all will do):
+      <ul style="margin:0.25rem 0 0 1rem; padding:0;">
+        {% for a in oos_files[:20] %}<li><a href="/rides/{{ a.id }}" style="color:var(--accent);">{{ a.name or a.id }}</a>
+          <span style="color:var(--text-muted);">{{ a.startDateLocal | fmt_date }}</span></li>{% endfor %}
+        {% if oos_files | length > 20 %}<li style="color:var(--text-muted);">and {{ oos_files | length - 20 }} more</li>{% endif %}
+      </ul></li>{% endif %}
+  </ul>
+</div>
+{% endif %}
+
 {% if changes %}
 <div class="card" id="changes" style="margin-top:1.25rem;">
   <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
