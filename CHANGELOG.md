@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.42-beta] - 2026-11-19
 
 ### Changed
 - **Activities in the log are links.** On the Tasks page's Logs card, an activity's id in a line (a duplicate set aside, the one kept, a repair that moved it) opens that activity, or the view of the copy set aside, with its name in the tooltip. A number that isn't an activity here, or a copy since discarded, stays plain text.
