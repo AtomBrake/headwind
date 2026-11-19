@@ -4,6 +4,7 @@ from functools import lru_cache
 from math import atan2, ceil, cos, isfinite, radians, sin, sqrt
 
 from services import tracks
+from services.parser import MOVING_MPS
 from services.sports import FAMILIES, class_of, ebike_sql, family_of, segment_family
 
 log = logging.getLogger(__name__)
@@ -17,6 +18,8 @@ MIN_CLIMB_MPS = 200 / 3600  # on a climb the floor is this rate upward instead, 
                             # that missed the 2 m/s floor went up at 280-540 m an hour, pushing or crawling up 6-15%)
 MAX_GRADE = 0.25            # a segment's gain over its length is taken as no steeper than this (a broken altimeter mustn't drop the floor to nothing)
 MIN_SEGMENT_M = 10      # a hand-made segment shorter than this is a start and end picked on the same spot
+WAIT_SLACK_M = 5        # a rider waiting at a segment's start or finish stands within this of their nearest point to it, give or take GPS drift
+WAIT_MIN_S = 5          # ... for at least this long all told: one slow GPS sample as they roll through isn't a wait
 MIN_COVERED = 0.7       # an exact effort's own track must be at least this share of the segment's length (a shortcut between the ends isn't it)
 CLOSE_TOL_M = 75        # a ride counts as "on the shape" within this many metres (GPS drift, a different lane, a cycle path beside the road)
 CLOSE_COVER = 0.85      # share of the segment's length the ride must follow, in order, to count as a close (approximate) match
@@ -42,8 +45,8 @@ def seg_sport(seg):
 
 
 def min_speed(seg):
-    """The slowest believable average speed over a segment: MIN_SPEED_MPS for its family, lowered on a climb to climbing MIN_CLIMB_MPS. So a
-    10% climb pushed at walking pace (1 m/s, 360 m an hour) is an effort, while a flat segment with a café stop in the middle still isn't."""
+    """The slowest believable average speed over a segment, while moving (_moving_secs): MIN_SPEED_MPS for its family, lowered on a climb to
+    climbing MIN_CLIMB_MPS. So a 10% climb pushed at walking pace (1 m/s, 360 m an hour) is an effort, while the same pace on the flat isn't."""
     gain = seg['elevationGainM'] if 'elevationGainM' in seg.keys() else None   # a sqlite row or a dict
     dist = seg['distanceM']
     floor = MIN_SPEED_MPS[seg_sport(seg)]
@@ -248,6 +251,19 @@ def recover_polyline(db, seg):
     return None
 
 
+def _moving_secs(latlng, times, i0, i1):
+    """Seconds of a track from point i0 to i1 spent moving, MOVING_MPS or faster between two points, as services/parser.track_moving_time. The
+    speed floor is taken against this, so a stop part way along (waiting for a mate half way down a trail, a breather, a café) doesn't turn away
+    an effort that rode the whole segment; its time is still the elapsed time, as on Strava. A ride that leaves the segment and comes back is
+    still turned away: the detour is moving time. 0 when nothing counts as moving (a crawl up a steep climb under MOVING_MPS)."""
+    moving = 0
+    for j in range(i0, i1):
+        dt = times[j + 1] - times[j]
+        if dt > 0 and _fast_m(latlng[j][0], latlng[j][1], latlng[j + 1][0], latlng[j + 1][1]) / dt >= MOVING_MPS:
+            moving += dt
+    return moving
+
+
 def _sample_checkpoints(polyline_json, n=CHECKPOINT_N):
     """Return n evenly-spaced interior points from a segment polyline, skipping endpoints."""
     pts = _poly(polyline_json)
@@ -308,6 +324,24 @@ def match_segment(activity_streams_json, seg):
     end_win     = _window(seg['endLat'], seg['endLng'], TOLERANCE_M)
     best_elapsed = None
 
+    def _past_wait(i, win, best_d, step, lo=0):
+        """Point i is the nearest to a marker; when the rider stood there (at the top of a trail before dropping in, at the bottom after it),
+        GPS drift can put it anywhere in the wait, and the effort would take the wait. So walking from i (step 1 at the start, -1 at the
+        finish, no further back than lo) while within WAIT_SLACK_M of that nearest distance, if the rider stood still on the way for WAIT_MIN_S
+        or more: the far point, where they moved off the start or reached the finish. Else i. A stop further from the marker than that is
+        part of the effort, and its time with it: an effort's time is the elapsed time from start to finish."""
+        k, waited = i, 0
+        while lo <= k + step < len(latlng):
+            d = _near(win, latlng[k + step][0], latlng[k + step][1], TOLERANCE_M)
+            if d is None or d > best_d + WAIT_SLACK_M:
+                break
+            j = min(k, k + step)
+            dt = times[j + 1] - times[j]
+            if dt > 0 and _fast_m(latlng[j][0], latlng[j][1], latlng[j + 1][0], latlng[j + 1][1]) / dt < MOVING_MPS:
+                waited += dt
+            k += step
+        return k if waited >= WAIT_MIN_S else i
+
     def _try_start(start_idx):
         nonlocal best_elapsed
         # Find the first entry into the end zone (mirrors start-zone logic), once the track has covered MIN_COVERED of the segment: on a loop,
@@ -334,11 +368,14 @@ def match_segment(activity_streams_json, seg):
                 break  # exited end zone — use best point from this visit
         if end_idx is None:
             return
+        end_idx = _past_wait(end_idx, end_win, end_dist, -1, lo=first)
         elapsed = times[end_idx] - times[start_idx]
         if elapsed <= 0:
             return
-        if dist_m and not min_speed(seg) <= dist_m / elapsed <= MAX_SPEED_MPS[seg_sport(seg)]:
-            return  # too slow to be a real effort, or too fast: a false match
+        if dist_m and dist_m / elapsed > MAX_SPEED_MPS[seg_sport(seg)]:
+            return  # too fast: a GPS jump, not an effort
+        if dist_m and dist_m / (_moving_secs(latlng, times, start_idx, end_idx) or elapsed) < min_speed(seg):
+            return  # too slow to be a real effort, even leaving out the stops
         if dist_m:
             # Reject shortcut routes: actual GPS distance must be ≥70% of
             # stored segment distance so riders who take a shorter road between
@@ -383,14 +420,14 @@ def match_segment(activity_streams_json, seg):
                 zone_best_i = i
         else:
             if in_zone:
-                _try_start(zone_best_i)
+                _try_start(_past_wait(zone_best_i, start_win, zone_best_d, 1))
                 in_zone = False
                 zone_best_i = None
                 zone_best_d = float('inf')
 
     # Ride ends while still inside the start zone
     if in_zone and zone_best_i is not None:
-        _try_start(zone_best_i)
+        _try_start(_past_wait(zone_best_i, start_win, zone_best_d, 1))
 
     return best_elapsed
 
@@ -485,7 +522,8 @@ def match_segment_close(activity_streams_json, seg):
     if secs <= 0:
         return None
     est = secs * (shape_len / span)
-    if not min_speed(seg) <= seg_len / est <= MAX_SPEED_MPS[seg_sport(seg)]:
+    moving = (_moving_secs(ll, tm, i0, i1) or secs) * (shape_len / span)
+    if not (min_speed(seg) <= seg_len / moving and seg_len / est <= MAX_SPEED_MPS[seg_sport(seg)]):
         return None
     return int(round(est)), span / shape_len
 
@@ -806,6 +844,33 @@ def rematch_climbs(db):
     if found:
         log.warning('Slow climbs: %d steep segments matched again, %d new efforts', len(ids), found)
     return {'ran': True, 'segments': len(ids), 'found': found}
+
+
+def rematch_stops(db):
+    """Run once (Settings.segmentStopsDone), when the speed floor started to leave out the stops (_moving_secs) and an effort stopped taking a
+    wait at the start or finish (_past_wait): every segment is matched again from scratch. Stops part way along (half way down a trail) had
+    turned efforts away, even on the ride a segment was made on; waits at the top or bottom had made times too long. Efforts are only added;
+    times with a wait at a marker get shorter, and an approximate effort with a stop on it becomes an exact one, the stop in its time. Commits. Returns {'ran', 'segments', 'found', 'shorter', 'prs_moved'}."""
+    s = db.execute('SELECT segmentStopsDone FROM Settings WHERE id=1').fetchone()
+    if not s or s['segmentStopsDone']:
+        return {'ran': False}
+    n = db.execute('SELECT COUNT(*) FROM Segment').fetchone()[0]
+    found = shorter = moved = 0
+    if n:
+        held = lambda: {(r[0], r[1]) for r in db.execute('SELECT segmentId, activityId FROM SegmentEffort WHERE isPR=1')}   # efforts get new ids
+        times = {(r[0], r[1]): r[2] for r in db.execute('SELECT segmentId, activityId, elapsedSecs FROM SegmentEffort')}
+        prs = held()
+        scan_all_activities(db)
+        for r in db.execute('SELECT segmentId, activityId, elapsedSecs FROM SegmentEffort'):
+            was = times.get((r[0], r[1]))
+            found += was is None
+            shorter += was is not None and r[2] < was
+        moved = len(held() - prs)
+    db.execute('UPDATE Settings SET segmentStopsDone=1 WHERE id=1')
+    db.commit()
+    if found or shorter:
+        log.warning('Segment stops: %d segments matched again, %d new efforts, %d shorter times, %d PRs changed', n, found, shorter, moved)
+    return {'ran': True, 'segments': n, 'found': found, 'shorter': shorter, 'prs_moved': moved}
 
 # ---------- segments from a Strava export (segments.csv) ----------
 IMPORT_TOL_M = 50       # a Strava segment's ends sit on the track it was drawn on; allow for a different recording of the same road

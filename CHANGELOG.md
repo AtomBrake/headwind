@@ -13,6 +13,8 @@
 
 These four came from looking through the original project's 0.8 and 0.9 releases.
 
+- **A segment matches the ride it was made on, stops and all.** An effort slower than 2 m/s (4.5 mph) over a segment was turned away as a false match, and that counted the stops: five minutes waiting for a mate half way down a 200 m trail made it far too slow. So segments drawn on a mountain-bike ride with stops on its descents didn't match that ride, nor any other ride that stopped on them. Now the slowest speed that counts is taken over the time spent moving. The effort's time is still the whole elapsed time from start to finish, stops included, as on Strava. A ride that leaves the segment and comes back is still turned away, because the detour is moving time. A wait at the top before setting off, or at the bottom after finishing, used to count in the time when the rider stood within reach of the marker; now the effort starts when they move off and ends when they arrive. At the first start after updating, every segment is matched again, and the Tasks page says how many efforts were found and how many times got shorter. Some PRs can change.
+
 ## [0.7.36-beta] - 2026-11-01
 
 ### Added

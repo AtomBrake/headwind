@@ -1,6 +1,6 @@
 """Impossible segment times (0.7.7): loop segments that collapsed to a few metres, short segments whose ends are close, the close matcher on short
-segments and on a straighter line nearby, impossible speeds, a speed floor that drops on a climb, GPS and time streams out of step, and Strava
-segments given the wrong family.
+segments and on a straighter line nearby, impossible speeds, a speed floor that drops on a climb and leaves out the stops, waits at a segment's
+ends, GPS and time streams out of step, and Strava segments given the wrong family.
 Throwaway DB, synthetic tracks."""
 import json
 from datetime import datetime, timedelta, timezone
@@ -154,16 +154,52 @@ def test_a_steep_climb_pushed_at_walking_pace_is_an_effort():
     assert S.match_segment(walk([(-100, 0), (1100, 0)], speed=1.5), climb(40)) is not None    # 4% at 1.5 m/s: 216 m an hour
 
 
-def test_a_flat_segment_with_a_cafe_stop_is_still_not_an_effort():
+def test_a_stop_part_way_along_is_still_an_effort_timed_with_the_stop():
+    """A segment made on a ride didn't match that ride: mountain-bike descents of 200 m to 1.2 km, ridden at 3 m/s with stops of 3 to 7 minutes
+    half way down, came out under the 2 m/s floor over their elapsed time. The floor is taken against the moving time; the effort keeps its
+    elapsed time, as on Strava."""
     st = stopped(walk([(-100, 0), (1100, 0)], speed=6), 600, 1800)          # 6 m/s with half an hour at the café
-    assert S.match_segment(st, climb(5)) is None
-    assert S.match_segment(st, climb(100)) is None              # a 10% climb's floor (0.56 m/s) still rules out half an hour
-    assert S.match_segment(stopped(walk([(-100, 0), (1100, 0)], speed=6), 600, 300), climb(100)) is not None   # a 5-minute breather
+    elapsed = S.match_segment(st, climb(0))
+    assert elapsed == pytest.approx(1000 / 6 + 1800, abs=3)
+    assert S.match_segment_close(st, climb(0))[0] >= 1800
+
+
+def test_a_wait_at_the_start_or_the_finish_is_not_in_the_time():
+    """Stood at the top before dropping in, or at the bottom after: the nearest point to the marker can fall anywhere in the wait. A stop on the
+    segment itself, past the start or short of the finish, stays in the time."""
+    seg = climb(0)
+    ride = walk([(-100, 0), (1100, 0)], speed=3)                # a fix every 3 m: ... -1, 2, 5 ... 995, 998 ...
+    assert S.match_segment(ride, seg) == pytest.approx(333, abs=3)
+    assert S.match_segment(stopped(ride, 100, 120), seg) == pytest.approx(330, abs=3)      # 2 m past the start marker
+    assert S.match_segment(stopped(ride, 1096, 120), seg) == pytest.approx(330, abs=3)     # 5 m short of the finish
+    assert S.match_segment(stopped(ride, 130, 120), seg) == pytest.approx(333 + 120, abs=3)    # 30 m along
+    assert S.match_segment(stopped(ride, 1080, 120), seg) == pytest.approx(333 + 120, abs=3)   # 20 m short of the finish
+    assert S.match_segment(stopped(ride, 100, 2), seg) == pytest.approx(335, abs=3)       # a slow sample rolling through isn't a wait
+
+
+def test_every_segment_is_matched_again_once_with_the_stops_left_out(db):
+    poly = [at(x, 0) for x in range(0, 1001, 50)]
+    db.execute("INSERT INTO Segment (name, startLat, startLng, endLat, endLng, distanceM, elevationGainM, polyline, sport) "
+               "VALUES ('Down', ?, ?, ?, ?, 1000, 0, ?, 'ride')", [*at(0, 0), *at(1000, 0), json.dumps(poly)])
+    add(db, 'r1', stopped(walk([(-100, 0), (1100, 0)], speed=3), 600, 300))     # 3 m/s with 5 minutes half way down: 1.6 m/s in all
+    db.execute('UPDATE Settings SET segmentStopsDone=0 WHERE id=1')
+    assert S.rematch_stops(db) == {'ran': True, 'segments': 1, 'found': 1, 'shorter': 0, 'prs_moved': 1}
+    assert db.execute('SELECT elapsedSecs, approx, isPR FROM SegmentEffort').fetchone()[:] == (pytest.approx(633, abs=3), 0, 1)
+    assert S.rematch_stops(db) == {'ran': False}
+
+
+def test_a_detour_off_the_segment_is_still_too_slow():
+    """Leaving the segment and coming back is moving time, so the floor still turns it away."""
+    poly = [at(x, 0) for x in range(0, 1001, 50)]
+    seg = {**seg_row(at(0, 0), at(1000, 0), 1000, poly), 'elevationGainM': 0}
+    out_and_back = [(-100, 0), (500, 0), (500, 2000), (500, 0), (1100, 0)]      # 4 km up a side road and back from half way along
+    assert S.match_segment(walk(out_and_back, speed=6), seg) is None
+    assert S.match_segment(walk([(-100, 0), (1100, 0)], speed=6), seg) is not None
 
 
 def test_a_broken_altimeter_does_not_take_the_floor_away():
     assert S.min_speed(climb(5000)) == pytest.approx(S.MIN_CLIMB_MPS / S.MAX_GRADE)
-    st = stopped(walk([(-100, 0), (1100, 0)], speed=6), 600, 3 * 3600)
+    st = walk([(-100, 0), (1100, 0)], speed=0.2)                # under the floor of the steepest climb taken (MAX_GRADE)
     assert S.match_segment(st, climb(5000)) is None
 
 
