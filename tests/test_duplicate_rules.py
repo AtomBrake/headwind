@@ -209,6 +209,27 @@ def test_a_second_recording_longer_than_half_the_ride_is_a_piece_when_its_track_
     assert not dup.fragment_of(dict(piece, sportType='Walk'), whole)                               # another sport
 
 
+def _out_of_step(secs, extra, at, lat=50.70, step=2):
+    """_track as a parser before 0.7.7 stored it: `extra` more times than positions, for records with no fix just after second `at`."""
+    st = json.loads(_track(secs, lat=lat, step=step))
+    t = st['time']['data']
+    cut = t.index(at) + 1
+    st['time']['data'] = t[:cut] + [at + (i + 1) / (extra + 1) for i in range(extra)] + t[cut:]
+    return json.dumps(st)
+
+
+def test_a_piece_of_a_track_stored_a_few_records_out_of_step_is_still_found():
+    """Alpe d'Huez, 9 Mar 2025: the ski app's afternoon (cropped on Strava to start 174 s in) inside the watch's, whose 4,905 times against
+    4,899 positions left it with no track to compare, so both were kept. 221 records out, nothing can be said."""
+    whole = _row('wk_e89f48e071707123', '2025-03-09T12:41:28', 11088, 24887.0, 'Ski', averageHeartrate=110, streams=_out_of_step(11088, 6, 4000))
+    piece = _row('13835196785', '2025-03-09T12:44:22', 10915, 15973.0, 'Alpine Ski', averageHeartrate=110,
+                 streams=json.dumps({'time': {'data': list(range(0, 10915, 2))},
+                                     'latlng': {'data': [[50.70 + (s + 174) / 2 * 1e-4, -3.50] for s in range(0, 10915, 2)]}}))
+    assert dup.fragment_of(piece, whole) and dup.same_ride(whole, piece)
+    assert not dup.fragment_of(piece, dict(whole, streams=_out_of_step(11088, 6, 4000, lat=51.70)))     # somewhere else
+    assert not dup.fragment_of(piece, dict(whole, streams=_out_of_step(11088, 221, 4000)))          # every moment minutes out
+
+
 def test_zwift_longer_than_half_a_watch_session_is_kept_over_it():
     """11 Jan 2022: Zwift's 30-minute warm-up inside the watch's 52 minutes."""
     zwift = _row('6508139881', '2022-01-11T18:43:27', 1816, 11752.0, 'VirtualRide', averageWatts=180, streams=_track(1816))

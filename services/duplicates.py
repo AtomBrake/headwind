@@ -94,6 +94,7 @@ def span(row):
 FRAGMENT_SLACK_S = 120     # a fragment starts no earlier than this before the whole ride (and no later than its end)
 FRAGMENT_MAX = 0.5          # ...lasts at most this share of it, and has at least this share of itself inside it
 TRACK_AGREE_M = 1000        # two GPS tracks of one ride are this close at the same moment
+OUT_OF_STEP_S = 60          # a track with more times than positions is compared where each position's moment is known this closely (_timed_track)
 VIRTUAL_START_S = 600       # two virtual rides (a watch's "Indoor Cycling" and its Zwift copy) start this close...
 VIRTUAL_LENGTH_TOL = 0.20   # ...and last this nearly as long, whatever distance each made up
 SAME_START_S = 5            # two recordings that start this close are one activity, whatever distance each measured
@@ -124,14 +125,23 @@ def _haversine_m(p, q):
 
 
 def _timed_track(row):
-    """([seconds from the start], [[lat, lng]]) for the points with a position, or None when the row has no timed GPS track."""
+    """([seconds from the start], [[lat, lng]]) for the points with a position, or None when the row has no timed GPS track. A track stored
+    before 0.7.7 with more times than positions (a record kept for each moment the device had no fix: services/parser.aligned_streams) no
+    longer says which time each position had: the i-th was at one of time[i] .. time[i + the excess]. It is given the middle of those, and
+    left out where they are more than OUT_OF_STEP_S apart: a few records out, nearly every position still compares; two hundred out (minutes
+    with no fix in a lift), almost none do. Garmin's are put in step by reading the file again (services/garmin_changes._put_in_step)."""
     try:
         st = json.loads(row['streams']) if _get(row, 'streams') else {}
         t, ll = (st.get('time') or {}).get('data') or [], (st.get('latlng') or {}).get('data') or []
     except (ValueError, TypeError, AttributeError):
         return None
-    if not t or len(t) != len(ll):
+    k = len(t) - len(ll)
+    if not t or not ll or k < 0:
         return None
+    if k:
+        if None in t:
+            return None
+        t = [(t[i] + t[i + k]) / 2 if t[i + k] - t[i] <= OUT_OF_STEP_S else None for i in range(len(ll))]
     pts = [(x, p) for x, p in zip(t, ll) if x is not None and p and p[0] is not None and p[1] is not None]
     return ([x for x, _ in pts], [p for _, p in pts]) if len(pts) > 1 else None
 

@@ -561,6 +561,28 @@ def test_one_stored_out_of_step_is_read_again_and_put_right_once(db, monkeypatch
     assert gc.check(db, api, 1, '2026-08-01', '2026-10-01')['in_step'] == 0 and api.downloads == 1   # once only
 
 
+def test_a_copy_kept_beside_one_out_of_step_is_set_aside_once_it_is_put_right(db, monkeypatch):
+    """A ski app's copy of the watch's day (Alpe d'Huez, March 2025): the last two thirds of it, so its track must agree with the watch's, and
+    the watch's was stored with a time for 200 records with no fix, so it couldn't be compared until Garmin's file was read again."""
+    monkeypatch.setattr('services.parser.parse_fit', in_step_ride)
+    ride = act(1, '2026-09-01', dist=2995, dur=599)
+    imported(db, ride)
+    st = json.loads(db.execute("SELECT streams FROM Activity WHERE id='garmin_1'").fetchone()[0])
+    st['time']['data'] = [x * 0.75 for x in range(800)]                # each position's moment known only to within 150 s
+    db.execute("UPDATE Activity SET streams=?, sportType='AlpineSki', type='AlpineSki' WHERE id='garmin_1'", [json.dumps(st)])
+    t = list(range(400))
+    piece = {'time': {'data': t}, 'latlng': {'data': [[50.5 + (x + 200) * 5 / 111_000, -3.5] for x in t]}}
+    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime, streams) "
+               "VALUES ('14000000001', 'Ski app', 'AlpineSki', 'AlpineSki', 1, '2026-09-01T08:03:20', '2026-09-01T09:03:20', 1200, 399, 399, ?)",
+               [json.dumps(piece)])
+    db.commit()
+    assert duplicates.resolve(db, '14000000001') is None                  # the watch's track is minutes out where it lost the fix
+    res = gc.check(db, FakeAPI([ride]), 1, '2026-08-01', '2026-10-01')
+    assert res['in_step'] == 1
+    assert {r[0] for r in db.execute('SELECT id FROM Activity')} == {'garmin_1'}
+    assert db.execute("SELECT primaryId FROM ActivityDuplicate WHERE id='14000000001'").fetchone()[0] == 'garmin_1'
+
+
 def test_one_out_of_step_that_cant_be_downloaded_is_tried_again_next_time(db, monkeypatch):
     monkeypatch.setattr('services.parser.parse_fit', in_step_ride)
     ride = act(1, '2026-09-01', dist=2995, dur=599)

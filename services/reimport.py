@@ -189,12 +189,18 @@ def _out_of_step(streams):
 def propose(db, saved, act, source):
     """Compare an import with the ride already saved under its id. Returns True if it differs (and is now waiting on the Import page). Does not commit.
     Saved streams whose GPS and time are out of step are replaced by the file's straight away, when the file's are in step: that's a repair, not a
-    choice, and the rider's own edits are never in the streams. The ride is matched against the segments again."""
+    choice, and the rider's own edits are never in the streams. The ride is matched against the segments again, and checked for duplicates
+    again: a copy kept beside it because its track couldn't be compared is set aside now (a ski app's copy of a watch's day). If the ride itself
+    is the one set aside, nothing is offered."""
     if _out_of_step(saved['streams']) and _out_of_step(act.get('streams')) is False:
         db.execute('UPDATE Activity SET streams=? WHERE id=?', [act['streams'], saved['id']])
+        from services import duplicates
         from services.segments import rescan_activity
         rescan_activity(db, saved['id'])
-        saved = {**dict(saved), 'streams': act['streams']}
+        duplicates.resolve(db, saved['id'])
+        saved = db.execute('SELECT * FROM Activity WHERE id=?', [saved['id']]).fetchone()
+        if not saved:
+            return False
     if act.get('laps') and _empty(saved['laps'] if 'laps' in saved.keys() else None):     # laps and pool lengths, read from files since 0.7.9:
         db.execute('UPDATE Activity SET laps=? WHERE id=?', [act['laps'], saved['id']])     # nothing the rider edits, so filled in, not offered
     diffs = differences(saved, act)

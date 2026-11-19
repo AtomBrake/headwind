@@ -817,9 +817,10 @@ def crop(act, start, seconds, strava_m=None):
     if not t or not seconds:
         return act
     off = (start - file_start).total_seconds()
+    end = max(t[-1], act.get('elapsedTime') or 0)          # a FIT session can run on past its last record (half a minute on a ski day)
     if off <= CROP_SLACK_S and t[-1] <= off + seconds + CROP_SLACK_S:
         return act                                         # the whole recording
-    if off < -CROP_SLACK_S or off + seconds > t[-1] + CROP_SLACK_S:
+    if off < -CROP_SLACK_S or off + seconds > end + CROP_SLACK_S:
         return act                                         # a window that doesn't fit inside the recording is a clock that's out (an hour, a time
                                                            # zone), not a crop: cutting by it would lose part of the ride
     keep = [i for i, x in enumerate(t) if off - 1 <= x <= off + seconds + 1]

@@ -224,6 +224,8 @@ def check(db, api, rider_id, start, end, whole=False):
             flag = None
         if row['id'] in stepped and _put_in_step(db, api, a, row['id']):
             res['in_step'] += 1
+            if not db.execute('SELECT 1 FROM Activity WHERE id=?', [row['id']]).fetchone():
+                continue                                        # its track compares now, and it was set aside as a copy of another
         old, new = _seen(db, gid), summary(a)
         if old is None:
             remember(db, a, read=False)

@@ -213,6 +213,18 @@ def test_a_later_start_on_strava_is_always_a_crop(db):
     assert _saved_track(db, '60')[0][-1] == 180
 
 
+def test_a_crop_to_the_end_of_a_session_that_ran_on_past_its_last_record_is_made():
+    """Alpe d'Huez, 13 Mar 2025: the watch's session ran 32 s past its last record, and Strava's crop kept from 625 s in to the session's end.
+    Taken for a clock that was out, the whole day was kept under the crop's start, 625 s late, and never matched the watch's own copy."""
+    from datetime import datetime, timezone
+    from services.parser import crop
+    t = list(range(0, 591, 10))
+    act = {'startDateLocal': '2026-07-04T09:00:00+00:00', 'elapsedTime': 622, 'streams': json.dumps({'time': {'data': t}})}
+    cut = crop(act, datetime(2026, 7, 4, 9, 2, tzinfo=timezone.utc), 502)
+    assert cut.get('cropped') and json.loads(cut['streams'])['time']['data'] == [x - 120 for x in t if x >= 120]
+    assert not crop(act, datetime(2026, 7, 4, 9, 2, tzinfo=timezone.utc), 560).get('cropped')        # past the session's end: a clock out
+
+
 def test_a_paused_recording_is_not_taken_for_a_crop(db):
     """A bike park day: the recording paused for each uplift, so the track jumps from the bottom to the top. Strava leaves the pause out of
     its elapsed time and the jump out of its distance; that is not a crop."""
