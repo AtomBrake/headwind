@@ -167,6 +167,19 @@ def test_a_proposal_kept_or_made_stale_is_not_offered(db):
     assert [p['rideId'] for p in sport_fix.pending(db, 1)] == ['garmin_2']
 
 
+def test_another_name_for_garmins_sport_is_not_offered_and_an_old_proposal_of_one_goes(db):
+    """Strava's "Stand Up Paddling" is Garmin's stand_up_paddleboarding_v2 (Paddle): applying it would only rename it, and remove the recording set aside."""
+    for gid, sport, key in (('1', 'Stand Up Paddling', 'stand_up_paddleboarding_v2'), ('2', 'Nordic Ski', 'cross_country_skiing_ws'),
+                            ('3', 'Kitesurf', 'wind_kite_surfing'), ('4', 'Trail Run', 'trail_running'),
+                            ('5', 'Stand Up Paddling', 'surfing')):            # a sport of its own: still offered
+        _add(db, f'garmin_{gid}', sport, day=f'2026-02-1{gid}')
+        _seen(db, gid, key)
+    db.execute("INSERT INTO SportFix (rideId, riderId, oldSport, newSport, typeKey) VALUES ('garmin_1', 1, 'Stand Up Paddling', 'Paddle', "
+               "'stand_up_paddleboarding_v2')")                                # listed by an older Headwind
+    assert sport_fix.from_seen(db) == {1: 1}
+    assert [(p['rideId'], p['newSport']) for p in sport_fix.pending(db, 1)] == [('garmin_5', 'Surf')]
+
+
 # ---------- a ride on an e-bike ----------
 @pytest.fixture
 def bikes(db):

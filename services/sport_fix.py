@@ -55,6 +55,14 @@ def scan(db, api, rider_id):
     return {'checked': len(rows), 'found': len(types), 'proposed': proposed}
 
 
+def _same_sport(saved, new):
+    """True when an activity saved as `saved` already has Garmin's sport `new`, under that name or another name for it: Strava's "Stand Up
+    Paddling" or "Trail Run" against Garmin's stand_up_paddleboarding_v2 (Paddle) or trail_running (Run). Applying it would change only the name,
+    and remove any recording set aside under it."""
+    from services.sports import from_type
+    return new == saved or new == from_type(saved)
+
+
 def _propose(db, rider_id, rows, types):
     """Write down a proposal for each of `rows` ({id: Activity row}) whose sport isn't the one its Garmin type (`types`: {id: typeKey}) gives,
     unless the rider has already said to keep it. Returns how many."""
@@ -64,7 +72,7 @@ def _propose(db, rider_id, rows, types):
     proposed = 0
     for aid, key in types.items():
         r, new = rows[aid], garmin_sport(key)
-        if not key or new == r['sportType'] or aid in kept:
+        if not key or _same_sport(r['sportType'], new) or aid in kept:
             continue
         if new == 'Ride' and r['sportType'] in RIDES:      # a ride already labelled more closely (indoor, e-bike, mountain, gravel) stays so
             continue
@@ -83,6 +91,9 @@ def from_seen(db):
     garmin_changes.ensure_schema(db)
     db.execute("""DELETE FROM SportFix WHERE status='pending' AND NOT EXISTS (SELECT 1 FROM Activity a WHERE a.id = SportFix.rideId
                                                                               AND a.sportType IS NOT SportFix.newSport)""")
+    for r in db.execute("SELECT rideId, oldSport, newSport FROM SportFix WHERE status='pending'").fetchall():
+        if _same_sport(r['oldSport'], r['newSport']):       # proposed before _same_sport knew another name for one sport
+            db.execute('DELETE FROM SportFix WHERE rideId=?', [r['rideId']])
     pending = {r[0] for r in db.execute("SELECT rideId FROM SportFix WHERE status='pending'")}
     by_rider = {}
     for r in db.execute(r"""SELECT a.id, a.riderId, a.name, a.startDateLocal, a.distance, a.sportType, s.summary FROM Activity a

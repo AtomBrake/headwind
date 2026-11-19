@@ -134,7 +134,7 @@ def is_ebike(sport):
 
 
 _TYPE_NEEDLES = (('run', 'Run'), ('walk', 'Walk'), ('hik', 'Hike'), ('mountaineer', 'Hike'), ('swim', 'Swim'),
-                 ('kitesurf', 'Kitesurf'), ('kiteboard', 'Kitesurf'), ('wingfoil', 'Wingfoil'), ('wing_foil', 'Wingfoil'), ('wing foil', 'Wingfoil'),
+                 ('kitesurf', 'Kitesurf'), ('kite_surf', 'Kitesurf'), ('kite surf', 'Kitesurf'), ('kiteboard', 'Kitesurf'), ('wingfoil', 'Wingfoil'), ('wing_foil', 'Wingfoil'), ('wing foil', 'Wingfoil'),
                  ('surf', 'Surf'), ('paddl', 'Paddle'), ('kayak', 'Paddle'), ('canoe', 'Paddle'), ('raft', 'Paddle'), ('row', 'Row'),
                  ('ski', 'Ski'), ('snowboard', 'Ski'), ('skat', 'Skate'), ('golf', 'Golf'), ('climb', 'Climb'),
                  # last, so they only ever take what would have been Other: Garmin's strength_training, Strava's "Weight Training" and "Crossfit",
