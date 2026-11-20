@@ -96,8 +96,26 @@ enum Uploader {
         return try client.postRequest("activities", json: sessionBody(summary: summary, id: id, name: name, clientID: clientID))
     }
 
-    /// The server's kind for a recording ('ride' or 'workout'), for the paths that take one (photos, bike, delete).
+    /// The server's kind for a recording ('ride' or 'workout'), for an older server's paths that take one (see ActivityPath).
     static func kind(of summary: RideSummary, reply: String? = nil) -> String {
         reply ?? (summary.sport.isRide ? "ride" : "workout")
     }
+}
+
+/// Where an activity is in the phone API. From the server's /ping `api` 3 it's /activities/<id>, whatever its sport (routes/api_v1.py
+/// activity_detail); an older server has it at /rides/<kind>/<id>, with the kind the app had in hand. Newer servers answer the older paths
+/// too, so a phone that hasn't heard the server's `api` yet uses those.
+enum ActivityPath {
+    static let byID = 3
+
+    /// Every activity, a page at a time.
+    static func list(api: Int?) -> String { (api ?? 1) < byID ? "rides" : "activities" }
+
+    /// One activity; the paths under it add "/photos", "/bike" and so on.
+    static func of(_ id: String, kind: String?, api: Int?) -> String {
+        (api ?? 1) < byID ? "rides/\(kind ?? "ride")/\(id)" : "activities/\(id)"
+    }
+
+    /// Its page on the web, relative to the server: /activities/<id> since the same release as `api` 3, /rides/<id> before.
+    static func page(_ id: String, api: Int?) -> String { (api ?? 1) < byID ? "rides/\(id)" : "activities/\(id)" }
 }

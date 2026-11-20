@@ -30,7 +30,7 @@ SESSION = {'sport': 'Strength', 'start': '2026-10-20T18:30:00+01:00', 'duration_
 
 
 def test_ping_says_the_one_path_is_there(phone):
-    assert phone.get('/api/v1/ping', headers=phone.H).get_json()['api'] == 2
+    assert phone.get('/api/v1/ping', headers=phone.H).get_json()['api'] >= 2
 
 
 def test_a_ride_a_walk_and_a_session_go_through_one_door_and_keep_their_client_id(phone):

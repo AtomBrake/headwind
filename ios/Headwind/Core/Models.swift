@@ -204,7 +204,7 @@ struct Overview: Decodable {
     }
 }
 
-/// GET /api/v1/rides: one page of every activity, newest first.
+/// GET /api/v1/activities: one page of every activity, newest first.
 struct ActivityPage: Decodable {
     var total: Int
     var offset: Int
@@ -212,7 +212,8 @@ struct ActivityPage: Decodable {
 }
 
 struct ActivityItem: Decodable, Identifiable, Hashable {
-    var kind: String
+    /// 'ride' or 'workout', for an older server's /rides/<kind>/<id>; GET /activities sends none.
+    var kind: String?
     var id: String
     var name: String?
     var sport: String?
@@ -245,9 +246,8 @@ struct FriendList: Decodable, Sendable {
     var friends: [Friend]
 }
 
-/// GET /api/v1/rides/<kind>/<id>: one activity with its track, series and photos.
+/// GET /api/v1/activities/<id>: one activity with its track, series and photos.
 struct ActivityDetail: Decodable {
-    var kind: String
     var id: String
     /// False for a friend's, synced from their instance: shown here, changed only there (the server refuses any change).
     var own: Bool?

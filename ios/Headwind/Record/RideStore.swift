@@ -190,7 +190,7 @@ final class RideStore {
             }
             do throws(AppError) {
                 _ = try await session.call { client async throws(AppError) in
-                    try await client.upload("rides/\(ride.kind)/\(serverId)/photos", file: data, filename: name, mimeType: "image/jpeg",
+                    try await client.upload(ActivityPath.of(serverId, kind: ride.kind, api: session.info?.api) + "/photos", file: data, filename: name, mimeType: "image/jpeg",
                                             fields: ["client_id": String(name.dropLast(4))], as: Ignored.self)
                 }
             } catch {
@@ -311,7 +311,7 @@ final class RideStore {
     }
 
     /// Put a ride on another bike. Before upload it's only noted here and goes up with the ride; after, the server is told
-    /// first (POST /api/v1/rides/ride/<id>/bike) and the phone's copy changes only once it agrees.
+    /// first (POST /api/v1/activities/<id>/bike) and the phone's copy changes only once it agrees.
     func setBike(_ bike: Int?, for ride: SavedRide, using session: Session) async throws(AppError) {
         guard ride.summary.sport.isRide else { return }
         switch ride.status {
@@ -323,7 +323,8 @@ final class RideStore {
                 throw .validationError(message: "Headwind didn't say which ride this became. Change its bike on the ride's page.")
             }
             _ = try await session.call { client async throws(AppError) in
-                try await client.post("rides/ride/\(serverId)/bike", json: BikeChange(bike_id: bike), as: Ignored.self)
+                try await client.post(ActivityPath.of(serverId, kind: "ride", api: session.info?.api) + "/bike", json: BikeChange(bike_id: bike),
+                                      as: Ignored.self)
             }
         case .uploading:
             throw .validationError(message: "This ride is uploading. Change its bike once it's on the server.")
@@ -383,7 +384,7 @@ final class RideStore {
     }
 }
 
-/// Body of POST /api/v1/rides/ride/<id>/bike; a nil bike_id is sent as null (no bike).
+/// Body of POST /api/v1/activities/<id>/bike; a nil bike_id is sent as null (no bike).
 private struct BikeChange: Encodable, Sendable {
     var bike_id: Int?
 

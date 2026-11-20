@@ -459,3 +459,24 @@ struct WorkoutCheckTests {
         #expect(check.warning(backfillDays: 90) == "Your server refused 1 workout from Apple Health: Unreadable GPX")
     }
 }
+
+struct ActivityPathTests {
+    @Test func activitiesByIDFromAPI3() {
+        #expect(ActivityPath.list(api: 3) == "activities")
+        #expect(ActivityPath.of("123", kind: "workout", api: 3) == "activities/123")
+        #expect(ActivityPath.of("123", kind: nil, api: 4) + "/photos" == "activities/123/photos")
+        #expect(ActivityPath.page("123", api: 3) == "activities/123")
+    }
+
+    @Test func anOlderServerOrOneNotHeardFromYetGetsTheRidesPaths() {
+        #expect(ActivityPath.list(api: 2) == "rides" && ActivityPath.list(api: nil) == "rides")
+        #expect(ActivityPath.of("123", kind: "workout", api: 2) == "rides/workout/123")
+        #expect(ActivityPath.of("123", kind: nil, api: nil) == "rides/ride/123")
+        #expect(ActivityPath.page("123", api: 2) == "rides/123")
+    }
+
+    @Test func aListItemNeedsNoKind() throws {
+        let page = try JSONDecoder.headwind.decode(ActivityPage.self, from: Data(#"{"total":1,"offset":0,"items":[{"id":"9","date":"2026-11-20T08:00:00"}]}"#.utf8))
+        #expect(page.items.first?.kind == nil && page.items.first?.id == "9")
+    }
+}

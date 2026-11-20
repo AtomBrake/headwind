@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Every activity on the server, of every sport, newest first (GET /api/v1/rides, a page at a time), with a sport filter and search, and a Whose
+/// Every activity on the server, of every sport, newest first (GET /api/v1/activities, a page at a time), with a sport filter and search, and a Whose
 /// picker for a friend's activities (synced to the server from theirs, GET /api/v1/friends) or everyone's together.
 /// A list beside the chosen activity when there's room (a phone on its side, the iPhone Duo's inner screen); one above the other otherwise.
 /// The selection lives here, so folding or unfolding the Duo keeps the activity that's open.
@@ -127,7 +127,7 @@ struct ActivitiesView: View {
         if !query.isEmpty { q.append(URLQueryItem(name: "q", value: query)) }
         if !whose.isEmpty { q.append(URLQueryItem(name: "rider", value: whose)) }
         do throws(AppError) {
-            let page = try await session.load("rides", query: q, as: ActivityPage.self)
+            let page = try await session.load(ActivityPath.list(api: session.info?.api), query: q, as: ActivityPage.self)
             if reset { items = page.items } else { items += page.items.filter { new in !items.contains { $0.id == new.id } } }
             total = page.total
             error = nil

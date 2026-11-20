@@ -20,11 +20,11 @@ private struct PhotoUpload: Identifiable {
     var clientID: String
 }
 
-/// An activity's photos (POST/DELETE/PATCH /api/v1/rides/<kind>/<id>/photos…). Added from the library (PhotosPicker, no permission needed) or the
+/// An activity's photos (POST/DELETE/PATCH /api/v1/activities/<id>/photos…). Added from the library (PhotosPicker, no permission needed) or the
 /// camera, each with a tile of its own while it uploads, one at a time in the order picked. Select mode deletes several at once and drags to
 /// reorder; the first photo is the activity's cover. A caption is set on the full-screen photo.
 struct PhotosCard: View {
-    /// e.g. "rides/ride/123/photos"
+    /// e.g. "activities/123/photos"
     var path: String
     @Binding var photos: [ActivityDetail.Photo]
     /// False on a friend's activity: the photos are only looked at, with nothing to add, order, caption or delete.

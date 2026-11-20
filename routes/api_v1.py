@@ -2,25 +2,28 @@
 
   GET  /api/v1/ping        who this instance is (the app calls it right after pairing), the rider's bikes for the app's bike picker, and
                             server_url, the https outside address set in Settings (null when there's none), and favourite_sports: the
-                            rider's favourites ({label, icon, group} or {label, icon, sport}, for GET /api/v1/rides' group= or sport=)
+                            rider's favourites ({label, icon, group} or {label, icon, sport}, for GET /api/v1/activities' group= or sport=)
   GET  /api/v1/today       everything the app's home screen needs in ONE request (fast start)
   POST /api/v1/activities  every activity from the phone, the Watch or Apple Health, whatever its sport (services/uploads.py): multipart
                             with file=GPX for one with a track, JSON for a session with no track (strength, a pool swim, an indoor ride).
                             Idempotent per client_id. POST /api/v1/activities/known {client_ids} says which the server has.
   POST /api/v1/rides, POST /api/v1/workouts   the older upload paths for a ride or another sport with a track: the same, with the kind
                             decided and the reply the released apps read. Kept until they all send to /activities (ping's api 2 says it's there).
+  GET  /api/v1/activities  every activity, newest first and paged; GET /api/v1/activities/<id> one, DELETE deletes it
+  POST /api/v1/activities/<id>/bike   change a ride's bike (JSON {bike_id: id or null}); .../sport, .../commute, .../duplicate/<dup>/<action>
+  POST /api/v1/activities/<id>/photos   add one photo (multipart: file); DELETE .../photos/<pid>; GET /api/v1/photos/<name> serves one;
+                            POST .../photos/order puts them in order (JSON {ids}); PATCH .../photos/<pid> sets a caption (JSON {caption})
+  GET  /api/v1/rides, /api/v1/rides/<kind>/<id>[/...]   the older paths for the same, with kind ('ride' or 'workout') in the path and the
+                            answers, and ride_id in a duplicate's. Kept until the apps all use /activities (ping's api 3 says it's there).
   GET  /api/v1/workouts    recent workouts
   DELETE /api/v1/workouts/<id>
-  POST /api/v1/rides/ride/<id>/bike   change a ride's bike (JSON {bike_id: id or null})
-  POST /api/v1/rides/<kind>/<id>/photos   add one photo (multipart: file); DELETE .../photos/<pid>; GET /api/v1/photos/<name> serves one;
-                            POST .../photos/order puts them in order (JSON {ids}); PATCH .../photos/<pid> sets a caption (JSON {caption})
-  GET  /api/v1/zwift/<slug>.png   a Zwift world's map, for a virtual ride's zwift_world in GET /api/v1/rides/<kind>/<id>
+  GET  /api/v1/zwift/<slug>.png   a Zwift world's map, for a virtual ride's zwift_world in GET /api/v1/activities/<id>
   POST /api/v1/health/days  Apple Health's daily figures from the iPhone (JSON {days: [{date, metric, value}]}), GET /api/v1/health what's stored,
                             DELETE /api/v1/health forgets it all (services/health.py)
   POST /api/v1/devices/watch   a token of its own for the phone's Apple Watch (services/device_auth.create_child)
   POST /api/v1/friends/tokens  a feed token for a friend, with its share code (services/feed_tokens.py), for the app to show as a QR code;
                             POST /api/v1/friends/probe {code} who a friend's code connects to, POST /api/v1/friends {code, rider, name} adds them;
-                            GET /api/v1/friends lists them, for GET /api/v1/rides?rider=<their rider id>|all (a friend's activities, read-only)
+                            GET /api/v1/friends lists them, for GET /api/v1/activities?rider=<their rider id>|all (a friend's activities, read-only)
 The nutrition endpoints the app also uses (/nutrition/api/log, /water, /search, /lookup/<barcode> ...) accept the same token.
 """
 import logging
@@ -37,6 +40,7 @@ log = logging.getLogger(__name__)
 bp = Blueprint('api_v1', __name__, url_prefix='/api/v1')
 MAX_GPX = 25 * 1024 * 1024
 MAX_PHOTOS = 60                    # per activity, from the app
+OLD_KINDS = ('ride', 'workout')    # the kind in the older /rides/<kind>/<id> paths; the /activities/<id> ones have none (kind None)
 # A whole request is at most limits.MAX_PHONE_REQUEST (the size hook in app.py)
 
 
@@ -59,7 +63,8 @@ def ping():
     r = _rider()
     from services import favourites
     s = query_db('SELECT units, calorieAdjustPct, favouriteSports FROM Settings WHERE id=1', one=True)
-    return jsonify({'ok': True, 'api': 2,        # 2: POST /activities takes every upload, and /activities/known is there
+    # 2: POST /activities takes every upload, and /activities/known is there. 3: GET /activities and /activities/<id>[/...], with no kind
+    return jsonify({'ok': True, 'api': 3,
                     'rider': r['name'] if r else None, 'units': (s['units'] if s else None) or 'imperial',
                     'calorie_adjust_pct': (s['calorieAdjustPct'] if s and s['calorieAdjustPct'] is not None else 0),
                     'favourite_sports': [{'label': d['label'], 'icon': d['icon'], ('group' if d['arg'][0] == 'group' else 'sport'): d['arg'][1]}
@@ -261,7 +266,8 @@ def perform():
         if e:
             best_efforts.append({
                 'distanceMi': dist_mi, 'secs': e['elapsedSecs'], 'avgSpeedMps': e['avgSpeedMps'] or 0,
-                'rideId': e['activityId'], 'rideName': e['rideName'], 'date': e['activityDate'],
+                'activityId': e['activityId'], 'activityName': e['rideName'], 'date': e['activityDate'],
+                'rideId': e['activityId'], 'rideName': e['rideName'],       # the older keys, until the Android app reads the new
             })
 
     climbs = query_db('''
@@ -269,7 +275,8 @@ def perform():
         FROM Ride WHERE riderId=? AND totalElevationGain > 0
         ORDER BY totalElevationGain DESC LIMIT 5
     ''', [rid])
-    biggest_climbs = [{'rideId': c['id'], 'rideName': c['name'], 'elevM': round(c['totalElevationGain']), 'date': c['d']} for c in climbs]
+    biggest_climbs = [{'activityId': c['id'], 'activityName': c['name'], 'elevM': round(c['totalElevationGain']), 'date': c['d'],
+                       'rideId': c['id'], 'rideName': c['name']} for c in climbs]
 
     segs = query_db('''
         SELECT s.id, s.name, s.distanceM, s.elevationGainM,
@@ -382,7 +389,7 @@ def _friend_riders():
 
 
 def _listed_riders(rider, which):
-    """{riderId: name} for GET /api/v1/rides?rider=: empty for the phone's own rider, a friend's rider id, or 'all' for both. None for anything
+    """{riderId: name} for GET /api/v1/activities?rider=: empty for the phone's own rider, a friend's rider id, or 'all' for both. None for anything
     else, another local rider's included: the app only ever sees its own and its friends'."""
     friends = _friend_riders()
     if not which:
@@ -396,11 +403,12 @@ def _listed_riders(rider, which):
     return {fid: friends[fid]} if fid in friends else None
 
 
-@bp.route('/rides')
-def rides():
+@bp.route('/activities', methods=['GET'])
+@bp.route('/rides', defaults={'old': True})
+def activity_list(old=False):
     """Every activity, rides and the rest, as one newest-first list, paged: ?offset=0&limit=30&sport=Ride&group=foot&q=text&rider=. group is a stat group
     (services/sports.stat_group: ride, foot, swim, or the sport itself); rider is a friend's rider id (GET /api/v1/friends) or 'all' for yours and
-    every friend's, and each item says whose it is (rider, own)."""
+    every friend's, and each item says whose it is (rider, own). The older /rides gives each its kind as well."""
     rider = _rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
@@ -450,7 +458,7 @@ def rides():
             return []
 
     from services import sports as sp
-    items = [{'kind': r['kind'], 'id': r['id'], 'preview': preview(r), 'name': r['name'], 'sport': r['sport'],
+    items = [{**({'kind': r['kind']} if old else {}), 'id': r['id'], 'preview': preview(r), 'name': r['name'], 'sport': r['sport'],
               'label': sp.label(r['sport']), 'group': sp.stat_group(r['sport']), 'date': str(r['startDateLocal'])[:19],
               'distance_m': round(r['distance'] or 0), 'moving_s': int(r['movingTime'] or 0), 'elev_m': round(r['elev'] or 0),
               'avg_speed_mps': round(r['spd'] or 0, 2), 'avg_hr': round(r['hr']) if r['hr'] else None,
@@ -497,23 +505,24 @@ def live():
     return jsonify({'ok': True, 'state': c['state']})
 
 
+@bp.route('/activities/<rid>')
 @bp.route('/rides/<kind>/<rid>')
-def ride_detail(kind, rid):
-    """One activity, a ride or a workout: all the stats, a route for the map and small elevation/speed/heart-rate series. The kind in the URL is
-    what the app had in hand; the answer carries the activity's own kind (services/sports), so a stale one still finds it. A friend's opens too,
-    with own false, their name and when it was synced (services/friend_rides), for the app to show and leave unchanged."""
+def activity_detail(rid, kind=None):
+    """One activity of any sport: all the stats, a route for the map and small elevation/speed/heart-rate series. A friend's opens too, with own
+    false, their name and when it was synced (services/friend_rides), for the app to show and leave unchanged. On the older path the kind in the
+    URL is what the app had in hand, and the answer carries the activity's own kind (services/sports), so a stale one still finds it."""
     import json as _json
     from services.friend_rides import FRIEND_RIDERS_SQL, friend_of
     rider = _rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
-    if kind not in ('ride', 'workout'):
+    if kind is not None and kind not in OLD_KINDS:
         return jsonify({'error': 'bad kind'}), 400
     row = query_db(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=? AND (riderId=? OR riderId IN ({FRIEND_RIDERS_SQL}))', [rid, rider['id']], one=True)
     if not row:
         return jsonify({'error': 'not found'}), 404
     r = dict(row)
-    kind = sport_kind(r['sportType'])
+    own_kind = sport_kind(r['sportType'])
     friend = friend_of(get_db(), r['id']) if r['riderId'] != rider['id'] else None
     try:
         streams = _json.loads(r.get('streams') or '{}')
@@ -541,7 +550,7 @@ def ride_detail(kind, rid):
         return None if v is None else (round(v, nd) if nd is not None else v)
 
     dups = []
-    if kind == 'ride' and not friend:
+    if own_kind == 'ride' and not friend:
         from services import duplicates
         for d in duplicates.parked_for(get_db(), str(r['id'])):
             try:
@@ -555,7 +564,7 @@ def ride_detail(kind, rid):
         'duplicates': dups,
         'own': not friend, 'rider': friend['name'] if friend else rider['name'],
         'synced': str(r.get('updatedAt') or r.get('createdAt'))[:19] if friend else None,
-        'kind': kind, 'id': str(r['id']), 'name': r.get('name'), 'sport': r.get('sportType'),
+        **({'kind': own_kind} if kind else {}), 'id': str(r['id']), 'name': r.get('name'), 'sport': r.get('sportType'),
         'date': str(r.get('startDateLocal'))[:19], 'city': r.get('city'), 'source': r.get('source'), 'commute': r.get('commute') == 1,
         'distance_m': num('distance', 0), 'moving_s': r.get('movingTime'), 'elapsed_s': r.get('elapsedTime'), 'elev_m': num('totalElevationGain', 0),
         'avg_speed_mps': num('averageSpeed', 2), 'max_speed_mps': num('maxSpeed', 2),
@@ -608,12 +617,13 @@ def _own_activity(rid):
     return get_db().execute('SELECT id, sportType FROM Activity WHERE id=? AND riderId=?', [rid, rider['id']]).fetchone()
 
 
+@bp.route('/activities/<rid>/photos', methods=['POST'])
 @bp.route('/rides/<kind>/<rid>/photos', methods=['POST'])
-def add_photo(kind, rid):
+def add_photo(rid, kind=None):
     """One photo for an activity (multipart: file, optional caption). The app sends a JPEG it has already shrunk; photos.save makes the full-size and
     thumbnail copies and drops the EXIF (location and all). Returns the activity's photos."""
     from services import photos
-    if kind not in ('ride', 'workout') or not _own_activity(rid):
+    if kind not in (None, *OLD_KINDS) or not _own_activity(rid):
         return jsonify({'error': 'not found'}), 404
     f = request.files.get('file')
     if not f:
@@ -637,10 +647,11 @@ def _photo_key(rid, client_id):
     return f'app:{rid}:{c[:64]}' if c else None
 
 
+@bp.route('/activities/<rid>/photos/<int:pid>', methods=['DELETE'])
 @bp.route('/rides/<kind>/<rid>/photos/<int:pid>', methods=['DELETE'])
-def remove_photo(kind, rid, pid):
+def remove_photo(rid, pid, kind=None):
     from services import photos
-    if kind not in ('ride', 'workout') or not _own_activity(rid):
+    if kind not in (None, *OLD_KINDS) or not _own_activity(rid):
         return jsonify({'error': 'not found'}), 404
     db = get_db()
     gone = photos.delete(db, pid, rid, current_app.config['DATABASE'])
@@ -648,11 +659,12 @@ def remove_photo(kind, rid, pid):
     return jsonify({'deleted': gone, 'photos': _photo_list(rid)}), (200 if gone else 404)
 
 
+@bp.route('/activities/<rid>/photos/order', methods=['POST'])
 @bp.route('/rides/<kind>/<rid>/photos/order', methods=['POST'])
-def order_photos(kind, rid):
+def order_photos(rid, kind=None):
     """The activity's photos in a new order: JSON {ids: [...]}, every photo exactly once, or 400. The first is the cover."""
     from services import photos
-    if kind not in ('ride', 'workout') or not _own_activity(rid):
+    if kind not in (None, *OLD_KINDS) or not _own_activity(rid):
         return jsonify({'error': 'not found'}), 404
     db = get_db()
     try:
@@ -663,11 +675,12 @@ def order_photos(kind, rid):
     return jsonify({'photos': _photo_list(rid)})
 
 
+@bp.route('/activities/<rid>/photos/<int:pid>', methods=['PATCH'])
 @bp.route('/rides/<kind>/<rid>/photos/<int:pid>', methods=['PATCH'])
-def caption_photo(kind, rid, pid):
+def caption_photo(rid, pid, kind=None):
     """A photo's caption: JSON {caption}, an empty one clears it."""
     from services import photos
-    if kind not in ('ride', 'workout') or not _own_activity(rid):
+    if kind not in (None, *OLD_KINDS) or not _own_activity(rid):
         return jsonify({'error': 'not found'}), 404
     body = request.get_json(silent=True) or {}
     if 'caption' not in body or not isinstance(body['caption'], (str, type(None))):
@@ -933,20 +946,21 @@ def friend_add():
 
 @bp.route('/friends')
 def friend_list():
-    """The friends synced to here, for the Activities list's Whose picker: [{rider_id (for GET /api/v1/rides?rider=), name, last_synced}].
+    """The friends synced to here, for the Activities list's Whose picker: [{rider_id (for GET /api/v1/activities?rider=), name, last_synced}].
     A friend added but not synced yet has no rider, so isn't listed."""
     rows = query_db('SELECT riderId, name, lastSynced FROM Friend WHERE riderId IS NOT NULL ORDER BY name COLLATE NOCASE')
     return jsonify({'friends': [{'rider_id': r['riderId'], 'name': r['name'], 'last_synced': r['lastSynced']} for r in rows]})
 
 
+@bp.route('/activities/<rid>/sport', methods=['POST'])
 @bp.route('/rides/<kind>/<rid>/sport', methods=['POST'])
-def change_sport(kind, rid):
+def change_sport(rid, kind=None):
     """Change what an activity is, e.g. a walk that was recorded as a ride: JSON {sport: Ride|VirtualRide|Walk|Run|Hike}. The response carries the
     new kind (and the id, which no longer changes; older apps read it from here)."""
     from services import convert
     rider = _rider()
     db = get_db()
-    row = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone() if kind in ('ride', 'workout') else None
+    row = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone() if kind in (None, *OLD_KINDS) else None
     if not rider or not row or row['riderId'] != rider['id']:
         return jsonify({'error': 'not found'}), 404
     try:
@@ -960,15 +974,16 @@ def change_sport(kind, rid):
     return jsonify(res)
 
 
+@bp.route('/activities/<rid>/bike', methods=['POST'])
 @bp.route('/rides/<kind>/<rid>/bike', methods=['POST'])
-def set_bike(kind, rid):
+def set_bike(rid, kind=None):
     """Put a ride on another bike, or on none: JSON {bike_id: id or null}. Moving between a pedal bike and an e-bike picks its PRs again
     (services/gear.set_ride_bike)."""
     from services import gear
     from services.sports import is_ride
     rider = _rider()
     db = get_db()
-    row = db.execute('SELECT riderId, sportType FROM Activity WHERE id=?', [rid]).fetchone() if kind in ('ride', 'workout') else None
+    row = db.execute('SELECT riderId, sportType FROM Activity WHERE id=?', [rid]).fetchone() if kind in (None, *OLD_KINDS) else None
     if not rider or not row or row['riderId'] != rider['id']:
         return jsonify({'error': 'not found'}), 404
     if not is_ride(row['sportType']):
@@ -985,12 +1000,13 @@ def set_bike(kind, rid):
     return jsonify({'id': rid, 'bike_id': bike_id})
 
 
+@bp.route('/activities/<rid>/commute', methods=['POST'])
 @bp.route('/rides/<kind>/<rid>/commute', methods=['POST'])
-def set_commute(kind, rid):
+def set_commute(rid, kind=None):
     """Tick or untick 'Commute' on a ride or a workout: JSON {commute: true|false}. Unticked is stored as 0, as on the web (routes/activities.set_commute)."""
     rider = _rider()
     db = get_db()
-    row = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone() if kind in ('ride', 'workout') else None
+    row = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone() if kind in (None, *OLD_KINDS) else None
     if not rider or not row or row['riderId'] != rider['id']:
         return jsonify({'error': 'not found'}), 404
     commute = (request.get_json(silent=True) or {}).get('commute')
@@ -1003,9 +1019,11 @@ def set_commute(kind, rid):
     return jsonify({'id': str(rid), 'commute': commute})
 
 
-@bp.route('/rides/ride/<rid>/duplicate/<dup_id>/<action>', methods=['POST'])
-def resolve_duplicate(rid, dup_id, action):
-    """The same ride recorded twice: action = swap (use the other recording) | keep (both are real rides) | discard (delete the other one)."""
+@bp.route('/activities/<rid>/duplicate/<dup_id>/<action>', methods=['POST'])
+@bp.route('/rides/ride/<rid>/duplicate/<dup_id>/<action>', methods=['POST'], defaults={'old': True})
+def resolve_duplicate(rid, dup_id, action, old=False):
+    """The same ride recorded twice: action = swap (use the other recording) | keep (both are real rides) | discard (delete the other one).
+    Replies with the id of the one kept; the older path calls it ride_id."""
     from services import duplicates
     rider = _rider()
     db = get_db()
@@ -1023,18 +1041,19 @@ def resolve_duplicate(rid, dup_id, action):
         return jsonify({'error': 'action must be swap, keep or discard'}), 400
     db.commit()
     _refresh_after_change('ride')
-    return jsonify({'ok': True, 'ride_id': new_main})
+    return jsonify({'ok': True, ('ride_id' if old else 'id'): new_main})
 
 
+@bp.route('/activities/<rid>', methods=['DELETE'])
 @bp.route('/rides/<kind>/<rid>', methods=['DELETE'])
-def delete_ride(kind, rid):
-    """Delete a ride or a workout from the phone. A deleted ride is remembered so a Garmin re-sync does not bring it back."""
+def delete_activity(rid, kind=None):
+    """Delete an activity from the phone. A deleted ride is remembered so a Garmin re-sync does not bring it back."""
     from services import duplicates
     rider = _rider()
     db = get_db()
-    if kind not in ('ride', 'workout'):
+    if kind is not None and kind not in OLD_KINDS:
         return jsonify({'error': 'kind must be ride or workout'}), 400
-    kind = kind_of(db, rid) or kind                      # the activity's own kind, not the one the app had in hand
+    kind = kind_of(db, rid) or kind or 'ride'            # the activity's own kind, not the one the app had in hand
     if kind == 'workout':
         from services import workouts as _wk
         n = _wk.delete(db, rid, rider['id'] if rider else -1)

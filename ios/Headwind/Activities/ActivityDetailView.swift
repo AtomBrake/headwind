@@ -2,7 +2,7 @@ import Charts
 import MapKit
 import SwiftUI
 
-/// One activity from the server (GET /api/v1/rides/<kind>/<id>): its map (a Zwift world's for a virtual ride), the numbers that suit its sport, its charts and its photos
+/// One activity from the server (GET /api/v1/activities/<id>): its map (a Zwift world's for a virtual ride), the numbers that suit its sport, its charts and its photos
 /// (PhotosCard, which adds, deletes, orders and captions them). A friend's is only shown: no Delete and no photo editing, as on the web.
 struct ActivityDetailView: View {
     var item: ActivityItem
@@ -40,7 +40,7 @@ struct ActivityDetailView: View {
                             Card(title: chart.title) { SeriesChart(points: chart.points, tint: chart.tint) }
                         }
                         if own || !(d.photos ?? []).isEmpty {
-                            PhotosCard(path: "rides/\(item.kind)/\(item.id)/photos",
+                            PhotosCard(path: path + "/photos",
                                        photos: Binding(get: { detail?.photos ?? [] }, set: { detail?.photos = $0 }), editable: own)
                         }
                         if let notes = [d.description, d.notes].compactMap({ $0?.isEmpty == false ? $0 : nil }).first {
@@ -59,7 +59,7 @@ struct ActivityDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     if let server = session.pairing?.server {
-                        Link(destination: server.appending(path: "rides/\(item.id)")) { Label("Open in Safari", systemImage: "safari") }
+                        Link(destination: server.appending(path: ActivityPath.page(item.id, api: session.info?.api))) { Label("Open in Safari", systemImage: "safari") }
                     }
                     if own {
                         Button("Delete", systemImage: "trash", role: .destructive) { confirmDelete = true }
@@ -116,9 +116,12 @@ struct ActivityDetailView: View {
         return out
     }
 
+    /// Where it is in the phone API (/activities/<id>, or /rides/<kind>/<id> on an older server).
+    private var path: String { ActivityPath.of(item.id, kind: item.kind, api: session.info?.api) }
+
     private func load() async {
         do throws(AppError) {
-            detail = try await session.load("rides/\(item.kind)/\(item.id)", as: ActivityDetail.self)
+            detail = try await session.load(path, as: ActivityDetail.self)
             error = nil
         } catch {
             self.error = error
@@ -128,7 +131,7 @@ struct ActivityDetailView: View {
     private func deleteActivity() async {
         do throws(AppError) {
             _ = try await session.call { client async throws(AppError) in
-                try await client.delete("rides/\(item.kind)/\(item.id)", as: Ignored.self)
+                try await client.delete(path, as: Ignored.self)
             }
             onDelete(item.id)
         } catch {
