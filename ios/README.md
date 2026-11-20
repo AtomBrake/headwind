@@ -100,7 +100,8 @@ looks through that history again, since HealthKit hides what it may not share ra
   apart, and the Overview says which it shows. Apple has no sleep score or body battery.
 - A weigh-in never replaces a manual or Garmin one for the same day.
 - Workouts from other apps go up as Headwind's recordings do (with their route and heart rate, or timed without a route),
-  with `ah_<uuid>` as their client id. Before reading a batch's routes and heart rate, the phone asks the server which of
+  with `ah_<uuid>` as their client id. A route under a minute or 100 m long counts as none: some apps save one stale
+  location with a workout, and the workout goes up timed with Health's duration, distance, calories and heart rate instead. Before reading a batch's routes and heart rate, the phone asks the server which of
   those ids it has (`POST /api/v1/activities/known`) and leaves them out, so a look back through years of workouts sends only
   the new ones. One deleted on the server counts as had, so a sync doesn't bring it back. Headwind's own (the Watch saves every workout to Health) are left out, and so are
   sports Headwind doesn't have (an elliptical, say). A workout deleted in Health isn't deleted on the server: the server's

@@ -501,12 +501,16 @@ final class HealthSync {
         } catch {
             throw .health(underlying: error)
         }
-        let hrs = points.compactMap(\.hr)
-        // Without a route it goes up timed, as the sport it is (a run with the phone left at home is still a run).
+        let route = Self.isRoute(points) ? points : []
+        let hrs = route.compactMap(\.hr)
+        let perMinute = HKUnit.count().unitDivided(by: .minute())
+        let workoutHR = workout.statistics(for: HKQuantityType(.heartRate))?.averageQuantity()?.doubleValue(for: perMinute)
+        // Without a route it goes up timed, as the sport it is (a run with the phone left at home is still a run), with Health's own figures.
         let summary = RideSummary(start: workout.startDate, distance: distance, movingTime: workout.duration, elapsedTime: workout.duration,
-                                  elevationGain: 0, averageHeartRate: hrs.isEmpty ? nil : hrs.reduce(0, +) / hrs.count, sport: sport, calories: kcal)
+                                  elevationGain: 0, averageHeartRate: hrs.isEmpty ? workoutHR.map { Int($0.rounded()) } : hrs.reduce(0, +) / hrs.count,
+                                  sport: sport, calories: kcal)
         let name = GPXWriter.rideName(summary)
-        let gpx = points.count >= 2 ? GPXWriter.gpx(segments: [points], name: name, type: sport.gpxType, creator: "Apple Health") : nil
+        let gpx = route.isEmpty ? nil : GPXWriter.gpx(segments: [route], name: name, type: sport.gpxType, creator: "Apple Health")
         let api = session.info?.api
         do throws(AppError) {
             _ = try await session.call { client async throws(AppError) in
@@ -526,6 +530,18 @@ final class HealthSync {
     /// The same id for a workout every time it's sent: `ah_` and its HealthKit UUID, so the server finds it again by it (services/uploads.py)
     /// and can say it has it (`alreadySent`).
     nonisolated static func clientID(_ uuid: UUID) -> String { "ah_" + uuid.uuidString.lowercased() }
+
+    /// Whether a workout's locations, in time order, are a route worth sending: over a minute and `minimumRoute` along. Some apps save one stale
+    /// location with a workout, its points all at one instant, which the server would read as an activity with no distance and no time; that
+    /// workout goes up timed instead. Exposed for the tests.
+    nonisolated static func isRoute(_ points: [RidePoint]) -> Bool {
+        guard let first = points.first, let last = points.last,
+              last.time.timeIntervalSince(first.time) >= RideSummary.minimumSession else { return false }
+        return zip(points, points.dropFirst()).reduce(0) { $0 + $1.0.distance(to: $1.1) } >= minimumRoute
+    }
+
+    /// Metres a route must cover to be sent as one.
+    nonisolated static let minimumRoute = 100.0
 
     /// The workout's route with the heart rate nearest each point, or nothing for one without a route.
     private func track(of workout: HKWorkout) async throws -> [RidePoint] {

@@ -434,6 +434,25 @@ struct HealthSleepTests {
     }
 }
 
+struct HealthRouteTests {
+    @Test func aRouteThatGoesSomewhereIsSent() {
+        #expect(HealthSync.isRoute(track(seconds: 120)))
+    }
+
+    @Test func oneStaleLocationRepeatedIsNoRoute() {
+        // Some apps save the last known location with a workout, several times over at one instant: the server would make an empty activity of it.
+        let spot = RidePoint(time: start, lat: 51.5, lon: -0.1)
+        #expect(!HealthSync.isRoute([spot, spot, spot]))
+        #expect(!HealthSync.isRoute([]))
+    }
+
+    @Test func tooShortOrStandingStillIsNoRoute() {
+        #expect(!HealthSync.isRoute(track(seconds: 30)))
+        let still = (0..<600).map { RidePoint(time: start.addingTimeInterval(Double($0)), lat: 51.5, lon: -0.1) }
+        #expect(!HealthSync.isRoute(still))
+    }
+}
+
 struct WorkoutCheckTests {
     @Test func saysWhatCameFromWhere() {
         let check = WorkoutCheck(full: false, own: 4, sources: ["Strava": 3, "Peloton": 1], sent: 2, unsupported: 1, tooShort: 1)
