@@ -150,7 +150,7 @@ def pending(db, rider_id):
 
 
 def apply(db, rider_id, ride_ids):
-    """Change the picked rides to their proposed sport (runs, swims, ... move to Workouts through convert.change_sport, which keeps the derived data
+    """Change the picked rides to their proposed sport (runs, swims, ... through convert.change_sport, which keeps the derived data
     right and remembers the old id so a re-sync can't bring it back as a ride). A recording set aside under a picked ride is the same session from another
     device, so it is not a ride either and is thrown away with it. The ones not picked are marked 'kept' and not proposed again.
     Commits. Returns {'changed', 'failed', 'kept'}."""

@@ -9,7 +9,7 @@
   <div class="card-title">Check activity types with Garmin</div>
   <p class="hint" style="margin:0 0 0.75rem;">
     An older Garmin sync saved every activity type it didn't know as a ride, so swims, surf sessions and some runs ended up in your rides,
-    counted in your ride totals and flagged as rides that look wrong. Runs, walks and hikes were also kept with the rides instead of in Workouts.
+    counted in your ride totals and flagged as rides that look wrong. Runs, walks and hikes were also saved as rides.
     It also saved mountain bike and gravel rides as plain rides; given their own kind back, they get your default bike for that kind (Gear page).
     So did syncs before Headwind knew Garmin's e-bike types: those rides were saved as plain rides. And HIIT, strength and yoga sessions
     saved before Headwind had those sports were saved as Other.
@@ -32,7 +32,7 @@
 
 {% if fixes %}
 <form method="POST" action="{{ url_for('garmin.sports_apply') }}" class="card"
-      onsubmit="var n = this.querySelectorAll('input[name=ride]:checked').length; return confirm('Change ' + n + ' activit' + (n == 1 ? 'y' : 'ies') + ' to the sport Garmin recorded? Rides that become runs, swims and so on move to Workouts. The ones you untick are left as they are and not suggested again.' + (this.querySelectorAll('input[name=ride][data-parked]:checked').length ? ' Other recordings set aside under the ticked ones are removed with them.' : ''));">
+      onsubmit="var n = this.querySelectorAll('input[name=ride]:checked').length; return confirm('Change ' + n + ' activit' + (n == 1 ? 'y' : 'ies') + ' to the sport Garmin recorded? Rides that become runs, swims and so on lose their bike and ride segment times. The ones you untick are left as they are and not suggested again.' + (this.querySelectorAll('input[name=ride][data-parked]:checked').length ? ' Other recordings set aside under the ticked ones are removed with them.' : ''));">
   <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap; margin-bottom:0.5rem;">
     <div class="card-title" style="margin:0;">{{ fixes | length }} with the wrong sport</div>
     <label class="check" style="margin:0;">

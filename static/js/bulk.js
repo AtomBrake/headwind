@@ -117,7 +117,7 @@
     var sel = e.target, n = picked.size;
     if (!sel.value || !n) return;
     var label = sel.options[sel.selectedIndex].text;
-    var q = { sport: 'Change ' + plural(n) + ' to ' + label + '? Rides that become walks, runs or other sports move to Workouts.',
+    var q = { sport: 'Change ' + plural(n) + ' to ' + label + '? Rides that become another sport lose their bike and ride segment times.',
               bike: 'Set the bike on ' + plural(n) + ' to ' + label + '? Only rides of that bike’s rider change.',
               kit: 'Set the gear on ' + plural(n) + ' to ' + label + '? Rides keep their bike; only that rider’s other activities change.',
               rider: 'Move ' + plural(n) + ' to ' + label + '? Their bikes are cleared.',

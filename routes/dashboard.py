@@ -47,7 +47,7 @@ def _weekly_data(rider_id, sf=None):
 
 
 def _name(a):
-    """A walk or run without a name of its own gets "Morning walk", as on the Workouts page."""
+    """A walk or run without a name of its own gets "Morning walk"."""
     if (a['name'] or '').strip() or sports.is_ride(a['sportType']):
         return a['name']
     from services.workouts import label
@@ -84,7 +84,7 @@ def dist_filters(args):
 
 def climb(a):
     """An activity row's climb as it adds to a total: none on the water (services/sports.has_climbing). Takes the dashboard's rows (sportType)
-    and the Workouts page's (sport)."""
+    and rows that carry the sport as `sport`."""
     keys = a.keys()
     sport = a['sportType'] if 'sportType' in keys else (a['sport'] if 'sport' in keys else None)
     return (a['totalElevationGain'] or 0) if sports.has_climbing(sport) else 0

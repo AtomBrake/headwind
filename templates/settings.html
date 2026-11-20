@@ -479,7 +479,7 @@
       <span id="calAdjStatus" style="font-size:0.8125rem; color:var(--text-muted);"></span>
     </div>
     <p style="color:var(--text-muted); font-size:0.75rem; margin-top:0.75rem; line-height:1.5;">
-      0 turns it off. "Apply to history" re-works your own stored rides, walks/runs and Garmin totals from their original numbers
+      0 turns it off. "Apply to history" re-works your own stored activities and Garmin totals from their original numbers
       (rides received from friends are left alone). Run it again with a different percentage at any time.
     </p>
   </div>
@@ -757,7 +757,7 @@ function calAdjSave(history) {
       st.textContent = 'Applying to history…';
       return fetch('/settings/calorie-adjust/apply-history', { method: 'POST' }).then(function(r) { return r.json(); }).then(function(d) {
         var t = d.touched || {};
-        st.textContent = '✓ Saved and applied — ' + (t.Activity || 0) + ' rides, ' + (t.Workout || 0) + ' walks/runs, ' + (t.GarminDaily || 0) + ' daily totals';
+        st.textContent = '✓ Saved and applied — ' + (t.Activity || 0) + ' activities, ' + (t.GarminDaily || 0) + ' daily totals';
         st.style.color = 'var(--success)';
       });
     })

@@ -174,13 +174,13 @@ def _garmin_heartbeat(app):
                                 for final in sync_garmin_activities(rider['id'], api=api):
                                     pass
                                 if final.get('error'):
-                                    result.append(f"rides failed: {final['error']}")
+                                    result.append(f"activities failed: {final['error']}")
                                 else:
                                     n = final.get('imported', 0)
-                                    result.append(f"{n} new ride{'s' if n != 1 else ''} or workout{'s' if n != 1 else ''}" if n else 'no new rides')
+                                    result.append(f"{n} new activit{'y' if n == 1 else 'ies'}" if n else 'no new activities')
                             except Exception as e:
                                 log.warning('Garmin activity sync failed: %s', e)
-                                result.append(f'rides failed: {str(e)[:120]}')
+                                result.append(f'activities failed: {str(e)[:120]}')
                             if sweep:                       # once a day: anything deleted or changed in Garmin since it was imported
                                 from services import garmin_changes
                                 try:

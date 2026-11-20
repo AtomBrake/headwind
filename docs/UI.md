@@ -120,7 +120,7 @@ Inside a card that already exists, drop `card`.
 
 ## Lists of activities
 
-Every list of activities (dashboard, Activities, Workouts, a bike's, kit's or rider's page) draws its rows with the one macro in `templates/_activity_row.html`: sport icon, name, then date, distance, time, speed or pace by sport, and the climb where the sport has one.
+Every list of activities (dashboard, Activities, a bike's, kit's or rider's page) draws its rows with the one macro in `templates/_activity_row.html`: sport icon, name, then date, distance, time, speed or pace by sport, and the climb where the sport has one.
 
 ```jinja
 {% from '_activity_row.html' import activity_row %}

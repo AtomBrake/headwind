@@ -264,7 +264,7 @@ const E = A.efforts || [], ALL = A.all || [], RUN = @@RUN@@;
 const t = v => v == null ? '–' : Math.floor(v / 60) + ':' + String(Math.round(v) % 60).padStart(2, '0');
 const sig = v => (v > 0 ? '+' : v < 0 ? '−' : '±') + t(Math.abs(v));
 if (!E.length && RUN && !A.id) return '';
-if (!E.length) return `<div style="font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:${MUTED}">Segments</div><div style="margin-top:8px;font-size:13px;color:${MUTED}">${RUN ? 'No run segments crossed on the latest run. Create one from a run under Workouts in Headwind.' : 'No segments crossed on the latest ride.'}</div>`;
+if (!E.length) return `<div style="font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:${MUTED}">Segments</div><div style="margin-top:8px;font-size:13px;color:${MUTED}">${RUN ? 'No run segments crossed on the latest run. Create one from a run under Activities in Headwind.' : 'No segments crossed on the latest ride.'}</div>`;
 const rows = E.slice().sort((a, b) => ((a.secs - a.best) / a.best) - ((b.secs - b.best) / b.best)).map(e => {
   const gap = e.secs - e.best, pct = e.best ? gap / e.best : 0;
   const tag = e.pr ? '<b style="color:#fbbf24">🏆 PR</b>' : `<span style="color:${pct <= .05 ? '#4ade80' : pct <= .2 ? '#fbbf24' : '#f87171'}">${sig(gap)} vs best</span>`;

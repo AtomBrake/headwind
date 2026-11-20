@@ -728,8 +728,8 @@ def change_sport(rid):
 
 @bp.route('/bulk-sport', methods=['POST'])
 def bulk_sport():
-    """Change the type of many activities at once (the results of a dashboard search): ids are comma-separated in `ids`. A walk/run/hike moves to Workouts,
-    a ride moves back. Each one is converted by the same code as the single-activity dropdown; one that cannot be changed is skipped and counted."""
+    """Change the type of many activities at once (the results of a dashboard search): ids are comma-separated in `ids`. A ride that becomes another
+    sport loses its bike, and the other way gets the default bike. Each one is converted by the same code as the single-activity dropdown; one that cannot be changed is skipped and counted."""
     from services import convert
     from urllib.parse import quote
     sport = request.form.get('sport')

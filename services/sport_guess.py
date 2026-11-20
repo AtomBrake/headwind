@@ -60,7 +60,7 @@ def pending(db, rider_id=None):
 
 
 def answer(db, act_ids, use):
-    """`use`: change each to its guess (convert.change_sport: a run moves to Workouts, with its derived data put right; a recording set aside
+    """`use`: change each to its guess (convert.change_sport: a run loses its bike and ride segment times, with its derived data put right; a recording set aside
     under it is the same session from another device and goes with it, as in sport_fix.apply). Else the file was right: not asked again.
     Does not commit. Returns (how many were answered, [(id, why it couldn't be changed)])."""
     from services import convert

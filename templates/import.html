@@ -383,7 +383,7 @@
     {% if n > 1 %}
     <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
       <form method="POST" action="{{ url_for('import_rides.sport_guess_resolve', act_id='all', choice='use') }}" style="margin:0;"
-            onsubmit="return confirm('Change all {{ n }} to what their pace says? They move out of your rides and into Workouts.')">
+            onsubmit="return confirm('Change all {{ n }} to what their pace says? They lose their bike and ride segment times, and their calories are worked out again.')">
         <button class="btn btn-secondary btn-sm">Change all {{ n }}</button></form>
       <form method="POST" action="{{ url_for('import_rides.sport_guess_resolve', act_id='all', choice='keep') }}" style="margin:0;">
         <button class="btn btn-secondary btn-sm">Keep all {{ n }} as they are</button></form>

@@ -1,5 +1,5 @@
 {# One activity in a list: sport icon, name, then date, distance, time, speed or pace by sport, and the climb where the sport has one.
-   The one row for every list of activities (dashboard, Activities, Workouts, a bike's or kit's page, a rider's page): docs/UI.md.
+   The one row for every list of activities (dashboard, Activities, a bike's or kit's page, a rider's page): docs/UI.md.
    {% from '_activity_row.html' import activity_row %}, then {{ activity_row(a) }}; date=false where a day heading already gives the date,
    more=[…] for extra figures on the second line, and {% call activity_row(a) %}…{% endcall %} for controls at the end of the row.
    The whole row opens the activity; it is a [data-pick] row for the Select bar (static/js/bulk.js) inside a [data-pick-list]. #}
