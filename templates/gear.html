@@ -5,7 +5,7 @@
 
 {% block topbar_actions %}
   {% if riders %}
-  <form method="GET" style="display:inline;"><select name="rider" onchange="this.form.submit()">{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>
+  <form method="GET" style="display:inline;"><select name="rider" data-autosubmit>{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>
   {% endif %}
   {% if strava.any %}<a href="{{ url_for('gear.strava_page', rider=rid) }}" class="btn btn-secondary">Strava bikes</a>{% endif %}
   <a href="{{ url_for('gear.assign_page', rider=rid) }}" class="btn btn-secondary">Assign rides</a>
@@ -131,7 +131,7 @@
     <div class="form-actions" style="margin-top:.8rem;"><button class="btn btn-primary" type="submit">Save defaults</button></div>
   </form>
   {% if defaults.plan %}
-  <form method="POST" action="{{ url_for('gear.defaults_apply') }}" class="apply-defaults" onsubmit="return confirm('Put these past activities on their default gear?')">
+  <form method="POST" action="{{ url_for('gear.defaults_apply') }}" class="apply-defaults" data-confirm="Put these past activities on their default gear?">
     <input type="hidden" name="rider" value="{{ rid }}">
     <div class="card-title" style="margin-top:1rem;">Past activities</div>
     <p class="hint" style="margin:.1rem 0 .4rem;">These defaults would give older activities different gear:</p>

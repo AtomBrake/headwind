@@ -7,7 +7,7 @@
 
 {% macro rider_field() %}<input type="hidden" name="rider" value="{{ rid }}">{% endmacro %}
 {% macro metric_select(id) %}
-<select name="metric" id="{{ id }}" data-units='{{ units_of | tojson }}' onchange="goalUnit(this)">
+<select name="metric" id="{{ id }}" data-units='{{ units_of | tojson }}' data-change="goalUnit(this)">
   {% for k, label in metrics.items() %}<option value="{{ k }}">{{ label }}</option>{% endfor %}
 </select>
 {% endmacro %}
@@ -22,7 +22,7 @@
   <div class="card">
     {{ goal_progress(g) }}
     <form method="POST" action="{{ url_for('goals.delete_goal', gid=g.id) }}" style="margin-top:0.6rem;"
-          data-confirm="Delete the goal {{ g.title }}? Your activities stay. This cannot be undone." onsubmit="return confirm(this.dataset.confirm)">
+          data-confirm="Delete the goal {{ g.title }}? Your activities stay. This cannot be undone.">
       {{ rider_field() }}<button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button>
     </form>
   </div>
@@ -73,11 +73,11 @@
       <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='leave') }}">{{ rider_field() }}<button class="btn btn-secondary btn-sm" type="submit">Not this time</button></form>
       {% elif c.mine %}
       <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='delete') }}"
-            data-confirm="Delete the challenge {{ c.name }}? Friends who joined keep it without you; the rest stop seeing it on their next sync. This cannot be undone." onsubmit="return confirm(this.dataset.confirm)">
+            data-confirm="Delete the challenge {{ c.name }}? Friends who joined keep it without you; the rest stop seeing it on their next sync. This cannot be undone.">
         {{ rider_field() }}<button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button></form>
       {% else %}
       <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='leave') }}"
-            data-confirm="Leave {{ c.name }}? Your friends stop seeing you in it on their next sync." onsubmit="return confirm(this.dataset.confirm)">
+            data-confirm="Leave {{ c.name }}? Your friends stop seeing you in it on their next sync.">
         {{ rider_field() }}<button class="btn btn-danger-quiet btn-sm" type="submit">Leave</button></form>
       {% endif %}
     </div>
@@ -128,7 +128,7 @@
     </div>
     {{ standings(c) }}
     {% if c.mine %}
-    <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='delete') }}" data-confirm="Delete the challenge {{ c.name }}? This cannot be undone." onsubmit="return confirm(this.dataset.confirm)">
+    <form method="POST" action="{{ url_for('goals.challenge_action', cid=c.id, action='delete') }}" data-confirm="Delete the challenge {{ c.name }}? This cannot be undone.">
       {{ rider_field() }}<button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button></form>
     {% endif %}
   </div>
@@ -136,11 +136,5 @@
 </details>
 {% endif %}
 
-<script>
-// The target's unit follows what's counted: miles or km, feet or metres, hours, activities
-function goalUnit(sel) {
-  var u = JSON.parse(sel.dataset.units)[sel.value];
-  document.querySelectorAll('[data-unit-for="' + sel.id + '"]').forEach(function (el) { el.textContent = u; });
-}
-</script>
+<script src="{{ url_for('static', filename='js/goals.js') }}"></script>
 {% endblock %}

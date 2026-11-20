@@ -13,6 +13,7 @@ import config
 import database
 from routes import import_rides
 from services import credentials, logs, planned_routes
+from tests.page_data import page_data
 from services import streams as _streams
 
 
@@ -248,5 +249,5 @@ def test_save_as_route_from_a_run_and_not_from_zwift(client):
 
 
 def test_the_planner_opens_a_route_asked_for(client):
-    assert 'loadSaved(5).catch' in client.get('/planner/?route=5').get_data(as_text=True)
-    assert '.catch(function() {});' not in client.get('/planner/').get_data(as_text=True)
+    assert page_data(client.get('/planner/?route=5').get_data(as_text=True), 'plannerData')['openRoute'] == 5
+    assert page_data(client.get('/planner/').get_data(as_text=True), 'plannerData')['openRoute'] is None

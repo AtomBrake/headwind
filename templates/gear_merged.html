@@ -4,7 +4,7 @@
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">{% endblock %}
 {% block parent %}<a href="{{ url_for('gear.index', rider=rid) }}">Gear</a>{% endblock %}
 {% block topbar_actions %}
-  {% if riders %}<form method="GET" style="display:inline;"><select name="rider" onchange="this.form.submit()">{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>{% endif %}
+  {% if riders %}<form method="GET" style="display:inline;"><select name="rider" data-autosubmit>{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>{% endif %}
 {% endblock %}
 {# A gear name, marked when retired #}
 {% macro gear_name(g) %}<strong>{{ g.name }}</strong>{% if g.retired %} <span class="hint">(retired)</span>{% endif %}{% endmacro %}
@@ -21,9 +21,9 @@
   and the activity stayed on the gear of the one kept, which may be the wrong one: a ride given your default bike, say, while its Strava copy names the bike you rode.
   Pick the right gear for each, or settle them all at once.</p>
 <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1rem;">
-  <form method="POST" action="{{ url_for('gear.merged_save', dup_id='all', choice='other') }}" onsubmit="return confirm('Put all {{ rows | length }} on the gear of their other recording?')">
+  <form method="POST" action="{{ url_for('gear.merged_save', dup_id='all', choice='other') }}" data-confirm="Put all {{ rows | length }} on the gear of their other recording?">
     <input type="hidden" name="rider" value="{{ rid }}"><button class="btn btn-primary" type="submit">Use the other recording's gear for all {{ rows | length }}</button></form>
-  <form method="POST" action="{{ url_for('gear.merged_save', dup_id='all', choice='kept') }}" onsubmit="return confirm('Leave all {{ rows | length }} on the gear they have?')">
+  <form method="POST" action="{{ url_for('gear.merged_save', dup_id='all', choice='kept') }}" data-confirm="Leave all {{ rows | length }} on the gear they have?">
     <input type="hidden" name="rider" value="{{ rid }}"><button class="btn btn-secondary" type="submit">Leave them all as they are</button></form>
 </div>
 <div class="card" style="overflow-x:auto;">

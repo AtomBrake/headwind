@@ -4,7 +4,7 @@
 {% block page_title %}Riders{% endblock %}
 
 {% block topbar_actions %}
-  <button class="btn btn-primary" onclick="document.getElementById('addRiderModal').style.display='flex'">+ Add Rider</button>
+  <button class="btn btn-primary" data-click="setDisplay('addRiderModal', 'flex')">+ Add Rider</button>
 {% endblock %}
 
 {% block content %}
@@ -40,7 +40,7 @@
       </div>
       <div style="display:flex; gap:0.5rem; margin-top:0.5rem;">
         <button type="submit" class="btn btn-primary">Create</button>
-        <button type="button" class="btn btn-secondary" onclick="document.getElementById('addRiderModal').style.display='none'">Cancel</button>
+        <button type="button" class="btn btn-secondary" data-click="setDisplay('addRiderModal', 'none')">Cancel</button>
       </div>
     </form>
   </div>

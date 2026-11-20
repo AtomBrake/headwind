@@ -7,6 +7,6 @@
   <p style="color:var(--text-muted);">It has been written to the log with the reference <strong style="font-family:monospace;color:var(--text);">{{ log_id }}</strong>.
     If you report it, quote that reference, or attach the file from <a href="{{ url_for('tasks.index') }}">Tasks → Download diagnostics</a>.
     <a href="{{ url_for('tasks.index', log=log_id) }}#logs">See what was logged</a>.</p>
-  <a class="btn btn-primary" href="javascript:history.back()">Go back</a>
+  <a class="btn btn-primary" href="#" data-click="history.back(); event.preventDefault()">Go back</a>
 </div>
 {% endblock %}

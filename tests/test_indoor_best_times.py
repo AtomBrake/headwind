@@ -3,7 +3,6 @@ page, the profile, the run badges and the AI's "beat your previous best" each co
 whichever way it arrives (Garmin, a FIT or GPX file, a start in one of Zwift's made-up worlds), with no segments; and one saved as an outdoor run
 before is put right at start-up (services/sport_fix.fix_misfiled). Full app, throwaway DB."""
 import json
-import re
 from datetime import datetime, timezone
 
 import pytest
@@ -13,6 +12,7 @@ import config
 import database
 from services import credentials, sport_records, sports, zwift
 from services import streams as _streams
+from tests.page_data import page_data
 
 
 class _NoThread:
@@ -93,7 +93,7 @@ def test_run_best_times_count_outdoors_and_indoors_apart(app):
 
 
 def _tables(html):
-    return {a['key']: a for a in json.loads(re.search(r'const data = (.*);', html).group(1))}
+    return {a['key']: a for a in page_data(html, 'analyticsData')['achievements']}
 
 
 def test_data_page_has_indoor_tables_of_their_own(client):

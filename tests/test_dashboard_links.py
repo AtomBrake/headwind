@@ -1,5 +1,4 @@
 """The dashboard: its numbers drop as soon as a ride is deleted, and nearly everything on it links to what is behind it. Full app, throwaway DB."""
-import json
 import re
 from datetime import date, timedelta
 
@@ -9,6 +8,7 @@ import app as app_module
 import config
 import database
 from services import credentials
+from tests.page_data import page_data
 
 
 class _NoThread:
@@ -40,8 +40,8 @@ def client(tmp_path, monkeypatch):
 
 def _page(client):
     html = client.get('/dashboard').get_data(as_text=True)
-    weekly = json.loads(re.search(r'const weeklyData\s+=\s+(.*);', html).group(1))
-    speed = json.loads(re.search(r'const yearSpeedData = (.*);', html).group(1))
+    d = page_data(html, 'dashboardData')
+    weekly, speed = d['weekly'], d['yearSpeed']
     return html, weekly, speed
 
 
@@ -100,7 +100,7 @@ def test_a_second_riders_links_keep_the_rider(client):
                    "VALUES ('sam1', 'sam1', 2, ?, 10000, 1800, 5.5)", [date.today().isoformat() + 'T07:00:00'])
         db.commit()
     html = client.get('/dashboard?rider=2').get_data(as_text=True)
-    assert 'href="/data?rider=2#distance"' in html and 'const riderQuery    = "rider=2"' in html
+    assert 'href="/data?rider=2#distance"' in html and page_data(html, 'dashboardData')['riderQuery'] == 'rider=2'
     assert '/dashboard?rider=2&amp;from=' in html
 
 

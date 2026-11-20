@@ -63,17 +63,8 @@
       rate, steps), your height, sex and birth date, goals, and your GPS tracks unless you leave them out below. Send it only to someone you'd
       trust with that, and not as a public attachment.</p>
     {% if copy.state == 'running' %}
-    <p style="margin:0; padding:0.6rem 0.75rem; border:1px solid var(--border); border-radius:8px;">Making the copy… On a big database this
+    <p style="margin:0; padding:0.6rem 0.75rem; border:1px solid var(--border); border-radius:8px;" data-poll="{{ url_for('tasks.troubleshooting_copy_status') }}">Making the copy… On a big database this
       takes a minute or two. You can leave this page: the copy is offered here when it's ready, for a day.</p>
-    <script>
-      (function poll() {
-        setTimeout(function () {
-          fetch('{{ url_for('tasks.troubleshooting_copy_status') }}').then(function (r) { return r.json(); })
-            .then(function (s) { if (s.state === 'running') poll(); else location.reload(); })
-            .catch(poll);
-        }, 2000);
-      })();
-    </script>
     {% else %}
     {% if copy.state == 'ready' %}
     <div style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; margin:0 0 0.9rem; padding:0.6rem 0.75rem; border:1px solid var(--border); border-radius:8px;">
@@ -106,9 +97,9 @@
   {% if log_file %}
   <p class="hint" style="margin:0 0 0.75rem;">The newest lines first. Every line carries the id of the page request or background run
     that wrote it: click one to see only that request's lines, or paste the reference from an error page.</p>
-  <form id="logForm" style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem;" onsubmit="loadLogs(); return false;">
+  <form id="logForm" style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem;" data-submit="event.preventDefault(); loadLogs()">
     <input type="text" id="logQ" placeholder="Search, or a reference like 3f9c2a1b" autocomplete="off" style="flex:3 1 14rem; min-width:0;">
-    <select id="logLevel" style="flex:1 1 9rem; min-width:0;" onchange="loadLogs()">
+    <select id="logLevel" style="flex:1 1 9rem; min-width:0;" data-change="loadLogs()">
       <option value="ERROR">Errors</option>
       <option value="WARNING">Warnings and errors</option>
       <option value="INFO" selected>Everything logged</option>
@@ -131,7 +122,7 @@
     <span style="color:{{ badge[r.status][1] }}; min-width:4.5rem;">● {{ badge[r.status][0] }}</span>
     <span style="min-width:7rem;">{{ r.label }}</span>
     <span style="color:var(--text-muted); min-width:9rem;" data-when="{{ r.startedAt }}">{{ r.startedAt }}</span>
-    <span style="color:var(--text-muted); flex:1 1 14rem;">{{ r.error or r.result or '' }}{% if r.status == 'failed' and r.logId %} · <a href="?log={{ r.logId }}#logs" onclick="return showLogId('{{ r.logId }}')">log lines marked <code>[{{ r.logId }}]</code></a>{% endif %}</span>
+    <span style="color:var(--text-muted); flex:1 1 14rem;">{{ r.error or r.result or '' }}{% if r.status == 'failed' and r.logId %} · <a href="?log={{ r.logId }}#logs" data-click="showLogId('{{ r.logId }}')">log lines marked <code>[{{ r.logId }}]</code></a>{% endif %}</span>
   </div>
   {% else %}
   <p class="hint">No runs recorded yet.</p>
@@ -140,114 +131,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-// times are stored in UTC: show them in this browser's time, as "today 14:05" or "3 Oct 14:05"
-document.querySelectorAll('[data-when]').forEach(function (el) {
-  var d = new Date(el.dataset.when);
-  if (isNaN(d)) return;
-  var t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  el.textContent = (d.toDateString() === new Date().toDateString() ? 'today ' : d.getDate() + ' ' + _MONTHS[d.getMonth()] + ' ') + t;
-});
-
-// The Logs card: filters live in the address (?log=…&level=…), so the page's own refresh and a link from the error page keep them.
-var LOG_COLOURS = { ERROR: 'var(--danger)', CRITICAL: 'var(--danger)', WARNING: 'var(--warning)', DEBUG: 'var(--text-muted)' };
-function loadLogs() {
-  var list = document.getElementById('logList');
-  if (!list) return;
-  var q = document.getElementById('logQ').value.trim(), level = document.getElementById('logLevel').value;
-  var url = new URL(location.href);
-  q ? url.searchParams.set('log', q) : url.searchParams.delete('log');
-  level !== 'INFO' ? url.searchParams.set('level', level) : url.searchParams.delete('level');
-  history.replaceState(null, '', url);
-  fetch('/tasks/logs?' + new URLSearchParams({ q: q, level: level, limit: 200 }))
-    .then(function (r) { return r.json(); })
-    .then(function (d) {
-      list.textContent = '';
-      d.records.forEach(function (r) {
-        var row = document.createElement('div');
-        row.style.cssText = 'padding:0.3rem 0; border-top:1px solid var(--border); overflow-wrap:anywhere;';
-        var head = document.createElement('div');
-        var when = document.createElement('span');
-        when.style.color = 'var(--text-muted)';
-        when.textContent = r.time.slice(0, 19) + ' ';
-        var lvl = document.createElement('span');
-        lvl.style.cssText = 'font-weight:600; color:' + (LOG_COLOURS[r.level] || 'inherit');
-        lvl.textContent = r.level + ' ';
-        head.append(when, lvl);
-        if (r.id && r.id !== '-') {
-          var id = document.createElement('a');
-          id.href = '?log=' + encodeURIComponent(r.id) + '#logs';
-          id.textContent = '[' + r.id + ']';
-          id.title = 'Only this request’s lines';
-          id.onclick = function () { return showLogId(r.id); };
-          head.append(id, ' ');
-        }
-        var who = document.createElement('span');
-        who.style.color = 'var(--text-muted)';
-        who.textContent = r.logger + ': ';
-        var msg = document.createElement('span');
-        msg.style.whiteSpace = 'pre-wrap';
-        logMessage(msg, r.message, d.links || {});
-        head.append(who, msg);
-        row.append(head);
-        if (r.detail) {
-          var det = document.createElement('details');
-          var sum = document.createElement('summary');
-          sum.textContent = r.detail.indexOf('Traceback') === 0 ? 'Traceback' : 'More';
-          sum.style.cssText = 'cursor:pointer; color:var(--text-muted);';
-          var pre = document.createElement('pre');
-          pre.style.cssText = 'white-space:pre-wrap; margin:0.25rem 0 0; font-size:0.7rem;';
-          pre.textContent = r.detail;
-          det.append(sum, pre);
-          row.append(det);
-        }
-        list.append(row);
-      });
-      document.getElementById('logFoot').textContent = d.records.length
-        ? (d.more ? 'The newest ' + d.records.length + ' matching lines; narrow the search to see older ones.' : d.records.length + ' matching line' + (d.records.length === 1 ? '' : 's') + '.')
-        : 'No matching lines' + (level === 'ERROR' ? ': no errors logged.' : '.');
-    })
-    .catch(function () { document.getElementById('logFoot').textContent = 'Could not load the log.'; });
-}
-// An activity id the server found (links: {id: {url, name}}) becomes a link to it, named in its tooltip; the rest stays text
-function logMessage(el, text, links) {
-  var rx = /\b(?:(?:garmin|wk|man|imp)_[0-9a-f]+|\d{7,})\b/g, last = 0, m;
-  while ((m = rx.exec(text))) {
-    var hit = links[m[0]];
-    if (!hit) continue;
-    el.append(text.slice(last, m.index));
-    var a = document.createElement('a');
-    a.href = hit.url;
-    a.textContent = m[0];
-    a.title = hit.name || 'Open this activity';
-    el.append(a);
-    last = m.index + m[0].length;
-  }
-  el.append(text.slice(last));
-}
-function showLogId(id) {
-  document.getElementById('logQ').value = id;
-  document.getElementById('logLevel').value = 'DEBUG';
-  loadLogs();
-  document.getElementById('logs').scrollIntoView({ behavior: 'smooth' });
-  return false;
-}
-(function () {
-  if (!document.getElementById('logList')) return;
-  var p = new URLSearchParams(location.search);
-  document.getElementById('logQ').value = p.get('log') || '';
-  if (p.get('level')) document.getElementById('logLevel').value = p.get('level').toUpperCase();
-  else if (p.get('log')) document.getElementById('logLevel').value = 'DEBUG';   // a request's own lines: all of them
-  loadLogs();
-  if (p.get('log') && location.hash === '#logs') document.getElementById('logs').scrollIntoView();
-})();
-{% if jobs | selectattr('state', 'in', ['running', 'waiting']) | list %}
-// Refresh while something runs, but not under someone reading or typing in the Logs card
-setTimeout(function reload() {
-  var busy = document.activeElement && document.activeElement.closest && document.activeElement.closest('#logs');
-  if (busy || document.querySelector('#logs details[open]')) { setTimeout(reload, 20000); return; }
-  location.reload();
-}, 20000);
-{% endif %}
-</script>
+<script src="{{ url_for('static', filename='js/tasks.js') }}"{% if jobs | selectattr('state', 'in', ['running', 'waiting']) | list %} data-refresh{% endif %}></script>
 {% endblock %}

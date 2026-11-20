@@ -56,7 +56,7 @@ def test_job_cards_show_their_state_and_actions(client):
     assert 'Garmin sync' in html and 'Failing (2 in a row): HTTP 503' in html and 'action="/tasks/run/garmin"' in html
     assert 'Health history complete.' in html
     assert 'Weight history: could not reach Garmin' in html and 'action="/tasks/run/weights"' in html
-    assert 'setTimeout' in html                                                       # something is waiting: the page refreshes itself
+    assert 'tasks.js' in html and ' data-refresh>' in html                            # something is waiting: the page refreshes itself
 
 
 def test_run_now_wakes_the_jobs(client):
@@ -129,7 +129,7 @@ def test_activity_type_page_shows_a_running_check(client):
     with client.application.app_context():
         tasks.start(database.get_db(), 'sport_check', 'Activity type check')
     html = client.get('/garmin/sports').get_data(as_text=True)
-    assert 'disabled>Asking Garmin' in html and 'location.reload' in html
+    assert 'disabled>Asking Garmin' in html and ' data-running>' in html
 
 
 def test_ride_page_links_to_where_it_came_from(client):

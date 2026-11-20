@@ -13,9 +13,10 @@ from services import logs
 logs.setup()                    # stderr only until create_app knows where the database (and so the log folder) is
 log = logging.getLogger(__name__)
 
-# Scripts only from this server: the libraries are in static/vendor (scripts/vendor.py). 'unsafe-inline' because the pages are full
-# of inline scripts and on…= handlers.
-SCRIPT_SOURCES = ("'self'", "'unsafe-inline'")
+# Scripts only from this server's files: the libraries are in static/vendor (scripts/vendor.py) and the pages' own scripts in
+# static/js. Nothing inline runs: a page passes its data in <script type="application/json"> or data- attributes, and its handlers
+# are data-click= and the rest (static/js/actions.js), not onclick=.
+SCRIPT_SOURCES = ("'self'",)
 CSP = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; script-src " + ' '.join(SCRIPT_SOURCES)
 
 
@@ -485,7 +486,7 @@ def create_app():
     @app.after_request
     def security_headers(resp):
         """On every response, not just the demo: no framing by other sites (clickjacking), no MIME sniffing, no full URLs
-        leaking to other sites. The CSP (CSP above) limits where scripts come from but still allows inline ones. HSTS only
+        leaking to other sites. The CSP (CSP above) runs only the scripts in this server's own files. HSTS only
         over HTTPS (directly or via a trusted proxy's X-Forwarded-Proto), so a plain-HTTP LAN install isn't locked out."""
         h = resp.headers
         h.setdefault('X-Frame-Options', 'DENY')

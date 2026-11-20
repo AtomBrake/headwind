@@ -2,7 +2,7 @@
    on these shoes, with a live count first. The full calendar for bikes is /gear/assign. */
 (function () {
   'use strict';
-  const G = window.GEAR_ASSIGN, $ = (id) => document.getElementById(id);
+  const G = JSON.parse(document.getElementById('gearAssign').textContent), $ = (id) => document.getElementById(id);
   if (!G || !$('bApply')) return;
   const pad = (n) => String(n).padStart(2, '0'), iso = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;   // local date, never toISOString (UTC shift)
   const isBike = G.what === 'bike', url = (isBike ? '/gear/api/assign' : '/gear/api/kit-assign') + '?rider=' + G.rider;

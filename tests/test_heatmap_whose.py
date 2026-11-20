@@ -10,6 +10,7 @@ import config
 import database
 from services import credentials
 from services import streams as stream_store
+from tests.page_data import page_data
 
 
 class _NoThread:
@@ -67,7 +68,7 @@ def test_the_page_offers_the_owner_and_friends_with_rides(client):
     assert 'id="whoFilter"' in html
     friends = re.search(r'<optgroup label="Friends">(.*?)</optgroup>', html).group(1)
     assert 'Rachel' in friends and 'Quiet' not in friends              # a friend with nothing to draw isn't offered
-    people = json.loads(re.search(r'var PEOPLE = (.*);', html).group(1))
+    people = page_data(html, 'heatmapData')['people']
     assert [p['name'] for p in people] == ['Tom', 'Rachel']
 
 

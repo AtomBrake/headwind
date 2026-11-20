@@ -50,7 +50,7 @@ def test_csp_limits_script_sources(client):
     csp = client.get('/login').headers['Content-Security-Policy']
     script_src = next(d for d in csp.split(';') if d.strip().startswith('script-src')).split()[1:]
     assert "'self'" in script_src
-    assert not any(s in script_src for s in ('*', 'https:', "'unsafe-eval'", 'https://cdn.jsdelivr.net', 'https://unpkg.com'))
+    assert not any(s in script_src for s in ('*', 'https:', "'unsafe-eval'", "'unsafe-inline'", 'https://cdn.jsdelivr.net', 'https://unpkg.com'))
 
 
 def test_no_page_loads_from_another_site():

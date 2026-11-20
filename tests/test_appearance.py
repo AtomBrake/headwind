@@ -93,4 +93,4 @@ def test_the_login_page_follows_it_too(app):
     with app.app_context():
         database.get_db().execute("UPDATE Settings SET appearance='light' WHERE id=1"); database.get_db().commit()
     page = app.test_client().get('/login').get_data(as_text=True)
-    assert _theme(page) == 'light' and "applyScheme" in page
+    assert _theme(page) == 'light' and 'js/scheme.js' in page

@@ -36,7 +36,7 @@
     Anything that differs from what's saved waits on this page for you to decide.
   </p>
   <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-    {% if a.kept %}<button class="btn btn-primary" onclick="importAgain({{ a.riderId }}, this)">Import again</button>{% endif %}
+    {% if a.kept %}<button class="btn btn-primary" data-click="importAgain({{ a.riderId }}, this)">Import again</button>{% endif %}
     <form method="POST" action="{{ url_for('import_rides.advice_not_now', rider_id=a.riderId) }}" style="margin:0;">
       <button class="btn btn-secondary">Not now</button></form>
   </div>
@@ -99,7 +99,7 @@
     <div class="hint" style="margin-top:0.4rem;">Already imported this export? Import it again: rides already here are skipped, and the photos, segments and commute ticks are added to them. Routes already here aren't copied.</div>
   </fieldset>
 
-  <button id="uploadBtn" class="btn btn-primary" style="margin-top:1rem;display:none;" onclick="startUpload()">
+  <button id="uploadBtn" class="btn btn-primary" style="margin-top:1rem;display:none;" data-click="startUpload()">
     Import
   </button>
 </div>
@@ -135,9 +135,9 @@
   <p style="font-size:0.875rem;line-height:1.6;margin:0 0 0.75rem;">This version of Headwind reads exports differently from the one that last imported it: importing it again may fix or add to activities already here. Anything that differs from what's saved waits below for you to decide.</p>
   {% endif %}
   <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-    <button class="btn btn-primary" onclick="importAgain({{ k.riderId }}, this)">Import again</button>
+    <button class="btn btn-primary" data-click="importAgain({{ k.riderId }}, this)">Import again</button>
     <form method="POST" action="{{ url_for('import_rides.delete_kept', rider_id=k.riderId) }}" style="margin:0;"
-          onsubmit="return confirm('Delete the kept Strava export? Its activities stay; importing it again would mean uploading it.')">
+          data-confirm="Delete the kept Strava export? Its activities stay; importing it again would mean uploading it.">
       <button class="btn btn-danger-quiet">Delete</button></form>
   </div>
 </div>
@@ -210,7 +210,7 @@
     {% if n > 1 %}
     <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
       <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id='all', choice='replace') }}" style="margin:0;"
-            onsubmit="return confirm('Use the file\'s figures for all {{ '{:,}'.format(n) }}? Names, bikes, notes and types you set are kept.')">
+            data-confirm="Use the file's figures for all {{ '{:,}'.format(n) }}? Names, bikes, notes and types you set are kept.">
         <button class="btn btn-secondary btn-sm">Use all the file's</button></form>
       {% if any_fills %}
       <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id='all', choice='fill') }}" style="margin:0;">
@@ -254,7 +254,7 @@
   <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
     <div class="card-title" style="margin:0;">{% if garmin_changes %}{{ garmin_changes | length }} activit{{ 'ies' if garmin_changes | length != 1 else 'y' }} changed in Garmin Connect{% else %}Changes in Garmin Connect{% endif %}</div>
     {% if garmin_full %}
-    <form method="POST" action="{{ url_for('garmin.changes_check') }}" style="margin:0;" onsubmit="this.querySelector('button').disabled = true;">
+    <form method="POST" action="{{ url_for('garmin.changes_check') }}" style="margin:0;" data-busy>
       <button class="btn btn-secondary btn-sm"{% if running %} disabled{% endif %}>{{ 'Checking…' if running else 'Check now' }}</button></form>
     {% endif %}
   </div>
@@ -272,7 +272,7 @@
     {% if deleted | length > 1 %}
     <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
       <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id='deleted', choice='delete') }}" style="margin:0;"
-            onsubmit="return confirm('Delete all {{ deleted | length }} here too? They go to Recently deleted on this page for {{ bin_days }} days.')">
+            data-confirm="Delete all {{ deleted | length }} here too? They go to Recently deleted on this page for {{ bin_days }} days.">
         <button class="btn btn-danger-quiet btn-sm">Delete all here</button></form>
       <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id='deleted', choice='keep') }}" style="margin:0;">
         <button class="btn btn-secondary btn-sm">Keep all here</button></form>
@@ -287,7 +287,7 @@
       {% if c.parked %}<br><span style="color:var(--text-muted);">Another recording of it is set aside behind it: open it to use that one instead.</span>{% endif %}
     </span>
     <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='delete') }}" style="margin:0;"
-          onsubmit="return confirm('Delete this activity here too? It goes to Recently deleted on this page for {{ bin_days }} days.')">
+          data-confirm="Delete this activity here too? It goes to Recently deleted on this page for {{ bin_days }} days.">
       <button class="btn btn-danger-quiet btn-sm">Delete here</button></form>
     <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='keep') }}" style="margin:0;">
       <button class="btn btn-secondary btn-sm">Keep here</button></form>
@@ -328,10 +328,10 @@
     <div style="font-weight:600; font-size:0.875rem;">In Garmin, not here ({{ garmin_missing | length }})</div>
     {% if garmin_missing | length > 1 %}
     <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
-      <form method="POST" action="{{ url_for('garmin.missing_resolve', gid='all', choice='import') }}" style="margin:0;" onsubmit="this.querySelector('button').disabled = true;">
+      <form method="POST" action="{{ url_for('garmin.missing_resolve', gid='all', choice='import') }}" style="margin:0;" data-busy>
         <button class="btn btn-secondary btn-sm"{% if running %} disabled{% endif %}>Bring all in</button></form>
       <form method="POST" action="{{ url_for('garmin.missing_resolve', gid='all', choice='leave') }}" style="margin:0;"
-            onsubmit="return confirm('Leave out all {{ garmin_missing | length }}? Garmin won\'t offer them again.')">
+            data-confirm="Leave out all {{ garmin_missing | length }}? Garmin won't offer them again.">
         <button class="btn btn-secondary btn-sm">Leave all out</button></form>
     </div>
     {% endif %}
@@ -360,7 +360,7 @@
         it comes as Garmin has it, unless it's still in Recently deleted below: then it comes back as it was here.</p>
       {% if garmin_deleted | length > 1 %}
       <form method="POST" action="{{ url_for('garmin.missing_resolve', gid='all', choice='restore') }}" style="margin:0;"
-            onsubmit="if (!confirm('Bring back all {{ garmin_deleted | length }} from Garmin?')) return false; this.querySelector('button').disabled = true;">
+            data-confirm="Bring back all {{ garmin_deleted | length }} from Garmin?" data-busy>
         <button class="btn btn-secondary btn-sm"{% if running %} disabled{% endif %}>Bring all back</button></form>
       {% endif %}
     </div>
@@ -387,7 +387,7 @@
     {% if n > 1 %}
     <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
       <form method="POST" action="{{ url_for('import_rides.sport_guess_resolve', act_id='all', choice='use') }}" style="margin:0;"
-            onsubmit="return confirm('Change all {{ n }} to what their pace says? They lose their bike and ride segment times, and their calories are worked out again.')">
+            data-confirm="Change all {{ n }} to what their pace says? They lose their bike and ride segment times, and their calories are worked out again.">
         <button class="btn btn-secondary btn-sm">Change all {{ n }}</button></form>
       <form method="POST" action="{{ url_for('import_rides.sport_guess_resolve', act_id='all', choice='keep') }}" style="margin:0;">
         <button class="btn btn-secondary btn-sm">Keep all {{ n }} as they are</button></form>
@@ -430,7 +430,7 @@
       {% if n > 1 %}
       {% for choice, text in (('other', 'Use ' ~ (g.other | sport_label) ~ ' for all ' ~ n), ('kept', 'Keep ' ~ (g.kept | sport_label) ~ ' for all ' ~ n)) %}
       <form method="POST" action="{{ url_for('import_rides.sports_resolve', dup_id='all', choice=choice) }}" style="margin:0;"
-            {% if choice == 'other' %}onsubmit="return confirm('Change all {{ n }} to {{ g.other | sport_label }}?')"{% endif %}>
+            {% if choice == 'other' %}data-confirm="Change all {{ n }} to {{ g.other | sport_label }}?"{% endif %}>
         <input type="hidden" name="kept" value="{{ g.kept }}"><input type="hidden" name="other" value="{{ g.other }}">
         <button class="btn btn-secondary btn-sm">{{ text }}</button></form>
       {% endfor %}
@@ -472,7 +472,7 @@
     <form method="POST" action="{{ url_for('import_rides.deleted_resolve', act_id=b.id, choice='restore') }}" style="margin:0;">
       <button class="btn btn-secondary btn-sm">Restore</button></form>
     <form method="POST" action="{{ url_for('import_rides.deleted_resolve', act_id=b.id, choice='empty') }}" style="margin:0;"
-          onsubmit="return confirm('Delete this activity now? Its notes, photos and segment times go for good. This cannot be undone.')">
+          data-confirm="Delete this activity now? Its notes, photos and segment times go for good. This cannot be undone.">
       <button class="btn btn-danger-quiet btn-sm">Delete now</button></form>
   </div>
   {% endfor %}
@@ -482,169 +482,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-const dropZone  = document.getElementById('dropZone');
-const fileInput = document.getElementById('fileInput');
-const selectedFile = document.getElementById('selectedFile');
-const uploadBtn = document.getElementById('uploadBtn');
-let chosenFile = null;
-
-dropZone.addEventListener('click', () => fileInput.click());
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-dropZone.addEventListener('drop', e => {
-  e.preventDefault();
-  dropZone.classList.remove('drag-over');
-  const f = e.dataTransfer.files[0];
-  if (f) setFile(f);
-});
-fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
-
-function setFile(f) {
-  chosenFile = f;
-  const mb = (f.size / 1024 / 1024).toFixed(1);
-  selectedFile.textContent = `${f.name}  (${mb} MB)`;
-  selectedFile.style.display = 'block';
-  uploadBtn.style.display = 'inline-flex';
-}
-
-async function startUpload() {
-  if (!chosenFile) return;
-  uploadBtn.disabled = true;
-  uploadBtn.textContent = 'Uploading…';
-
-  const fd = new FormData();
-  fd.append('zipfile', chosenFile);
-  const riderSel = document.getElementById('riderSelect');
-  if (riderSel) fd.append('riderId', riderSel.value);
-  fd.append('importPhotos', document.getElementById('optPhotos').checked ? '1' : '0');
-  fd.append('importSegments', document.getElementById('optSegments').checked ? '1' : '0');
-  fd.append('importRoutes', document.getElementById('optRoutes').checked ? '1' : '0');
-  fd.append('keepExport', document.getElementById('optKeep').checked ? '1' : '0');
-
-  document.getElementById('progressCard').style.display = 'block';
-  document.getElementById('doneCard').style.display = 'none';
-
-  await follow(await fetch('/import/upload', { method: 'POST', body: fd }));
-}
-
-// Import again: the export kept on the server, read with the options ticked above. Nothing to upload.
-async function importAgain(riderId, btn) {
-  btn.disabled = true;
-  uploadBtn.disabled = true;
-  const fd = new FormData();
-  fd.append('importPhotos', document.getElementById('optPhotos').checked ? '1' : '0');
-  fd.append('importSegments', document.getElementById('optSegments').checked ? '1' : '0');
-  fd.append('importRoutes', document.getElementById('optRoutes').checked ? '1' : '0');
-  document.getElementById('progressCard').style.display = 'block';
-  document.getElementById('doneCard').style.display = 'none';
-  document.getElementById('progressCard').scrollIntoView({ behavior: 'smooth' });
-  await follow(await fetch(`/import/strava-export/${riderId}/again`, { method: 'POST', body: fd }));
-}
-
-// The import runs in the background worker, on the server, whether or not this page stays open; coming back re-attaches to it (or shows
-// how one that finished meanwhile turned out, once).
-(async () => {
-  const d = await (await fetch('/import/status')).json();
-  if (!d.job) return;
-  uploadBtn.disabled = true;
-  document.getElementById('progressCard').style.display = 'block';
-  watch(d.job);
-})();
-
-// {job} from the server: follow it to the end. {error}: say so.
-async function follow(resp) {
-  let d;
-  try { d = await resp.json(); } catch { d = { error: 'Could not start the import (' + resp.status + ')' }; }
-  if (d.job) watch(d.job);
-  else handleEvent(d);
-}
-
-function watch(id) {
-  let said = false;
-  followJob(id, d => { said = said || !!d.error; handleEvent(d); }, (state, error) => {
-    if (state === 'lost') return handleEvent({ error: 'Lost touch with Headwind: the import goes on there. Reload to see how it\'s getting on.' });
-    if (state === 'failed' && !said) handleEvent({ error: error || 'The import stopped' });
-    fetch('/import/progress/dismiss', { method: 'POST' }).catch(() => {});      // seen here: not again, nor in the indicator
-  });
-}
-
-function handleEvent(d) {
-  if (d.error) {
-    document.getElementById('progressLabel').textContent = 'Error: ' + d.error;
-    document.getElementById('progressLabel').style.color = 'var(--danger)';
-    return;
-  }
-
-  if (d.stage) {
-    document.getElementById('progressLabel').textContent = d.stage;
-    return;
-  }
-
-  if (d.total !== undefined && d.done === undefined) {
-    const src = d.source === 'strava' ? 'Strava export' : 'GPS files';
-    document.getElementById('progressLabel').textContent = `Detected ${src} — ${d.total} activities`;
-    return;
-  }
-
-  if (d.done !== undefined) {
-    const pct = d.total ? Math.round(d.done / d.total * 100) : 0;
-    document.getElementById('progressFill').style.width = pct + '%';
-    document.getElementById('progressLabel').textContent =
-      `${d.done} / ${d.total}  (${pct}%)`;
-    document.getElementById('progressStats').innerHTML =
-      `<span style="color:var(--success)">✓ ${d.imported} imported</span>` +
-      `<span style="color:var(--text-muted)">— ${d.skipped} skipped</span>` +
-      (d.errors ? `<span style="color:var(--danger)">✗ ${d.errors} errors</span>` : '');
-  }
-
-  if (d.complete) {
-    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
-    const an = w => (/^[aeiou]/i.test(w) ? 'an ' : 'a ') + w.toLowerCase();
-    const noun = d.noun || 'activities';
-    const parked = d.parked || [], unread = d.unread || [];
-    document.getElementById('progressCard').querySelector('.card-title').textContent = 'Complete';
-    document.getElementById('doneCard').style.display = 'block';
-    document.getElementById('doneStats').innerHTML =
-      `<strong style="color:var(--success)">${d.imported}</strong> ${d.imported === 1 ? noun.replace(/ies$/, 'y').replace(/s$/, '') : noun} imported<br>` +
-      (parked.length ? `<span>${parked.length} set aside as a second recording of one already here:</span>` +
-        `<ul style="margin:0 0 0.25rem 1.25rem;padding:0;line-height:1.6;">` +
-        parked.map(p => `<li><a href="/rides/${encodeURIComponent(p.kept)}/duplicate/${encodeURIComponent(p.id)}" style="color:var(--accent)">${esc(p.name || p.id)}</a></li>`).join('') +
-        `</ul>` : '') +
-      `<span style="color:var(--text-muted)">${d.skipped} already existed / skipped</span>` +
-      (d.unchanged ? `<br><span style="color:var(--text-muted)">${d.unchanged} unchanged since the last import, so not read again</span>` : '') +
-      (unread.length ? `<br><span style="color:var(--danger)">${unread.length} file${unread.length === 1 ? '' : 's'} could not be read</span>` +
-        (unread.some(u => u.id) ? `<span style="color:var(--text-muted)">: saved from activities.csv only, with no track</span>` : '') +
-        `<ul style="margin:0 0 0.25rem 1.25rem;padding:0;line-height:1.6;">` +
-        unread.map(u => u.id ? `<li><a href="/rides/${encodeURIComponent(u.id)}" style="color:var(--accent)">${esc(u.name)}</a> <span style="color:var(--text-muted)">${esc(u.file)}</span></li>`
-                             : `<li style="color:var(--text-muted)">${esc(u.file)}</li>`).join('') +
-        `</ul>` : '') +
-      (d.errors ? `<br><span style="color:var(--danger)">${d.errors} could not be saved</span>` : '') +
-      (d.kept ? `<br><span style="color:var(--text-muted)">The export is kept here: <a href="/import#kept" onclick="location.reload()" style="color:var(--accent)">import it again</a> any time without uploading it</span>` : '') +
-      (d.changed ? `<br><a href="/import#changes" onclick="location.reload()" style="color:var(--accent)">${d.changed} differ from what's saved: review them</a>` : '') +
-      (d.sport_guess ? `<br><a href="/rides/${encodeURIComponent(d.sport_guess.id)}" style="color:var(--accent)">Saved as ${esc(an(d.sport_guess.saved))} because the file ` +
-        (d.sport_guess.file ? `says "${esc(d.sport_guess.file)}"` : `doesn't say`) + `, but it looks like ${esc(an(d.sport_guess.guess))}: check it</a>` : '') +
-      (d.sport_guessed ? `<br><a href="/import#sport-guess" onclick="location.reload()" style="color:var(--accent)">${d.sport_guessed} saved as rides look like runs or walks: check them</a>` : '') +
-      (d.bikes_filled ? `<br><span style="color:var(--text-muted)">${d.bikes_filled} rides put on their Strava bike</span>` : '') +
-      (d.bikes_to_match ? `<br><a href="${d.bikes_url}" style="color:var(--accent)">${d.bikes_to_match} bike${d.bikes_to_match === 1 ? '' : 's'} from Strava to match to yours</a>` : '') +
-      (d.photos ? `<br><span style="color:var(--text-muted)">${d.photos} photo${d.photos === 1 ? '' : 's'} added</span>` : '') +
-      (d.photos_missing ? `<br><span style="color:var(--text-muted)">${d.photos_missing} photo${d.photos_missing === 1 ? '' : 's'} named in activities.csv ${d.photos_missing === 1 ? 'is' : 'are'} not in the zip (Strava leaves some out), so ${d.photos_missing === 1 ? 'it wasn\'t' : 'they weren\'t'} added</span>` : '') +
-      (d.commutes ? `<br><span style="color:var(--text-muted)">${d.commutes} activit${d.commutes === 1 ? 'y' : 'ies'} ticked as a commute</span>` : '') +
-      (d.segments_created !== undefined ? `<br><a href="/segments" style="color:var(--accent)">${d.segments_created} segment${d.segments_created === 1 ? '' : 's'} created</a>` +
-        (d.segments_existing ? `<span style="color:var(--text-muted)">, ${d.segments_existing} already here</span>` : '') +
-        (d.segments_unridden ? `<span style="color:var(--text-muted)">, ${d.segments_unridden} skipped (no ride here goes along them)</span>` : '') : '') +
-      (d.routes_created !== undefined ? `<br><a href="/planner" style="color:var(--accent)">${d.routes_created} route${d.routes_created === 1 ? '' : 's'} added to the planner</a>` +
-        (d.routes_existing ? `<span style="color:var(--text-muted)">, ${d.routes_existing} already there</span>` : '') +
-        (d.routes_unread ? `<span style="color:var(--danger)">, ${d.routes_unread} could not be read</span>` : '') : '');
-  }
-}
-
-// the last Garmin changes check, stored in UTC: shown in this browser's time, as on the Tasks page
-document.querySelectorAll('#garmin-changes [data-when]').forEach(function (el) {
-  var d = new Date(el.dataset.when);
-  if (isNaN(d)) return;
-  var t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  el.textContent = '(' + (d.toDateString() === new Date().toDateString() ? 'today ' : d.getDate() + ' ' + _MONTHS[d.getMonth()] + ' ') + t + ')';
-});
-</script>
+<script src="{{ url_for('static', filename='js/import.js') }}"></script>
 {% endblock %}

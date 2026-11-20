@@ -8,6 +8,7 @@ import pytest
 import database
 from services import sports, tz
 from services import streams as _streams
+from tests.page_data import page_data
 
 
 class _NoThread:
@@ -197,7 +198,7 @@ def test_apple_health_sleep_stages(phone):
     page = phone.web.get('/recovery').get_data(as_text=True)
     head, body = page[page.index('Daily Log'):page.index('</thead>')], page[page.index('<tbody>'):page.index('</tbody>')]
     assert '>Deep / REM<' in head and '1.5h / 1.8h' in body and '97%' in body
-    assert '"deep": [' in page and "stage('Deep'" in page
+    assert page_data(page, 'recoveryData')['stages']['deep'][-1] == 1.5        # drawn as a stack (static/js/garmin.js)
     with phone.app_.app_context():
         block = context._build_garmin_context(d, 1)
     assert 'deep 1.5h, REM 1.8h, light 4.0h' in block and 'efficiency 97% (15 min awake)' in block
@@ -212,7 +213,7 @@ def test_garmins_sleep_comes_with_its_own_stages_not_apples(phone):
     rec = phone.get('/api/v1/overview', headers=phone.H).get_json()['recovery']
     assert rec['sleepHours'] == 6.8 and rec['sleepDeep'] is None and rec['sleepEfficiency'] is None
     page = phone.web.get('/recovery').get_data(as_text=True)
-    assert '>Deep / REM<' not in page and 'const stageData  = null' in page
+    assert '>Deep / REM<' not in page and page_data(page, 'recoveryData')['stages'] is None
 
 
 def test_apple_health_never_overwrites_another_sources_weigh_in_or_body_fat(phone):

@@ -70,8 +70,8 @@ def test_no_inline_escaping():
 
 def test_known_escapers_found():
     names = {(f, n) for f, _, n, _, _ in _escapers()[0]}
-    for want in [('templates/nutrition.html', 'escHtml'), ('templates/home_assistant.html', 'esc'), ('templates/setup.html', 'haEsc'),
-                 ('static/js/gear_assign.js', 'esc'), ('static/js/gear_assign_range.js', 'esc'), ('templates/route_builder.html', 'escapeHtml')]:
+    for want in [('static/js/nutrition.js', 'escHtml'), ('static/js/home_assistant.js', 'esc'), ('static/js/setup.js', 'haEsc'),
+                 ('static/js/gear_assign.js', 'esc'), ('static/js/gear_assign_range.js', 'esc'), ('static/js/route_builder.js', 'escapeHtml')]:
         assert want in names
 
 

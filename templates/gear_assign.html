@@ -4,7 +4,7 @@
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">{% endblock %}
 {% block parent %}<a href="{{ url_for('gear.index', rider=rid) }}">Gear</a>{% endblock %}
 {% block topbar_actions %}
-  {% if riders %}<form method="GET" style="display:inline;"><select name="rider" onchange="this.form.submit()">{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>{% endif %}
+  {% if riders %}<form method="GET" style="display:inline;"><select name="rider" data-autosubmit>{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>{% endif %}
 {% endblock %}
 {% block content %}
 {% if not bikes %}
@@ -50,9 +50,7 @@
     <div class="hint" id="result" style="margin-top:.6rem;"></div>
   </div>
 </div>
-<script>
-  window.GEAR_ASSIGN = { bikes: {{ bikes | map(attribute='id') | list | tojson }}, names: {{ bike_names | tojson }}, span: {{ span | tojson }}, today: {{ today | tojson }}, rider: {{ rid | tojson }} };
-</script>
+<script type="application/json" id="gearAssign">{{ {'bikes': bikes | map(attribute='id') | list, 'names': bike_names, 'span': span, 'today': today, 'rider': rid} | tojson }}</script>
 <script src="{{ url_for('static', filename='js/gear_assign.js') }}"></script>
 {% endif %}
 {% endblock %}

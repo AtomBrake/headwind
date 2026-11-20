@@ -68,7 +68,7 @@ def _photos(app, rid='r1'):
 def test_the_page_has_a_caption_field_and_order_controls(client, app):
     page = client.get('/rides/r1').get_data(as_text=True)
     assert page.count('class="photo-caption"') == 3 and 'value="Top of the climb"' in page
-    assert page.count('onclick="movePhoto(this, -1)"') == 3 and "The first one is the activity's cover" in page
+    assert page.count('data-click="movePhoto(this, -1)"') == 3 and "The first one is the activity's cover" in page
     one = client.get('/rides/r2').get_data(as_text=True)
     assert 'class="photo-caption"' in one and 'movePhoto(this' not in one             # nothing to put in order
 

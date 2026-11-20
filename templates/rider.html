@@ -8,7 +8,7 @@
 {% block topbar_actions %}
   {% if multi_rider and not rider.isDefault %}
   <form method="POST" action="{{ url_for('riders.delete', rid=rider.id) }}" style="display:inline;"
-        data-confirm="Delete {{ rider.name }} and all their activities and segment times? This cannot be undone." onsubmit="return confirm(this.dataset.confirm)">
+        data-confirm="Delete {{ rider.name }} and all their activities and segment times? This cannot be undone.">
     <button class="btn btn-danger">Delete Rider</button>
   </form>
   {% endif %}
@@ -38,7 +38,7 @@
         <input type="hidden" name="next" value="{{ url_for('riders.detail', rid=rider.id) }}">
         <label for="defaultBike">Default bike for new rides</label>
         <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
-        <select name="bike" id="defaultBike" onchange="this.form.submit()" style="width:auto;">
+        <select name="bike" id="defaultBike" data-autosubmit style="width:auto;">
           <option value="" {{ 'selected' if not rider.defaultBikeId }}>None</option>
           {% for b in rider_bikes %}<option value="{{ b.id }}" {{ 'selected' if rider.defaultBikeId == b.id }}>{{ b.name }}</option>{% endfor %}
         </select>

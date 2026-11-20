@@ -59,7 +59,7 @@ def test_the_leaderboard_sorts_and_keeps_its_ranks_by_time(client):
     [table] = _sortable(html)
     assert '<th aria-sort="ascending" data-col="rank">' in table              # the rows come fastest first
     assert re.search(r'data-i="0".*?data-sort="2026-05-01".*?data-sort="240".*?data-sort="4\.16', table, re.S)   # r2 first: 240 s, 4.17 m/s
-    assert "a.dataset.i - b.dataset.i" in html                                # filtering numbers the ranks in time order, whatever the sort
+    assert "a.dataset.i - b.dataset.i" in client.get('/static/js/segment.js').get_data(as_text=True)   # filtering numbers the ranks in time order, whatever the sort
 
 
 def test_the_bike_page_tables_sort_with_their_edit_rows(client):

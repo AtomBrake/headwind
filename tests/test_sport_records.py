@@ -10,6 +10,7 @@ import config
 import database
 from services import credentials, sport_records
 from services import streams as _streams
+from tests.page_data import page_data
 
 
 class _NoThread:
@@ -88,14 +89,14 @@ def test_data_page_best_times_per_sport_and_records_by_sport(client):
     html = client.get('/data').get_data(as_text=True)
     assert 'id="records-ride"' in html and 'id="records-run"' in html and 'id="records-swim"' in html
     assert 'Swim best times' in html and '3.8 km' in html and 'Half marathon' in html
-    data = json.loads(html.split('const data = ', 1)[1].split(';\n', 1)[0])
+    data = page_data(html, 'analyticsData')['achievements']
     ride = next(a for a in data if a['key'] == 'ride')
     assert all(r['rideId'] == 'r1' for yr in ride['by_year'].values() for r in yr.values())      # the ski run is not a ride's best 5 miles
     run = next(a for a in data if a['key'] == 'run')
     assert run['by_year'][str(MONDAY.year)]['5000']['time'] == '27:47'
     swim = next(a for a in data if a['key'] == 'swim')
     assert swim['by_year'][str(MONDAY.year)]['400']['rate'] == '1:40 /100 m'
-    recs = json.loads(html.split('const byPeriod = ', 1)[1].split(';\n', 1)[0])
+    recs = page_data(html, 'analyticsData')['sportRecords']
     sports_ = [r['sport'] for r in recs['all']]
     assert sports_[0] == 'Ride' and 'Stand Up Paddling' in sports_ and 'Alpine Ski' in sports_
     swim_rec = next(r for r in recs['all'] if r['sport'] == 'Swim')

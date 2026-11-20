@@ -8,6 +8,7 @@ import config
 import database
 from services import credentials, duplicates
 from services import streams as stream_store
+from tests.page_data import page_data
 
 
 class _NoThread:
@@ -79,9 +80,9 @@ def test_a_zwift_ride_is_drawn_over_its_world(client):
         db.commit()
     for url in ('/rides/garmin_1/duplicate/imp_2', '/rides/garmin_1/duplicate/imp_2?compare=1'):
         html = client.get(url).get_data(as_text=True)
-        assert '/heatmap/zwift/watopia.png' in html and "HWMap.attach(map, { page: 'duplicate'" not in html      # no map tiles
+        assert page_data(html, 'duplicateData')['zwiftWorld']['url'].startswith('/heatmap/zwift/watopia.png')    # its world's map, no map tiles
 
 
 def test_a_real_ride_keeps_the_satellite_map(client):
     html = client.get('/rides/garmin_1/duplicate/imp_2?compare=1').get_data(as_text=True)
-    assert "HWMap.attach(map, { page: 'duplicate', base: 'sat' })" in html and 'imageOverlay' not in html
+    assert page_data(html, 'duplicateData')['zwiftWorld'] is None                # the satellite map (static/js/ride_duplicate.js)

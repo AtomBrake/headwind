@@ -29,7 +29,7 @@
     <div class="gear-actions">
       <a class="btn btn-secondary btn-sm" href="{{ item.urls.edit }}">Edit</a>
       <form method="POST" action="{{ item.urls.retire }}">{% if item.retired %}<input type="hidden" name="undo" value="1">{% endif %}<button class="btn btn-secondary btn-sm">{{ 'Bring back' if item.retired else 'Retire' }}</button></form>
-      <form method="POST" action="{{ item.urls.delete }}" onsubmit="return confirm({{ ('Delete ' ~ item.name ~ '? Its ' ~ item.noun[1] ~ ' stay, but will have no ' ~ item.gear_word ~ (', and its parts and service log go with it' if is_bike else '') ~ '. Retire it instead to keep its history. This cannot be undone.') | tojson | forceescape }})"><button class="btn btn-danger btn-sm">Delete</button></form>
+      <form method="POST" action="{{ item.urls.delete }}" data-confirm="{{ 'Delete ' ~ item.name ~ '? Its ' ~ item.noun[1] ~ ' stay, but will have no ' ~ item.gear_word ~ (', and its parts and service log go with it' if is_bike else '') ~ '. Retire it instead to keep its history. This cannot be undone.' }}"><button class="btn btn-danger btn-sm">Delete</button></form>
     </div>
   </div>
 </div>
@@ -102,19 +102,11 @@
   {% endif %}
 </div>
 
-<script>window.GEAR_ASSIGN = { what: {{ item.what | tojson }}, id: {{ item.id }}, name: {{ item.name | tojson }}, rider: {{ item.rider }}, today: {{ today | tojson }},
-  noun: {{ item.noun | list | tojson }} };</script>
+<script type="application/json" id="gearAssign">{{ {'what': item.what, 'id': item.id, 'name': item.name, 'rider': item.rider, 'today': today,
+  'noun': item.noun | list} | tojson }}</script>
 <script src="{{ url_for('static', filename='js/gear_assign_range.js') }}"></script>
 {% if st.by_year %}
-<script>
-  (function () {
-    const rows = {{ by_year | safe }}, noun = {{ item.noun | list | tojson }};
-    if (!window.Chart) return;
-    new Chart(document.getElementById('yearChart'), { type: 'bar',
-      data: { labels: rows.map(r => r.year), datasets: [{ data: rows.map(r => Math.round(UNITS.toDist(r.distance))), backgroundColor: cssVar('--accent'), borderRadius: 4, maxBarThickness: 64 }] },
-      options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y.toLocaleString() + ' ' + UNITS.dist + ' · ' + rows[c.dataIndex].n + ' ' + noun[rows[c.dataIndex].n === 1 ? 0 : 1] } } },
-        scales: { x: { ticks: { color: cssVar('--text-soft') }, grid: { display: false } }, y: { ticks: { color: cssVar('--text-soft') }, grid: { color: cssVar('--border') } } } } });
-  })();
-</script>
+<script type="application/json" id="yearRows">{{ by_year | safe }}</script>
+<script src="{{ url_for('static', filename='js/gear_year_chart.js') }}"></script>
 {% endif %}
 {% endblock %}

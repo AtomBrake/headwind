@@ -2,7 +2,6 @@
 activity page's chart points carrying their place in the streams for the map. Full app, throwaway DB, no network."""
 import io
 import json
-import re
 import sqlite3
 
 import polyline
@@ -14,6 +13,7 @@ import config
 import database
 from services import credentials, map_tiles, vault
 from services import streams as _streams
+from tests.page_data import page_data
 
 
 class _NoThread:
@@ -59,7 +59,7 @@ def client(app):
 
 
 def _keys(client):
-    return json.loads(re.search(r'window\.MAP_KEYS = (\{.*?\});', client.get('/heatmap').get_data(as_text=True)).group(1))
+    return page_data(client.get('/heatmap').get_data(as_text=True), 'mapKeys')
 
 
 def test_map_keys_are_sealed_kept_when_blank_and_removable(client):
@@ -129,21 +129,18 @@ def test_tile_proxy_passes_on_a_failure(client, monkeypatch):
     assert client.get('/heatmap/tile/14/8186/5448?layer=wmt_mtb').status_code == 502
 
 
-def _page_json(html, name):
-    return json.loads(re.search(name + r' = (.*?);\n', html).group(1))
-
-
 def test_chart_points_carry_their_place_in_the_streams(client):
     html = client.get('/rides/gps').get_data(as_text=True)
-    assert 'COORDS_FROM_STREAM = true' in html
-    elev = json.loads(re.search(r"makeElevHrChart\('elevChart', (\{.*?\}), \{", html).group(1))
+    ride = page_data(html, 'rideData')
+    assert ride['coordsFromStream'] is True
+    elev = ride['charts']['elevation']
     assert len(elev['idx']) == len(elev['values']) == len(elev['labels'])
     assert elev['idx'][:3] == [0, 2, 4]                                     # every 2nd of 600 points: at most 300
-    assert _page_json(html, 'var dist')[:3] == [0.0, 11.1, 22.2]            # the distance stream, for the distance markers
+    assert ride['dist'][:3] == [0.0, 11.1, 22.2]                            # the distance stream, for the distance markers
 
 
 def test_a_polyline_track_is_matched_by_distance(client):
     html = client.get('/rides/poly').get_data(as_text=True)
-    assert 'COORDS_FROM_STREAM = false' in html
-    assert _page_json(html, 'var dist') is None                             # worked out from the points, stretched to the 5 km
-    assert 'dist.map(function (d) { return d * total / last; })' in html
+    ride = page_data(html, 'rideData')
+    assert ride['coordsFromStream'] is False
+    assert ride['dist'] is None and ride['distance'] == 5000                # worked out from the points, stretched to the 5 km (static/js/ride.js)

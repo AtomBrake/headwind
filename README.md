@@ -875,6 +875,7 @@ Since then:
 - **Phone tokens not used for 90 days** are flagged on **Phones**, with a button to revoke them.
 - **MQTT can use TLS**, with your own CA certificate for a self-signed broker.
 - **Pictures over 50 megapixels are refused** before they're decoded (activity, gear, avatar and food photos), so one upload can't take half a gigabyte of memory.
+- **Only Headwind's own script files run** — the Content-Security-Policy allows scripts from the server's own files and nothing inline, so text that slipped into a page unescaped still couldn't run as script. Pages can't be framed by other sites (`frame-ancestors 'none'`).
 
 Known limits: one shared admin login; in the advanced multi-rider mode phone devices aren't scoped per rider. See [Known limitations](#known-limitations-and-roadmap). To report a vulnerability, please open a private security advisory on GitHub rather than a public issue.
 

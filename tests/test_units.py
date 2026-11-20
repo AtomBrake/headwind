@@ -10,6 +10,7 @@ import config
 import database
 from services import credentials, units
 from services import streams as _streams
+from tests.page_data import page_data
 
 PAGES = ['/dashboard', '/rides/r1', '/rides/r2', '/data', '/riders/1', '/segments', '/segments/1', '/ai', '/planner/', '/roughness',
          '/dashboard?min_dist=10&max_dist=100']
@@ -102,8 +103,8 @@ def test_numbers_are_converted_not_just_relabelled(client):
     assert '19.9 km' in html and '25.2 km/h' in html and '300 m' in html
     assert '5:00 /km' in client.get('/rides/wk_1').get_data(as_text=True)      # a run's page shows pace, a ride's speed
     html = client.get('/dashboard').get_data(as_text=True)
-    assert 'window.UNITS = {"dist": "km"' in html or '"dist": "km"' in html
-    week = json.loads(re.search(r'const weeklyData\s+=\s+(.*);', html).group(1))
+    assert page_data(html, 'unitsData')['dist'] == 'km'
+    week = page_data(html, 'dashboardData')['weekly']
     assert week[-1]['by'].get('ride', {}).get('dist_m', 0) in (19900, 39800, 0)     # metres go to the page, which converts with UNITS
 
 

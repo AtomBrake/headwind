@@ -4,7 +4,7 @@
 {% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">{% endblock %}
 {% block parent %}<a href="{{ url_for('gear.index', rider=rid) }}">Gear</a>{% endblock %}
 {% block topbar_actions %}
-  {% if riders %}<form method="GET" style="display:inline;"><select name="rider" onchange="this.form.submit()">{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>{% endif %}
+  {% if riders %}<form method="GET" style="display:inline;"><select name="rider" data-autosubmit>{% for r in riders %}<option value="{{ r.id }}" {{ 'selected' if r.id == rid }}>{{ r.name }}</option>{% endfor %}</select></form>{% endif %}
 {% endblock %}
 {% block content %}
 {% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
@@ -60,13 +60,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-// The kind and retired boxes only mean something for a bike being added.
-document.querySelectorAll('.sb-row').forEach(row => {
-  const sel = row.querySelector('.sb-match');
-  const sync = () => row.querySelectorAll('.sb-new').forEach(el => { el.style.visibility = sel.value === 'new' ? 'visible' : 'hidden'; });
-  sel.addEventListener('change', sync);
-  sync();
-});
-</script>
+<script src="{{ url_for('static', filename='js/gear_strava.js') }}"></script>
 {% endblock %}

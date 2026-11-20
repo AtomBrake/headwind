@@ -1,7 +1,7 @@
 /* Calendar for assigning bikes to rides. Dates are plain 'YYYY-MM-DD' strings built by hand (never toISOString: that shifts the day across timezones). */
 (function () {
   'use strict';
-  const G = window.GEAR_ASSIGN, $ = (id) => document.getElementById(id);
+  const G = JSON.parse(document.getElementById('gearAssign').textContent), $ = (id) => document.getElementById(id);
   const COLOURS = ['--c-sky', '--c-violet', '--c-green', '--c-pink', '--c-amber', '--c-blue', '--c-red', '--c-teal'].map((v) => `var(${v})`);
   const colourOf = Object.fromEntries(G.bikes.map((id, i) => [String(id), COLOURS[i % COLOURS.length]]));
   const nameOf = Object.fromEntries(G.bikes.map((id, i) => [String(id), G.names[i]]));

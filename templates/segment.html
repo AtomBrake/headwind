@@ -7,14 +7,14 @@
 {% block topbar_actions %}
   {% if not seg.friend_name %}
   <form method="POST" action="{{ url_for('segments.set_sport', sid=seg.id) }}" style="display:inline;"
-        onsubmit="return confirm('Change this segment\'s sport? Its efforts are matched again, from the activities of the new sport.')">
+        data-confirm="Change this segment's sport? Its efforts are matched again, from the activities of the new sport.">
     <input type="hidden" name="sport" value="{{ 'ride' if family == 'foot' else 'foot' }}">
     <button class="btn btn-secondary" title="Strava's export doesn't say which sport a segment is for, so an import can guess wrong">
       Make it {{ 'a ride' if family == 'foot' else 'an on-foot' }} segment</button>
   </form>
   {% endif %}
   <form method="POST" action="{{ url_for('segments.delete', sid=seg.id) }}" style="display:inline;"
-        onsubmit="return confirm('Delete this segment and all its efforts? The activities stay. This cannot be undone.')">
+        data-confirm="Delete this segment and all its efforts? The activities stay. This cannot be undone.">
     <button class="btn btn-danger">Delete</button>
   </form>
 {% endblock %}
@@ -119,7 +119,7 @@
             <span><span style="display:inline-block;width:12px;height:2px;background:var(--accent);vertical-align:middle;margin-right:4px;"></span>Each effort</span>
             <span><span style="display:inline-block;width:12px;height:2px;background:var(--text-muted);vertical-align:middle;margin-right:4px;border-top:2px dashed var(--text-muted);"></span>3-effort avg</span>
           </div>
-          <select id="trendYear" onchange="filterTrend()" style="background-color:var(--field-bg); color:var(--text); border:1px solid var(--border-strong); border-radius:6px; padding:0.3rem 0.6rem; font-size:0.875rem; cursor:pointer;">
+          <select id="trendYear" data-change="filterTrend()" style="background-color:var(--field-bg); color:var(--text); border:1px solid var(--border-strong); border-radius:6px; padding:0.3rem 0.6rem; font-size:0.875rem; cursor:pointer;">
             <option value="all">All Time</option>
             {% set trend_years = trend | map(attribute='activityDate') | map('truncate', 4, False, '') | unique | sort | reverse | list %}
             {% for y in trend_years %}
@@ -143,14 +143,14 @@
     <div class="card-title" style="margin:0;">All Efforts</div>
     <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
       {% if all_riders | length > 1 %}
-      <select id="riderFilter" onchange="filterEfforts()" style="background-color:var(--field-bg); color:var(--text); border:1px solid var(--border-strong); border-radius:6px; padding:0.3rem 0.6rem; font-size:0.875rem; cursor:pointer;">
+      <select id="riderFilter" data-change="filterEfforts()" style="background-color:var(--field-bg); color:var(--text); border:1px solid var(--border-strong); border-radius:6px; padding:0.3rem 0.6rem; font-size:0.875rem; cursor:pointer;">
         <option value="all">All Riders</option>
         {% for e in efforts | unique(attribute='rider_id') %}
         <option value="{{ e.rider_id }}">{{ e.rider_name or 'Unknown' }}</option>
         {% endfor %}
       </select>
       {% endif %}
-      <select id="yearFilter" onchange="filterEfforts()" style="background-color:var(--field-bg); color:var(--text); border:1px solid var(--border-strong); border-radius:6px; padding:0.3rem 0.6rem; font-size:0.875rem; cursor:pointer;">
+      <select id="yearFilter" data-change="filterEfforts()" style="background-color:var(--field-bg); color:var(--text); border:1px solid var(--border-strong); border-radius:6px; padding:0.3rem 0.6rem; font-size:0.875rem; cursor:pointer;">
         <option value="all">All Time</option>
         {% set years = efforts | map(attribute='activityDate') | map('truncate', 4, False, '') | unique | sort | reverse | list %}
         {% for y in years %}
@@ -174,9 +174,7 @@
     <tbody>
       {% for e in efforts %}
       <tr data-year="{{ e.activityDate[:4] }}" data-rider-id="{{ e.rider_id }}" data-i="{{ loop.index0 }}"
-          style="border-bottom:1px solid var(--border-strong); {% if e.isPR %}background:var(--accent-soft);{% endif %}"
-          onmouseover="this.style.background='var(--hover-tint)'"
-          onmouseout="this.style.background='{% if e.isPR %}var(--accent-soft){% endif %}'">
+          style="border-bottom:1px solid var(--border-strong); {% if e.isPR %}background:var(--accent-soft);{% endif %}">
         <td class="effort-rank" data-sort="{{ loop.index }}" style="color:var(--text-muted);">
           {%- if loop.index == 1 %}🥇{%- elif loop.index == 2 %}🥈{%- elif loop.index == 3 %}🥉{%- else %}{{ loop.index }}{%- endif %}
         </td>
@@ -208,7 +206,7 @@
         </td>
         <td class="num">
           <form method="POST" action="{{ url_for('segments.delete_effort', sid=seg.id, eid=e.id, only=only) }}"
-                style="display:inline;" onsubmit="return confirm('Delete this effort? The best times are worked out again without it.')">
+                style="display:inline;" data-confirm="Delete this effort? The best times are worked out again without it.">
             <button type="submit" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:1rem;padding:0;line-height:1;" title="Remove effort">×</button>
           </form>
         </td>
@@ -226,125 +224,8 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-function rankLabel(n) { return ['🥇','🥈','🥉'][n-1] || String(n); }
-
-function filterEfforts() {
-  var yr     = document.getElementById('yearFilter').value;
-  var riderEl = document.getElementById('riderFilter');
-  var rider  = riderEl ? riderEl.value : 'all';
-  var rows   = Array.from(document.querySelectorAll('tr[data-year]'))
-    .sort(function(a, b) { return a.dataset.i - b.dataset.i; });   // ranked by time, whichever column the table is sorted on
-  var rank   = 1;
-  rows.forEach(function(row) {
-    var yearOk  = yr === 'all' || row.dataset.year === yr;
-    var riderOk = rider === 'all' || row.dataset.riderId === rider;
-    var show    = yearOk && riderOk;
-    row.style.display = show ? '' : 'none';
-    if (show) {
-      var cell = row.querySelector('.effort-rank');
-      if (cell) cell.textContent = rankLabel(rank++);
-    }
-  });
-}
-
-// ── Mini map ─────────────────────────────────────────────────────
-(function() {
-  // Server-validated data (see routes/segments.py): numbers only, injected as JSON — never raw stored text.
-  const mapData = {{ map_data | tojson }};
-  const note = document.getElementById('segMapNote');
-  if (!mapData.start || !mapData.end) {
-    document.getElementById('segMap').style.display = 'none';
-    if (note) { note.textContent = 'Map unavailable — this segment has no valid start/finish position.'; note.style.display = 'block'; }
-    return;
-  }
-
-  const map = L.map('segMap');
-  HWMap.attach(map, { page: 'segment', base: 'satlabel' });
-
-  L.circleMarker(mapData.start, { color:cssVar('--success'), fillColor:cssVar('--success'), fillOpacity:1, radius:7 })
-   .addTo(map).bindPopup('Start');
-  L.marker(mapData.end, {
-    icon: L.divIcon({ html: '<div style="font-size:20px;line-height:1;">🏁</div>', className: '', iconAnchor: [10, 20] })
-  }).addTo(map).bindPopup('Finish');
-
-  let bounds;
-  if (mapData.shape) {
-    bounds = L.polyline(mapData.shape, { color: cssVar('--accent'), weight: 3 }).addTo(map).getBounds();
-  } else {
-    // No verified route shape: show just the two ends and say so, rather than a straight line that looks like the route.
-    bounds = L.latLngBounds([mapData.start, mapData.end]);
-    if (note) { note.textContent = 'Route shape unavailable — showing start and finish only.'; note.style.display = 'block'; }
-  }
-  map.fitBounds(bounds, { padding: [30, 30], maxZoom: 17 });
-})();
-
-// ── Trend chart ───────────────────────────────────────────────────
-{% if trend | length > 1 %}
-(function() {
-  const allDates = {{ trend | map(attribute='activityDate') | list | tojson }};
-  const allSecs  = {{ trend | map(attribute='elapsedSecs')  | list | tojson }};
-
-  function rollingAvg(arr) {
-    return arr.map((_, i) => {
-      const w = arr.slice(Math.max(0, i - 2), i + 1);
-      return Math.round(w.reduce((a, b) => a + b, 0) / w.length);
-    });
-  }
-
-  const chartDatasets = [
-    { borderColor:cssVar('--accent'), borderWidth:2, pointBackgroundColor:cssVar('--accent'), pointRadius:4, fill:false, tension:0.2, label:'Effort' },
-    { borderColor:cssVar('--text-muted'), borderWidth:2, borderDash:[5,4], pointRadius:0, fill:false, tension:0.3, label:'3-effort avg' },
-  ];
-
-  const trendChart = new Chart(document.getElementById('trendChart'), {
-    type: 'line',
-    data: { labels: [], datasets: chartDatasets.map(d => ({...d, data:[]})) },
-    options: {
-      maintainAspectRatio: false,
-      animation: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: ctx => {
-              const s = ctx.parsed.y;
-              const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
-              return h ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
-                       : `${m}:${String(sec).padStart(2,'0')}`;
-            }
-          }
-        }
-      },
-      scales: {
-        x: { ticks: { color:cssVar('--text-muted'), font:{size:10}, maxTicksLimit:10 }, grid:{color:cssVar('--border')} },
-        y: {
-          ticks: {
-            color: cssVar('--text-muted'), font:{size:10},
-            callback: v => { const m=Math.floor(v/60), s=v%60; return `${m}:${String(s).padStart(2,'0')}`; }
-          },
-          grid: { color:cssVar('--border') },
-          reverse: false,
-        }
-      }
-    }
-  });
-
-  window.filterTrend = function() {
-    var yr = document.getElementById('trendYear').value;
-    var filtered = allDates.map((d, i) => ({ d, s: allSecs[i] }))
-                           .filter(r => yr === 'all' || r.d.startsWith(yr));
-    var labels  = filtered.map(r => fmtDate(r.d));
-    var secs    = filtered.map(r => r.s);
-    var rolling = rollingAvg(secs);
-    trendChart.data.labels        = labels;
-    trendChart.data.datasets[0].data = secs;
-    trendChart.data.datasets[1].data = rolling;
-    trendChart.update();
-  }
-
-  filterTrend(); // initial render
-})();
-{% endif %}
-</script>
+<script type="application/json" id="segmentData">{{ {'mapData': map_data,
+  'trendDates': trend | map(attribute='activityDate') | list,
+  'trendSecs': trend | map(attribute='elapsedSecs') | list} | tojson }}</script>
+<script src="{{ url_for('static', filename='js/segment.js') }}"></script>
 {% endblock %}

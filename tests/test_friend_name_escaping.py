@@ -40,8 +40,8 @@ def client(tmp_path, monkeypatch):
 
 
 def handlers(page):
-    """Every inline on…= handler as the browser's JavaScript sees it (entities decoded)."""
-    return [html.unescape(m) for m in re.findall(r'\son[a-z]+="([^"]*)"', page)]
+    """Every handler (data-click= and the rest, static/js/actions.js) as the script reads it (entities decoded)."""
+    return [html.unescape(m) for m in re.findall(r'\sdata-(?:click|change|input|submit|keydown|error)="([^"]*)"', page)]
 
 
 def test_a_friends_name_is_in_no_inline_handler(client):
@@ -52,7 +52,7 @@ def test_a_friends_name_is_in_no_inline_handler(client):
 
 
 def test_nutrition_eschtml_escapes_quotes(client):
-    r = client.get('/nutrition/')
-    assert r.status_code == 200
+    assert client.get('/nutrition/').status_code == 200
+    r = client.get('/static/js/nutrition.js')
     fn = next(l for l in r.get_data(as_text=True).splitlines() if l.startswith('function escHtml('))
     assert '"\'"' in fn and '&quot;' in fn and '&#39;' in fn

@@ -10,6 +10,7 @@ import app as app_module
 import config
 import database
 from services import credentials, sports, units
+from tests.page_data import page_data
 
 
 class _NoThread:
@@ -44,8 +45,8 @@ def client(tmp_path, monkeypatch):
     return c
 
 
-def _json(html, name):
-    return json.loads(re.search(rf'const {name}\s*=\s*(.*?);[ \t]*(?://[^\n]*)?\n', html).group(1))
+def _dash(html, key):
+    return page_data(html, 'dashboardData')[key]
 
 
 def test_stat_groups_and_how_speed_reads():
@@ -62,11 +63,11 @@ def test_every_sport_shows_time_and_each_groups_own_distance_never_one_sum(clien
     assert '24.9 mi' in html and '9.3 mi' in html and '1.2 mi' in html            # 40 km of rides, 15 km on foot, 2 km of swims, each on its own
     assert '35.0 mi' not in html                                                  # never the 57 km of all of them added up
     assert '>4h 0m<' in html                                                      # 1:30 + 50:00 + 1:00 + 40:00 = 4 hours of training
-    week = _json(html, 'weeklyData')[-1]
+    week = _dash(html, 'weekly')[-1]
     assert week['dist_m'] is None and week['secs'] == 14400
     assert {g: v['dist_m'] for g, v in week['by'].items()} == {'ride': 40000, 'foot': 15000, 'swim': 2000}
-    assert [g['key'] for g in _json(html, 'chartGroups')] == ['ride', 'foot', 'swim']
-    assert _json(html, 'yearSpeedData') == [] and _json(html, 'rateStyle') is None   # no speed line mixing ride speeds with walking paces
+    assert [g['key'] for g in _dash(html, 'chartGroups')] == ['ride', 'foot', 'swim']
+    assert _dash(html, 'yearSpeed') == [] and _dash(html, 'rateStyle') is None   # no speed line mixing ride speeds with walking paces
     assert 'data-metric="distance"' not in html and 'data-metric="time"' in html
 
 
@@ -74,11 +75,11 @@ def test_leaving_out_rides_and_swims_gives_distance_and_pace_on_foot(client):
     html = client.get('/dashboard?skip=Ride&skip=Swim').get_data(as_text=True)
     assert 'Total Distance' in html and '9.3 mi' in html                          # the run and the walk do add up
     assert '/rides/run1' in html and '/rides/r1' not in html and '/rides/swim1' not in html
-    assert _json(html, 'rateStyle') == 'pace' and '>Pace</button>' in html
-    assert {r['id'] for r in _json(html, 'yearSpeedData')} == {'run1', 'walk1'}   # a workout without a stored speed gets distance over time
+    assert _dash(html, 'rateStyle') == 'pace' and '>Pace</button>' in html
+    assert {r['id'] for r in _dash(html, 'yearSpeed')} == {'run1', 'walk1'}   # a workout without a stored speed gets distance over time
     assert '· 8:03 /mi ·' in html                                                  # 5:00 /km is 8:03 /mi, as a pace in the run's row
     assert 'skip=Ride&amp;skip=Swim' in html                                      # the list, week and Data links keep the filter
-    assert re.search(r'data-sport value="Ride"\s+onchange', html)                 # the left-out sports are unticked
+    assert re.search(r'data-sport value="Ride"\s+data-change', html)                 # the left-out sports are unticked
 
 
 def test_only_shortcuts_and_old_one_sport_links(client):
@@ -86,7 +87,7 @@ def test_only_shortcuts_and_old_one_sport_links(client):
     hrefs = re.findall(r'<a class="sport-only[^"]*" href="([^"]+)"', html)
     assert len(hrefs) == 3 and '/dashboard?group=ride' in hrefs          # "only rides", by what it keeps: a kind of ride done later joins it
     html = client.get('/dashboard?group=foot').get_data(as_text=True)
-    assert '/rides/run1' in html and '/rides/walk1' in html and '/rides/r1' not in html and _json(html, 'rateStyle') == 'pace'
+    assert '/rides/run1' in html and '/rides/walk1' in html and '/rides/r1' not in html and _dash(html, 'rateStyle') == 'pace'
     html = client.get('/dashboard?sport=swim').get_data(as_text=True)              # an old link: one sport, by part of its name
     assert '/rides/swim1' in html and '/rides/r1' not in html and '· 2:00 /100 m</div>' in html
 
@@ -95,7 +96,7 @@ def test_data_page_follows_the_filter(client):
     html = client.get('/data').get_data(as_text=True)
     assert 'Monthly Time (hours)' in html and 'Duration Distribution' in html and 'id="speedChart"' not in html
     assert 'id="records-ride"' in html and 'rides only' in html                        # the ride records stay, saying they count rides
-    assert _json(html, 'DIST_MODE') is False
+    assert page_data(html, 'analyticsData')['distMode'] is False
 
     html = client.get('/data?skip=Ride&skip=Swim').get_data(as_text=True)
     assert 'Monthly Distance (mi)' in html and 'Avg Pace Per Activity (/mi' in html and 'id="records-ride"' not in html
@@ -158,5 +159,5 @@ def test_only_a_timed_sport_shows_its_time_not_a_distance(client):
         db.commit()
     html = client.get('/dashboard?skip=Ride&skip=Run&skip=Walk&skip=Swim').get_data(as_text=True)
     assert '/rides/yoga1' in html and 'Total Distance' not in html and 'Total Time' in html
-    assert _json(html, 'rateStyle') is None and 'data-metric="distance"' not in html
+    assert _dash(html, 'rateStyle') is None and 'data-metric="distance"' not in html
     assert client.get('/data?skip=Ride&skip=Run&skip=Walk&skip=Swim').status_code == 200

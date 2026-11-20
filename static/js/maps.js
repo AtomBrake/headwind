@@ -1,9 +1,9 @@
 // The map types every Leaflet map offers (activity, segment, roughness, heatmap, route builder, duplicate check) and the picker that
 // switches them: one list, so a new type reaches every map. services/map_tiles.py is the server's half, for the heatmap's HD export, and
-// has each provider's terms. Thunderforest and OS need a key from Settings → Maps (window.MAP_KEYS, templates/_maps.html); a type whose
+// has each provider's terms. Thunderforest and OS need a key from Settings → Maps (#mapKeys in templates/_maps.html); a type whose
 // key isn't saved isn't offered. Each kind of page remembers its viewer's choice in localStorage.
 var HWMap = (function () {
-  var KEYS = window.MAP_KEYS || {};
+  var KEYS = JSON.parse(document.getElementById('mapKeys').textContent);
   var OSM = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
   var ESRI_IMAGERY = 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics';
   var ESRI_CANVAS = '&copy; Esri, HERE, Garmin, FAO, NOAA, USGS';

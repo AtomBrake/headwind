@@ -45,29 +45,15 @@
   {% set stale = devices | selectattr('stale') | list %}
   {% if stale %}
   <div class="ph-note" id="phStale"><span>{{ stale | length }} token{{ 's have' if stale | length != 1 else ' has' }} not been used for over {{ stale_days }} days. A token works until it's revoked, so revoke the ones for phones you no longer use.</span>
-    <button class="btn btn-danger-quiet btn-sm" onclick="revokeStale({{ stale | length }})">Revoke {{ 'them' if stale | length != 1 else 'it' }}</button></div>
+    <button class="btn btn-danger-quiet btn-sm" data-click="revokeStale({{ stale | length }})">Revoke {{ 'them' if stale | length != 1 else 'it' }}</button></div>
   {% endif %}
   {% for d in devices %}
   <div class="ph-row"><div>{{ d.name }}{% if d.revokedAt %} <span style="color:var(--danger)">(revoked)</span>{% endif %}
     <small>added {{ d.createdAt | fmt_date }} · {{ ('last used ' ~ (d.lastUsedAt | fmt_when)) if d.lastUsedAt else 'never used' }}{% if d.stale %} · <span class="ph-stale">unused for over {{ stale_days }} days</span>{% endif %}</small></div>
-    {% if not d.revokedAt %}<button class="btn btn-danger-quiet btn-sm" onclick="revoke({{ d.id }})">Revoke</button>{% endif %}</div>
+    {% if not d.revokedAt %}<button class="btn btn-danger-quiet btn-sm" data-click="revoke({{ d.id }})">Revoke</button>{% endif %}</div>
   {% endfor %}
 </div>
 {% endblock %}
 {% block scripts %}
-<script>
-document.getElementById('phGo').addEventListener('click', async () => {
-  const r = await fetch('/phones/create', {method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({name: document.getElementById('phName').value})});
-  const j = await r.json();
-  if (!r.ok) { alert(j.error || 'Could not create token'); return; }
-  document.getElementById('phQr').src = j.qr; document.getElementById('phLink').textContent = j.link;
-  document.getElementById('phResult').style.display = 'block';
-});
-async function revoke(id) { if (!confirm('Revoke this phone? The app on it will stop working.')) return; await fetch('/phones/' + id + '/revoke', {method:'POST'}); location.reload(); }
-async function revokeStale(n) {
-  if (!confirm('Revoke ' + (n === 1 ? 'the token' : 'the ' + n + ' tokens') + ' not used for over {{ stale_days }} days? The app on those phones, and their Apple Watches, will stop working until paired again.')) return;
-  await fetch('/phones/revoke-stale', {method:'POST'}); location.reload();
-}
-</script>
+<script src="{{ url_for('static', filename='js/phones.js') }}" data-stale-days="{{ stale_days }}"></script>
 {% endblock %}

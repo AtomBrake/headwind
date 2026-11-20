@@ -34,7 +34,7 @@ Every `confirm()` names the thing, then says what goes with it and what stays, a
 
 > Delete Stumpjumper, its parts and its service log? Its rides stay, but will have no bike. This cannot be undone.
 
-Inside an `onsubmit="…"` attribute the text is in single quotes, so write "cannot" and "will not", not "can't" and "won't".
+A form asks with `data-confirm="…"` (`static/js/actions.js`), and doesn't submit on Cancel.
 
 ## Page head
 
@@ -53,7 +53,7 @@ On a phone the actions wrap to a second row under the title rather than widen th
   <summary class="btn btn-secondary" title="More" aria-label="More actions">⋯</summary>
   <div class="more-menu-list">
     <a href="…">Download GPX</a>
-    <form method="POST" action="…" onsubmit="return confirm('…')"><button type="submit" class="danger">Delete</button></form>
+    <form method="POST" action="…" data-confirm="…"><button type="submit" class="danger">Delete</button></form>
   </div>
 </details>
 ```
@@ -159,3 +159,31 @@ One layout: the label above the field, a `.hint` below it, and an error in a `.f
 ## Dates and numbers
 
 Dates go through `fmt_date` (`15 May 2026`), moments Headwind recorded itself (`datetime('now')`, UTC) through `fmt_when` (`24 Oct 2026, 14:05`, at home time), and distances, climbs, speeds and paces through the `services/units.py` filters (`fmt_dist`, `fmt_elev`, `fmt_speed`, `fmt_rate`, `dist_val` …). Page scripts use `window.UNITS`. Never slice an ISO date (`[:10]`) or write your own 1609.344.
+
+## Page scripts
+
+The Content-Security-Policy (`CSP` in `app.py`) runs only scripts from Headwind's own files, so nothing inline: no `<script>` with code
+in it, no `onclick=` or other `on…=` attribute, no `javascript:` link. `tests/test_security_headers.py` fails on any of them, in the
+templates and in the markup the scripts build.
+
+- A page's script is a file in `static/js`, named after the page, loaded with `<script src="{{ url_for('static', filename='js/….js') }}">`
+  where the inline one was. It's a plain script, not a module, so its functions are globals the handlers below can call.
+- What the page knows goes in a JSON block the script reads, or for a value or two, in `data-` attributes on its `<script>` tag:
+
+  ```jinja
+  <script type="application/json" id="rideData">{{ {'id': activity.id, 'coords': coords} | tojson }}</script>
+  <script src="{{ url_for('static', filename='js/ride.js') }}" data-refresh></script>
+  ```
+  ```js
+  var PAGE = JSON.parse(document.getElementById('rideData').textContent);
+  if (document.currentScript.hasAttribute('data-refresh')) …
+  ```
+- Handlers are `data-click`, `data-change`, `data-input`, `data-submit`, `data-keydown` and `data-error`, with the call an `on…=` would
+  have had: `data-click="importAgain({{ r.id }}, this)"`. Arguments can be numbers, `'strings'`, `true`, `false`, `null`, `this`,
+  `event` and `this.value`-style properties; several calls go with `;`, and one that returns `false` cancels the default, like
+  `return f()` did. Anything more (an assignment, an `if`) goes in a named function in the page's script. A function declared with
+  `let` or `const` isn't reachable from a handler: use `function`.
+- No function needed for the common ones: `data-confirm="…"` on a form, `data-autosubmit` on a field that submits its form when
+  changed, `data-busy` (or `data-busy="Saving…"`) on a form whose button is disabled once it's sent, and `setDisplay(id, value)` /
+  `toggleHidden(id)` (`static/js/app.js`) to show or hide something.
+

@@ -10,6 +10,7 @@ import config
 import database
 from services import credentials, sports, zwift
 from services import streams as stream_store
+from tests.page_data import page_data
 
 
 class _NoThread:
@@ -82,7 +83,7 @@ def test_heatmap_page_has_the_zwift_switch(client):
     assert 'id="virtualFilter"' in html
     sport_menu = re.search(r'id="sportFilter".*?</select>', html, re.S).group(0)
     assert 'Virtual' not in sport_menu                                   # the switch covers them
-    worlds = json.loads(re.search(r'var ZWIFT_WORLDS = (.*);', html).group(1))
+    worlds = page_data(html, 'heatmapData')['zwiftWorlds']
     assert worlds['watopia']['madeUp'] and not worlds['london']['madeUp']
 
 
@@ -96,7 +97,7 @@ def test_no_zwift_switch_without_virtual_rides(client):
 
 def test_ride_page_draws_the_world(client):
     html = client.get('/rides/watopia').get_data(as_text=True)
-    assert '/heatmap/zwift/watopia.png' in html and 'L.imageOverlay' in html
+    assert page_data(html, 'rideData')['zwiftWorld']['url'].startswith('/heatmap/zwift/watopia.png')
     assert '/heatmap/zwift/london.png' in client.get('/rides/zlondon').get_data(as_text=True)
     for plain in ('road', 'nowhere'):                                    # a real ride in London, and a virtual one in no Zwift world
         assert '/heatmap/zwift/' not in client.get(f'/rides/{plain}').get_data(as_text=True), plain

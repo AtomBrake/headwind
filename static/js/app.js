@@ -22,6 +22,10 @@ document.addEventListener('keydown', function (ev) {
   });
 });
 
+// For a data-click that only shows, hides or toggles something (static/js/actions.js)
+function setDisplay(id, value) { document.getElementById(id).style.display = value; }
+function toggleHidden(id) { document.getElementById(id).toggleAttribute('hidden'); }
+
 function doSync() {
   var btn = document.getElementById('syncBtn');
   if (!btn) return;
@@ -212,3 +216,118 @@ window.followJob = function (id, onEvent, onEnd) {
   }
   poll();
 };
+
+// Global UK date helpers — available to all templates
+var _MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmtDate(iso) {
+  // "2024-03-15" → "15 Mar 2024"
+  var p = iso.split('-');
+  return parseInt(p[2]) + ' ' + _MONTHS[parseInt(p[1])-1] + ' ' + p[0];
+}
+function fmtMonth(ym) {
+  // "2024-03" → "Mar 2024"
+  var p = ym.split('-');
+  return _MONTHS[parseInt(p[1])-1] + ' ' + p[0];
+}
+
+// What runs in the background, from every page (/tasks/background): an import started on the Import page, and a backup or other file
+// being made to download, with a link to it when it's ready. The Import page shows its own import, so not here.
+(function () {
+  var box = document.getElementById('taskPills'), onImport = box.hasAttribute('data-hide-import');
+  function dismiss(id, pill) {
+    pill.remove();
+    fetch('/tasks/background/dismiss', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                         body: new URLSearchParams({ id: id }) }).catch(function () {});
+  }
+  function poll() {
+    fetch('/tasks/background').then(function (r) { return r.json(); }).then(function (d) {
+      box.textContent = '';
+      var running = false;
+      d.items.forEach(function (it) {
+        if (onImport && it.id === 'import') return;
+        running = running || it.state === 'running';
+        var pill = document.createElement('div');
+        pill.className = 'task-pill' + (it.state === 'failed' ? ' task-pill-error' : it.state === 'done' ? ' task-pill-done' : '');
+        var a = document.createElement('a');
+        a.className = 'task-pill-text';        // a class, so the plain-link colour (a:not([class])) leaves it alone
+        a.href = it.url;
+        a.textContent = it.text;
+        a.title = it.text;
+        if (it.state === 'done' && it.id !== 'import') a.addEventListener('click', function () { setTimeout(function () { pill.remove(); }, 0); });
+        var bar = document.createElement('div'), fill = document.createElement('div');
+        bar.className = 'task-pill-bar';
+        fill.style.width = (it.state === 'running' ? (it.pct || 0) : 100) + '%';
+        bar.append(fill);
+        pill.append(a, bar);
+        if (it.state !== 'running') {
+          var close = document.createElement('button');
+          close.type = 'button';
+          close.setAttribute('aria-label', 'Dismiss');
+          close.innerHTML = '&times;';
+          close.addEventListener('click', function () { dismiss(it.id, pill); });
+          pill.append(close);
+        }
+        box.append(pill);
+      });
+      if (running) setTimeout(poll, 2000);
+    }).catch(function () {});
+  }
+  poll();
+})();
+
+(function () {
+  var tip = document.createElement('div');
+  tip.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;display:none;'
+    + 'border-radius:50%;overflow:hidden;box-shadow:0 4px 20px var(--shadow);'
+    + 'border:2px solid var(--border);width:96px;height:96px;';
+  var tipImg = document.createElement('img');
+  tipImg.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+  tip.appendChild(tipImg);
+  document.body.appendChild(tip);
+
+  document.addEventListener('mouseover', function (e) {
+    var img = e.target;
+    if (img.tagName !== 'IMG' || !img.src.includes('/avatars/')) return;
+    tipImg.src = img.src;
+    tip.style.display = 'block';
+  });
+  document.addEventListener('mousemove', function (e) {
+    if (tip.style.display === 'none') return;
+    var x = e.clientX, y = e.clientY;
+    var left = x + 14;
+    var top  = y - 48;
+    if (left + 100 > window.innerWidth)  left = x - 110;
+    if (top  < 8)                         top  = 8;
+    if (top  + 100 > window.innerHeight)  top  = window.innerHeight - 104;
+    tip.style.left = left + 'px';
+    tip.style.top  = top  + 'px';
+  });
+  document.addEventListener('mouseout', function (e) {
+    var img = e.target;
+    if (img.tagName === 'IMG' && img.src.includes('/avatars/')) tip.style.display = 'none';
+  });
+  document.addEventListener('click', function (e) {
+    var img = e.target;
+    if (img.tagName !== 'IMG' || !img.src.includes('/avatars/')) return;
+    var rid = img.getAttribute('data-rider-id');
+    if (rid) { e.preventDefault(); window.location = '/riders/' + rid; }   // the avatar can sit inside a link to the ride
+  });
+})();
+
+(function () {
+  var toggle  = document.getElementById('menuToggle');
+  var sidebar = document.getElementById('sidebar');
+  var overlay = document.getElementById('sidebarOverlay');
+  function openSidebar()  { sidebar.classList.add('open'); overlay.classList.add('open'); }
+  function closeSidebar() { sidebar.classList.remove('open'); overlay.classList.remove('open'); }
+  if (window.innerWidth >= 768) openSidebar();
+  toggle.addEventListener('click', function () {
+    sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+  });
+  overlay.addEventListener('click', closeSidebar);
+  sidebar.querySelectorAll('.nav-item').forEach(function (a) {
+    a.addEventListener('click', function () {
+      if (window.innerWidth < 768) closeSidebar();
+    });
+  });
+})();

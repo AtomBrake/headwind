@@ -22,8 +22,8 @@
         <td data-sort="{{ st.meters }}">{{ st.meters | fmt_dist }}</td>
         <td data-sort="{{ st.replace.ratio if p.replaceEveryM or p.replaceEveryDays }}" style="min-width:150px;">{% if p.replaceEveryM or p.replaceEveryDays %}{{ bar(st.replace.level, st.replace.ratio) }}<div class="hint"><span class="chip {{ st.replace.level }}">{{ st.replace.level }}</span> every {{ interval(p.replaceEveryM, p.replaceEveryDays) }}</div>{% else %}<span class="hint">no interval</span>{% endif %}</td>
         <td data-sort="{{ st.check.ratio if p.checkEveryM or p.checkEveryDays }}" style="min-width:150px;">{% if p.checkEveryM or p.checkEveryDays %}{{ bar(st.check.level, st.check.ratio) }}<div class="hint"><span class="chip {{ st.check.level }}">{{ st.check.level }}</span> every {{ interval(p.checkEveryM, p.checkEveryDays) }} · last {{ st.last_check | fmt_date }}</div>{% else %}<span class="hint">no interval</span>{% endif %}</td>
-        <td><div class="mini-actions"><button class="btn btn-secondary btn-sm" type="button" onclick="logFor({{ p.id }})">Log service</button>
-          <button class="btn btn-secondary btn-sm" type="button" onclick="document.getElementById('edit{{ p.id }}').toggleAttribute('hidden')">Edit</button></div></td>
+        <td><div class="mini-actions"><button class="btn btn-secondary btn-sm" type="button" data-click="logFor({{ p.id }})">Log service</button>
+          <button class="btn btn-secondary btn-sm" type="button" data-click="toggleHidden('edit{{ p.id }}')">Edit</button></div></td>
       </tr>
       <tr id="edit{{ p.id }}" data-follows hidden><td colspan="6">
         <form method="POST" action="{{ url_for('gear.part_edit', part_id=p.id) }}" class="form-grid">
@@ -78,7 +78,7 @@
       <label>Cost (optional)<input type="number" name="cost" min="0" step="0.01"></label>
       <label class="wide">Notes<input name="notes" maxlength="500" placeholder="e.g. 0.5% stretch, replaced with the new one"></label>
       <div id="replaceBox" class="wide form-grid" hidden style="display:none;">
-        <label class="check"><input type="checkbox" id="fitNew" checked onchange="document.getElementById('fitNewVal').value = this.checked ? '1' : '0'"> Fit a new one now (same intervals, starts counting today)</label>
+        <label class="check"><input type="checkbox" id="fitNew" checked data-change="fitNewChanged(this)"> Fit a new one now (same intervals, starts counting today)</label>
         <input type="hidden" name="fit_new" id="fitNewVal" value="1">
         <label>New part name (optional)<input name="new_name" maxlength="80"></label>
       </div>
@@ -90,7 +90,7 @@
     <thead><tr><th aria-sort="descending" data-first="desc">Date</th><th>What</th><th>Part</th><th class="num" data-first="desc">Odometer</th><th class="num" data-first="desc">Cost</th><th>Notes</th><th></th></tr></thead>
     <tbody>{% for s in log %}
       <tr><td data-sort="{{ s.date }}">{{ s.date | fmt_date }}</td><td>{{ s.action | replace('_', ' ') | capitalize }}</td><td>{{ s.partName or 'Whole bike' }}</td><td class="num" data-sort="{{ s.odometerM if s.odometerM is not none }}">{{ s.odometerM | fmt_dist if s.odometerM is not none else '' }}</td><td class="num">{{ '%.2f' | format(s.cost) if s.cost else '' }}</td><td>{{ s.notes or '' }}</td>
-        <td><form method="POST" action="{{ url_for('gear.log_delete', log_id=s.id) }}" onsubmit="return confirm('Delete this service log entry? The part then counts its wear from the service before it, or from when it was fitted.')"><button class="btn btn-danger-quiet btn-sm">Delete</button></form></td></tr>
+        <td><form method="POST" action="{{ url_for('gear.log_delete', log_id=s.id) }}" data-confirm="Delete this service log entry? The part then counts its wear from the service before it, or from when it was fitted."><button class="btn btn-danger-quiet btn-sm">Delete</button></form></td></tr>
     {% endfor %}</tbody>
   </table>
   {% else %}<p class="hint">Nothing logged yet. Record a chain swap, a clean, a bleed, anything: it also resets that part's "last checked" clock.</p>{% endif %}
@@ -103,20 +103,5 @@
 </details>
 {% endif %}
 
-<script>
-  const CATALOG = {{ catalog | tojson }};
-  const UNITS_LABEL = UNITS.dist;
-  const kindSel = document.getElementById('partKind');
-  function fillFromKind() {
-    const c = CATALOG.find(x => x.kind === kindSel.value); if (!c) return;
-    document.getElementById('pReplace').value = c.replace; document.getElementById('pCheck').value = c.check;
-    document.getElementById('pReplaceDays').value = c.replace_days || ''; document.getElementById('pCheckDays').value = c.check_days || '';
-    document.getElementById('partNote').textContent = c.note || '';
-    const nm = document.getElementById('partName'); if (kindSel.value !== 'custom') nm.placeholder = c.label + ' (name or model, optional)';
-  }
-  if (kindSel) { kindSel.onchange = fillFromKind; fillFromKind(); }
-  const act = document.getElementById('logAction');
-  function syncLog() { const show = act.value === 'replaced' && document.getElementById('logPart').value; const b = document.getElementById('replaceBox'); b.hidden = !show; b.style.display = show ? '' : 'none'; }
-  act.onchange = syncLog; document.getElementById('logPart').onchange = syncLog;
-  function logFor(id) { document.getElementById('logPart').value = id; document.getElementById('logForm').scrollIntoView({behavior: 'smooth'}); syncLog(); }
-</script>
+<script type="application/json" id="partCatalog">{{ catalog | tojson }}</script>
+<script src="{{ url_for('static', filename='js/gear_parts.js') }}"></script>

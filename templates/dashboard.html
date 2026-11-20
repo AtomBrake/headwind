@@ -7,7 +7,7 @@
 
 {% block topbar_actions %}
   <a href="{{ url_for('friends.index') }}" class="btn btn-secondary">Friends</a>
-  <button class="btn btn-primary" id="syncBtn" onclick="doSync()">Sync</button>
+  <button class="btn btn-primary" id="syncBtn" data-click="doSync()">Sync</button>
 {% endblock %}
 
 {% block head %}
@@ -82,7 +82,7 @@
 
 <div class="page-greeting" style="display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
   <div>
-    <h2 id="greetingText">Welcome back, {{ active_rider.name if active_rider else 'rider' }}</h2>
+    <h2 id="greetingText" data-name="{{ active_rider.name if active_rider else 'rider' }}">Welcome back, {{ active_rider.name if active_rider else 'rider' }}</h2>
     <div class="sub">{{ now | fmt_date }}</div>
   </div>
   {% if weather %}
@@ -313,7 +313,7 @@
   {% set blips = flagged | selectattr('isBlip') | list %}
   {% if blips %}
   <form method="POST" action="{{ url_for('rides.delete_blips') }}" style="margin:0 0 0.5rem;"
-        onsubmit="return confirm('Delete the {{ blips | length }} flagged activit{{ 'ies' if blips | length != 1 else 'y' }} shorter than 160 m or with nothing recorded? They go to Recently deleted on the Import page for 30 days.')">
+        data-confirm="Delete the {{ blips | length }} flagged activit{{ 'ies' if blips | length != 1 else 'y' }} shorter than 160 m or with nothing recorded? They go to Recently deleted on the Import page for 30 days.">
     {% if not active_rider.isDefault %}<input type="hidden" name="rider" value="{{ active_rider.id }}">{% endif %}
     <button class="btn btn-danger-quiet btn-sm" type="submit">Delete all {{ blips | length }} blip{{ 's' if blips | length != 1 }} (under 160 m, or nothing recorded)</button>
   </form>
@@ -321,140 +321,22 @@
   {% for f in flagged %}
   <div id="flag_{{ f.id }}" style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; padding:0.4rem 0; border-top:1px solid var(--divider); font-size:0.8125rem;">
     <a href="/rides/{{ f.id }}" class="dash-link" style="flex:1 1 14rem;"><span style="color:var(--accent);">{{ f.startDateLocal | fmt_date }} · {{ f.name or f.sportLabel }}</span><br><span style="color:var(--text-muted);">{{ f.flagReason }}</span></a>
-    {% if f.stravaClimb is not none %}<button class="btn btn-secondary btn-sm" onclick="fixFlagged('{{ f.id }}', 'climb/strava')"
+    {% if f.stravaClimb is not none %}<button class="btn btn-secondary btn-sm" data-click="fixFlagged('{{ f.id }}', 'climb/strava')"
       title="Strava recalculated the climb; the altitude in the file can't be real">Use Strava's climb ({{ f.stravaClimb | fmt_elev }})</button>{% endif %}
-    {% if f.elapsedFix %}<button class="btn btn-secondary btn-sm" onclick="fixFlagged('{{ f.id }}', 'moving/elapsed')"
+    {% if f.elapsedFix %}<button class="btn btn-secondary btn-sm" data-click="fixFlagged('{{ f.id }}', 'moving/elapsed')"
       title="The file's timestamps are broken; start to finish gives {{ (f.distance / f.elapsedFix) | fmt_rate(f.sportType) }}">Use the elapsed time ({{ f.elapsedFix | fmt_duration }})</button>{% endif %}
-    <button class="btn btn-secondary btn-sm" onclick="dismissFlagged('{{ f.id }}')">It's right</button>
+    <button class="btn btn-secondary btn-sm" data-click="dismissFlagged('{{ f.id }}')">It's right</button>
   </div>
   {% endfor %}
 </div>
-<script>
-function fixFlagged(id, fix) {
-  fetch('/rides/' + id + '/' + fix, { method: 'POST' }).then(function(r) { return r.ok ? r.json() : null; }).then(function(d) {
-    if (!d) return;
-    if (!d.flagged) { var e = document.getElementById('flag_' + id); if (e) e.remove(); if (!document.querySelector('[id^=flag_]')) { var c = document.getElementById('flaggedCard'); if (c) c.remove(); } }
-    else location.reload();
-  });
-}
-function dismissFlagged(id) {
-  fetch('/rides/' + id + '/flag/dismiss', { method: 'POST' }).then(function(r) {
-    if (r.ok) { var e = document.getElementById('flag_' + id); if (e) e.remove(); if (!document.querySelector('[id^=flag_]')) { var c = document.getElementById('flaggedCard'); if (c) c.remove(); } }
-  });
-}
-</script>
+<script src="{{ url_for('static', filename='js/flagged.js') }}"></script>
 {% endif %}
 
 {% include '_activity_list.html' %}
 {% endblock %}
 
 {% block scripts %}
-<script>
-// Time-of-day greeting (client-side, avoids a server round trip for something this trivial)
-(function () {
-  var h = new Date().getHours();
-  var word = h < 12 ? 'Good morning' : (h < 18 ? 'Good afternoon' : 'Good evening');
-  var el = document.getElementById('greetingText');
-  if (el) el.textContent = word + ', {{ (active_rider.name if active_rider else "rider") | replace("'", "") }}';
-})();
-
-const weeklyData   = {{ weekly | tojson }};
-const yearSpeedData = {{ year_speed | tojson }};
-const riderQuery    = {{ rider_query | tojson }};
-const chartGroups   = {{ chart_groups | tojson }};   // one stack per stat group (rides, on foot, swims, ...), services/sport_filter.chart_groups
-const rateStyle     = {{ sf.style | tojson }};       // 'speed', 'pace' or 'swim' when the sports left in share a distance, else null
-
-// A bar opens that week's activities (the search below already filters by date); a point on the speed line opens that activity.
-const weekLinks = weeklyData.map(w => '/dashboard?' + (riderQuery ? riderQuery + '&' : '') + 'from=' + w.from + '&to=' + w.to + '#ride-history');
-
-const TICK_COLOR = cssVar('--text-muted');
-const GRID_COLOR = cssVar('--border');
-
-function baseScales(yUnit, opts) {
-  opts = opts || {};
-  return {
-    x: { stacked: !!opts.stacked, ticks: { color: TICK_COLOR, font: { size: 11 } }, grid: { display: false } },
-    y: { stacked: !!opts.stacked, reverse: !!opts.reverse, beginAtZero: !opts.reverse, grid: { color: GRID_COLOR },
-         ticks: { color: TICK_COLOR, font: { size: 11 }, callback: opts.tick || (v => v + (yUnit ? (' ' + yUnit) : '')) } }
-  };
-}
-
-// Weekly bars, one stack per group: a week of runs and a ride shows both, each in its own colour. With one group it is a plain bar.
-function weekly(label, value, fmt) {
-  return { type: 'bar', label, sub: 'Last 12 weeks', labels: weeklyData.map(w => w.label), links: weekLinks, hint: 'Click to see this week\'s activities', stacked: true, fmt,
-           datasets: chartGroups.map(g => ({ label: g.label, color: g.color, data: weeklyData.map(w => value(w.by[g.key] || {})) })) };
-}
-const onePlace = v => +(v || 0).toFixed(1);
-const hm = h => { const mins = Math.round(h * 60); return Math.floor(mins / 60) + 'h ' + String(mins % 60).padStart(2, '0') + 'm'; };
-const METRICS = {
-  distance:  weekly(UNITS.dist, t => onePlace(UNITS.toDist(t.dist_m)), v => v.toFixed(1) + ' ' + UNITS.dist),
-  elevation: weekly(UNITS.elev, t => Math.round(UNITS.toElev(t.elev_m)), v => Math.round(v).toLocaleString() + ' ' + UNITS.elev),
-  calories:  weekly('kcal', t => t.cals || 0, v => Math.round(v).toLocaleString() + ' kcal'),
-  time:      weekly('h', t => +((t.secs || 0) / 3600).toFixed(2), hm),
-};
-if (rateStyle) {
-  const pace = rateStyle !== 'speed', unit = pace ? UNITS.paceLabel(rateStyle) : UNITS.speed;
-  METRICS.speed = { type: 'line', label: unit, sub: 'This year, per activity' + (pace ? ' (faster is higher)' : ''), labels: yearSpeedData.map(r => fmtDate(r.d)),
-                    names: yearSpeedData.map(r => r.name), links: yearSpeedData.map(r => '/rides/' + encodeURIComponent(r.id)), hint: 'Click to open this activity',
-                    reverse: pace, fmt: v => (pace ? UNITS.fmtMinSec(v) : v.toFixed(1)) + ' ' + unit, tick: pace ? (v => UNITS.fmtMinSec(v)) : null,
-                    datasets: [{ label: unit, color: chartGroups[0] ? chartGroups[0].color : '--accent',
-                                 data: yearSpeedData.map(r => pace ? Math.round(UNITS.toPace(r.mps, rateStyle)) : onePlace(UNITS.toSpeed(r.mps))) }] };
-}
-
-let mainChart = null;
-function renderMainChart(metric) {
-  const m = METRICS[metric];
-  document.getElementById('chartSubtitle').textContent = m.sub;
-  if (mainChart) mainChart.destroy();
-  const isBar = m.type === 'bar';
-  const several = m.datasets.length > 1;
-  mainChart = new Chart(document.getElementById('mainChart'), {
-    type: m.type,
-    data: {
-      labels: m.labels,
-      datasets: m.datasets.map(d => ({
-        label: d.label,
-        data: d.data,
-        backgroundColor: isBar ? cssVar(d.color, 0.75) : 'transparent',
-        borderColor: cssVar(d.color),
-        borderWidth: isBar ? 1 : 2,
-        borderRadius: isBar ? 3 : 0,
-        pointRadius: isBar ? 0 : 3,
-        pointHoverRadius: isBar ? 0 : 5,
-        pointBackgroundColor: cssVar(d.color),
-        fill: false,
-        tension: 0.3,
-      }))
-    },
-    options: {
-      animation: false,
-      maintainAspectRatio: false,
-      interaction: isBar ? { mode: 'index', intersect: false } : { mode: 'nearest', intersect: true },
-      onClick: (evt, els) => { if (els.length) location.href = m.links[els[0].index]; },
-      onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
-      plugins: {
-        legend: { display: several, labels: { color: TICK_COLOR, boxWidth: 12 } },
-        tooltip: {
-          filter: ctx => !several || ctx.parsed.y > 0,
-          callbacks: {
-            title: ctx => (m.names ? m.names[ctx[0].dataIndex] : ctx[0].label),
-            label: ctx => (several ? ctx.dataset.label + ': ' : '') + m.fmt(ctx.parsed.y),
-            footer: ctx => (several && ctx.length > 1 ? 'Total ' + m.fmt(ctx.reduce((t, c) => t + c.parsed.y, 0)) + '\n' : '') + m.hint,
-          }
-        }
-      },
-      scales: baseScales(m.label, { stacked: m.stacked, reverse: m.reverse, tick: m.tick }),
-    }
-  });
-}
-
-renderMainChart(document.querySelector('#chartTabs .seg-btn.active').dataset.metric);
-document.getElementById('chartTabs').addEventListener('click', function (e) {
-  const btn = e.target.closest('.seg-btn');
-  if (!btn) return;
-  this.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  renderMainChart(btn.dataset.metric);
-});
-</script>
+<script type="application/json" id="dashboardData">{{ {'weekly': weekly, 'yearSpeed': year_speed, 'riderQuery': rider_query,
+  'chartGroups': chart_groups, 'rateStyle': sf.style} | tojson }}</script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
 {% endblock %}
