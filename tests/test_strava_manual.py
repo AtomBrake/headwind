@@ -8,6 +8,7 @@ import app as app_module
 import config
 import database
 from services import duplicates, strava_manual
+from services import streams as _streams
 
 
 class _NoThread:
@@ -33,8 +34,9 @@ def _track(secs, speed):
 
 
 def _add(db, aid, start, dist, elapsed, moving, streams=None):
-    db.execute('INSERT INTO Activity (id, name, riderId, sportType, type, startDate, startDateLocal, distance, elapsedTime, movingTime, streams) '
-               "VALUES (?, ?, 1, 'Ride', 'Ride', ?, ?, ?, ?, ?, ?)", [aid, f'Ride {aid}', start, start, dist, elapsed, moving, streams])
+    db.execute('INSERT INTO Activity (id, name, riderId, sportType, type, startDate, startDateLocal, distance, elapsedTime, movingTime) '
+               "VALUES (?, ?, 1, 'Ride', 'Ride', ?, ?, ?, ?, ?)", [aid, f'Ride {aid}', start, start, dist, elapsed, moving])
+    _streams.save(db, aid, streams)
 
 
 def _evening(db):
@@ -50,7 +52,7 @@ def test_a_manual_entry_is_marked_and_the_ride_inside_it_is_not_a_piece_of_it(ap
         _add(db, '7583442007', '2022-08-04T10:48:51', 45970.2, 21054, 10554)          # a recording Headwind couldn't read: no track, with stops
         db.execute('UPDATE Settings SET stravaManualDone=0')
         db.commit()
-        rows = lambda: {r['id']: dict(r) for r in db.execute('SELECT * FROM Activity')}
+        rows = lambda: {r['id']: dict(r) for r in db.execute(f'SELECT *, {_streams.sql()} FROM Activity')}
         assert duplicates.same_ride(rows()['2240645717'], rows()['2241486599'])     # unmarked, the ride looks like a piece of the entry
         res = strava_manual.fix(db)
         assert res == {'marked': 1, 'restored': []}

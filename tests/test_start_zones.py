@@ -12,6 +12,7 @@ from flask import Flask
 import database
 from routes import import_rides
 from services import duplicates as dup, parser, start_times, tz
+from services import streams as stream_store
 
 GPS = json.dumps({'time': {'data': list(range(0, 7200, 10))}, 'latlng': {'data': [[50.70 + i * 1e-4, -3.50] for i in range(720)]}})
 
@@ -135,7 +136,9 @@ def db(tmp_path, monkeypatch):
 def _add(db, act_id, start, local, sport='Ride', dist=20000.0, secs=3600, **cols):
     vals = dict(id=act_id, name=act_id, type=sport, sportType=sport, startDate=start, startDateLocal=local, distance=dist, movingTime=secs,
                 elapsedTime=secs, riderId=1, rawData='{}', **cols)
+    st = vals.pop('streams', None)
     db.execute(f"INSERT INTO Activity ({','.join(vals)}) VALUES ({','.join('?' * len(vals))})", list(vals.values()))
+    stream_store.save(db, act_id, st)
     db.commit()
 
 

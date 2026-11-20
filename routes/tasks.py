@@ -42,6 +42,19 @@ def run_now(job):
     return redirect(url_for('tasks.index'))
 
 
+@bp.route('/tasks/job/<int:job_id>')
+def job_events(job_id):
+    """A queued job (services/jobs.py) for the page following it: {state, error, events from ?since=, next}. static/js/app.js followJob polls it."""
+    from services import jobs
+    db = get_db()
+    job = jobs.get(db, job_id)
+    if not job:
+        return jsonify(error='no such job'), 404
+    since = request.args.get('since', 0, type=int)
+    events = jobs.events(db, job_id, since)
+    return jsonify(state=job['state'], error=job['error'], events=events, next=since + len(events))
+
+
 @bp.route('/tasks/diagnostics')
 def diagnostics():
     """One zip to attach to a bug report: recent logs, version, settings without secrets, row counts, recent runs (services/diagnostics.py)."""

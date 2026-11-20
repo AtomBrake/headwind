@@ -11,6 +11,7 @@ from flask import Flask
 
 import database
 from services import parser, reimport, segments as S
+from services import streams as _streams
 
 LAT0, LNG0 = 50.70, -3.50
 M_LAT = 1 / 111_320.0
@@ -66,8 +67,9 @@ def db(tmp_path):
 
 
 def add(db, aid, streams, sport='Ride', day='2026-10-01'):
-    db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData, riderId, streams) "
-               "VALUES (?, 'A', ?, ?, ?, ?, 1000, 600, 600, '{}', 1, ?)", [aid, sport, sport, f'{day}T10:00:00', f'{day}T10:00:00', json.dumps(streams)])
+    db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData, riderId) "
+               "VALUES (?, 'A', ?, ?, ?, ?, 1000, 600, 600, '{}', 1)", [aid, sport, sport, f'{day}T10:00:00', f'{day}T10:00:00'])
+    _streams.save(db, aid, json.dumps(streams))
     db.commit()
 
 
@@ -317,10 +319,10 @@ def test_importing_the_file_again_puts_its_streams_right(db):
     good = walk([(-100, 0), (1100, 0)], speed=6)
     bad = {**good, 'time': {'data': good['time']['data'] + list(range(5000, 5040))}}
     add(db, 'r1', bad)
-    saved = db.execute("SELECT * FROM Activity WHERE id='r1'").fetchone()
+    saved = db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='r1'").fetchone()
     reimport.ensure_schema(db)
     reimport.propose(db, saved, {'id': 'r1', 'streams': json.dumps(good)}, 'test')
-    st = json.loads(db.execute("SELECT streams FROM Activity WHERE id='r1'").fetchone()[0])
+    st = json.loads(_streams.load_json(db, 'r1'))
     assert len(st['time']['data']) == len(st['latlng']['data'])
     assert db.execute('SELECT COUNT(*) FROM ImportChange').fetchone()[0] == 0     # a repair, not a choice
 

@@ -9,6 +9,7 @@ import app as app_module
 import config
 import database
 from services import credentials, matched
+from services import streams as _streams
 
 LAT0, LNG0 = 50.72, -3.53
 M_LAT = 1 / 111_320.0
@@ -43,9 +44,9 @@ def add(db, aid, legs, day, secs, sport='Ride', rider=1, start=(0, 0), wobble=0.
     if start != (0, 0):
         pts = [[p[0] + start[1] * M_LAT, p[1] + start[0] * M_LNG] for p in pts]
     dist = sum(((dx * dx + dy * dy) ** 0.5) for dx, dy in legs)
-    db.execute("INSERT INTO Activity (id, name, sportType, startDateLocal, distance, movingTime, averageSpeed, riderId, startLat, startLng, streams) "
-               "VALUES (?,?,?,?,?,?,?,?,?,?,?)", [aid, aid, sport, f'{day}T08:00:00', dist, secs, dist / secs, rider, pts[0][0], pts[0][1],
-                                                    json.dumps({'latlng': {'data': pts}})])
+    db.execute("INSERT INTO Activity (id, name, sportType, startDateLocal, distance, movingTime, averageSpeed, riderId, startLat, startLng) "
+               "VALUES (?,?,?,?,?,?,?,?,?,?)", [aid, aid, sport, f'{day}T08:00:00', dist, secs, dist / secs, rider, pts[0][0], pts[0][1]])
+    _streams.save(db, aid, json.dumps({'latlng': {'data': pts}}))
 
 
 @pytest.fixture

@@ -9,6 +9,7 @@ import app as app_module
 import config
 import database
 from services import duplicates, reimport
+from services import streams as _streams
 
 
 class _NoThread:
@@ -63,7 +64,7 @@ def test_strava_elapsed_time_brings_back_the_ride_a_device_left_running_had_swal
         _add(db, 'other', '2020-12-31T17:57:01', 10215, 12243, 7222)
         _add(db, 'evening', '2020-12-31T19:59:10', 5258, 3144, 1448)
         _add(db, 'chosen', '2020-12-31T18:30:00', 4000, 1500, 1400)       # set aside by the rider: stays, whatever the times say
-        rows = {r['id']: dict(r) for r in db.execute('SELECT * FROM Activity')}
+        rows = {r['id']: dict(r) for r in db.execute(f'SELECT *, {_streams.sql()} FROM Activity')}
         assert duplicates.same_ride(rows['evening'], rows['other'])        # inside the file's 3 h 24 min: taken for a piece of it
         duplicates.park(db, 'evening', 'other', 'Kept the whole ride: the other recording is only a 52-minute piece of it.')
         duplicates.park(db, 'chosen', 'other', duplicates.CHOSEN)

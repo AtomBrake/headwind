@@ -20,6 +20,7 @@ bp = Blueprint('settings', __name__)
 
 OPENAI_MODELS = ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini', 'gpt-4-turbo', 'gpt-3.5-turbo']
 from services.ai import CLAUDE_MODELS
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -348,8 +349,8 @@ def calorie_adjust_history():
     return jsonify({'ok': True, 'pct': calorie_adjust.get_pct(), 'touched': touched})
 
 
-_WX_MISSING = """FROM Activity WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL
-                 AND (startLat IS NOT NULL OR streams LIKE '%latlng%')"""
+_WX_MISSING = f"""FROM Activity WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL
+                 AND (startLat IS NOT NULL OR {_streams.has_sql(key='latlng')})"""
 
 
 @bp.route('/weather-backfill', methods=['POST'])

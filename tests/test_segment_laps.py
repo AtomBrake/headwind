@@ -8,6 +8,7 @@ import pytest
 import database
 from services import segments as S
 from tests.test_segment_matching_fixes import add, at, db, seg_row  # noqa: F401  (db: the fixture)
+from services import streams as _streams
 
 POLY = [at(x, 0) for x in range(0, 1001, 50)]
 SEG = seg_row(at(0, 0), at(1000, 0), 1000, POLY)
@@ -68,7 +69,7 @@ def test_a_lap_only_close_to_the_line_is_an_approximate_effort_of_its_own():
 def test_a_rides_laps_are_kept_and_numbered_and_the_fastest_is_the_pr(db):
     seg = add_segment(db)
     add(db, 'r1', two_laps())
-    act = db.execute("SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id='r1'").fetchone()
+    act = db.execute(f"SELECT id, startDateLocal, {_streams.sql()}, sportType FROM Activity WHERE id='r1'").fetchone()
     for _ in range(2):                                             # matched again: its laps replace the old ones, none doubled
         assert S.scan_activity_against_segments(db, act, [seg]) == 1
     S._refresh_prs(db, seg['id'])
@@ -90,6 +91,7 @@ def test_the_table_from_before_laps_is_rebuilt_with_its_efforts(db):
     add_segment(db)
     db.execute("INSERT INTO SegmentEffort (id, segmentId, activityId, activityDate, elapsedSecs, isPR) VALUES (7, 1, 'r1', '2026-10-01', 130, 1)")
     db.commit()
+    db.execute('PRAGMA user_version = 0')                                       # from before the steps (database.STEPS)
     database.migrate_db()
     assert [tuple(r) for r in db.execute('SELECT id, activityId, elapsedSecs, isPR, startSecs FROM SegmentEffort')] == [(7, 'r1', 130, 1, None)]
     db.execute("INSERT INTO SegmentEffort (segmentId, activityId, elapsedSecs, startSecs) VALUES (1, 'r1', 200, 0)")   # a second lap

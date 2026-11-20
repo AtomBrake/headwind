@@ -11,6 +11,7 @@ import json
 import logging
 
 from services.parser import PAUSED_SLACK, track_moving_time
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 _BATCH = 50
@@ -33,10 +34,10 @@ def repair(db):
     if not s or s['movingTimeFixDone']:
         return {'ran': False}
     fixed = []
-    ids = [r[0] for r in db.execute("SELECT id FROM Activity WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')")]
+    ids = [r[0] for r in db.execute(f"SELECT id FROM Activity WHERE {_streams.has_sql()}")]
     for i in range(0, len(ids), _BATCH):
         chunk = ids[i:i + _BATCH]
-        for r in db.execute(f"SELECT id, name, distance, movingTime, streams, rawData FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
+        for r in db.execute(f"SELECT id, name, distance, movingTime, {_streams.sql()}, rawData FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
             if stravas(r):
                 continue
             try:
@@ -64,10 +65,10 @@ def repair_paused(db):
     if not s or s['movingTimePausedDone']:
         return {'ran': False}
     fixed = []
-    ids = [r[0] for r in db.execute("SELECT id FROM Activity WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}') AND movingTime > 0")]
+    ids = [r[0] for r in db.execute(f"SELECT id FROM Activity WHERE {_streams.has_sql()} AND movingTime > 0")]
     for i in range(0, len(ids), _BATCH):
         chunk = ids[i:i + _BATCH]
-        for r in db.execute(f"SELECT id, name, sportType, distance, movingTime, streams, rawData FROM Activity WHERE id IN ({','.join('?' * len(chunk))})",
+        for r in db.execute(f"SELECT id, name, sportType, distance, movingTime, {_streams.sql()}, rawData FROM Activity WHERE id IN ({','.join('?' * len(chunk))})",
                             chunk).fetchall():
             if on_water(r['sportType']) or stravas(r):
                 continue

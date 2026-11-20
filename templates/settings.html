@@ -978,32 +978,33 @@ function garminActivitySync() {
   status.style.color   = 'var(--text-muted)';
   status.textContent   = 'Connecting to Garmin…';
 
-  var es = new EventSource('/garmin/sync-activities');
-  es.onmessage = function(e) {
-    var d = JSON.parse(e.data);
-    if (d.error) {
-      status.textContent = 'Error: ' + d.error;
-      status.style.color = 'var(--danger)';
-      btn.disabled = false;
-      es.close();
-    } else if (d.done) {
-      status.textContent = '✓ Imported ' + d.imported + ' rides' + (d.skipped ? ', ' + d.skipped + ' skipped' : '');
-      status.style.color = 'var(--success)';
-      btn.disabled = false;
-      es.close();
-    } else if (d.msg) {
-      status.textContent = d.msg;
-    } else if (d.imported !== undefined) {
-      status.textContent = 'Importing… ' + d.imported + ' done, ' + d.skipped + ' skipped';
-    }
-  };
-  es.onerror = function() {
-    if (es.readyState === EventSource.CLOSED) return;
-    status.textContent = 'Connection lost';
+  function failed(msg) {
+    status.textContent = 'Error: ' + msg;
     status.style.color = 'var(--danger)';
     btn.disabled = false;
-    es.close();
-  };
+  }
+  // The sync runs in the background (services/jobs.py): leaving the page doesn't stop it, and the Tasks page shows how it went
+  fetch('/garmin/sync-activities', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (r) {
+    if (!r.job) return failed(r.error || 'could not start the sync');
+    var shown = false;
+    followJob(r.job, function (d) {
+      if (d.error) {
+        shown = true;
+        failed(d.error);
+      } else if (d.done) {
+        shown = true;
+        status.textContent = '✓ Imported ' + d.imported + ' rides' + (d.skipped ? ', ' + d.skipped + ' skipped' : '');
+        status.style.color = 'var(--success)';
+        btn.disabled = false;
+      } else if (d.msg) {
+        status.textContent = d.msg;
+      } else if (d.imported !== undefined) {
+        status.textContent = 'Importing… ' + d.imported + ' done, ' + d.skipped + ' skipped';
+      }
+    }, function (state, error) {
+      if (!shown) failed(error || 'the sync stopped');
+    });
+  }).catch(function () { failed('Connection lost'); });
 }
 
 </script>

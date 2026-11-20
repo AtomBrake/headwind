@@ -7,6 +7,7 @@ import json
 import logging
 
 from services.parser import extremes_from_streams
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -18,8 +19,8 @@ def _blank(v):
 def backfill(db, apply=False, rewind_wind=False):
     """Returns counts. With apply=False nothing is written. Caller commits."""
     counts = {'rides': 0, 'maxSpeed': 0, 'maxHeartrate': 0, 'maxWatts': 0, 'windRel': 0}
-    rows = db.execute("SELECT id, streams, averageSpeed, maxSpeed, maxHeartrate, maxWatts, weatherWindDir, weatherWindKph, weatherWindRel "
-                      "FROM Ride WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')").fetchall()
+    rows = db.execute(f"SELECT id, {_streams.sql('Ride')}, averageSpeed, maxSpeed, maxHeartrate, maxWatts, weatherWindDir, weatherWindKph, weatherWindRel "
+                      f"FROM Ride WHERE {_streams.has_sql('Ride')}").fetchall()
     for r in rows:
         counts['rides'] += 1
         try:
@@ -55,7 +56,7 @@ def fix_spiky_max_speed(db):
     from services.parser import _MAX_PLAUSIBLE
     from services import sanity
     fixed = 0
-    for r in db.execute('SELECT id, streams FROM Ride WHERE maxSpeed > ?', [_MAX_PLAUSIBLE['speed']]).fetchall():
+    for r in db.execute(f'SELECT id, {_streams.sql("Ride")} FROM Ride WHERE maxSpeed > ?', [_MAX_PLAUSIBLE['speed']]).fetchall():
         try:
             ex = extremes_from_streams(json.loads(r['streams'] or '{}'))
         except (ValueError, TypeError):
@@ -78,10 +79,10 @@ def fix_sensor_top_speed(db):
     if not s or s['sensorTopSpeedDone']:
         return None
     fixed = []
-    ids = [r[0] for r in db.execute("SELECT id FROM Activity WHERE streams LIKE '%\"distance\"%' AND streams LIKE '%\"latlng\"%'")]
+    ids = [r[0] for r in db.execute(f"SELECT id FROM Activity WHERE {_streams.has_sql(key='distance')} AND {_streams.has_sql(key='latlng')}")]
     for i in range(0, len(ids), 50):
         chunk = ids[i:i + 50]
-        for r in db.execute(f"SELECT id, name, maxSpeed, streams FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
+        for r in db.execute(f"SELECT id, name, maxSpeed, {_streams.sql()} FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
             try:
                 streams = json.loads(r['streams'] or '{}')
             except (TypeError, ValueError):

@@ -2,6 +2,7 @@ import logging
 import math
 import requests
 from datetime import datetime, timedelta
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -309,8 +310,8 @@ def backfill_missing(db, limit=None, since_days=None, pause=0.15, on_each=None):
     (done, failed). One the service has no data for is skipped for this run (never retried in a loop). Commits per activity."""
     import time
     from services import sports
-    q = f"""SELECT id, sportType, startLat, startLng, startDateLocal, streams FROM Activity
-           WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL AND (startLat IS NOT NULL OR instr(streams, '"latlng"') > 0)
+    q = f"""SELECT id, sportType, startLat, startLng, startDateLocal, {_streams.sql()} FROM Activity
+           WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL AND (startLat IS NOT NULL OR {_streams.has_sql(key='latlng')})
              AND NOT {sports.virtual_sql()}"""
     if since_days:
         q += f" AND startDate >= datetime('now', '-{int(since_days)} days')"

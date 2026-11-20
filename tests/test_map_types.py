@@ -13,6 +13,7 @@ import app as app_module
 import config
 import database
 from services import credentials, map_tiles, vault
+from services import streams as _streams
 
 
 class _NoThread:
@@ -35,8 +36,9 @@ def app(tmp_path, monkeypatch):
         db = database.get_db()
         db.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
         db.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
-        db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, rawData, streams) "
-                   "VALUES ('gps', 'GPS', 'Ride', 1, '2026-10-01T08:00:00', 6650, 600, '{}', ?)", [json.dumps(STREAMS)])
+        db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, rawData) "
+                   "VALUES ('gps', 'GPS', 'Ride', 1, '2026-10-01T08:00:00', 6650, 600, '{}')", [])
+        _streams.save(db, 'gps', json.dumps(STREAMS))
         # an older activity with only the summary polyline for its map
         db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, rawData, summaryPolyline) "
                    "VALUES ('poly', 'Poly', 'Ride', 1, '2026-10-02T08:00:00', 5000, 600, '{}', ?)",

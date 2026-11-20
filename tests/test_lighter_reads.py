@@ -11,6 +11,7 @@ import app as app_module
 import config
 import database
 from services import credentials, duplicates
+from services import streams as _streams
 
 
 class _NoThread:
@@ -50,8 +51,9 @@ def _track(n=600, start=0):
 
 
 def _add(db, aid, local, sport='Ride', dist=10000, secs=1800, rider=1, streams=None):
-    db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData, riderId, "
-               "streams) VALUES (?,?,?,?,?,?,?,?,?,'{}',?,?)", [aid, aid, sport, sport, local, local, dist, secs, secs, rider, streams or _track()])
+    db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData, riderId) "
+               "VALUES (?,?,?,?,?,?,?,?,?,'{}',?)", [aid, aid, sport, sport, local, local, dist, secs, secs, rider])
+    _streams.save(db, aid, streams or _track())
 
 
 def test_the_window_is_the_same_days_as_before(app, monkeypatch):
@@ -63,7 +65,7 @@ def test_the_window_is_the_same_days_as_before(app, monkeypatch):
         _add(db, 'new', '2026-01-10T12:00:00')
         db.commit()
         monkeypatch.setattr(duplicates, 'same_ride', lambda a, b, fragments=True: True)
-        new = db.execute("SELECT * FROM Activity WHERE id='new'").fetchone()
+        new = db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='new'").fetchone()
         found = duplicates.find_duplicates(db, new)
         assert [r['id'] for r in found] == ['first', 'same-day', 'last']        # the day before to two days after, as it always was
         assert all(r['streams'] for r in found)                        # whole rows, for pick_winner and park
@@ -77,13 +79,13 @@ def test_only_a_candidate_that_passes_the_cheap_checks_is_read_whole(app):
         _add(db, 'yesterday', '2026-01-09T12:00:00')
         _add(db, 'new', '2026-01-10T12:00:00')
         db.commit()
-        new = db.execute("SELECT * FROM Activity WHERE id='new'").fetchone()
+        new = db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='new'").fetchone()
         seen = []
         db.set_trace_callback(seen.append)
         found = duplicates.find_duplicates(db, new)
         db.set_trace_callback(None)
         assert [r['id'] for r in found] == ['garmin_1']
-        assert [s for s in seen if s.startswith('SELECT * FROM Activity')] == ["SELECT * FROM Activity WHERE id='garmin_1'"]
+        assert [s for s in seen if s.startswith(f'SELECT *, {_streams.sql()} FROM Activity')] == [f"SELECT *, {_streams.sql()} FROM Activity WHERE id='garmin_1'"]
         assert not any('streams' in s for s in seen if 'startDateLocal >=' in s)
 
 
@@ -94,9 +96,9 @@ def test_a_piece_whose_track_is_elsewhere_is_still_turned_down_once_read_whole(a
         _add(db, 'piece', '2026-01-10T12:10:00', dist=1500, secs=300, streams=elsewhere)
         _add(db, 'new', '2026-01-10T12:00:00', secs=3600, streams=_track(3600))
         db.commit()
-        new = db.execute("SELECT * FROM Activity WHERE id='new'").fetchone()
+        new = db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='new'").fetchone()
         assert duplicates.find_duplicates(db, new) == []
-        db.execute("UPDATE Activity SET streams=? WHERE id='piece'", [_track(300, start=600)])      # where the whole ride was then
+        _streams.save(db, 'piece', _track(300, start=600))      # where the whole ride was then
         assert [r['id'] for r in duplicates.find_duplicates(db, new)] == ['piece']
 
 
@@ -109,9 +111,14 @@ def test_the_ai_batch_reads_one_ride_at_a_time(app, client, monkeypatch):
     got = []
     import services.ai
     monkeypatch.setattr(services.ai, 'analyse_ride', lambda db, activity, **kw: got.append((activity['id'], bool(activity['streams']))) or 'ok')
-    body = client.get('/ai/bulk-analyse?force=1').get_data(as_text=True)
+    from services import jobs
+    job = client.post('/ai/bulk-analyse', data={'force': '1'}).get_json()['job']
+    assert client.post('/ai/bulk-analyse', data={'force': '1'}).get_json()['job'] == job      # pressed again: the same batch
+    jobs.run_queued(app)
     assert got == [('r0', True), ('r1', True), ('r2', True)]
-    assert '"type": "done", "analysed": 3, "skipped": 0' in body
+    d = client.get(f'/tasks/job/{job}').get_json()
+    assert d['state'] == 'done' and d['events'][-1] == {'type': 'done', 'analysed': 3, 'skipped': 0}
+    assert client.get(f"/tasks/job/{job}?since={d['next'] - 1}").get_json()['events'] == [d['events'][-1]]
 
 
 def test_kudos_reads_the_whole_activity_only_to_analyse_it(app, client, monkeypatch):
@@ -130,7 +137,7 @@ def test_kudos_reads_the_whole_activity_only_to_analyse_it(app, client, monkeypa
         return conn
     monkeypatch.setattr(database.sqlite3, 'connect', traced)
     assert client.post('/rides/run/kudos', json={}).status_code == 400
-    assert not [s for s in seen if s.startswith('SELECT * FROM Activity')]
+    assert not [s for s in seen if s.startswith(f'SELECT *, {_streams.sql()} FROM Activity')]
     monkeypatch.setattr(routes.kudos, 'analyse_ride', lambda db, activity, **kw: f"{activity['id']} {bool(activity['streams'])}")
     assert client.post('/rides/ride/kudos', json={}).get_json() == {'kudos': 'ride True'}
 

@@ -9,6 +9,7 @@ import database
 from services import convert, duplicates, origin, sanity, sport_fix, workouts
 from services.garmin import _save_workout, garmin_sport
 from services.max_stats import fix_spiky_max_speed
+from services import streams as _streams
 
 MI = 1609.344
 
@@ -25,9 +26,10 @@ def db(tmp_path):
 
 
 def add_ride(db, rid, sport='Ride', name='Activity', dist=20000.0, max_speed=8.0, streams=None, day='2021-07-05', calories=400):
-    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,totalElevationGain,averageSpeed,maxSpeed,calories,streams,rawData,riderId,createdAt,updatedAt)"
-               " VALUES (?,?,?,?,?,?,?,3600,3700,100,?,?,?,?,'{}',1,'n','n')",
-               [rid, name, sport, sport, day + 'T09:00:00', day + 'T10:00:00', dist, dist / 3600, max_speed, calories, streams or '{}'])
+    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,totalElevationGain,averageSpeed,maxSpeed,calories,rawData,riderId,createdAt,updatedAt)"
+               " VALUES (?,?,?,?,?,?,?,3600,3700,100,?,?,?,'{}',1,'n','n')",
+               [rid, name, sport, sport, day + 'T09:00:00', day + 'T10:00:00', dist, dist / 3600, max_speed, calories])
+    _streams.save(db, rid, streams or '{}')
     sanity.flag(db, rid)
     db.commit()
 
@@ -72,7 +74,7 @@ def test_check_lists_the_wrong_sports_and_apply_moves_them(db):
 
     res = sport_fix.apply(db, 1, ['garmin_1', 'garmin_3', 'garmin_4'])               # garmin_2 and garmin_5 left as they are
     assert res == {'changed': 3, 'failed': 0, 'kept': 2}
-    swim = db.execute("SELECT * FROM Activity WHERE sportType='Swim'").fetchone()
+    swim = db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE sportType='Swim'").fetchone()
     assert swim and swim['calories'] == 210                                        # the watch's calories, not a walking estimate
     assert db.execute("SELECT COUNT(*) FROM Activity WHERE sportType='Run'").fetchone()[0] == 1
     assert db.execute("SELECT sportType FROM Activity WHERE id='garmin_4'").fetchone()[0] == 'VirtualRide'

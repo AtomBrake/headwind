@@ -11,6 +11,7 @@ from flask import Flask
 import database
 from routes import friends
 from services import feed_tokens, segments
+from services import streams as _streams
 
 D_LAT = 6.0 / 111_320.0          # a ride at 6 m/s, one fix a second
 TOKEN = 'tok'
@@ -23,8 +24,9 @@ def line(secs=1200, lat0=51.5, lng0=-0.12, speed=6.0):
 
 
 def add_ride(db, aid, rider=1, day='2026-10-01', speed=6.0):
-    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,rawData,riderId,streams) "
-               "VALUES (?,'R','Ride','Ride',?,?,7200,1200,1200,'{}',?,?)", [aid, f'{day}T10:00:00', f'{day}T10:00:00', rider, line(speed=speed)])
+    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,rawData,riderId) "
+               "VALUES (?,'R','Ride','Ride',?,?,7200,1200,1200,'{}',?)", [aid, f'{day}T10:00:00', f'{day}T10:00:00', rider])
+    _streams.save(db, aid, line(speed=speed))
     db.commit()
 
 
@@ -328,15 +330,16 @@ def test_an_old_friend_asks_with_since_and_gets_no_manifest(db, tom):
 def test_rewriting_a_ride_with_the_same_values_or_new_calories_fetches_nothing(db, tom):
     on_tom(tom, lambda d: add_ride(d, 'r1'))
     sync(db)
-    on_tom(tom, lambda d: d.execute("UPDATE Activity SET name=name, streams=streams, calories=512 WHERE id='r1'"))
+    on_tom(tom, lambda d: (d.execute("UPDATE Activity SET name=name, calories=512 WHERE id='r1'"), d.execute("UPDATE ActivityStream SET data=data WHERE activityId='r1'")))
     assert sync(db) == (0, None)
 
 
 # ── Every sport ──────────────────────────────────────────────────
 
 def add_run(db, aid, day='2026-10-05', speed=3.0):
-    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,rawData,riderId,streams,steps) "
-               "VALUES (?,'Run','Run','Run',?,?,3600,1200,1200,'{}',1,?,4200)", [aid, f'{day}T07:00:00', f'{day}T07:00:00', line(speed=speed)])
+    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,rawData,riderId,steps) "
+               "VALUES (?,'Run','Run','Run',?,?,3600,1200,1200,'{}',1,4200)", [aid, f'{day}T07:00:00', f'{day}T07:00:00'])
+    _streams.save(db, aid, line(speed=speed))
     db.commit()
 
 

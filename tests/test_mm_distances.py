@@ -8,6 +8,7 @@ import app as app_module
 import config
 import database
 from services import mm_distances
+from services import streams as _streams
 
 
 class _NoThread:
@@ -29,9 +30,10 @@ def app(tmp_path, monkeypatch):
 
 
 def _add(db, aid, sport, dist, elapsed, moving, avg=0, streams=None):
-    db.execute('INSERT INTO Activity (id, name, riderId, sportType, type, startDateLocal, distance, elapsedTime, movingTime, averageSpeed, streams) '
-               'VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)',
-               [aid, f'{sport} {aid}', sport, sport, '2019-03-25T19:30:00', dist, elapsed, moving, avg, json.dumps(streams) if streams else None])
+    db.execute('INSERT INTO Activity (id, name, riderId, sportType, type, startDateLocal, distance, elapsedTime, movingTime, averageSpeed) '
+               'VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?)',
+               [aid, f'{sport} {aid}', sport, sport, '2019-03-25T19:30:00', dist, elapsed, moving, avg])
+    _streams.save(db, aid, json.dumps(streams) if streams else None)
 
 
 def test_distances_stored_in_mm_are_divided_and_real_ones_are_kept(app):

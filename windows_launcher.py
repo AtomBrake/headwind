@@ -121,6 +121,8 @@ def main():
     from waitress import serve
 
     app = create_app()
+    from services import worker
+    worker.start_in_process(app)       # one process here: the background work (services/jobs.py) runs in a thread of it
     user, pw = credentials.admin_login().username, credentials.generated_password()
     generated = pw is not None
     threading.Thread(target=lambda: serve(app, host=HOST, port=PORT, threads=8), daemon=True).start()

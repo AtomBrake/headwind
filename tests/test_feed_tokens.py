@@ -7,6 +7,7 @@ from flask import Flask
 
 import database
 from services import feed_tokens
+from services import streams as _streams
 
 
 def _app(tmp_path, legacy=None):
@@ -21,7 +22,8 @@ def _app(tmp_path, legacy=None):
         d = database.get_db()
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Rob', 1)")
         for aid, day in (('r_sep', '2026-09-15'), ('r_oct1', '2026-10-01'), ('r_oct9', '2026-10-09')):
-            d.execute("INSERT INTO Activity (id, name, riderId, startDateLocal, streams) VALUES (?, 'ride', 1, ?, '{}')", [aid, day + 'T08:00:00'])
+            d.execute("INSERT INTO Activity (id, name, riderId, startDateLocal) VALUES (?, 'ride', 1, ?)", [aid, day + 'T08:00:00'])
+            _streams.save(d, aid, '{}')
         d.execute("INSERT INTO Segment (name, startLat, startLng, endLat, endLng) VALUES ('Hill', 51.0, -1.0, 51.01, -1.01)")
         d.execute("INSERT INTO CustomFood (riderId, name, calories) VALUES (1, 'Flapjack', 400)")
         d.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")

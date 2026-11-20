@@ -6,6 +6,7 @@ from database import query_db, get_db
 from services import sports
 from routes.riders import _compute_badges
 from services.ai import PERSONALITIES
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -86,8 +87,8 @@ def _stream_series(streams, key, dist_key='distance', transform=None):
 
 @bp.route('/<rid>')
 def detail(rid):
-    activity = query_db('''
-        SELECT a.*, r.name AS riderName, r.avatarPath AS riderAvatar, r.isDefault AS riderIsDefault
+    activity = query_db(f'''
+        SELECT a.*, {_streams.sql('a')}, r.name AS riderName, r.avatarPath AS riderAvatar, r.isDefault AS riderIsDefault
         FROM Activity a
         LEFT JOIN Rider r ON r.id = a.riderId
         WHERE a.id=?
@@ -319,7 +320,7 @@ def detail(rid):
 def scan_segments(rid):
     from services.segments import scan_activity_against_segments, _refresh_prs
     db = get_db()
-    activity = db.execute('SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id=?', [rid]).fetchone()
+    activity = db.execute(f'SELECT id, startDateLocal, {_streams.sql()}, sportType FROM Activity WHERE id=?', [rid]).fetchone()
     if not activity:
         return ('Not found', 404)
     segments = db.execute('SELECT * FROM Segment').fetchall()
@@ -346,7 +347,7 @@ def set_weather(rid):
         return jsonify(error='not found'), 404
     if label == 'notstorm':           # it was not a storm ride after all: back to the lookup's own condition, and never claimed again
         weather.set_condition(db, rid, None)
-        row = db.execute('SELECT sportType, startLat, startLng, startDateLocal, streams FROM Activity WHERE id=?', [rid]).fetchone()
+        row = db.execute(f'SELECT sportType, startLat, startLng, startDateLocal, {_streams.sql()} FROM Activity WHERE id=?', [rid]).fetchone()
         lat, lng = weather.origin(row)
         w = weather.fetch_weather(lat, lng, row['startDateLocal'], row['streams'], row['sportType']) if lat is not None else None
         if w:
@@ -356,7 +357,7 @@ def set_weather(rid):
         weather.set_condition(db, rid, 'keep')
     elif label == 'auto':
         weather.set_condition(db, rid, None)
-        row = db.execute('SELECT sportType, startLat, startLng, startDateLocal, streams FROM Activity WHERE id=?', [rid]).fetchone()
+        row = db.execute(f'SELECT sportType, startLat, startLng, startDateLocal, {_streams.sql()} FROM Activity WHERE id=?', [rid]).fetchone()
         lat, lng = weather.origin(row)
         w = weather.fetch_weather(lat, lng, row['startDateLocal'], row['streams'], row['sportType']) if lat is not None else None
         if w:
@@ -566,7 +567,7 @@ def gpx_for(activity):
 @bp.route('/<rid>/gpx')
 def export_gpx(rid):
     from flask import Response
-    activity = query_db('SELECT * FROM Activity WHERE id=?', [rid], one=True)
+    activity = query_db(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [rid], one=True)
     out = gpx_for(activity) if activity else None
     if not out:
         abort(404)
@@ -674,7 +675,7 @@ def bulk_download():
     buf, names = io.BytesIO(), set()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
         for act_id in ids:
-            a = query_db('SELECT * FROM Activity WHERE id=?', [act_id], one=True)
+            a = query_db(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [act_id], one=True)
             out = gpx_for(a) if a else None
             if not out:
                 continue
@@ -808,7 +809,7 @@ def view_duplicate(rid, dup_id=None):
     db = get_db()
     parked = duplicates.parked_for(db, rid)
     d = next((p for p in parked if dup_id is None or str(p['id']) == str(dup_id)), None)
-    main = db.execute('SELECT * FROM Activity WHERE id=?', [rid]).fetchone()
+    main = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [rid]).fetchone()
     if not d or not main:
         abort(404)
     other = json.loads(d['rowJson'] or '{}')

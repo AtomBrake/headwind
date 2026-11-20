@@ -11,6 +11,7 @@ import app as app_module
 import config
 import database
 from services import duplicates as dup, sanity
+from services import streams as stream_store
 
 
 class _NoThread:
@@ -45,8 +46,9 @@ def _row(aid, start, secs, dist, sport='Ride', local=None, **kw):
 
 
 def _insert(db, row):
-    cols = [c for c in row if c != 'source' or row[c] is not None]
+    cols = [c for c in row if (c != 'source' or row[c] is not None) and c != 'streams']
     db.execute(f"INSERT INTO Activity ({', '.join(cols)}, type) VALUES ({', '.join('?' * len(cols))}, ?)", [row[c] for c in cols] + [row['sportType']])
+    stream_store.save(db, row['id'], row.get('streams'))
 
 
 def _live(db):

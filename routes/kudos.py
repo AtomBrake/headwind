@@ -3,6 +3,7 @@ from flask import Blueprint, jsonify, request
 from database import get_db, query_db
 from services import logs
 from services.ai import AIDeclined, AIUnavailable, analyse_ride
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ def kudos(rid):
 
         db = get_db()
         db.execute('UPDATE Settings SET coachPersonality=? WHERE id=1', [personality_key])
-        activity = db.execute('SELECT * FROM Activity WHERE id=?', [rid]).fetchone()
+        activity = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [rid]).fetchone()
         text = analyse_ride(db, activity, personality_key=personality_key)
         return jsonify({'kudos': text})
     except (AIUnavailable, AIDeclined) as e:       # our own words: no key set, or the model said no

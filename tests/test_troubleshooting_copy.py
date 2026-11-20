@@ -14,6 +14,7 @@ import app as app_module
 import config
 import database
 from services import backup, credentials, downloads
+from services import streams as stream_store
 
 SECRETS = ('sk-openai-copy-test', 'sk-ant-copy-test', 'ha-token-copy-test', 'mqtt-pw-copy-test', 'friend-token-copy-test')
 ADDRESSES = ('me@example.com', 'ha.home.lan', 'ollama.home.lan', 'ntfy.example', 'broker.home.lan', 'sam.example')
@@ -49,8 +50,9 @@ def setup(tmp_path, monkeypatch):
                   ['https://' + ADDRESSES[5], SECRETS[4]])
         for aid, rider, name in (('mine', 1, 'Morning ride'), ('theirs', 2, 'Sams secret loop')):
             d.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, startDate, distance, startLat, startLng, "
-                      "summaryPolyline, streams, notes) VALUES (?, ?, 'Ride', 'Ride', ?, '2026-10-01T08:00:00', '2026-10-01T07:00:00Z', 5, "
-                      "51.501234, -0.141234, 'encodedpolyline', ?, 'felt good')", [aid, name, rider, _streams()])
+                      "summaryPolyline, notes) VALUES (?, ?, 'Ride', 'Ride', ?, '2026-10-01T08:00:00', '2026-10-01T07:00:00Z', 5, "
+                      "51.501234, -0.141234, 'encodedpolyline', 'felt good')", [aid, name, rider])
+            stream_store.save(d, aid, _streams())
             d.execute("INSERT INTO ActivityPhoto (activityId, filename) VALUES (?, ?)", [aid, f'act_{aid}.jpg'])
             d.execute("INSERT INTO BestEffort (activityId, activityDate, distanceMi, elapsedSecs) VALUES (?, '2026-10-01', 1, 200)", [aid])
         d.execute("INSERT INTO WeightLog (riderId, logDate, weightKg) VALUES (1, '2026-10-01', 80), (2, '2026-10-01', 70)")
@@ -97,6 +99,7 @@ def _copy(app, tmp_path, **form):
     open(out, 'wb').write(z.read('headwind.db'))
     conn = sqlite3.connect(out)
     conn.row_factory = sqlite3.Row
+    stream_store.register(conn)                    # streams_json(), for stream_store.sql()
     return out, conn, z.read('README.txt').decode()
 
 
@@ -119,7 +122,7 @@ def test_the_copy_leaves_out_secrets_addresses_and_friends(setup, tmp_path):
     s = c.execute('SELECT * FROM Settings').fetchone()
     assert s['heightCm'] == 180 and s['garminEmail'] is None and s['haUrl'] is None
     # what the person may want to share stays: their activity, its GPS and streams
-    a = c.execute("SELECT * FROM Activity WHERE id='mine'").fetchone()
+    a = c.execute(f"SELECT *, {stream_store.sql()} FROM Activity WHERE id='mine'").fetchone()
     assert a['name'] == 'Morning ride' and a['notes'] == 'felt good' and json.loads(a['streams'])['latlng'] == LATLNG
     assert c.execute('PRAGMA freelist_count').fetchone()[0] == 0           # nothing taken out is left in a free page
     assert 'Left in it' in readme and 'GPS tracks' in readme
@@ -137,7 +140,7 @@ def test_leave_out_gps(setup, tmp_path):
     data = open(out, 'rb').read()
     for text in (b'51.501234', b'-0.141234', b'encodedpolyline', b'Westminster', b'latlng'):
         assert text not in data, text
-    a = c.execute("SELECT * FROM Activity WHERE id='mine'").fetchone()
+    a = c.execute(f"SELECT *, {stream_store.sql()} FROM Activity WHERE id='mine'").fetchone()
     assert a['startLat'] is None and json.loads(a['streams'])['heartrate'] == [120, 121]
     row = json.loads(c.execute('SELECT rowJson FROM ActivityDuplicate').fetchone()[0])
     assert isinstance(row['streams'], str) and json.loads(row['streams'])['heartrate'] == [120, 121]     # still a string, as parked
@@ -153,7 +156,7 @@ def test_leave_out_the_streams(setup, tmp_path):
     out, c, readme = _copy(app, tmp_path, no_streams='1')
     data = open(out, 'rb').read()
     assert b'heartrate' not in data and b'51.501234' not in data
-    assert c.execute("SELECT streams FROM Activity WHERE id='mine'").fetchone()[0] is None
+    assert not c.execute("SELECT 1 FROM ActivityStream WHERE activityId='mine'").fetchone()
     assert json.loads(c.execute('SELECT rowJson FROM ActivityDuplicate').fetchone()[0])['streams'] is None
     assert 'streams' in readme
 

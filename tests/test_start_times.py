@@ -12,6 +12,7 @@ from routes import import_rides
 from services import duplicates
 from services.parser import _utc_iso
 from services.start_times import fix_utc_starts, recheck_away_starts
+from services import streams as _streams
 
 STREAMS = '{}'
 
@@ -31,8 +32,9 @@ def db(tmp_path):
 
 
 def add(db, rid, start_utc, start_local, dist=19500.0, secs=1980, hr=None, sport='VirtualRide'):
-    db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, averageHeartrate, streams, rawData, riderId, createdAt, updatedAt)"
-               " VALUES (?, 'Zwift - Group Ride', ?, ?, ?, ?, ?, ?, ?, ?, '{}', '{}', 1, 'n', 'n')", [rid, sport, sport, start_utc, start_local, dist, secs, secs, hr])
+    db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, averageHeartrate, rawData, riderId, createdAt, updatedAt)"
+               " VALUES (?, 'Zwift - Group Ride', ?, ?, ?, ?, ?, ?, ?, ?, '{}', 1, 'n', 'n')", [rid, sport, sport, start_utc, start_local, dist, secs, secs, hr])
+    _streams.save(db, rid, '{}')
     db.commit()
 
 

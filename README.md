@@ -549,7 +549,7 @@ Data lives in `./data` (database, avatars, food photos, the saved login) and `./
 
 **It runs as a user, not root.** The app runs as `headwind` (uid and gid 1000), so on a Linux host the files in `./data` and `./garmin_tokens` belong to uid 1000. Folders made by an older image belong to root: at each start, before giving up root, the container hands over whatever isn't the user's yet (only those files, so later starts are quick). If it can't, for example because a folder is mounted read-only, or it's on NFS that maps root to nobody, it says so in the log and carries on as root, as older images did. To choose the user yourself, give the folders to that user first and set `user: "1000:1000"` (or your own ids) in the Compose file, or pass `--user` to `docker run`. The container then changes no ownership.
 
-**Health check.** The image checks `/login` every 30 seconds, and `docker ps` shows `healthy` once it answers. The first start on a new version migrates the database before it answers, which can take minutes on a big one, so the container shows `starting` for up to 10 minutes before a failed check counts.
+**Health check.** The image checks `/login` every 30 seconds, and `docker ps` shows `healthy` once it answers. The first start on a new version brings the database up to date before the web server starts, which can take minutes on a big one, so the container shows `starting` for up to 10 minutes before a failed check counts. A database a newer Headwind has opened is refused, with the reason in `docker logs`, rather than changed.
 
 To reach it from outside your home, at an HTTPS address, add a Cloudflare Tunnel: see [Putting it on the internet safely](#recommended-cloudflare-tunnel).
 
@@ -836,8 +836,8 @@ Where a direct client can still arrive from a private address (Docker Desktop on
 
 - **Backup:** **Settings → Backup & Restore → Make backup** makes one zip: the database, rider avatars, food photos, gear photos and activity photos. It's made in the background, so a big database can't time out behind a reverse proxy: the card says how far it's got (the database copied, then files *n* of *N*), and you can leave the page. When it's ready, a notice at the top of whatever page is open links to the download (`headwind-backup-<date>.zip`), and ntfy says so too when it's set up. The zip is kept beside the database for a day, or until the next one is made, then deleted; the Settings card says how big the last one was. It deliberately excludes the Garmin token files, the kept Strava export, earlier backups, your generated login/key files and `.env`. The keys and passwords saved in Settings (AI, maps, MQTT, Home Assistant, friends' feed tokens, the Garmin email) stay encrypted in it, and the key to them (`.secrets_key`) is left out, so a backup shared by mistake doesn't give them away. Tick **Include the secrets key** to put it in (the file is then named `headwind-backup-with-secrets-<date>.zip`), so a restore on another server keeps them; anyone else with that zip can read them too. The rest of your data (rides with GPS, health, food) is in it as it is, so store it accordingly.
 - **Restore:** **Settings → Backup & Restore → Restore** (or from the setup wizard on a fresh install). The uploaded database is checked for integrity, migrated and smoke-tested **before** anything live is touched; your current database is kept as `bike.db.pre-restore`; the swap itself is atomic. A backup this version can't use is rejected with "Nothing was changed". Restored on another server, the backup's saved keys and passwords can't be read: Headwind lists which to enter again. To keep them, restore a backup made with **Include the secrets key** (they're encrypted again with the new server's own key), or copy `.secrets_key` from beside the old database to beside the new one and restart.
-- **Copies made before an upgrade or a restore** (`bike.db.pre-0.7.0`, `bike.db.pre-restore`) stay beside the database. Their saved keys and passwords are encrypted at start, as the database's are, so restoring one on the same server keeps them; going back to an older Headwind with one means entering them again.
-- **Updating (Docker):** `docker compose pull && docker compose up -d`. Migrations run automatically at start-up. Take a backup first on a beta.
+- **Copies made before an upgrade or a restore** (`bike.db.pre-0.7.0`, `bike.db.pre-<version>`, `bike.db.pre-restore`) stay beside the database. Their saved keys and passwords are encrypted at start, as the database's are, so restoring one on the same server keeps them; going back to an older Headwind with one means entering them again.
+- **Updating (Docker):** `docker compose pull && docker compose up -d`. The database is brought up to date at start-up, before the web server answers. Take a backup first on a beta. **Going back** to an older version after an upgrade needs a backup made before it (or the `bike.db.pre-<version>` copy kept before a change an older version can't read): an older Headwind won't open a database a newer one has changed.
 - **Upgrading from an older compose file that used the placeholder `changeme` login:** the placeholder is no longer accepted — a random login is generated; read it from `docker logs`.
 - **Moving to a new host:** copy `./data` and `./garmin_tokens`, or restore a backup and sign in to Garmin again.
 
@@ -854,7 +854,6 @@ Where a direct client can still arrive from a private address (Docker Desktop on
 | Open Food Facts | Food search/barcodes | The barcode or search text |
 | Zwift's CDN (`cdn.zwift.com`) | A Zwift world's map, fetched by the server the first time it's drawn | A request for the map image |
 | Map tile hosts: Esri, OpenTopoMap, CyclOSM (OpenStreetMap France), Waymarked Trails, and Thunderforest or Ordnance Survey if you save a key | Map tiles in your browser, for the map type you pick; the heatmap's HD export fetches the screen's tiles through the server (Thunderforest's straight from your browser) | Normal tile requests (your browser's IP, or the server's for an export); your Thunderforest or OS key with theirs |
-| CDNs (unpkg, jsDelivr) | Chart/map libraries in your browser | Normal asset requests |
 | GitHub (`api.github.com`) | **Check for update** under Settings, only when you press it | A request for this project's release tags |
 | Your AI provider (if configured) | Coaching, photo estimates | Ride summaries / the image you submit |
 | Your MQTT broker / Home Assistant (if configured) | Automation | Sensor values / notifications |
@@ -920,9 +919,9 @@ Like the Android app it **requires HTTPS**. Pair it from **Phones**: name the ph
 | **Garmin sync finds nothing** | Make sure activity sync is enabled in Settings → Garmin and the account matches the one you connected. Failed rides are retried on the next sync. |
 | **Phone app can't pair** | It needs an **HTTPS** address. Put Headwind behind a [Cloudflare Tunnel](#recommended-cloudflare-tunnel) or another TLS proxy and save that address under **Settings → Outside address**. |
 | **Home Assistant sensors missing** | Check the MQTT broker settings, that discovery is enabled in HA, and that no other Headwind uses the same `HEADWIND_MQTT_PREFIX`. |
-| **Map is blank** | Your browser needs to reach the tile and CDN hosts listed under [Privacy](#privacy-and-telemetry). |
+| **Map is blank** | Your browser needs to reach the map tile hosts listed under [Privacy](#privacy-and-telemetry). The map and chart libraries come from Headwind itself. |
 | **Windows SmartScreen warning** | The build is unsigned. More info → Run anyway, or use Docker. |
-| **Restore says "not compatible"** | The backup's database couldn't be migrated. Nothing was changed — your current data is intact. |
+| **Restore says "not compatible"** | The backup's database couldn't be migrated, or is from a newer Headwind. Nothing was changed — your current data is intact. |
 | **Reporting a bug** | **Tasks → Download diagnostics** gives one zip to attach: the recent logs, the version, settings without passwords, keys or addresses, and row counts. When someone helping needs your data itself, **Tasks → Make a copy for troubleshooting** makes the database without saved keys, passwords, tokens, addresses, your friends' data or photos, and without GPS or the streams if you tick them; the page lists what's still in it. It's made in the background (a minute or so on a big database; you can leave the page) and offered on the Tasks page for a day, or until you delete it or make another. An error page shows a reference such as `3f9c2a1b`, and so does a message when a sync, an AI analysis, a friend's address or a restore fails for a reason other than something you can fix; quote it, and the matching log lines carry `[3f9c2a1b]`. The log file is `./data/logs/headwind.log`. Set `LOG_LEVEL=DEBUG` in `.env` and recreate the container for more detail. |
 | **Want to start over** | Stop the container and move `./data` aside (don't delete it until you're sure). |
 
@@ -930,23 +929,25 @@ Like the Android app it **requires HTTPS**. Pair it from **Phones**: name the ph
 
 ## How it works
 
-**Stack** — Python 3.14 / Flask, SQLite (WAL), Jinja templates, vanilla JavaScript, Chart.js, Leaflet. One gunicorn worker with several threads (background jobs — Garmin sync, MQTT, friend sync — must not be duplicated), shipped as a multi-arch Docker image. Windows build: PyInstaller + waitress + pystray.
+**Stack** — Python 3.14 / Flask, SQLite (WAL), Jinja templates, vanilla JavaScript, Chart.js, Leaflet. One gunicorn worker with several threads serves the pages; the background work (Garmin sync, MQTT, friend sync, the jobs pages queue) runs in a worker process beside it, which Gunicorn starts. Shipped as a multi-arch Docker image. Windows build: PyInstaller + waitress + pystray.
 
 **Layout**
 
 ```
-app.py              application factory, auth guard, background jobs
+app.py              application factory, auth guard, the timed background loops
 config.py           environment + settings loading
-database.py         schema + forward-only migrations (never drops tables)
+database.py         schema: numbered steps (STEPS, PRAGMA user_version), then the start-up checks and repairs
 routes/             one blueprint per area (rides, segments, nutrition, friends, settings, setup, api_v1 …)
-services/           Garmin, parsing, segments, best efforts, AI, MQTT, backup, credentials, limits …
-templates/ static/  UI
+services/           Garmin, parsing, segments, best efforts, AI, MQTT, backup, credentials, limits …;
+                    worker.py + jobs.py: the background worker and its queue
+gunicorn.conf.py    starts the background worker beside Gunicorn
+templates/ static/  UI; static/vendor holds Chart.js, Leaflet and the barcode scanner (scripts/vendor.py)
 scripts/            smoke tests, Windows build, helpers
 tests/              unit tests
 docs/               Home Assistant builders, screenshots, notes
 ```
 
-**Data model (SQLite)** — `Activity` (every sport, with GPS/HR/power streams last; `Ride` and `Workout` are views of it), `ActivityTrack` (track summaries for the heatmap and segment matching), `ActivityPhoto`, `ActivityDuplicate`, `BestEffort` + `SportEffort` (best times), `Segment` + `SegmentEffort`, `Bike` + `Part` + `ServiceLog` + `BikeDefault` and `Kit` + `KitDefault` (Gear), `Goal`, `Challenge` (+ members, invites), `FoodLog`, `HydrationLog`, `WeightLog`, `SavedMeal(+Item)`, `FoodFavourite`, `CustomFood`/`FoodOverride`, `Friend` + `FeedToken` (+ imported riders/segments/shared foods), `GarminDaily`, `GarminChange`/`GarminMissing`/`GarminFailure` (Garmin review lists), `StravaExport` + `StravaBike`/`StravaKit` (Strava imports), `ImportChange`/`ImportProblem` (Import page review lists), `TaskLog`, `Settings`, `Rider`. Schema changes are applied at start-up by `migrate_db()`; restoring an older backup migrates it first.
+**Data model (SQLite)** — `Activity` (every sport; `Ride` is a view of the rides in it), `ActivityStream` (each activity's GPS/HR/power streams, compressed), `ActivityTrack` (track summaries for the heatmap and segment matching), `ActivityPhoto`, `ActivityDuplicate`, `BestEffort` + `SportEffort` (best times), `Segment` + `SegmentEffort`, `Bike` + `Part` + `ServiceLog` + `BikeDefault` and `Kit` + `KitDefault` (Gear), `Goal`, `Challenge` (+ members, invites), `FoodLog`, `HydrationLog`, `WeightLog`, `SavedMeal(+Item)`, `FoodFavourite`, `CustomFood`/`FoodOverride`, `Friend` + `FeedToken` (+ imported riders/segments/shared foods), `GarminDaily`, `GarminChange`/`GarminMissing`/`GarminFailure` (Garmin review lists), `StravaExport` + `StravaBike`/`StravaKit` (Strava imports), `ImportChange`/`ImportProblem` (Import page review lists), `TaskLog`, `Settings`, `Rider`. Schema changes are numbered steps (`database.STEPS`), applied before the server starts; restoring an older backup migrates it first.
 
 ---
 
@@ -982,7 +983,7 @@ HEADWIND_ENV=$d/env PYTHONPATH=. python3 scripts/smoke_setup_wizard.py
 
 Other smoke scripts: `smoke_client_ops`, `smoke_api_v1`, `smoke_recipes_sync`, `smoke_ride_upload`, `smoke_single_rider`.
 
-- Schema changes go through `migrate_db()` — add columns/tables, never drop/recreate.
+- Schema changes are numbered steps: a new function at the end of `database.STEPS`, never an edit to an earlier one (a database that has had a step never runs it again; `tests/test_migrations.py` checks). A service's own tables stay in its `ensure_schema`, which runs at every start. Docker runs the steps before Gunicorn (`python -m database migrate`).
 - Dates are UK format everywhere (`%-d %b %Y`); the UI uses CSS custom properties (no hard-coded colours).
 - **Dependencies:** `requirements.txt` lists what the app needs, loosely (`>=`). The Docker image installs the exact versions and hashes in `requirements.lock`, so a rebuild gets the same packages. The lock is made with pip-tools inside the image's base image (Linux; amd64 and arm64 resolve the same, and the hashes cover every platform's wheels). After changing `requirements.txt`, or to take newer versions, refresh it:
   ```bash

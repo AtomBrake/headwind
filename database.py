@@ -73,7 +73,7 @@ def _drop_dead_secrets(db):
 # columns in order, so reading any column that comes after a large one means reading the whole chain: `source` or `bikeId` for every activity read
 # every activity's GPS streams. A column added later with ALTER TABLE lands after these, and the next start moves it in front (heavy_last).
 HEAVY_COLUMNS = {
-    'Activity':    ['summaryPolyline', 'description', 'notes', 'aiKudos', 'rawData', 'streams', 'laps'],
+    'Activity':    ['summaryPolyline', 'description', 'notes', 'aiKudos', 'rawData', 'laps'],
     'GarminDaily': ['hrStream', 'bodyBatteryStream'],
 }
 _HEAVY_BATCH = 50       # rows moved per commit: a big activity's streams are ~1 MB
@@ -138,14 +138,19 @@ def heavy_last(db, table, heavy):
     others = db.execute("SELECT type, name, sql FROM sqlite_master WHERE type IN ('index', 'trigger') AND tbl_name=? AND sql IS NOT NULL",
                         [table]).fetchall()
     views = db.execute("SELECT name, sql FROM sqlite_master WHERE type='view'").fetchall()   # any of them can read the table
+    # A trigger on another table that writes to this one (services/streams.py's) stops the rename too while the table is gone
+    writers = [(n, s) for n, s in db.execute("SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name<>? AND sql IS NOT NULL",
+                                             [table]).fetchall() if f' {table} ' in f' {s} '.replace('(', ' ').replace('.', ' ')]
     db.execute('BEGIN IMMEDIATE')
     for name, _ in views:
         db.execute(f'DROP VIEW "{name}"')
+    for name, _ in writers:
+        db.execute(f'DROP TRIGGER "{name}"')
     db.execute(f'DROP TABLE {table}')
     db.execute(f'ALTER TABLE {new} RENAME TO {table}')
     for _, _, sql in others:
         db.execute(sql)
-    for _, sql in triggers:
+    for _, sql in triggers + writers:
         db.execute(sql)
     for _, sql in views:
         db.execute(sql)
@@ -155,12 +160,14 @@ def heavy_last(db, table, heavy):
 
 
 # Settings flags of the once-only start-up repairs in migrate_db, all set on a new database. Not garminHistoryDone or garminWeightsDone: those
-# are downloads still to do.
-_REPAIR_FLAGS = ('distanceBackfillDone', 'utcStartFixDone', 'awayStartRecheckDone', 'localZoneFixDone', 'workoutDupCheckDone', 'dupNameFixDone',
+# are downloads still to do. Step 1 sets those it made (_STEP_1_FLAGS, as they were then); a later one's step adds its column, and sets it done
+# where there are no activities to repair.
+_STEP_1_FLAGS = ('distanceBackfillDone', 'utcStartFixDone', 'awayStartRecheckDone', 'localZoneFixDone', 'workoutDupCheckDone', 'dupNameFixDone',
                  'segmentFamiliesDone', 'segmentBikesMergedDone', 'movingTimeFixDone', 'segmentMatchFixDone', 'sportEffortsDone',
-                 'movingTimePausedDone', 'bestEffortsCleanDone', 'bestEffortsKmDone', 'sensorTopSpeedDone', 'mmDistancesDone', 'stravaManualDone', 'sanityAllSportsDone',
+                 'movingTimePausedDone', 'bestEffortsCleanDone', 'sensorTopSpeedDone', 'mmDistancesDone', 'stravaManualDone', 'sanityAllSportsDone',
                  'liveParkedFixDone', 'strandedParkedFixDone', 'segmentClimbFloorDone', 'ebikeSportDone', 'segmentStopsDone',
                  'segmentRouteDone', 'segmentLapsDone', 'dupMatchFixDone')
+_REPAIR_FLAGS = _STEP_1_FLAGS + ('bestEffortsKmDone',)
 
 
 # One row per effort: an activity that rides a segment twice (two laps of a trail centre's loop) has two, told apart by startSecs, the seconds
@@ -197,10 +204,10 @@ def _efforts_per_lap(db):
     db.commit()
 
 
-def migrate_db():
-    db = get_db()
-    db.execute('PRAGMA journal_mode = WAL')     # kept in the database file, so once here (and on a restored backup) rather than per connection
-
+def _step_1(db):
+    """The tables of database.py, as every start made them before the steps were numbered (0.7.42): on a new database, everything; on any older
+    one, upstream's 0.5 included, what's missing, found from what's there, with the moves between tables (walks and runs into Activity, one
+    segment effort per lap). Commits as it goes, and is safe to run again after being stopped halfway."""
     # ── Create all tables first ──────────────────────────────────────
     db.execute('''
         CREATE TABLE IF NOT EXISTS Rider (
@@ -359,8 +366,6 @@ def migrate_db():
             UNIQUE(activityId, distanceMi)
         )
     ''')
-    from services.best_efforts import ensure_schema as _best_efforts_km_schema
-    _best_efforts_km_schema(db)                 # the same in kilometres, for a metric rider
 
     db.execute('''
         CREATE TABLE IF NOT EXISTS FoodLog (
@@ -489,7 +494,6 @@ def migrate_db():
         ('segmentMatchFixDone',    'INTEGER DEFAULT 0'), # 0.7.7's matching fixes: loops cut again, tracks realigned, every segment matched again (services/segments.repair_matching)
         ('sportEffortsDone',       'INTEGER DEFAULT 0'), # best times worked out for every run and swim already saved (services/sport_records.ensure)
         ('movingTimePausedDone',   'INTEGER DEFAULT 0'), # moving times that counted the stops (auto-pause off) taken from the track (services/moving_time.repair_paused)
-        ('bestEffortsKmDone',      'INTEGER DEFAULT 0'), # every ride's best efforts in km as well as miles, once, in the background (services/best_efforts.fill_km)
         ('bestEffortsCleanDone',   'INTEGER DEFAULT 0'), # best times worked out again without GPS jumps and speed-sensor faults (services/best_efforts.rescan_clean)
         ('sensorTopSpeedDone',     'INTEGER DEFAULT 0'), # top speeds from the GPS where the speed sensor went wrong (services/max_stats.fix_sensor_top_speed)
         ('mmDistancesDone',        'INTEGER DEFAULT 0'), # distances an old Strava import stored in mm, of every sport (services/mm_distances.fix)
@@ -529,8 +533,6 @@ def migrate_db():
         ('nutritionBmrKcal',     'INTEGER'),
         ('units',                "TEXT DEFAULT 'imperial'"),
         ('appearance',           "TEXT DEFAULT 'auto'"),     # the web UI: auto (follows the device), light or dark (routes/settings.APPEARANCES)
-        ('favouriteSports',      'TEXT'),                    # JSON list of services/favourites keys ('group:ride', 'sport:Run'): sidebar items
-        ('tempUnit',             "TEXT DEFAULT 'C'"),        # the weather's temperature, C or F, apart from units: a UK rider rides in miles and °C
         ('distanceBackfillDone', 'INTEGER DEFAULT 0'),
         ('nutritionWeightUnit',     "TEXT DEFAULT 'stlb'"),
         ('nutritionWeightEmaAlpha', 'REAL DEFAULT 0.1'),
@@ -780,33 +782,6 @@ def migrate_db():
     if dropped:
         import logging
         logging.getLogger(__name__).warning('One table for every activity: dropped the Workout view and %s (kept by 0.7.0)', ', '.join(dropped))
-    from services.sports import RIDE_SQL
-    views = {
-        'Ride': f'CREATE VIEW Ride AS SELECT * FROM Activity WHERE {RIDE_SQL}',
-        # segment leaderboards: no streams (heavy), only what they need (bikeId: pedal or e-bike, services/sports.segment_class)
-        'SegActivity': f'''CREATE VIEW SegActivity AS SELECT id, name, riderId, startDateLocal, sportType, bikeId,
-            CASE WHEN {RIDE_SQL} THEN 'activity' ELSE 'workout' END AS kind FROM Activity''',
-    }
-    for name, sql in views.items():
-        cur = db.execute("SELECT sql FROM sqlite_master WHERE type='view' AND name=?", [name]).fetchone()
-        if not cur or ' '.join((cur[0] or '').split()) != ' '.join(sql.split()):      # only write when missing or changed, so start-up never takes a write lock needlessly
-            db.execute(f'DROP VIEW IF EXISTS {name}')
-            db.execute(sql)
-    # A change to anything a friend's feed shares moves updatedAt on, so the feed's manifest tells friends which rides to fetch again
-    # (routes/friends.py). Only a value that really changed: SQLite fires UPDATE OF for a column that was only rewritten. One that sets
-    # updatedAt itself is left alone. Not calories: the calorie setting (services/calorie_adjust) rewrites every activity's, and that would
-    # send every friend every ride again.
-    shared = ('name', 'type', 'sportType', 'startDate', 'startDateLocal', 'distance', 'movingTime', 'elapsedTime', 'totalElevationGain',
-              'averageSpeed', 'maxSpeed', 'averageHeartrate', 'maxHeartrate', 'averageWatts', 'weightedAvgWatts', 'averageCadence',
-              'startLat', 'startLng', 'streams', 'weatherTempC', 'weatherWindKph', 'weatherGustKph', 'weatherWindDir', 'weatherHumidity',
-              'weatherRainMm', 'weatherCode', 'weatherSummary', 'weatherWindRel', 'steps', 'riderId')
-    touch = (f"CREATE TRIGGER Activity_touch AFTER UPDATE OF {', '.join(shared)} ON Activity "
-             f"WHEN NEW.updatedAt IS OLD.updatedAt AND ({' OR '.join(f'NEW.{c} IS NOT OLD.{c}' for c in shared)}) "
-             "BEGIN UPDATE Activity SET updatedAt = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = NEW.id; END")
-    cur = db.execute("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='Activity_touch'").fetchone()
-    if not cur or ' '.join((cur[0] or '').split()) != ' '.join(touch.split()):
-        db.execute('DROP TRIGGER IF EXISTS Activity_touch')
-        db.execute(touch)
     db.execute('CREATE INDEX IF NOT EXISTS idx_activity_rider_date ON Activity(riderId, startDateLocal)')
     # SegmentEffort's own index starts with segmentId, so an activity's efforts (re-matching or deleting it, its page) scanned the whole table;
     # the food and water logs are read by rider and day and had no index at all.
@@ -832,29 +807,7 @@ def migrate_db():
         )
     ''')
     db.execute('CREATE INDEX IF NOT EXISTS idx_ridesensor_ride ON RideSensor(rideId)')
-    from services.sport_records import ensure_schema as _sport_records_schema      # run and swim best times (was RunEffort, runs only)
-    _sport_records_schema(db)
-
-    from services.duplicates import ensure_schema as _dup_schema
-    _dup_schema(db)
-    from services.gear import ensure_schema as _gear_schema
-    _gear_schema(db)
-    from services.kit import ensure_schema as _kit_schema                          # shoes and the other gear that isn't a bike
-    _kit_schema(db)
-    from services.strava_gear import ensure_schema as _strava_gear_schema
-    _strava_gear_schema(db)
-    from services.photos import ensure_schema as _photos_schema
-    _photos_schema(db)
     db.commit()
-    # Every Activity column is there now: put the large ones last (heavy_last), then the track summaries and their triggers (services/tracks.py).
-    rebuilt = {t: heavy_last(db, t, cols) for t, cols in HEAVY_COLUMNS.items()}
-    from services.tracks import ensure_schema as _tracks_schema
-    _tracks_schema(db)
-    from services.data_version import ensure_schema as _data_version_schema
-    _data_version_schema(db)
-    from services.feed_tokens import ensure_schema as _feed_tokens_schema
-    _feed_tokens_schema(db)
-    _drop_dead_secrets(db)
 
     # One row per paired phone/app. Only a SHA-256 of the token is stored; the token itself is shown once at pairing time.
     db.execute('''
@@ -940,15 +893,78 @@ def migrate_db():
     # The wizard's upsert copes with the row being there; a restored backup brings its own.
     if not db.execute('SELECT 1 FROM Settings WHERE id=1').fetchone() and not db.execute('SELECT 1 FROM Activity LIMIT 1').fetchone():
         db.execute('INSERT INTO Settings (id) VALUES (1)')
-        db.execute(f"UPDATE Settings SET {', '.join(f'{f}=1' for f in _REPAIR_FLAGS)} WHERE id=1")
+        db.execute(f"UPDATE Settings SET {', '.join(f'{f}=1' for f in _STEP_1_FLAGS)} WHERE id=1")
+        db.commit()
+    if merged:
+        from services import tasks as _tasks
+        _tasks.ensure_schema(db)
+        _tasks.record(db, 'startup:merge_workouts', 'Walks, runs and other workouts moved in with the rides',
+                      f"{merged['moved']} moved into one table of activities"
+                      + (f"; {merged['same_id']} already there under the same id (that copy kept)" if merged['same_id'] else '')
+                      + (f". The whole database as it was is in {merged['copy']}" if merged['copy'] else ''))
         db.commit()
 
-    # Start-up repairs below record what they did for the Tasks page (services/tasks.py)
-    from services import tasks as _tasks, garmin_failures as _garmin_failures
-    _tasks.ensure_schema(db)
-    _garmin_failures.ensure_schema(db)
-    _tasks.close_orphans(db)
+
+def _ensure_service_tables(db):
+    """The tables each service keeps for itself, made or brought up to date by its own ensure_schema (as the services also do before using them).
+    Every start, after the steps: a service's new column goes in its ensure_schema, as before. Does not commit."""
+    from services import (best_efforts, duplicates, feed_tokens, garmin_changes, garmin_failures, gear, goals, jobs, kit, photos, reimport,
+                          sport_fix, sport_guess, sport_records, strava_export, strava_gear, streams, tasks)
+    for mod in (streams, sport_records, best_efforts, duplicates, gear, kit, strava_gear, photos, feed_tokens, tasks, garmin_failures, reimport,
+                strava_export, sport_fix, sport_guess, garmin_changes, goals, jobs):
+        mod.ensure_schema(db)
+
+
+def _views_and_triggers(db):
+    """The views and triggers made from code (services/sports.RIDE_SQL, the columns a friend's feed shares): made again whenever the code's differ
+    from the database's. They hold no data, so this is every start, not a step. Does not commit."""
+    from services.sports import RIDE_SQL
+    views = {
+        'Ride': f'CREATE VIEW Ride AS SELECT * FROM Activity WHERE {RIDE_SQL}',
+        # segment leaderboards: no streams (heavy), only what they need (bikeId: pedal or e-bike, services/sports.segment_class)
+        'SegActivity': f'''CREATE VIEW SegActivity AS SELECT id, name, riderId, startDateLocal, sportType, bikeId,
+            CASE WHEN {RIDE_SQL} THEN 'activity' ELSE 'workout' END AS kind FROM Activity''',
+    }
+    for name, sql in views.items():
+        cur = db.execute("SELECT sql FROM sqlite_master WHERE type='view' AND name=?", [name]).fetchone()
+        if not cur or ' '.join((cur[0] or '').split()) != ' '.join(sql.split()):      # only write when missing or changed, so start-up never takes a write lock needlessly
+            db.execute(f'DROP VIEW IF EXISTS {name}')
+            db.execute(sql)
+    # A change to anything a friend's feed shares moves updatedAt on, so the feed's manifest tells friends which rides to fetch again
+    # (routes/friends.py). Only a value that really changed: SQLite fires UPDATE OF for a column that was only rewritten. One that sets
+    # updatedAt itself is left alone. Not calories: the calorie setting (services/calorie_adjust) rewrites every activity's, and that would
+    # send every friend every ride again.
+    shared = ('name', 'type', 'sportType', 'startDate', 'startDateLocal', 'distance', 'movingTime', 'elapsedTime', 'totalElevationGain',
+              'averageSpeed', 'maxSpeed', 'averageHeartrate', 'maxHeartrate', 'averageWatts', 'weightedAvgWatts', 'averageCadence',
+              'startLat', 'startLng', 'weatherTempC', 'weatherWindKph', 'weatherGustKph', 'weatherWindDir', 'weatherHumidity',
+              'weatherRainMm', 'weatherCode', 'weatherSummary', 'weatherWindRel', 'steps', 'riderId')
+    touch = (f"CREATE TRIGGER Activity_touch AFTER UPDATE OF {', '.join(shared)} ON Activity "
+             f"WHEN NEW.updatedAt IS OLD.updatedAt AND ({' OR '.join(f'NEW.{c} IS NOT OLD.{c}' for c in shared)}) "
+             "BEGIN UPDATE Activity SET updatedAt = strftime('%Y-%m-%d %H:%M:%f', 'now') WHERE id = NEW.id; END")
+    cur = db.execute("SELECT sql FROM sqlite_master WHERE type='trigger' AND name='Activity_touch'").fetchone()
+    if not cur or ' '.join((cur[0] or '').split()) != ' '.join(touch.split()):
+        db.execute('DROP TRIGGER IF EXISTS Activity_touch')
+        db.execute(touch)
+
+
+def _every_start(db):
+    """After the steps, at every start: the services' tables, the views and triggers, the large columns put last, the secrets nothing reads
+    dropped, then the repairs, each once-only one guarded by its flag in Settings. (What a stopped process left running is closed by the worker as
+    it starts, services/worker.py: a web server starting again mustn't fail the jobs the worker is running.) Commits."""
+    _ensure_service_tables(db)
+    _views_and_triggers(db)
     db.commit()
+    # Every Activity column is there now: put the large ones last (heavy_last), then the track summaries and their triggers (services/tracks.py).
+    rebuilt = {t: heavy_last(db, t, cols) for t, cols in HEAVY_COLUMNS.items()}
+    from services.tracks import ensure_schema as _tracks_schema
+    _tracks_schema(db)
+    from services.data_version import ensure_schema as _data_version_schema
+    _data_version_schema(db)
+    _drop_dead_secrets(db)
+    db.commit()
+
+    # Start-up repairs below record what they did for the Tasks page (services/tasks.py)
+    from services import tasks as _tasks
     if rebuilt.get('Activity'):
         _tasks.record(db, 'startup:heavy_last', 'Activities stored for faster pages',
                       f"{rebuilt['Activity']:,} activit{'y' if rebuilt['Activity'] == 1 else 'ies'} rewritten with their GPS data at the end of the row, "
@@ -1041,12 +1057,6 @@ def migrate_db():
         _tasks.record(db, 'startup:utc_starts', 'Start times of imported rides',
                       f"{res['moved']} ride{'s' if res['moved'] != 1 else ''} moved from UTC to UK time; "
                       f"{res['duplicates']} turned out to be a ride already here (the weaker copy was set aside)" if res['moved'] else 'Nothing needed moving')
-        db.commit()
-    if merged:
-        _tasks.record(db, 'startup:merge_workouts', 'Walks, runs and other workouts moved in with the rides',
-                      f"{merged['moved']} moved into one table of activities"
-                      + (f"; {merged['same_id']} already there under the same id (that copy kept)" if merged['same_id'] else '')
-                      + (f". The whole database as it was is in {merged['copy']}" if merged['copy'] else ''))
         db.commit()
     from services.duplicates import recheck_workouts
     res = recheck_workouts(db)
@@ -1270,18 +1280,6 @@ def migrate_db():
                       f"{len(cleared)} ride{'s' if len(cleared) != 1 else ''} flagged before a repair put {'them' if len(cleared) != 1 else 'it'} right "
                       f"{'are' if len(cleared) != 1 else 'is'} off the list: " + '; '.join(n or '(no name)' for n in cleared[:5]) + ('…' if len(cleared) > 5 else '') + '.')
     db.commit()
-    from services.reimport import ensure_schema as _reimport_schema
-    _reimport_schema(db)
-    from services.strava_export import ensure_schema as _strava_export_schema      # the Strava export kept for Import again
-    _strava_export_schema(db)
-    from services.sport_fix import ensure_schema as _sport_fix_schema
-    _sport_fix_schema(db)
-    from services.sport_guess import ensure_schema as _sport_guess_schema      # uploads whose file didn't say they were runs
-    _sport_guess_schema(db)
-    from services.garmin_changes import ensure_schema as _garmin_changes_schema
-    _garmin_changes_schema(db)
-    from services.goals import ensure_schema as _goals_schema               # goals and friend challenges
-    _goals_schema(db)
     from services.origin import backfill as _origin_backfill
     _origin_backfill(db)
     db.commit()
@@ -1311,6 +1309,175 @@ def migrate_db():
         db.commit()
 
 
+def _step_2(db):
+    """The streams out of Activity into ActivityStream, compressed (services/streams.py). Rows move _HEAVY_BATCH at a time, each batch one
+    commit, so a start stopped halfway carries on from there. Then the column goes and, when the disk has room, the file is compacted."""
+    log = logging.getLogger(__name__)
+    import zlib
+    db.execute('''CREATE TABLE IF NOT EXISTS ActivityStream (
+        activityId TEXT PRIMARY KEY,
+        format     INTEGER NOT NULL DEFAULT 1,
+        data       BLOB NOT NULL
+    )''')
+    if 'streams' not in {r[1] for r in db.execute('PRAGMA table_info(Activity)')}:
+        return
+    # What reads the column goes first (made again from the code at every start, services/tracks.py and _views_and_triggers), and with it the
+    # trigger that would move every activity's updatedAt on, and so send it to every friend again.
+    for kind, name in db.execute("SELECT type, name FROM sqlite_master WHERE (type='trigger' AND name IN ('Activity_touch', 'ActivityTrack_update')) "
+                                 "OR (type='trigger' AND name LIKE 'ActivityStream_touch%') OR (type='view' AND name IN ('Ride', 'SegActivity'))").fetchall():
+        db.execute(f'DROP {kind.upper()} "{name}"')
+    db.commit()
+    total = db.execute('SELECT COUNT(*) FROM Activity WHERE streams IS NOT NULL').fetchone()[0]
+    moved = 0
+    while True:
+        rows = db.execute('SELECT rowid, id, streams FROM Activity WHERE streams IS NOT NULL LIMIT ?', [_HEAVY_BATCH]).fetchall()
+        if not rows:
+            break
+        for _, aid, text in rows:
+            if text not in ('', 'null', '{}'):
+                db.execute('INSERT OR REPLACE INTO ActivityStream (activityId, format, data) VALUES (?, 1, ?)',
+                           [aid, zlib.compress(text.encode() if isinstance(text, str) else text, 6)])
+        db.execute(f"UPDATE Activity SET streams=NULL WHERE rowid IN ({','.join('?' * len(rows))})", [r[0] for r in rows])
+        db.commit()
+        moved += len(rows)
+        if moved % (_HEAVY_BATCH * 20) < _HEAVY_BATCH:
+            log.warning('Streams moved to their own table: %d of %d activities', moved, total)
+    try:
+        db.execute('ALTER TABLE Activity DROP COLUMN streams')
+    except sqlite3.OperationalError as e:               # SQLite before 3.35: renamed, so SELECT * has no `streams` of its own beside streams.sql()
+        log.info('Activity.streams emptied and renamed streamsMoved, not dropped: %s', e)
+        db.execute('ALTER TABLE Activity RENAME COLUMN streams TO streamsMoved')
+    db.commit()
+    _compact(db)
+
+
+def _step_3(db):
+    """Settings for favourite sports, the weather's °C or °F, and the flag for the best efforts in km. A database that ran a build from
+    between 0.7.42 and the numbered steps has them already."""
+    have = {r[1] for r in db.execute('PRAGMA table_info(Settings)').fetchall()}
+    for col, defn in [
+        ('bestEffortsKmDone',    'INTEGER DEFAULT 0'),       # every ride's best efforts in km as well as miles, once, in the background (services/best_efforts.fill_km)
+        ('favouriteSports',      'TEXT'),                    # JSON list of services/favourites keys ('group:ride', 'sport:Run'): sidebar items
+        ('tempUnit',             "TEXT DEFAULT 'C'"),        # the weather's temperature, C or F, apart from units: a UK rider rides in miles and °C
+    ]:
+        if col not in have:
+            db.execute(f'ALTER TABLE Settings ADD COLUMN {col} {defn}')
+    if 'bestEffortsKmDone' not in have and not db.execute('SELECT 1 FROM Activity LIMIT 1').fetchone():
+        db.execute('UPDATE Settings SET bestEffortsKmDone=1')
+
+
+def _compact(db):
+    """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
+    a temporary file and once through the WAL. Logged either way. Commits."""
+    import shutil
+    log = logging.getLogger(__name__)
+    path = db.execute('PRAGMA database_list').fetchone()[2]
+    if not path:
+        return
+    page = db.execute('PRAGMA page_size').fetchone()[0]
+    used = (db.execute('PRAGMA page_count').fetchone()[0] - db.execute('PRAGMA freelist_count').fetchone()[0]) * page
+    free = shutil.disk_usage(os.path.dirname(os.path.abspath(path))).free
+    if free < 2 * used + 200 * 2**20:
+        log.warning('The database was not compacted: %d MB free on the disk, %d MB needed. The space freed inside it is used again as it '
+                    'grows.', free >> 20, (2 * used) >> 20)
+        return
+    before = os.path.getsize(path)
+    db.commit()
+    tmp = os.environ.get('SQLITE_TMPDIR')
+    os.environ['SQLITE_TMPDIR'] = os.path.dirname(os.path.abspath(path))     # beside the database, not a container's /tmp or memory
+    try:
+        db.execute('PRAGMA temp_store = FILE')
+        db.execute('VACUUM')
+        db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+    finally:
+        db.execute('PRAGMA temp_store = MEMORY')
+        if tmp is None:
+            os.environ.pop('SQLITE_TMPDIR', None)
+        else:
+            os.environ['SQLITE_TMPDIR'] = tmp
+    log.warning('Database compacted: %d MB to %d MB', before >> 20, os.path.getsize(path) >> 20)
+
+
+# ── Numbered steps ───────────────────────────────────────────────
+# PRAGMA user_version is the number of the last step a database has had. migrate_db runs the steps after it, in order, then _every_start.
+# A new table or column of database.py, a rename, a move between tables, anything that changes what's stored for good: a new function at the
+# end of STEPS, never an edit to an earlier one, which a database that has had it never runs again (tests/test_migrations.py checks). A step
+# runs in one transaction, so one that fails leaves the database as it was; one that moves a lot of data may commit in batches instead, and
+# must then carry on from wherever it stopped when it's run again. keep_copy: an older Headwind can't open the result, so the whole database
+# is copied beside itself first, as <database>.pre-<version>. Docker runs them before Gunicorn starts (`python -m database migrate`, from
+# docker-entrypoint.sh), so a long one isn't cut short by its worker timeout; create_app runs any still to do (the Windows app, `python app.py`).
+STEPS = (
+    # (function, keep_copy)
+    (_step_1, False),
+    (_step_2, True),         # an older Headwind reads Activity.streams
+    (_step_3, False),
+)
+LATEST = len(STEPS)
+
+
+class SchemaTooNew(RuntimeError):
+    """The database has had steps this version doesn't know: a newer Headwind has opened it."""
+
+
+def schema_version(db):
+    return db.execute('PRAGMA user_version').fetchone()[0]
+
+
+def _keep_copy(db, n):
+    """<database>.pre-<version>, a copy of the whole database before step n, unless there is one already (a second try keeps the first) or the
+    disk hasn't room for it, which is logged. Returns its path or None."""
+    import shutil
+    from version import __version__
+    log = logging.getLogger(__name__)
+    path = db.execute('PRAGMA database_list').fetchone()[2]
+    if not path:                                        # in memory
+        return None
+    copy = f'{path}.pre-{__version__}'
+    if os.path.exists(copy):
+        return copy
+    need = sum(os.path.getsize(p) for p in (path, path + '-wal') if os.path.exists(p))
+    free = shutil.disk_usage(os.path.dirname(os.path.abspath(path))).free
+    if free < need + 200 * 2**20:
+        log.warning('Step %d: no copy of the database kept first, as there is no room for one (%d MB free, %d MB needed). Going back to an '
+                    'older Headwind will need a backup.', n, free >> 20, need >> 20)
+        return None
+    db.commit()
+    part = f'{path}.copying-{__version__}'              # not .pre-*, so an unfinished copy is never taken for one (services/vault.seal_copies)
+    out = sqlite3.connect(part)
+    try:
+        db.backup(out)
+    finally:
+        out.close()
+    os.replace(part, copy)
+    log.warning('Step %d: the database as it was is kept in %s', n, copy)
+    return copy
+
+
+def migrate_db():
+    """Bring the database up to this version: the steps it hasn't had, then _every_start. Raises SchemaTooNew when a newer Headwind has opened it,
+    rather than guess at what that one changed."""
+    log = logging.getLogger(__name__)
+    db = get_db()
+    db.execute('PRAGMA journal_mode = WAL')     # kept in the database file, so once here (and on a restored backup) rather than per connection
+    have = schema_version(db)
+    if have > LATEST:
+        from version import __version__
+        raise SchemaTooNew(f'This database has been opened by a newer Headwind (it has had step {have} of its changes; Headwind {__version__} '
+                           f'knows {LATEST}). Run the newer version, or restore a backup made before it.')
+    new = not db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone()     # nothing in it to keep a copy of
+    for n in range(have + 1, LATEST + 1):
+        step, keep_copy = STEPS[n - 1]
+        if keep_copy and not new:
+            _keep_copy(db, n)
+        log.info('Database: step %d of %d, %s', n, LATEST, (step.__doc__ or step.__name__).split('\n')[0])
+        db.commit()
+        db.execute('BEGIN IMMEDIATE')
+        step(db)
+        db.execute(f'PRAGMA user_version = {n}')
+        db.commit()
+    _every_start(db)
+
+
 def _mmss(secs):
     if not secs:
         return '—'
@@ -1325,7 +1492,8 @@ def get_db():
             detect_types=sqlite3.PARSE_DECLTYPES,
             timeout=60,
         )
-        from services import vault
+        from services import streams, vault
+        streams.register(g.db)                                                 # streams_json(), for services/streams.sql()
         g.db.row_factory = vault.row_factory(current_app.config['DATABASE'])   # sqlite3.Row, with the saved keys and passwords decrypted
         # The database is in WAL mode (set once, in migrate_db). With WAL, NORMAL can't corrupt the database: a power cut can only lose the last
         # commits, and it saves an fsync per commit (slow on an SD card). The sorts behind the badges and leaderboards use temporary tables, kept in memory; 8 MB of page cache per connection.
@@ -1345,3 +1513,32 @@ def query_db(query, args=(), one=False):
     cur = get_db().execute(query, args)
     rv = cur.fetchall()
     return (rv[0] if rv else None) if one else rv
+
+
+def main(argv):
+    """`python -m database migrate`: run the steps and the start-up work against the configured database (DATABASE_URL), then exit. Docker runs
+    it before Gunicorn starts (docker-entrypoint.sh). Exits 1, saying why, when the database is newer than this version."""
+    import sys
+    from flask import Flask
+    from config import Config
+    from services import logs
+    if argv != ['migrate']:
+        print('usage: python -m database migrate', file=sys.stderr)
+        return 2
+    app = Flask(__name__)
+    app.config.from_object(Config)
+    app.teardown_appcontext(close_db)
+    logs.setup(app.config['DATABASE'])
+    try:
+        with app.app_context():
+            migrate_db()
+    except SchemaTooNew as e:
+        logging.getLogger(__name__).error('%s', e)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    import sys
+    import database                                     # the module the services import, not a second copy of it as __main__
+    sys.exit(database.main(sys.argv[1:]))

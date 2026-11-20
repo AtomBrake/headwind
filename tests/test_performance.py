@@ -8,6 +8,7 @@ from flask import Flask
 import database
 from routes import riders
 from services import data_version, segments, tracks
+from services import streams as _streams
 
 
 def line(secs, speed_mps=6.0, lat0=51.5, lng0=-0.12, d_lng=0.0):
@@ -37,8 +38,9 @@ def db(app):
 
 def add(db, aid, streams, sport='Ride', day='2026-10-07'):
     db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData, riderId, "
-               "streams, source, weatherTempC) VALUES (?,?,?,?,?,?,7200,1200,1200,'{}',1,?,'strava',12.5)",
-               [aid, aid, sport, sport, f'{day}T10:00:00', f'{day}T10:00:00', streams])
+               "source, weatherTempC) VALUES (?,?,?,?,?,?,7200,1200,1200,'{}',1,'strava',12.5)",
+               [aid, aid, sport, sport, f'{day}T10:00:00', f'{day}T10:00:00'])
+    _streams.save(db, aid, streams)
     db.commit()
 
 
@@ -49,11 +51,11 @@ def test_heavy_columns_end_up_last_and_every_value_survives(db):
     db.execute('ALTER TABLE Activity ADD COLUMN later INTEGER')               # a later release adds a column: it lands after the heavy ones
     db.execute("UPDATE Activity SET later = 7")
     db.commit()
-    before = dict(db.execute("SELECT * FROM Activity WHERE id='a1'").fetchone())
+    before = dict(db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='a1'").fetchone())
     assert database.heavy_last(db, 'Activity', database.HEAVY_COLUMNS['Activity']) == 1
     names = [r[1] for r in db.execute('PRAGMA table_info(Activity)')]
     assert names[-1] == database.HEAVY_COLUMNS['Activity'][-1] and 'later' in names
-    assert dict(db.execute("SELECT * FROM Activity WHERE id='a1'").fetchone()) == before
+    assert dict(db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='a1'").fetchone()) == before
     # the views over it, its indexes and its triggers are all back
     assert db.execute("SELECT COUNT(*) FROM Ride").fetchone()[0] == 1
     have = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE tbl_name='Activity' AND type IN ('index', 'trigger')")}
@@ -101,7 +103,7 @@ def test_track_summaries_follow_the_streams(db):
     assert t['minLat'] == ll[0][0] and t['maxLat'] == ll[-1][0]
     db.execute("UPDATE Activity SET name='renamed' WHERE id='a1'")                         # not the track: kept
     assert db.execute("SELECT 1 FROM ActivityTrack WHERE activityId='a1'").fetchone()
-    db.execute("UPDATE Activity SET streams=? WHERE id='a1'", [line(100, lng0=2.0)])       # a new track: made again when next needed
+    _streams.save(db, 'a1', line(100, lng0=2.0))       # a new track: made again when next needed
     assert not db.execute("SELECT 1 FROM ActivityTrack WHERE activityId='a1'").fetchone()
     tracks.fill(db)
     assert db.execute("SELECT minLng FROM ActivityTrack WHERE activityId='a1'").fetchone()[0] == 2.0

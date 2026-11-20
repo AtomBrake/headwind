@@ -11,6 +11,7 @@ from flask import Flask
 import database
 from services import parser, weather
 from services.max_stats import backfill
+from services import streams as _streams
 
 
 # ---------- GPX ----------
@@ -136,8 +137,9 @@ def db(tmp_path):
 
 def _ins(d, id, avg, mx, streams, hr=None):
     d.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,totalElevationGain,"
-              "averageSpeed,maxSpeed,maxHeartrate,streams,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'n','n')",
-              [id, id, 'Ride', 'Ride', '2026-05-01T08:00:00', '2026-05-01T08:00:00', 1000, 100, 100, 0, avg, mx, hr, json.dumps(streams)])
+              "averageSpeed,maxSpeed,maxHeartrate,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'n','n')",
+              [id, id, 'Ride', 'Ride', '2026-05-01T08:00:00', '2026-05-01T08:00:00', 1000, 100, 100, 0, avg, mx, hr])
+    _streams.save(d, id, json.dumps(streams))
 
 
 def test_backfill_fixes_only_the_bug_signature(db):

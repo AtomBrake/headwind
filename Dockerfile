@@ -43,8 +43,10 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10m --retries=3 \
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
-# Single worker (background threads — MQTT heartbeat, Garmin sync — must not be duplicated) with several request threads, so a long
-# streaming sync or import no longer blocks every other page.
+# The background work runs in a process of its own, which Gunicorn's master starts (gunicorn.conf.py, services/worker.py). Still one web
+# worker, with several request threads: an import's progress, a download being made, the live ride and the sign-in limiter are kept in one
+# process's memory, so a second worker would see none of what the first has (TODO.md). Several threads, so a long streaming sync or import
+# doesn't block every other page.
 # Timeout 300s covers large Strava export imports.
 # Logging (services/logs.py): LOG_LEVEL (default INFO; DEBUG when chasing a fault) sets Gunicorn's level too. Headwind logs each request itself,
 # with an id, so Gunicorn's access log stays off; the log files go to /data/logs.

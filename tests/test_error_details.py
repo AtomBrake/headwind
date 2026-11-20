@@ -72,9 +72,11 @@ def test_kudos_hides_the_exception_but_keeps_our_own_words(client, monkeypatch):
 
 def test_bulk_analyse_sends_no_traceback(client, monkeypatch):
     monkeypatch.setattr(ai, 'analyse_ride', _raise(RuntimeError(LEAK)))
-    r = client.get('/ai/bulk-analyse')
-    events = [json.loads(line[6:]) for line in r.get_data(as_text=True).splitlines() if line.startswith('data: ')]
-    err = next(e for e in events if e['type'] == 'error')
+    from services import jobs
+    r = client.post('/ai/bulk-analyse')
+    assert jobs.run_queued(client.application) == 1
+    events = client.get(f"/tasks/job/{r.get_json()['job']}").get_json()['events']
+    err = next(e for e in events if e['type'] == 'error')            # quotes the id of the request that started it
     assert 'Traceback' not in err['detail'] and _quotes_id(err['detail'], r)
     assert events[-1] == {'type': 'done', 'analysed': 0, 'skipped': 1}
 

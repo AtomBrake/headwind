@@ -9,6 +9,7 @@ from flask import Flask
 import database
 from services import duplicates, workouts
 from services.sports import RIDE_SQL
+from services import streams as _streams
 
 WORKOUTS = f'SELECT id FROM Activity WHERE NOT {RIDE_SQL} ORDER BY id'
 
@@ -38,10 +39,11 @@ def ride(db, rid, start_utc, start_local, sport='Ride', dist=30000.0, secs=4000,
 
 
 def as_old_install(db):
-    """Put the database back the way 0.6 left it: Workout a table of its own, the merge and the workout recheck not done."""
+    """Put the database back the way 0.6 left it: Workout a table of its own, the merge and the workout recheck not done, no steps (database.STEPS)."""
     db.execute('DROP VIEW SegActivity')
     db.execute(OLD_WORKOUT)
     db.execute('UPDATE Settings SET workoutDupCheckDone=0 WHERE id=1')
+    db.execute('PRAGMA user_version = 0')                                       # from before the steps were numbered
     db.commit()
 
 
@@ -64,7 +66,7 @@ def test_an_old_install_moves_its_workouts_in_and_its_twins_are_set_aside(app):
     old.close()
     assert [r[0] for r in db.execute('SELECT id FROM Ride')] == ['garmin_1']
     assert [r[0] for r in db.execute(WORKOUTS)] == ['garmin_2', 'wk_1']                                # the Strava run is a copy of garmin_2: set aside
-    w = db.execute("SELECT * FROM Activity WHERE id='garmin_2'").fetchone()
+    w = db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='garmin_2'").fetchone()
     assert (w['sportType'], w['name'], w['steps'], w['source']) == ('Run', 'Vancouver Running', 12000, 'garmin')
     assert tuple(db.execute("SELECT primaryId, status FROM ActivityDuplicate WHERE id='555'").fetchone()) == ('garmin_2', 'parked')
     tasks = [r[0] for r in db.execute('SELECT task FROM TaskLog')]
@@ -95,6 +97,7 @@ def test_what_0_7_0_kept_is_dropped(app):
     db.execute(f"CREATE VIEW Workout AS SELECT id, riderId, sportType AS sport FROM Activity WHERE NOT {RIDE_SQL}")
     db.execute(OLD_WORKOUT.replace('TABLE Workout', 'TABLE WorkoutPreMerge'))
     db.execute("INSERT INTO WorkoutPreMerge (id, riderId, sport, startDateLocal) VALUES ('w1', 1, 'Walk', '2026-07-21T16:00:00')")
+    db.execute('PRAGMA user_version = 0')
     db.commit()
     database.migrate_db()
     assert not db.execute("SELECT name FROM sqlite_master WHERE name LIKE 'Workout%'").fetchall()

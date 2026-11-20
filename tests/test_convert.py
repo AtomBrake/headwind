@@ -7,6 +7,7 @@ from flask import Flask
 import database
 from services import convert, duplicates, gear
 from services.sports import RIDE_SQL
+from services import streams as _streams
 
 MI = 1609.344
 STREAMS = json.dumps({'latlng': {'data': [[54.8 + i * 1e-4, -1.67] for i in range(300)]}, 'distance': {'data': [i * 13 for i in range(300)]}, 'time': {'data': list(range(0, 3000, 10))}})
@@ -24,8 +25,9 @@ def db(tmp_path):
 
 
 def add_ride(db, rid='imp_x', miles=2.45, secs=2777, name='Ride', sport='Ride', calories=376):
-    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,totalElevationGain,averageSpeed,maxSpeed,calories,startLat,startLng,streams,rawData,riderId,weatherSummary,createdAt,updatedAt)"
-               " VALUES (?,?,?,?,'2026-10-05T17:40:02','2026-10-05T18:40:02',?,?,3059,42.5,1.4,3.1,?,54.8,-1.67,?,'{}',1,'Overcast, 17C','n','n')", [rid, name, sport, sport, miles * MI, secs, calories, STREAMS])
+    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,totalElevationGain,averageSpeed,maxSpeed,calories,startLat,startLng,rawData,riderId,weatherSummary,createdAt,updatedAt)"
+               " VALUES (?,?,?,?,'2026-10-05T17:40:02','2026-10-05T18:40:02',?,?,3059,42.5,1.4,3.1,?,54.8,-1.67,'{}',1,'Overcast, 17C','n','n')", [rid, name, sport, sport, miles * MI, secs, calories])
+    _streams.save(db, rid, STREAMS)
     db.commit()
 
 
@@ -33,7 +35,7 @@ def test_a_walk_recorded_as_a_ride_becomes_a_walk_with_walking_calories(db):
     add_ride(db)
     res = convert.change_sport(db, 'ride', 'imp_x', 'Walk'); db.commit()
     assert res['changed'] and res['kind'] == 'workout' and res['sport'] == 'Walk'
-    w = db.execute('SELECT *, sportType AS sport FROM Activity WHERE id=?', [res['id']]).fetchone()
+    w = db.execute(f'SELECT *, sportType AS sport, {_streams.sql()} FROM Activity WHERE id=?', [res['id']]).fetchone()
     assert w['sport'] == 'Walk' and w['name'] is None and abs(w['distance'] - 2.45 * MI) < 1 and w['movingTime'] == 2777 and w['weatherSummary'] == 'Overcast, 17C' and w['streams'] == STREAMS
     assert 100 < w['calories'] < 300 and w['calories'] < 376          # a walking estimate, not the cycling one
     assert res['id'] == 'imp_x' and db.execute("SELECT COUNT(*) FROM Ride WHERE id='imp_x'").fetchone()[0] == 0     # same row, no longer a ride
@@ -58,7 +60,7 @@ def test_a_workout_can_become_a_ride_and_gets_the_default_bike(db):
     add_ride(db); res = convert.change_sport(db, 'ride', 'imp_x', 'Walk'); db.commit()
     back = convert.change_sport(db, 'workout', res['id'], 'Ride'); db.commit()
     assert back['kind'] == 'ride' and back['id'] == 'imp_x'
-    a = db.execute('SELECT * FROM Activity WHERE id=?', [back['id']]).fetchone()
+    a = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [back['id']]).fetchone()
     assert a['sportType'] == 'Ride' and a['bikeId'] == bike and abs(a['distance'] - 2.45 * MI) < 1 and a['streams'] == STREAMS
     assert db.execute(f'SELECT COUNT(*) FROM Activity WHERE NOT {RIDE_SQL}').fetchone()[0] == 0
 

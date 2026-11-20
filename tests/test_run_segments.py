@@ -7,6 +7,7 @@ from flask import Flask
 
 import database
 from services import run_stats, segments, workouts
+from services import streams as _streams
 
 
 def line(secs, speed_mps=3.0, lat0=51.5, lng0=-0.12):
@@ -31,7 +32,8 @@ def db(tmp_path):
 
 def add_run(db, wid, secs=1200, speed=3.0, day='2026-10-07', sport='Run'):
     st = line(secs, speed)
-    db.execute("INSERT INTO Activity (id,riderId,sportType,startDateLocal,distance,movingTime,streams,source) VALUES (?,1,?,?,?,?,?,'android')", [wid, sport, f'{day}T10:00:00', secs * speed, secs, st])
+    db.execute("INSERT INTO Activity (id,riderId,sportType,startDateLocal,distance,movingTime,source) VALUES (?,1,?,?,?,?,'android')", [wid, sport, f'{day}T10:00:00', secs * speed, secs])
+    _streams.save(db, wid, st)
     db.commit()
     workouts.refresh_derived(db, wid)
     db.commit()
@@ -39,8 +41,9 @@ def add_run(db, wid, secs=1200, speed=3.0, day='2026-10-07', sport='Run'):
 
 def add_ride(db, aid, secs=1200, speed=6.0, day='2026-10-07'):
     st = line(secs, speed)
-    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,rawData,riderId,streams) VALUES (?,'R','Ride','Ride',?,?,?,?,?,'{}',1,?)",
-               [aid, f'{day}T10:00:00', f'{day}T10:00:00', secs * speed, secs, secs, st])
+    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,rawData,riderId) VALUES (?,'R','Ride','Ride',?,?,?,?,?,'{}',1)",
+               [aid, f'{day}T10:00:00', f'{day}T10:00:00', secs * speed, secs, secs])
+    _streams.save(db, aid, st)
     db.commit()
 
 
@@ -110,7 +113,8 @@ def test_changing_a_run_to_a_walk_keeps_its_foot_efforts_but_not_its_run_best_ti
 
 def test_run_stats_gives_best_times_and_ignores_test_recordings(db):
     add_run(db, 'wk_a', secs=1800, speed=3.0)           # 5.4 km
-    db.execute("INSERT INTO Activity (id,riderId,sportType,startDateLocal,distance,movingTime,streams,source) VALUES ('wk_tiny',1,'Run','2026-10-08T10:00:00',16,9,?, 'android')", [line(9)]); db.commit()
+    db.execute("INSERT INTO Activity (id,riderId,sportType,startDateLocal,distance,movingTime,source) VALUES ('wk_tiny',1,'Run','2026-10-08T10:00:00',16,9, 'android')", [])
+    _streams.save(db, 'wk_tiny', line(9)); db.commit()
     out = run_stats.payloads(1)['nutrition_run_stats']
     assert out['runs'] == 1
     five_k = [b for b in out['bests'] if b['label'] == '5 km'][0]

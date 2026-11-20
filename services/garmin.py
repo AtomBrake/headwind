@@ -3,7 +3,6 @@ import contextlib
 import io
 import json
 import secrets
-import threading
 import time
 import zipfile
 from datetime import date, timedelta
@@ -28,6 +27,8 @@ def garmin_sport(type_key):
 
 
 import os as _os
+from services import jobs
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -559,8 +560,8 @@ HISTORY_WINDOW = 28            # get_daily_steps answers up to 28 days in one re
 HISTORY_FLOOR = date(2005, 1, 1)
 HISTORY_EMPTY_STOP = 13        # 'all' stops after ~a year of windows with no steps and no weigh-ins
 HISTORY_RETRY_MINS = 60        # wait after a rate limit or outage
-HISTORY_WAKE = threading.Event()   # set to start the backfill thread now instead of at its next check
-SYNC_WAKE = threading.Event()      # set to run the regular Garmin sync now instead of after its interval (the Tasks page's "Sync now")
+HISTORY_WAKE = jobs.Wake('garmin_history')   # set to start the backfill now instead of at its next check (from a page: the worker runs it)
+SYNC_WAKE = jobs.Wake('garmin_sync')         # set to run the regular Garmin sync now instead of after its interval (the Tasks page's "Sync now")
 
 
 def history_from(choice, today=None):
@@ -733,12 +734,14 @@ def _save_workout(db, wid, rider_id, sport, name, start_utc, start_local, parsed
     from services.calorie_adjust import pair as _kcal_pair
     from services import workouts
     cal_raw, cal_adj = _kcal_pair(parsed.get('calories'))
-    db.execute('''INSERT OR IGNORE INTO Activity (id, riderId, type, sportType, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain,
-                  averageSpeed, maxSpeed, averageHeartrate, calories, startLat, startLng, streams, source, caloriesRaw, rawData)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
+    added = db.execute('''INSERT OR IGNORE INTO Activity (id, riderId, type, sportType, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain,
+                  averageSpeed, maxSpeed, averageHeartrate, calories, startLat, startLng, source, caloriesRaw, rawData)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
                [wid, rider_id, sport, sport, (name or '').strip() or None, start_utc, start_local, parsed.get('distance') or 0, parsed.get('movingTime') or 0,
                 parsed.get('elapsedTime') or 0, parsed.get('totalElevationGain') or 0, parsed.get('averageSpeed') or 0, max_speed,
-                parsed.get('averageHeartrate'), cal_adj, parsed.get('startLat'), parsed.get('startLng'), parsed.get('streams'), source, cal_raw])
+                parsed.get('averageHeartrate'), cal_adj, parsed.get('startLat'), parsed.get('startLng'), source, cal_raw]).rowcount
+    if added:
+        _streams.save(db, wid, parsed.get('streams'))
     save_laps(db, wid, parsed.get('laps'))
     workouts.refresh_derived(db, wid)                     # a run gets its best times and run-segment efforts
     from services import duplicates, gear
@@ -918,16 +921,16 @@ def save_activity(db, api, a, rider_id):
     try:
         from services.calorie_adjust import pair as _kcal_pair
         cal_raw, cal_adj = _kcal_pair(parsed.get('calories'))     # global burn adjustment, applied as the figure is pulled in
-        db.execute('''
+        added = db.execute('''
             INSERT INTO Activity (
                 id, name, type, sportType,
                 startDate, startDateLocal,
                 distance, movingTime, elapsedTime, totalElevationGain,
                 averageSpeed, maxSpeed, averageHeartrate, averageWatts,
                 averageCadence, calories,
-                startLat, startLng, streams, rawData, riderId, caloriesRaw, source,
+                startLat, startLng, rawData, riderId, caloriesRaw, source,
                 createdAt, updatedAt
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
             ON CONFLICT(id) DO NOTHING
         ''', [
             db_id, name, sport_type, sport_type,
@@ -944,12 +947,13 @@ def save_activity(db, api, a, rider_id):
             cal_adj,
             parsed.get('startLat'),
             parsed.get('startLng'),
-            parsed.get('streams'),
             '{}',
             rider_id,
             cal_raw,
             'manual' if manual else None,
-        ])
+        ]).rowcount
+        if added:                                               # not one already here (ON CONFLICT DO NOTHING)
+            _streams.save(db, db_id, parsed.get('streams'))
     except Exception as e:
         return 'insert', e
     save_laps(db, db_id, parsed.get('laps'))
@@ -982,7 +986,7 @@ def _notify_new(db, ids):
     a copy of an activity already here, nor for one kept in place of such a copy: that activity was announced when it first arrived. Never raises."""
     for act_id in ids:
         try:
-            row = db.execute('SELECT * FROM Activity WHERE id=?', [act_id]).fetchone()
+            row = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [act_id]).fetchone()
             if not row or db.execute("SELECT 1 FROM ActivityDuplicate WHERE primaryId=? AND status='parked'", [act_id]).fetchone():
                 continue
             from services.mqtt import push_update

@@ -13,11 +13,12 @@ from zoneinfo import ZoneInfo
 from database import get_db, query_db
 from services import tz
 from services.sports import INDOOR_RUN, NO_DISTANCE, ON_FOOT as SPORTS, RIDE_SQL, WORKOUTS
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 # A workout as the phone API and the Workouts page have always seen it (before 0.7 it had a table of its own, with `sport` for sportType)
 COLS = ('id, riderId, sportType AS sport, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, averageSpeed, maxSpeed, '
-        'averageHeartrate, calories, steps, startLat, startLng, streams, weatherSummary, source, createdAt, caloriesRaw, originId')
+        f'averageHeartrate, calories, steps, startLat, startLng, {_streams.sql()}, weatherSummary, source, createdAt, caloriesRaw, originId')
 _ICON = {'Walk': '🚶', 'Run': '🏃', 'VirtualRun': '🏃', 'Hike': '🥾', 'Swim': '🏊', 'Surf': '🏄', 'Kitesurf': '🪁', 'Wingfoil': '🪽', 'Paddle': '🛶', 'Row': '🚣', 'Ski': '⛷️', 'Skate': '⛸️', 'Golf': '⛳', 'Climb': '🧗',
          'Strength': '🏋️', 'HIIT': '🔥', 'Yoga': '🧘'}
 MI = 1609.344
@@ -99,11 +100,12 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
     db = get_db()
     db.execute('''INSERT INTO Activity (id, riderId, type, sportType, name, startDate, startDateLocal, distance, movingTime, elapsedTime,
                                         totalElevationGain, averageSpeed, averageHeartrate, calories, steps, startLat, startLng,
-                                        streams, weatherSummary, source, caloriesRaw, rawData)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
+                                        weatherSummary, source, caloriesRaw, rawData)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
                [wid, rider_id, sport, sport, (name or '').strip() or None, utc, local, dist, secs, int(act.get('elapsedTime') or secs), gain,
                 act.get('averageSpeed'), act.get('averageHeartrate'), kcal, steps, act.get('startLat'), act.get('startLng'),
-                act.get('streams') if isinstance(act.get('streams'), str) else json.dumps(act.get('streams') or {}), weather, source, kcal_raw])
+                weather, source, kcal_raw])
+    _streams.save(db, wid, act.get('streams'))
     refresh_derived(db, wid)
     from services import duplicates
     dup = duplicates.resolve(db, wid)                  # the same session from Garmin, Strava or a file: keep the better recording
@@ -185,7 +187,7 @@ def forget(db, wid):
 def delete(db, wid, rider_id):
     """Delete one of this rider's workouts with everything derived from it. It goes in the bin, whole, with its photos (services/recently_deleted.py),
     and its id is remembered, so the next sync does not bring it back. Returns True if it existed. Does not commit."""
-    row = db.execute(f'SELECT * FROM Activity WHERE id=? AND riderId=? AND NOT {RIDE_SQL}', [wid, rider_id]).fetchone()
+    row = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=? AND riderId=? AND NOT {RIDE_SQL}', [wid, rider_id]).fetchone()
     if not row:
         return False
     from services import duplicates, recently_deleted
@@ -203,7 +205,7 @@ def refresh_derived(db, wid):
     from services.segments import scan_activity_against_segments, _refresh_prs
     from services.sports import segment_family
     forget(db, wid)
-    w = db.execute('SELECT id, sportType AS sport, startDateLocal, streams FROM Activity WHERE id=?', [wid]).fetchone()
+    w = db.execute(f'SELECT id, sportType AS sport, startDateLocal, {_streams.sql()} FROM Activity WHERE id=?', [wid]).fetchone()
     if not w or not w['streams']:
         return
     sport_records.index(db, wid, w['startDateLocal'], w['sport'], w['streams'])

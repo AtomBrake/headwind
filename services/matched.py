@@ -15,6 +15,7 @@ import statistics
 from math import cos, radians
 
 from services import sports, tracks
+from services import streams as _streams
 
 DIST_TOL = 0.12
 BOX_M = 400
@@ -80,7 +81,7 @@ def _kind_sql(db, act):
 def _line(db, act_id):
     row = db.execute('SELECT line, minLat, maxLat, minLng, maxLng FROM ActivityTrack WHERE activityId=?', [act_id]).fetchone()
     if row is None:
-        streams = db.execute('SELECT streams FROM Activity WHERE id=?', [act_id]).fetchone()
+        streams = db.execute(f'SELECT {_streams.sql()} FROM Activity WHERE id=?', [act_id]).fetchone()
         if not streams:
             return None, None
         tracks.store(db, act_id, streams[0])
@@ -94,7 +95,7 @@ def _line(db, act_id):
 def find(db, act_id):
     """Every other activity on the same route as this one, oldest first, as dicts of the Activity row's figures. [] for one with no track (an indoor
     ride without a game route, a pool swim, a manual entry)."""
-    act = db.execute('SELECT * FROM Activity WHERE id=?', [act_id]).fetchone()
+    act = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [act_id]).fetchone()
     if not act or not act['distance']:
         return []
     line, box = _line(db, act_id)
@@ -109,7 +110,7 @@ def find(db, act_id):
         bike_join = 'LEFT JOIN (SELECT NULL AS id, NULL AS kind) b ON 0'
 
     # Activities of this kind and length that came in since the summaries were last made have none yet: make theirs first
-    missing = db.execute(f'''SELECT a.id, a.streams FROM Activity a {bike_join} LEFT JOIN ActivityTrack t ON t.activityId = a.id
+    missing = db.execute(f'''SELECT a.id, {_streams.sql('a')} FROM Activity a {bike_join} LEFT JOIN ActivityTrack t ON t.activityId = a.id
                              WHERE t.activityId IS NULL AND a.riderId IS ? AND a.distance BETWEEN ? AND ? AND {kind}''',
                          [act['riderId'], lo, hi, *kparams]).fetchall()
     for aid, streams in missing:

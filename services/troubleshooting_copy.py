@@ -19,7 +19,7 @@ import sqlite3
 import zipfile
 from datetime import datetime
 
-from services import diagnostics, vault
+from services import diagnostics, streams, vault
 
 KIND = 'troubleshooting'        # its job in services/downloads.py
 
@@ -133,8 +133,12 @@ def _without_friends(db, tables):
 
 def _without_gps(db, tables):
     # The streams are most of the file, and their only place is `latlng`: SQLite's JSON functions take it out several times as quickly as
-    # reading each into Python would (15 s against 40 s for 1.5 GB). A parked duplicate's row holds its streams as a string.
-    db.execute("UPDATE Activity SET streams=json_remove(streams, '$.latlng') WHERE json_valid(streams) AND json_type(streams, '$.latlng') IS NOT NULL")
+    # reading each into Python would (15 s against 40 s for 1.5 GB). An activity's are compressed in ActivityStream (services/streams.py); a
+    # parked duplicate's row holds them as a string.
+    if 'ActivityStream' in tables:
+        streams.register(db)
+        db.execute("UPDATE ActivityStream SET data=streams_pack(json_remove(streams_json(data), '$.latlng')) "
+                   "WHERE json_type(streams_json(data), '$.latlng') IS NOT NULL")
     _blank(db, 'Activity', ('summaryPolyline', 'startLat', 'startLng'))
     for col in ('rawData', 'laps'):
         _scrub_json(db, 'Activity', col, _GPS)
@@ -162,7 +166,8 @@ def _without_gps(db, tables):
 
 
 def _without_streams(db, tables):
-    _blank(db, 'Activity', ('streams',))
+    if 'ActivityStream' in tables:
+        db.execute('DELETE FROM ActivityStream')
     if 'ActivityDuplicate' in tables:
         for rowid, raw in db.execute("SELECT rowid, rowJson FROM ActivityDuplicate WHERE rowJson LIKE '%\"streams\"%'").fetchall():
             try:

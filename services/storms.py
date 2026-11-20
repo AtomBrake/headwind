@@ -5,6 +5,7 @@ uk-storm-season-YYYY-YY), 2015/16 to 2025/26: (name, first day of UK impact, las
 so a ride on one of these days is worth a second look; but a storm is regional, so a ride on the day is only a *candidate* until the rider confirms it.
 Add new storms to the end of the list as the Met Office names them.
 """
+from services import streams as _streams
 NAMED_STORMS = [
     ('Abigail', '2015-11-12', '2015-11-13'), ('Barney', '2015-11-17', '2015-11-18'), ('Clodagh', '2015-11-29', '2015-11-29'), ('Desmond', '2015-12-05', '2015-12-06'),
     ('Eva', '2015-12-24', '2015-12-24'), ('Frank', '2015-12-29', '2015-12-30'), ('Gertrude', '2016-01-29', '2016-01-29'), ('Henry', '2016-02-01', '2016-02-02'),
@@ -89,7 +90,7 @@ def reassess(db, rider_id):
     """Take back rides an earlier, looser rule claimed (gusts under MIN_GUST_KPH): back to the lookup's own condition. Needs the weather service for each (a few calls). Commits."""
     from services import weather
     n = 0
-    for r in db.execute("SELECT id, sportType, startLat, startLng, startDateLocal, streams, weatherGustKph FROM Ride WHERE riderId=? AND weatherSource='storm' AND COALESCE(weatherGustKph,0) < ?",
+    for r in db.execute(f"SELECT id, sportType, startLat, startLng, startDateLocal, {_streams.sql('Ride')}, weatherGustKph FROM Ride WHERE riderId=? AND weatherSource='storm' AND COALESCE(weatherGustKph,0) < ?",
                         [rider_id, MIN_GUST_KPH]).fetchall():
         weather.set_condition(db, r['id'], None)
         lat, lng = weather.origin(r)

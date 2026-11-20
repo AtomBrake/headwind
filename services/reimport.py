@@ -14,6 +14,7 @@ import hashlib
 import importlib
 import inspect
 import json
+from services import streams as stream_store       # not _streams: that is a function here
 
 # Activity columns an import can supply (calories handled separately, through the burn adjustment)
 COLUMNS = ('distance', 'movingTime', 'elapsedTime', 'totalElevationGain', 'averageSpeed', 'maxSpeed', 'averageHeartrate', 'maxHeartrate',
@@ -53,7 +54,7 @@ def ensure_schema(db):
 # zone an activity's local time is taken in (tz).
 # tests/test_import_seen.py checks every module the parser imports is here.
 READER_MODULES = ('services.parser', 'services.best_efforts', 'services.sports', 'services.reimport', 'services.duplicates', 'services.tz',
-                  'services.sanity', 'services.zwift', 'routes.import_rides')     # sanity: its limits decide when a Strava export's climb replaces the
+                  'services.sanity', 'services.zwift', 'services.streams', 'routes.import_rides')     # sanity: its limits decide when a Strava export's climb replaces the
                                                                                    # file's; zwift: a ride or run in a made-up world is Zwift's
 READER_LIBRARIES = ('fitparse', 'gpxpy', 'tzfpy')        # a FIT library that replaces fitparse goes here too; tzfpy: the local time where it happened
 _reader_version = None
@@ -191,14 +192,16 @@ def propose(db, saved, act, source):
     Saved streams whose GPS and time are out of step are replaced by the file's straight away, when the file's are in step: that's a repair, not a
     choice, and the rider's own edits are never in the streams. The ride is matched against the segments again, and checked for duplicates
     again: a copy kept beside it because its track couldn't be compared is set aside now (a ski app's copy of a watch's day). If the ride itself
-    is the one set aside, nothing is offered."""
+    is the one set aside, nothing is offered. `saved` is its Activity row, with its streams (services/streams.sql()) or without, when they're read here."""
+    if 'streams' not in saved.keys():
+        saved = {**dict(saved), 'streams': stream_store.load_json(db, saved['id'])}
     if _out_of_step(saved['streams']) and _out_of_step(act.get('streams')) is False:
-        db.execute('UPDATE Activity SET streams=? WHERE id=?', [act['streams'], saved['id']])
+        stream_store.save(db, saved['id'], act['streams'])
         from services import duplicates
         from services.segments import rescan_activity
         rescan_activity(db, saved['id'])
         duplicates.resolve(db, saved['id'])
-        saved = db.execute('SELECT * FROM Activity WHERE id=?', [saved['id']]).fetchone()
+        saved = db.execute(f'SELECT *, {stream_store.sql()} FROM Activity WHERE id=?', [saved['id']]).fetchone()
         if not saved:
             return False
     if act.get('laps') and _empty(saved['laps'] if 'laps' in saved.keys() else None):     # laps and pool lengths, read from files since 0.7.9:
@@ -217,7 +220,7 @@ def pending(db):
     add (fill_adds)."""
     cols = ', '.join(f'a.{c}' for c in COLUMNS if c not in ('streams', 'rawData'))
     rows = db.execute(f'''SELECT c.*, a.sportType, a.calories, {cols},
-                                 CASE WHEN a.streams IS NULL OR a.streams IN ('', '{{}}', 'null', '[]') THEN NULL ELSE 1 END AS streams
+                                 CASE WHEN {stream_store.has_sql('a')} THEN 1 END AS streams
                           FROM ImportChange c LEFT JOIN Activity a ON a.id = c.rideId ORDER BY c.foundAt DESC, c.rideId''').fetchall()
     out = []
     for r in rows:
@@ -274,7 +277,7 @@ def resolve(db, ride_id, choice):
     if not row:
         return False
     db.execute('DELETE FROM ImportChange WHERE rideId=?', [ride_id])
-    saved = db.execute('SELECT * FROM Activity WHERE id=?', [ride_id]).fetchone()
+    saved = db.execute(f'SELECT *, {stream_store.sql()} FROM Activity WHERE id=?', [ride_id]).fetchone()
     if choice == 'keep' or not saved:
         return False
     act = json.loads(row['act'])
@@ -300,7 +303,10 @@ def resolve(db, ride_id, choice):
         sets['caloriesRaw'], sets['calories'] = pair(act['calories'])
     if not sets:
         return False
-    db.execute(f"UPDATE Activity SET {', '.join(f'{k}=?' for k in sets)}, updatedAt=datetime('now') WHERE id=?", [*sets.values(), ride_id])
+    row_sets = {k: v for k, v in sets.items() if k != 'streams'}                  # the streams go in ActivityStream
+    db.execute(f"UPDATE Activity SET {''.join(f'{k}=?, ' for k in row_sets)}updatedAt=datetime('now') WHERE id=?", [*row_sets.values(), ride_id])
+    if 'streams' in sets:
+        stream_store.save(db, ride_id, sets['streams'])
     from services import duplicates, sanity
     sanity.flag(db, ride_id)                                         # a dismissed flag stays dismissed
     duplicates.rebuild_derived(db, ride_id)                          # best efforts, segment efforts, PRs

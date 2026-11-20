@@ -197,6 +197,39 @@ def read(limit=200, min_level='INFO', query=''):
     return {'records': found, 'more': more, 'files': used}
 
 
+class _SharedRotatingFileHandler(logging.handlers.RotatingFileHandler):
+    """The web server and the worker (services/worker.py) write the same file. Rolling over is done under a lock file, by whichever process gets
+    there first; the other sees the file it has open is no longer the one at the path, and opens the new one rather than rolling it over again."""
+
+    def _moved(self):
+        try:
+            return self.stream is not None and os.fstat(self.stream.fileno()).st_ino != os.stat(self.baseFilename).st_ino
+        except OSError:
+            return True
+
+    def shouldRollover(self, record):
+        if self._moved():
+            self.stream.close()
+            self.stream = self._open()
+        return super().shouldRollover(record)
+
+    def doRollover(self):
+        try:
+            import fcntl
+        except ImportError:                     # Windows: one process (windows_launcher.py)
+            return super().doRollover()
+        with open(self.baseFilename + '.lock', 'a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                if self._moved():               # the other process has just rolled it over: write to the new file
+                    self.stream.close()
+                    self.stream = self._open()
+                else:
+                    super().doRollover()
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+
 def setup(database=None):
     """Configure the root logger. Safe to call again (each create_app does): it replaces its own handlers, so the file follows the database."""
     global _file_path
@@ -223,7 +256,7 @@ def setup(database=None):
         try:
             os.makedirs(d, exist_ok=True)
             path = os.path.join(d, FILE_NAME)
-            fh = logging.handlers.RotatingFileHandler(path, maxBytes=FILE_BYTES, backupCount=FILE_COUNT, encoding='utf-8', delay=True)
+            fh = _SharedRotatingFileHandler(path, maxBytes=FILE_BYTES, backupCount=FILE_COUNT, encoding='utf-8', delay=True)
             fh.addFilter(_NotConsoleOnly())
             _handlers.append(fh)
             _file_path = path

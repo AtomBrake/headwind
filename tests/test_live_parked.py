@@ -10,6 +10,7 @@ from flask import Flask
 import database
 from routes import import_rides
 from services import duplicates, photos
+from services import streams as _streams
 
 
 @pytest.fixture
@@ -33,8 +34,9 @@ def _track(secs, speed):
 def _add(db, aid, name, day='2026-01-10', hour=9, dist=12000.0, secs=3600, sport='Ride', hr=None, streams=None, commute=None):
     start = f'{day}T{hour:02d}:00:00'
     db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime, averageSpeed, "
-               "averageHeartrate, streams, commute, rawData) VALUES (?,?,?,?,1,?,?,?,?,?,?,?,?,?,'{}')",
-               [aid, name, sport, sport, start + 'Z', start, dist, secs, secs, dist / secs, hr, streams, commute])
+               "averageHeartrate, commute, rawData) VALUES (?,?,?,?,1,?,?,?,?,?,?,?,?,'{}')",
+               [aid, name, sport, sport, start + 'Z', start, dist, secs, secs, dist / secs, hr, commute])
+    _streams.save(db, aid, streams)
 
 
 def _park_stale(db, aid, primary, reason='Kept the Garmin recording (recorded on a Garmin device).'):
@@ -89,7 +91,7 @@ def test_live_copies_set_aside_are_decided_again_once(db):
     assert _dups(db) == {'111': ('garmin_1', 'parked'), 'wk_b': ('222', 'parked'), '333': ('222', 'parked'), '555': ('garmin_5', 'parked'),
                          '888': ('x', 'discarded')}
 
-    a = db.execute("SELECT * FROM Activity WHERE id='garmin_1'").fetchone()
+    a = db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='garmin_1'").fetchone()
     assert (a['name'], a['commute']) == ('Box Hill loop', 1)
     assert json.loads(db.execute("SELECT rowJson FROM ActivityDuplicate WHERE id='111'").fetchone()[0])['name'] == 'Box Hill loop'   # as it is now
     assert db.execute("SELECT activityId FROM ActivityPhoto").fetchone()[0] == 'garmin_1'

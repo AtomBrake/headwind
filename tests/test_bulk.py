@@ -10,6 +10,7 @@ import config
 import database
 from services import credentials, duplicates
 from services.sports import RIDE_SQL
+from services import streams as _streams
 
 TRACK = json.dumps({'latlng': {'data': [[51.5 + i * 1e-4, -2.6] for i in range(50)]}, 'time': {'data': list(range(0, 500, 10))},
                     'altitude': {'data': [10.0] * 50}})
@@ -34,9 +35,10 @@ def client(tmp_path, monkeypatch):
         db.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1), (2, 'Sam', 0)")
         db.execute("INSERT INTO Bike (id, riderId, name, kind) VALUES (1, 1, 'Road bike', 'road'), (2, 2, 'Sam''s bike', 'road')")
         for i in range(1, 5):
-            db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime, streams, flagReason) "
-                       "VALUES (?, 'Ride', 'Ride', 1, ?, ?, 20000, 3600, 3600, ?, ?)",
-                       [f'r{i}', f'2026-07-0{i}T07:00:00', f'2026-07-0{i}T08:00:00', TRACK, 'only 45 m long' if i == 4 else None])
+            db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime, flagReason) "
+                       "VALUES (?, 'Ride', 'Ride', 1, ?, ?, 20000, 3600, 3600, ?)",
+                       [f'r{i}', f'2026-07-0{i}T07:00:00', f'2026-07-0{i}T08:00:00', 'only 45 m long' if i == 4 else None])
+            _streams.save(db, f'r{i}', TRACK)
         db.execute("INSERT INTO Activity (id, riderId, sportType, startDateLocal, distance, movingTime, source) VALUES ('wk1', 1, 'Walk', '2026-07-05T09:00:00', 3000, 1800, 'android')")
         db.execute("INSERT INTO Activity (id, riderId, sportType, startDateLocal, distance, movingTime, source) VALUES ('garmin_9', 1, 'Swim', '2026-07-06T09:00:00', 1500, 1800, 'garmin')")
         db.commit()

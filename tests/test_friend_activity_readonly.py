@@ -8,6 +8,7 @@ import app as app_module
 import config
 import database
 from services import credentials
+from services import streams as _streams
 
 TRACK = json.dumps({'latlng': {'data': [[51.5 + i * 1e-4, -2.6] for i in range(50)]}, 'time': {'data': list(range(0, 500, 10))},
                     'altitude': {'data': [10.0] * 50}})
@@ -35,9 +36,10 @@ def client(tmp_path, monkeypatch):
         db.execute("INSERT INTO Bike (id, riderId, name, kind) VALUES (1, 1, 'Road bike', 'road'), (2, 2, 'A bike for Sam', 'road')")
         db.execute("INSERT INTO Kit (id, riderId, name, kind) VALUES (1, 2, 'Shoes for Sam', 'shoes')")
         for aid, rider, sport in (('r1', 1, 'Ride'), ('f1_r1', 2, 'Ride'), ('f1_w1', 2, 'Run')):
-            db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime, streams, "
-                       "flagReason, rawData, updatedAt) VALUES (?, 'Morning', ?, ?, ?, '2026-10-19T07:00:00', '2026-10-19T08:00:00', 20000, 3600, 3600, ?, "
-                       "'only 45 m long', '{}', '2026-10-20 08:00:00')", [aid, sport, sport, rider, TRACK])
+            db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime, "
+                       "flagReason, rawData, updatedAt) VALUES (?, 'Morning', ?, ?, ?, '2026-10-19T07:00:00', '2026-10-19T08:00:00', 20000, 3600, 3600, "
+                       "'only 45 m long', '{}', '2026-10-20 08:00:00')", [aid, sport, sport, rider])
+            _streams.save(db, aid, TRACK)
         db.commit()
         av = credentials.auth_version()
     c = app.test_client()
@@ -49,7 +51,7 @@ def client(tmp_path, monkeypatch):
 
 def row(client, aid):
     with client.application.app_context():
-        r = database.get_db().execute('SELECT * FROM Activity WHERE id=?', [aid]).fetchone()
+        r = database.get_db().execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [aid]).fetchone()
         return dict(r) if r else None
 
 

@@ -6,6 +6,7 @@ from math import atan2, ceil, cos, isfinite, radians, sin, sqrt
 from services import tracks
 from services.parser import MOVING_MPS
 from services.sports import FAMILIES, class_of, ebike_sql, family_of, segment_family
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -250,7 +251,7 @@ def recover_polyline(db, seg):
         if not aid or aid in tried:
             continue
         tried.add(aid)
-        row = db.execute('SELECT streams FROM Activity WHERE id=?', [aid]).fetchone()
+        row = db.execute(f'SELECT {_streams.sql()} FROM Activity WHERE id=?', [aid]).fetchone()
         if row and row[0]:
             shape = _slice_between(row[0], seg)
             if shape:
@@ -789,7 +790,7 @@ def scan_all_activities(db, segment_ids=None):
     ids_all = list(todo)
     for i in range(0, len(ids_all), _BATCH):
         ids = ids_all[i:i + _BATCH]
-        for act in db.execute(f"SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall():
+        for act in db.execute(f"SELECT id, startDateLocal, {_streams.sql()}, sportType FROM Activity WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall():
             scan_activity_against_segments(db, act, segments, track=todo[act['id']], pool=sibs)
         db.commit()
 
@@ -804,7 +805,7 @@ def scan_all_activities(db, segment_ids=None):
 def scan_new_ride(db, act_id):
     """Match one freshly stored ride against every segment and refresh PRs. Call after any ingest path; never raises, does not commit."""
     try:
-        act = db.execute('SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id=?', [act_id]).fetchone()
+        act = db.execute(f'SELECT id, startDateLocal, {_streams.sql()}, sportType FROM Activity WHERE id=?', [act_id]).fetchone()
         segments = db.execute('SELECT * FROM Segment').fetchall()
         if not act or not act['streams'] or not segments:
             return 0
@@ -822,7 +823,7 @@ def rescan_activity(db, act_id):
     segment it was or now is on. Returns how many it matched. Does not commit."""
     old = [r[0] for r in db.execute('SELECT DISTINCT segmentId FROM SegmentEffort WHERE activityId=?', [act_id])]
     db.execute('DELETE FROM SegmentEffort WHERE activityId=?', [act_id])
-    act = db.execute('SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id=?', [act_id]).fetchone()
+    act = db.execute(f'SELECT id, startDateLocal, {_streams.sql()}, sportType FROM Activity WHERE id=?', [act_id]).fetchone()
     fam = _activity_family(db, act) if act and act['streams'] else None
     segs = db.execute("SELECT * FROM Segment WHERE COALESCE(sport, 'ride') = ?", [fam]).fetchall() if fam else []
     n = scan_activity_against_segments(db, act, segs) if segs else 0
@@ -872,7 +873,7 @@ def regroup(db):
     if foot:
         before = db.execute("SELECT COUNT(*) FROM SegmentEffort e JOIN Segment s ON s.id=e.segmentId WHERE s.sport='foot'").fetchone()[0]
         sibs = {g['id']: siblings_of(g, foot) for g in foot}
-        for act in db.execute("SELECT id, startDateLocal, streams, sportType FROM Activity WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')"):
+        for act in db.execute(f"SELECT id, startDateLocal, {_streams.sql()}, sportType FROM Activity WHERE {_streams.has_sql()}"):
             if segment_family(act['sportType']) == 'foot':
                 scan_activity_against_segments(db, act, foot, pool=sibs)
                 scanned += 1
@@ -903,7 +904,7 @@ def merge_bikes(db):
     if rides:
         before = db.execute('SELECT COUNT(*) FROM SegmentEffort').fetchone()[0]
         sibs = {g['id']: siblings_of(g, rides) for g in rides}
-        for act in db.execute("SELECT id, startDateLocal, streams, sportType FROM Activity WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')").fetchall():
+        for act in db.execute(f"SELECT id, startDateLocal, {_streams.sql()}, sportType FROM Activity WHERE {_streams.has_sql()}").fetchall():
             cls = class_of(db, act['id'])
             if cls not in ('bike', 'ebike'):
                 continue
@@ -937,24 +938,24 @@ def repair_matching(db):
                           [3 * TOLERANCE_M]).fetchall():
         if _haversine(seg['startLat'], seg['startLng'], seg['endLat'], seg['endLng']) >= LOOP_GAP_M:
             continue
-        r = db.execute('SELECT streams FROM Activity WHERE id=?', [seg['sourceActivityId']]).fetchone()
+        r = db.execute(f'SELECT {_streams.sql()} FROM Activity WHERE id=?', [seg['sourceActivityId']]).fetchone()
         shape = shape_from_streams(r[0], (seg['startLat'], seg['startLng']), (seg['endLat'], seg['endLng'])) if r and r[0] else None
         if shape and shape[1] > (seg['distanceM'] or 0) * 2:
             db.execute('UPDATE Segment SET polyline=?, distanceM=?, elevationGainM=? WHERE id=?', [json.dumps(shape[0]), shape[1], shape[2], seg['id']])
             loops += 1
     db.commit()
     realigned = misaligned = 0
-    ids = [r[0] for r in db.execute("SELECT id FROM Activity WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')")]
+    ids = [r[0] for r in db.execute(f"SELECT id FROM Activity WHERE {_streams.has_sql()}")]
     for i in range(0, len(ids), _BATCH):
         chunk = ids[i:i + _BATCH]
-        for aid, raw in db.execute(f"SELECT id, streams FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
+        for aid, raw in db.execute(f"SELECT id, {_streams.sql()} FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
             st = _parsed(raw)
             ll, tm = (st.get('latlng') or {}).get('data') or [], (st.get('time') or {}).get('data') or []
             if not ll or not tm or len(ll) == len(tm):
                 continue
             fixed = realign(st)
             if fixed:
-                db.execute('UPDATE Activity SET streams=? WHERE id=?', [json.dumps(fixed), aid])
+                _streams.save(db, aid, fixed)
                 realigned += 1
             elif abs(len(ll) - len(tm)) > MISALIGNED_MAX:
                 misaligned += 1
@@ -1182,7 +1183,7 @@ def import_strava(db, rows):
             fam = family_of(db, aid)
             if fam is None:                                 # not here, or an indoor ride / swim: no segments
                 continue
-            r = db.execute('SELECT streams FROM Activity WHERE id=?', [aid]).fetchone()
+            r = db.execute(f'SELECT {_streams.sql()} FROM Activity WHERE id=?', [aid]).fetchone()
             shape = shape_from_streams(r[0], start, end) if r and r[0] else None
             if shape:
                 if aid == source:                           # the activity it was made on: its family, its shape

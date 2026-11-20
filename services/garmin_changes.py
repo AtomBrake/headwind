@@ -23,6 +23,7 @@ with Garmin's name and date (Headwind keeps only the id), to bring back."""
 import json
 import logging
 from datetime import date, timedelta
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -141,7 +142,7 @@ def _recording_changed(db, api, a, act_id):
         log.warning('Garmin activity %s changed in Garmin, but reading it again failed (%s): %s', a.get('activityId'), *fail)
         return None
     db.execute('UPDATE GarminSeen SET cropChecked=1 WHERE garminId=?', [str(a.get('activityId'))])
-    saved = db.execute('SELECT * FROM Activity WHERE id=?', [act_id]).fetchone()
+    saved = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [act_id]).fetchone()
     if not saved:
         return False
     act = dict(parsed)
@@ -149,7 +150,7 @@ def _recording_changed(db, api, a, act_id):
     return reimport.propose(db, saved, act, 'Garmin')
 
 
-_OUT_OF_STEP_SQL = ("json_valid(streams) AND json_array_length(streams, '$.latlng.data') > 0 "
+_OUT_OF_STEP_SQL = ("json_valid(streams) AND json_array_length(streams, '$.latlng.data') > 0 "      # on streams_json(data) from ActivityStream
                     "AND json_array_length(streams, '$.latlng.data') != json_array_length(streams, '$.time.data')")
 
 
@@ -160,7 +161,8 @@ def _out_of_step(db, act_ids):
     act_ids = list(act_ids)
     for i in range(0, len(act_ids), 500):
         chunk = act_ids[i:i + 500]
-        out.update(r[0] for r in db.execute(f"SELECT id FROM Activity WHERE id IN ({','.join('?' * len(chunk))}) AND {_OUT_OF_STEP_SQL}", chunk))
+        out.update(r[0] for r in db.execute(f"SELECT id FROM (SELECT id, {_streams.sql()} FROM Activity WHERE id IN ({','.join('?' * len(chunk))})) "
+                                            f"WHERE {_OUT_OF_STEP_SQL}", chunk))
     return out
 
 
@@ -185,7 +187,7 @@ def _typed_in(db, a, row):
         db.execute("UPDATE Activity SET source='manual' WHERE id=?", [row['id']])
     s = _from_summary(a)
     if (row['distance'] or row['movingTime'] or row['elapsedTime']) or not (s['distance'] or s['movingTime'] or s['elapsedTime']):
-        return db.execute('SELECT * FROM Activity WHERE id=?', [row['id']]).fetchone()
+        return db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [row['id']]).fetchone()
     raw, kcal = pair(s['calories'])
     speed = s['averageSpeed'] or (s['distance'] / s['movingTime'] if s['movingTime'] else 0)
     db.execute('''UPDATE Activity SET distance=?, movingTime=?, elapsedTime=?, averageSpeed=?, averageHeartrate=COALESCE(averageHeartrate, ?),
@@ -194,7 +196,7 @@ def _typed_in(db, a, row):
     log.info('Garmin activity %s was saved with no distance and no time; took Garmin\'s', a.get('activityId'))
     sanity.flag(db, row['id'])                          # "nothing was recorded" no longer
     duplicates.resolve(db, row['id'])                   # its copy from Strava, which had its figures all along
-    return db.execute('SELECT * FROM Activity WHERE id=?', [row['id']]).fetchone()
+    return db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [row['id']]).fetchone()
 
 
 def _missed_crop(db, api, a, row, now):

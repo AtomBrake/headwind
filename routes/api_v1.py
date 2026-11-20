@@ -32,6 +32,7 @@ from flask import Blueprint, current_app, jsonify, request
 from database import get_db, query_db
 from services import external_url, tz
 from services.sports import KIND_SQL, kind as sport_kind, kind_of
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 bp = Blueprint('api_v1', __name__, url_prefix='/api/v1')
@@ -424,7 +425,7 @@ def rides():
                 import polyline as pl
                 pts = pl.decode(r['summaryPolyline'])
             if not pts:
-                row = query_db('SELECT streams FROM Activity WHERE id=?', [rid_], one=True)
+                row = query_db(f'SELECT {_streams.sql()} FROM Activity WHERE id=?', [rid_], one=True)
                 pts = ((_json.loads(row['streams']) if row and row['streams'] else {}).get('latlng') or {}).get('data') or []
             return [[round(p[0], 5), round(p[1], 5)] for p in _downsample(pts, 28)]
         except Exception:
@@ -490,7 +491,7 @@ def ride_detail(kind, rid):
         return jsonify({'error': 'no rider'}), 409
     if kind not in ('ride', 'workout'):
         return jsonify({'error': 'bad kind'}), 400
-    row = query_db(f'SELECT * FROM Activity WHERE id=? AND (riderId=? OR riderId IN ({FRIEND_RIDERS_SQL}))', [rid, rider['id']], one=True)
+    row = query_db(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=? AND (riderId=? OR riderId IN ({FRIEND_RIDERS_SQL}))', [rid, rider['id']], one=True)
     if not row:
         return jsonify({'error': 'not found'}), 404
     r = dict(row)

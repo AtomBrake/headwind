@@ -6,6 +6,7 @@ from flask import Flask
 
 import database
 from services import weather
+from services import streams as _streams
 
 
 @pytest.fixture
@@ -23,9 +24,10 @@ def db(tmp_path):
 
 def ride(db, rid='r1', lat=None, lng=None, track=True, summary=None, code=None, sport='Ride'):
     streams = json.dumps({'latlng': {'data': [[51.5, -0.12], [51.51, -0.13]]}}) if track else None
-    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,averageSpeed,startLat,startLng,streams,rawData,riderId,weatherSummary,weatherCode,createdAt,updatedAt)"
-               " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,datetime('now'),datetime('now'))",
-               [rid, 'x', sport, sport, '2020-01-05T10:00:00', '2020-01-05T10:00:00', 10000, 1800, 1800, 5.0, lat, lng, streams, '{}', summary, code])
+    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,averageSpeed,startLat,startLng,rawData,riderId,weatherSummary,weatherCode,createdAt,updatedAt)"
+               " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,datetime('now'),datetime('now'))",
+               [rid, 'x', sport, sport, '2020-01-05T10:00:00', '2020-01-05T10:00:00', 10000, 1800, 1800, 5.0, lat, lng, '{}', summary, code])
+    _streams.save(db, rid, streams)
     db.commit()
 
 
@@ -43,8 +45,8 @@ def test_snow_is_its_own_bucket_and_rain_excludes_it():
 def test_origin_falls_back_to_the_first_track_point(db):
     ride(db, 'a', lat=None, lng=None)
     ride(db, 'b', lat=51.0, lng=-1.0, track=False)
-    assert weather.origin(db.execute("SELECT * FROM Activity WHERE id='a'").fetchone()) == (51.5, -0.12)
-    assert weather.origin(db.execute("SELECT * FROM Activity WHERE id='b'").fetchone()) == (51.0, -1.0)
+    assert weather.origin(db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='a'").fetchone()) == (51.5, -0.12)
+    assert weather.origin(db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='b'").fetchone()) == (51.0, -1.0)
 
 
 def test_backfill_reaches_rides_with_only_a_track_and_fills_the_start_point(db, monkeypatch):

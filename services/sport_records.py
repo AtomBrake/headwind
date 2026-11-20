@@ -14,6 +14,7 @@ import logging
 
 from services import sports
 from services.best_efforts import CEILING_MPS, effort_series, fastest
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -109,7 +110,7 @@ def ensure(db, rider_id=None):
            + f" AND NOT EXISTS (SELECT 1 FROM SportEffort e WHERE e.activityId = a.id AND e.kind = {k})")
     todo = db.execute(sql, [rider_id] if rider_id is not None else []).fetchall()
     for row in todo:
-        streams = db.execute('SELECT streams FROM Activity WHERE id=?', [row[0]]).fetchone()[0]
+        streams = db.execute(f'SELECT {_streams.sql()} FROM Activity WHERE id=?', [row[0]]).fetchone()[0]
         index(db, row[0], row[1], row[2], streams)
     if todo:
         db.commit()

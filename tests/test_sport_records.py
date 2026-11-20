@@ -9,6 +9,7 @@ import app as app_module
 import config
 import database
 from services import credentials, sport_records
+from services import streams as _streams
 
 
 class _NoThread:
@@ -41,11 +42,12 @@ def app(tmp_path, monkeypatch):
                 ('swim1', 'Swim', 1500, 1.0, 18),         # 1.5 km at 1 m/s: 400 m in 400 s
                 ('sup1', 'Stand Up Paddling', 2400, 1.5, 15),
                 ('ski1', 'Alpine Ski', 600, 15.0, 11)):   # 9 km of very fast "riding" if anyone counted it as a ride
-            db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime, totalElevationGain, calories, streams) "
-                       "VALUES (?, ?, 1, ?, ?, ?, ?, 10, 100, ?)", [aid, aid, sport, f'{MONDAY.isoformat()}T{hour:02d}:00:00', secs * speed, secs, track(secs, speed)])
+            db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime, totalElevationGain, calories) "
+                       "VALUES (?, ?, 1, ?, ?, ?, ?, 10, 100)", [aid, aid, sport, f'{MONDAY.isoformat()}T{hour:02d}:00:00', secs * speed, secs])
+            _streams.save(db, aid, track(secs, speed))
         from services.best_efforts import save_best_efforts
         for aid in ('r1', 'ski1'):                 # the import saves them for anything with a track
-            row = db.execute('SELECT startDateLocal, streams FROM Activity WHERE id=?', [aid]).fetchone()
+            row = db.execute(f'SELECT startDateLocal, {_streams.sql()} FROM Activity WHERE id=?', [aid]).fetchone()
             save_best_efforts(db, aid, row[0], row[1])
         db.commit()
         a.config['AV'] = credentials.auth_version()
@@ -190,9 +192,11 @@ def test_start_up_repairs_put_right_what_is_saved(app):
         streams = _ride_with_a_faulty_sensor()
         stops = {'time': {'data': list(range(0, 2001)) + list(range(5000, 7001))},   # 2,000 s moving, a 50 minute stop, 2,000 s more
                  'distance': {'data': [i * 8.0 for i in range(2001)] + [16000 + i * 8.0 for i in range(2001)]}}
-        db.execute("UPDATE Activity SET streams=?, movingTime=7000 WHERE id='r1'", [json.dumps(stops)])
-        db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime, streams) "
-                   "VALUES ('bad', 'Morning Paddle', 1, 'Ride', '2021-05-16T10:45:00', 26000, 2000, ?)", [json.dumps(streams)])
+        db.execute("UPDATE Activity SET movingTime=7000 WHERE id='r1'")
+        _streams.save(db, 'r1', json.dumps(stops))
+        db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime) "
+                   "VALUES ('bad', 'Morning Paddle', 1, 'Ride', '2021-05-16T10:45:00', 26000, 2000)", [])
+        _streams.save(db, 'bad', json.dumps(streams))
         db.execute("INSERT INTO BestEffort (activityId, activityDate, distanceMi, elapsedSecs, avgSpeedMps) VALUES ('bad', '2021-05-16', 5, 215, 37.4)")
         db.execute('UPDATE Settings SET movingTimePausedDone=0, bestEffortsCleanDone=0')
         db.commit()
@@ -213,11 +217,13 @@ def test_best_times_rescan_with_a_friends_rider_reports_only_the_owners_records(
     with app.app_context():
         db = database.get_db()
         db.execute("INSERT INTO Rider (id, name, isDefault) VALUES (2, 'Rachel', 0)")
-        db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime, streams) "
-                   "VALUES ('bad', 'Morning Paddle', 1, 'Ride', '2021-05-16T10:45:00', 26000, 2000, ?)", [json.dumps(_ride_with_a_faulty_sensor())])
+        db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime) "
+                   "VALUES ('bad', 'Morning Paddle', 1, 'Ride', '2021-05-16T10:45:00', 26000, 2000)", [])
+        _streams.save(db, 'bad', json.dumps(_ride_with_a_faulty_sensor()))
         db.execute("INSERT INTO BestEffort (activityId, activityDate, distanceMi, elapsedSecs, avgSpeedMps) VALUES ('bad', '2021-05-16', 5, 215, 37.4)")
-        db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime, streams) "
-                   "VALUES ('f1', 'Friend ride', 2, 'Ride', '2021-05-17T10:00:00', 28800, 3600, ?)", [track(3600, 8.0)])
+        db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime) "
+                   "VALUES ('f1', 'Friend ride', 2, 'Ride', '2021-05-17T10:00:00', 28800, 3600)", [])
+        _streams.save(db, 'f1', track(3600, 8.0))
         db.execute('DELETE FROM BestEffort WHERE activityId=?', ['f1'])
         db.execute('UPDATE Settings SET bestEffortsCleanDone=0')
         db.commit()
@@ -239,8 +245,9 @@ def test_a_faulty_speed_sensor_gives_no_top_speed_beyond_what_the_gps_shows(app)
     assert not sensor_fault({'time': {'data': [0, 1]}, 'distance': {'data': [0, 8]}, 'latlng': {'data': [[50.6, -3.5], [50.60007, -3.5]]}})
     with app.app_context():
         db = database.get_db()
-        db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime, maxSpeed, streams) "
-                   "VALUES ('mp', 'Morning Paddle', 1, 'Ride', '2021-05-16T10:45:00', 26000, 2000, 29.86, ?)", [json.dumps(streams)])
+        db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime, maxSpeed) "
+                   "VALUES ('mp', 'Morning Paddle', 1, 'Ride', '2021-05-16T10:45:00', 26000, 2000, 29.86)", [])
+        _streams.save(db, 'mp', json.dumps(streams))
         db.execute('UPDATE Settings SET sensorTopSpeedDone=0')
         db.commit()
         fixed = max_stats.fix_sensor_top_speed(db)

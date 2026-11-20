@@ -10,6 +10,7 @@ from flask import Flask
 import database
 from routes import import_rides
 from services import reimport, sanity
+from services import streams as _streams
 
 GPX = ('<?xml version="1.0"?><gpx version="1.1" creator="t" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Tour</name><trkseg>'
        + ''.join(f'<trkpt lat="{50.4 + i * 0.0001:.5f}" lon="-4.7"><ele>{50 + i % 5}</ele><time>2026-07-04T09:{i // 60:02d}:{i % 60:02d}Z</time></trkpt>'
@@ -51,8 +52,9 @@ def run_import(db, z):
 def test_a_broken_ride_imported_again_waits_for_review_then_is_repaired(db):
     # first import: no readable file, and the CSV distance read 1000x too big (the 0.5.7 bug)
     db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, averageSpeed, "
-               "streams, rawData, riderId, bikeId, createdAt, updatedAt) VALUES ('20294689368', 'Lanhydrock loop (renamed)', 'Ride', 'Ride', '2026-07-04T09:00:00', "
-               "'2026-07-04T10:00:00', 45959500, 590, 600, 0, 77897, '{}', '{}', 1, 1, 'n', 'n')")
+               "rawData, riderId, bikeId, createdAt, updatedAt) VALUES ('20294689368', 'Lanhydrock loop (renamed)', 'Ride', 'Ride', '2026-07-04T09:00:00', "
+               "'2026-07-04T10:00:00', 45959500, 590, 600, 0, 77897, '{}', 1, 1, 'n', 'n')")
+    _streams.save(db, '20294689368', '{}')
     sanity.flag(db, '20294689368')
     db.commit()
     assert 'beyond any ride' in db.execute("SELECT flagReason FROM Activity").fetchone()[0]
@@ -67,7 +69,7 @@ def test_a_broken_ride_imported_again_waits_for_review_then_is_repaired(db):
 
     assert reimport.resolve(db, '20294689368', 'replace')
     db.commit()
-    r = db.execute("SELECT name, bikeId, distance, flagReason, streams FROM Activity").fetchone()
+    r = db.execute(f"SELECT name, bikeId, distance, flagReason, {_streams.sql()} FROM Activity").fetchone()
     assert r['name'] == 'Lanhydrock loop (renamed)' and r['bikeId'] == 1                     # the rider's edits stay
     assert r['distance'] == 45959.5 and r['flagReason'] is None and 'latlng' in json.loads(r['streams'])   # Strava's own figure, in metres
     assert reimport.pending(db) == []
@@ -83,20 +85,21 @@ def test_the_same_ride_imported_again_is_just_skipped(db):
 
 def test_fill_only_adds_what_is_missing_and_keep_changes_nothing(db):
     db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, averageSpeed, "
-               "averageHeartrate, streams, rawData, riderId, createdAt, updatedAt) VALUES ('88', 'Tour', 'Ride', 'Ride', '2026-07-04T09:00:00', '2026-07-04T10:00:00', "
-               "6000, 590, 600, 0, 10.2, 140, ?, '{}', 1, 'n', 'n')", [json.dumps({'heartrate': {'data': [140] * 5}})])
+               "averageHeartrate, rawData, riderId, createdAt, updatedAt) VALUES ('88', 'Tour', 'Ride', 'Ride', '2026-07-04T09:00:00', '2026-07-04T10:00:00', "
+               "6000, 590, 600, 0, 10.2, 140, '{}', 1, 'n', 'n')", [])
+    _streams.save(db, '88', json.dumps({'heartrate': {'data': [140] * 5}}))
     db.commit()
     run_import(db, strava_zip(['88,"Jul 4, 2026, 9:00:00 AM",Tour,Ride,600,1.0,590,600,1000,activities/1.gpx\n'], [('activities/1.gpx', GPX)]))
     assert reimport.resolve(db, '88', 'fill')
-    r = db.execute("SELECT distance, averageHeartrate, streams FROM Activity WHERE id='88'").fetchone()
+    r = db.execute(f"SELECT distance, averageHeartrate, {_streams.sql()} FROM Activity WHERE id='88'").fetchone()
     s = json.loads(r['streams'])
     assert r['distance'] == 6000 and r['averageHeartrate'] == 140                                # saved values kept
     assert 'latlng' in s and s['heartrate']['data'] == [140] * 5                                 # the track added, its own HR kept
 
     run_import(db, strava_zip(['88,"Jul 4, 2026, 9:00:00 AM",Tour,Ride,600,1.0,590,600,1000,activities/1.gpx\n'], [('activities/1.gpx', GPX)]))
-    before = dict(db.execute("SELECT * FROM Activity WHERE id='88'").fetchone())
+    before = dict(db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='88'").fetchone())
     assert reimport.resolve(db, '88', 'keep') is False
-    assert dict(db.execute("SELECT * FROM Activity WHERE id='88'").fetchone()) == before and reimport.pending(db) == []
+    assert dict(db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='88'").fetchone()) == before and reimport.pending(db) == []
     with pytest.raises(ValueError):
         reimport.resolve(db, '88', 'shred')
 
@@ -125,9 +128,10 @@ def test_import_page_lists_changes_and_applies_a_choice(tmp_path, monkeypatch):
         db = database.get_db()
         db.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
         db.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
-        db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, streams, rawData, riderId, createdAt, updatedAt) "
-                   "VALUES ('5', 'Tour', 'Ride', 'Ride', '2026-07-04T09:00:00', '2026-07-04T10:00:00', 45959500, 590, 600, '{}', '{}', 1, 'n', 'n')")
-        reimport.propose(db, db.execute("SELECT * FROM Activity").fetchone(), {'distance': 45959.5}, 'Strava export')
+        db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData, riderId, createdAt, updatedAt) "
+                   "VALUES ('5', 'Tour', 'Ride', 'Ride', '2026-07-04T09:00:00', '2026-07-04T10:00:00', 45959500, 590, 600, '{}', 1, 'n', 'n')")
+        _streams.save(db, '5', '{}')
+        reimport.propose(db, db.execute(f"SELECT *, {_streams.sql()} FROM Activity").fetchone(), {'distance': 45959.5}, 'Strava export')
         db.commit()
         av = credentials.auth_version()
     c = app.test_client()
@@ -147,8 +151,8 @@ def test_import_page_lists_changes_and_applies_a_choice(tmp_path, monkeypatch):
 
 
 def test_fill_in_gaps_is_offered_only_for_what_the_saved_ride_lacks(db):
-    db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, streams, rawData, riderId, createdAt, updatedAt) "
-               "VALUES ('6', 'Tour', 'Ride', 'Ride', '2026-07-04T09:00:00', '2026-07-04T10:00:00', 45959, 590, 600, '{}', '{}', 1, 'n', 'n')")
+    db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData, riderId, createdAt, updatedAt) "
+               "VALUES ('6', 'Tour', 'Ride', 'Ride', '2026-07-04T09:00:00', '2026-07-04T10:00:00', 45959, 590, 600, '{}', 1, 'n', 'n')")
     reimport.propose(db, db.execute("SELECT * FROM Activity").fetchone(),
                      {'distance': 45959, 'movingTime': 900, 'averageHeartrate': 140, 'maxHeartrate': 170, 'calories': 300}, 'Garmin')
     [c] = reimport.pending(db)
@@ -158,7 +162,7 @@ def test_fill_in_gaps_is_offered_only_for_what_the_saved_ride_lacks(db):
 
 
 def _saved_track(db, ride_id):
-    s = json.loads(db.execute('SELECT streams FROM Activity WHERE id=?', [ride_id]).fetchone()[0])
+    s = json.loads(_streams.load_json(db, ride_id))
     return s['time']['data'], s['distance']['data'], s['latlng']['data']
 
 

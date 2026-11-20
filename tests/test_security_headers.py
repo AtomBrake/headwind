@@ -53,15 +53,18 @@ def test_csp_limits_script_sources(client):
     assert not any(s in script_src for s in ('*', 'https:', "'unsafe-eval'", 'https://cdn.jsdelivr.net', 'https://unpkg.com'))
 
 
-def test_every_external_script_is_allowed():
-    """A library version bumped in a template but not in app.SCRIPT_SOURCES would be blocked by the browser."""
+def test_no_page_loads_from_another_site():
+    """The libraries are served from static/vendor (scripts/vendor.py): no script or stylesheet from a CDN, and every vendored file a
+    template names is there (a version bumped in scripts/vendor.py but not in the templates would 404)."""
     import pathlib
     import re
-    allowed = [s for s in app_module.SCRIPT_SOURCES if s.startswith('https://')]
     root = pathlib.Path(app_module.__file__).parent
-    found = 0
-    for f in list((root / 'templates').rglob('*.html')) + list((root / 'static').rglob('*.js')):
-        for src in re.findall(r'<script[^>]*\bsrc=["\'](https?://[^"\']+)', f.read_text(encoding='utf-8', errors='replace')):
-            found += 1
-            assert any(src.startswith(a) for a in allowed), f'{f.name}: {src} not in app.SCRIPT_SOURCES'
-    assert found
+    assert not any(s.startswith('http') for s in app_module.SCRIPT_SOURCES)
+    named = 0
+    for f in (root / 'templates').rglob('*.html'):
+        text = f.read_text(encoding='utf-8', errors='replace')
+        assert not re.findall(r'<(?:script|link)[^>]*\b(?:src|href)=["\']https?://', text), f.name
+        for path in re.findall(r"url_for\('static', filename='(vendor/[^']+)'\)", text):
+            named += 1
+            assert (root / 'static' / path).is_file(), f'{f.name}: static/{path} is missing'
+    assert named

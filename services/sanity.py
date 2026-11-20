@@ -11,6 +11,8 @@ or a paddle's distance can be anything. Every sport, a friend's synced ones too,
 whose clock was reset (an Avinox unit back at 1970, which the FIT conversion wrapped round to 2106). The rider can give it the real date
 (set_start).
 """
+from services import streams as _streams
+
 MI = 1609.344
 
 # upper / lower limits for a ride
@@ -233,7 +235,7 @@ def set_start(db, act_id, local):
         when = datetime.fromisoformat(str(local or '').strip()[:16])
     except ValueError:
         return 'Give the date and time it started.'
-    r = db.execute('SELECT id, startDate, startDateLocal, startLat, startLng, sportType, streams, rawData FROM Activity WHERE id=?', [act_id]).fetchone()
+    r = db.execute(f'SELECT id, startDate, startDateLocal, startLat, startLng, sportType, {_streams.sql()}, rawData FROM Activity WHERE id=?', [act_id]).fetchone()
     if not r:
         return 'No such activity.'
     lat, lng = origin(r)
@@ -285,7 +287,7 @@ def use_strava_climb(db, act_id):
     Returns False when there's no Strava figure. Does not commit."""
     import json
     from services.parser import altitude_broken
-    r = db.execute('SELECT id, totalElevationGain, streams, rawData FROM Activity WHERE id=?', [act_id]).fetchone()
+    r = db.execute(f'SELECT id, totalElevationGain, {_streams.sql()}, rawData FROM Activity WHERE id=?', [act_id]).fetchone()
     sc = strava_climb(r) if r else None
     if sc is None:
         return False
@@ -298,7 +300,7 @@ def use_strava_climb(db, act_id):
         streams = {}
     if altitude_broken(streams):
         streams.pop('altitude', None)
-        sets['streams'] = json.dumps(streams)
+        _streams.save(db, act_id, streams)
         raw['altitudeDropped'] = True
     sets['rawData'] = json.dumps(raw)
     db.execute(f"UPDATE Activity SET {', '.join(f'{k}=?' for k in sets)}, updatedAt=datetime('now') WHERE id=?", [*sets.values(), act_id])

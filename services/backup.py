@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import tempfile
 import zipfile
+from services import streams as _streams
 
 MAX_DB_BYTES = 2 * 1024 ** 3
 MAX_AVATAR_BYTES = 5 * 1024 ** 2
@@ -169,7 +170,8 @@ def validate(db_path):
 
 SMOKE_QUERIES = (
     'SELECT id, name FROM Rider LIMIT 1',
-    'SELECT id, riderId, startDateLocal, distance, streams FROM Activity LIMIT 1',
+    'SELECT id, riderId, startDateLocal, distance FROM Activity LIMIT 1',
+    'SELECT activityId, data FROM ActivityStream LIMIT 1',
     'SELECT * FROM Settings LIMIT 1',
 )
 

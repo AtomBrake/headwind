@@ -11,6 +11,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from services import tz
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 UTC = timezone.utc
@@ -528,7 +529,7 @@ def find_duplicates(db, row, exclude_ids=(), fragments=True):
     for c in cands:
         if c['id'] in skip or not same_ride(row, c, fragments):
             continue
-        full = db.execute('SELECT * FROM Activity WHERE id=?', [c['id']]).fetchone()
+        full = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [c['id']]).fetchone()
         if full and same_ride(row, full, fragments):
             found.append(full)
     return found
@@ -551,7 +552,7 @@ def rebuild_derived(db, act_id):
     from services.best_efforts import save_best_efforts
     from services.segments import scan_activity_against_segments, _refresh_prs
     from services.sports import is_ride
-    row = db.execute('SELECT * FROM Activity WHERE id=?', [act_id]).fetchone()
+    row = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [act_id]).fetchone()
     if not row:
         return
     if not is_ride(row['sportType']):
@@ -571,11 +572,11 @@ def rebuild_derived(db, act_id):
 def park(db, loser_id, primary_id, reason):
     """Move an activity out of Activity into ActivityDuplicate. Does not commit."""
     from services.segments import _refresh_prs
-    row = db.execute('SELECT * FROM Activity WHERE id=?', [loser_id]).fetchone()
+    row = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [loser_id]).fetchone()
     if not row:
         return False
     ensure_schema(db)
-    winner = db.execute('SELECT * FROM Activity WHERE id=?', [primary_id]).fetchone()
+    winner = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [primary_id]).fetchone()
     if winner:                                          # never lose something the user typed / chose on the ride that is being parked
         from services.sports import is_ride
         for col in ('notes', 'description') + (('bikeId',) if is_ride(winner['sportType']) else ('kitId',)):      # a ride has a bike, the rest kit
@@ -611,7 +612,7 @@ def resolve(db, new_id):
     and parks the other. Returns {'kept': id, 'parked': id, 'reason': text} or None. Does not commit."""
     ensure_schema(db)
     db.execute("DELETE FROM ActivityDuplicate WHERE id=? AND status='deleted'", [new_id])     # brought back on purpose
-    new = db.execute('SELECT * FROM Activity WHERE id=?', [new_id]).fetchone()
+    new = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [new_id]).fetchone()
     if not new:
         return None
     dups = find_duplicates(db, new)
@@ -632,7 +633,7 @@ def resolve(db, new_id):
         result = {'kept': winner['id'], 'parked': loser['id'], 'reason': reason}
         if loser['id'] == current['id']:
             break                                       # the new ride lost; nothing more to compare
-        current = db.execute('SELECT * FROM Activity WHERE id=?', [winner['id']]).fetchone() or current
+        current = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [winner['id']]).fetchone() or current
     if result and result['kept'] == new_id:
         rebuild_derived(db, new_id)                     # it displaced an older row that had its own derived data
     return result
@@ -706,7 +707,7 @@ def delete_activity(db, act_id, by_garmin=False):
     still points at it, so the pair stays apart if it is restored. Does not commit."""
     from services.segments import _refresh_prs
     from services import recently_deleted
-    row = db.execute('SELECT * FROM Activity WHERE id=?', [act_id]).fetchone()
+    row = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [act_id]).fetchone()
     if not row:
         return False
     stands = settle_parked(db, act_id, by_garmin)
@@ -728,8 +729,13 @@ def parked_for(db, primary_id):
 
 
 def _insert_row(db, row):
-    cols = list(row.keys())
+    """A whole activity kept as a dict (a parked copy's rowJson) back into Activity, its streams into ActivityStream. A column it has that Activity
+    no longer does is left out."""
+    row, streams = _streams.split(row)
+    have = {r[1] for r in db.execute('PRAGMA table_info(Activity)')}
+    cols = [c for c in row if c in have]
     db.execute(f"INSERT OR REPLACE INTO Activity ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", [row[c] for c in cols])
+    _streams.save(db, row['id'], streams)
 
 
 def _restore(db, dup_id):
@@ -779,7 +785,7 @@ def recheck_parked(db, primary_id, only=None):
     have kept it. Strava's elapsed time for a ride trimmed on Strava, say, takes away the hour a device ran on that held the next ride. A copy
     the rider set aside (CHOSEN) stays where it is. only: just these copies (the ones park has just moved behind it). Returns [(id, name)]
     brought back. Does not commit."""
-    kept = db.execute('SELECT * FROM Activity WHERE id=?', [primary_id]).fetchone()
+    kept = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [primary_id]).fetchone()
     if not kept or only is not None and not only:
         return []
     back = []
@@ -859,10 +865,10 @@ def repair_live_parked(db):
     decided, apart, orphans = [], [], 0
     for dup_id in ids:
         d = db.execute("SELECT primaryId, reason FROM ActivityDuplicate WHERE id=? AND status='parked'", [dup_id]).fetchone()
-        live = db.execute('SELECT * FROM Activity WHERE id=?', [dup_id]).fetchone()
+        live = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [dup_id]).fetchone()
         if not d or not live:                           # set aside again by an earlier pair: decided already
             continue
-        kept = db.execute('SELECT * FROM Activity WHERE id=?', [d['primaryId']]).fetchone() if d['primaryId'] != dup_id else None
+        kept = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [d['primaryId']]).fetchone() if d['primaryId'] != dup_id else None
         db.execute('DELETE FROM ActivityDuplicate WHERE id=?', [dup_id])       # live: decided again below, as if both had just come in
         if not kept:
             orphans += 1

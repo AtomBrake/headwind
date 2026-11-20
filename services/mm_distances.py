@@ -3,6 +3,7 @@ the second, and imports before the fork's `_csv_distance` (routes/import_rides.p
 activities whose file gave no distance (a manual entry, a file that couldn't be read), so they're the ones with no track to say otherwise.
 Upstream's own backfill (database.py, distanceBackfillDone) put right walks, runs and hikes over 500 km only; rides and the rest kept theirs."""
 import json
+from services import streams as _streams
 
 MAX_AVG_MPS = 40        # 144 km/h over the whole activity: no sport here gets near it, and every stored-in-mm one is far beyond it
 
@@ -15,7 +16,7 @@ def fix(db):
     if not s or s['mmDistancesDone']:
         return None
     fixed = []
-    for r in db.execute('SELECT id, name, distance, movingTime, averageSpeed, streams FROM Activity '
+    for r in db.execute(f'SELECT id, name, distance, movingTime, averageSpeed, {_streams.sql()} FROM Activity '
                         'WHERE distance > ? * COALESCE(NULLIF(elapsedTime, 0), NULLIF(movingTime, 0))', [MAX_AVG_MPS]).fetchall():
         try:
             dist = ((json.loads(r['streams'] or '{}') or {}).get('distance') or {}).get('data') or []

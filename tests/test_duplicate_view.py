@@ -7,6 +7,7 @@ import app as app_module
 import config
 import database
 from services import credentials, duplicates
+from services import streams as stream_store
 
 
 class _NoThread:
@@ -31,8 +32,9 @@ def client(tmp_path, monkeypatch):
         db.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
         db.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
         for aid, hr, gps in (('garmin_1', 140, False), ('imp_2', 103, True)):
-            db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime, averageHeartrate, streams) "
-                       "VALUES (?, ?, 'Ride', 'Ride', 1, '2024-05-30T10:00:00', 0, 3602, 3602, ?, ?)", [aid, aid, hr, _streams(hr, gps=gps)])
+            db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime, averageHeartrate) "
+                       "VALUES (?, ?, 'Ride', 'Ride', 1, '2024-05-30T10:00:00', 0, 3602, 3602, ?)", [aid, aid, hr])
+            stream_store.save(db, aid, _streams(hr, gps=gps))
         duplicates.park(db, 'imp_2', 'garmin_1', 'Kept the Garmin recording.')
         db.commit()
         av = credentials.auth_version()

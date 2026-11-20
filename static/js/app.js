@@ -189,3 +189,26 @@ function getKudos(rid) {
     document.querySelectorAll('table.sortable').forEach(setup);
   });
 })();
+
+// ── Following a background job (services/jobs.py) ──
+// followJob(id, onEvent, onEnd): calls onEvent(event) for each event the job says, in order, and onEnd(state, error) once it has finished
+// ('done' or 'failed'), or with ('lost', ...) when the page can't reach Headwind. The job runs on whether or not the page stays open.
+window.followJob = function (id, onEvent, onEnd) {
+  var since = 0, misses = 0;
+  function poll() {
+    fetch('/tasks/job/' + id + '?since=' + since, { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (d) {
+        misses = 0;
+        d.events.forEach(onEvent);
+        since = d.next;
+        if (d.state === 'done' || d.state === 'failed') onEnd(d.state, d.error);
+        else setTimeout(poll, 1000);
+      })
+      .catch(function () {
+        if (++misses >= 10) onEnd('lost', 'Connection lost');
+        else setTimeout(poll, 2000);
+      });
+  }
+  poll();
+};

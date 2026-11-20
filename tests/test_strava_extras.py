@@ -12,6 +12,7 @@ from PIL import Image
 import database
 from routes import import_rides
 from services import duplicates, photos, segments
+from services import streams as _streams
 
 # 60 points heading north, 10 s and ~33 m apart (12 km/h): fast enough for a ride segment to match
 GPX = ('<?xml version="1.0"?><gpx version="1.1" creator="t" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Tour</name><trkseg>'
@@ -98,10 +99,12 @@ def test_importing_again_ticks_a_saved_ride_but_never_one_the_rider_unticked(db)
 
 
 def test_a_commute_tick_follows_the_ride_that_is_kept(db):
-    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime, streams, commute) "
-               "VALUES ('a', 'a', 'Ride', 'Ride', 1, '2026-07-04T10:00:00', 1000, 600, 600, '{}', 1)")
-    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime, streams) "
-               "VALUES ('b', 'b', 'Ride', 'Ride', 1, '2026-07-04T10:00:00', 1000, 600, 600, '{}')")
+    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime, commute) "
+               "VALUES ('a', 'a', 'Ride', 'Ride', 1, '2026-07-04T10:00:00', 1000, 600, 600, 1)")
+    _streams.save(db, 'a', '{}')
+    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime) "
+               "VALUES ('b', 'b', 'Ride', 'Ride', 1, '2026-07-04T10:00:00', 1000, 600, 600)")
+    _streams.save(db, 'b', '{}')
     duplicates.park(db, 'a', 'b', 'test')
     assert db.execute("SELECT commute FROM Activity WHERE id='b'").fetchone()[0] == 1
 
@@ -153,8 +156,9 @@ def test_photos_move_to_the_kept_ride_and_go_when_it_leaves_the_bin(db):
     from flask import current_app
     from services import recently_deleted
     run_import(db, strava_zip([row(media='media/p1.jpg')], files=[('media/p1.jpg', jpeg())]))
-    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime, streams) "
-               "VALUES ('garmin_1', 'g', 'Ride', 'Ride', 1, '2026-07-04T10:00:00', 1770, 590, 590, '{}')")
+    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime) "
+               "VALUES ('garmin_1', 'g', 'Ride', 'Ride', 1, '2026-07-04T10:00:00', 1770, 590, 590)")
+    _streams.save(db, 'garmin_1', '{}')
     duplicates.park(db, '101', 'garmin_1', 'test')
     assert len(photos.for_activity(db, 'garmin_1')) == 1
     duplicates.delete_activity(db, 'garmin_1')
@@ -238,8 +242,9 @@ def client(tmp_path, monkeypatch):
         d.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
         for aid, sport in (('r1', 'Ride'), ('w1', 'Run')):
-            d.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime, streams) "
-                      "VALUES (?, ?, ?, ?, 1, '2026-07-04T10:00:00', 1000, 600, 600, '{}')", [aid, aid, sport, sport])
+            d.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime) "
+                      "VALUES (?, ?, ?, ?, 1, '2026-07-04T10:00:00', 1000, 600, 600)", [aid, aid, sport, sport])
+            _streams.save(d, aid, '{}')
         name = photos.save(d, 'r1', jpeg(), app.config['DATABASE'], caption='Café stop')
         pid = d.execute('SELECT id FROM ActivityPhoto').fetchone()[0]
         d.commit()
@@ -329,7 +334,8 @@ def test_a_backup_carries_activity_photos_and_restore_stages_only_real_ones(db, 
     import sqlite3
     from services import backup
     path = database.current_app.config['DATABASE']
-    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, streams) VALUES ('r1', 'r1', 'Ride', 'Ride', 1, '2026-07-04T10:00:00', '{}')")
+    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal) VALUES ('r1', 'r1', 'Ride', 'Ride', 1, '2026-07-04T10:00:00')")
+    _streams.save(db, 'r1', '{}')
     name = photos.save(db, 'r1', jpeg(), path)
     db.commit()
     snap = str(tmp_path / 'snap.db')

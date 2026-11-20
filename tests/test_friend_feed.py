@@ -6,6 +6,7 @@ from flask import Flask
 
 import database
 from services import feed_tokens
+from services import streams as _streams
 
 TOKEN = 'feed-token-abc'
 
@@ -27,7 +28,8 @@ def client(tmp_path):
         d.execute("INSERT INTO Friend (name, url, token, riderId) VALUES ('Alice', 'https://alice.example', 't', 3)")
         d.execute('INSERT INTO FeedTokenRider (tokenId, riderId) SELECT 1, id FROM Rider')     # even ticked, Alice isn't ours to share
         for aid, rid in (('own1', 1), ('sam1', 2), ('f1_alice1', 3)):
-            d.execute("INSERT INTO Activity (id, name, riderId, startDateLocal, streams) VALUES (?, 'ride', ?, '2026-10-01T08:00:00', '{}')", [aid, rid])
+            d.execute("INSERT INTO Activity (id, name, riderId, startDateLocal) VALUES (?, 'ride', ?, '2026-10-01T08:00:00')", [aid, rid])
+            _streams.save(d, aid, '{}')
         d.commit()
     return app.test_client()
 

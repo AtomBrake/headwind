@@ -206,6 +206,7 @@ def test_bad_or_failed_weigh_ins_are_ignored(wenv):
 # ── First-run health history backfill ────────────────────────────────────
 
 from datetime import date, timedelta   # noqa: E402
+from services import streams as _streams
 
 TODAY = date(2026, 10, 17)
 
@@ -605,7 +606,7 @@ def test_a_manual_activity_comes_in_from_the_list_without_a_download(fenv):
     api = CountingAPI([a])
     run(api)
     assert api.downloads == []
-    row = db.execute("SELECT distance, movingTime, elapsedTime, streams, source FROM Activity WHERE id='garmin_4'").fetchone()
+    row = db.execute(f"SELECT distance, movingTime, elapsedTime, {_streams.sql()}, source FROM Activity WHERE id='garmin_4'").fetchone()
     assert (row['distance'], row['movingTime'], row['elapsedTime'], row['streams']) == (10000, 3500, 3600, None)
     assert row['source'] == 'manual'                     # typed in: never taken for a recording by the duplicate check
 

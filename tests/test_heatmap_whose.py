@@ -9,6 +9,7 @@ import app as app_module
 import config
 import database
 from services import credentials
+from services import streams as stream_store
 
 
 class _NoThread:
@@ -33,8 +34,9 @@ def client(tmp_path, monkeypatch):
                    "(2, 'Quiet', 'http://example.invalid', 3)")
         for aid, rider, sport, lat0 in (('mine1', 1, 'Ride', 51.5), ('mine2', 1, 'Ride', 51.6), ('run', 1, 'Run', 51.7),
                                         ('f2_a', 2, 'Ride', 52.5), ('f2_b', 2, 'EBikeRide', 52.6)):
-            db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, rawData, streams) "
-                       "VALUES (?, ?, ?, ?, '2026-10-01T08:00:00', 20000, 3600, '{}', ?)", [aid, aid, sport, rider, _streams(lat0)])
+            db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, rawData) "
+                       "VALUES (?, ?, ?, ?, '2026-10-01T08:00:00', 20000, 3600, '{}')", [aid, aid, sport, rider])
+            stream_store.save(db, aid, _streams(lat0))
         db.commit()
         av = credentials.auth_version()
     c = app.test_client()

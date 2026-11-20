@@ -13,12 +13,9 @@ from services import logs
 logs.setup()                    # stderr only until create_app knows where the database (and so the log folder) is
 log = logging.getLogger(__name__)
 
-# Scripts only from this server and the exact library versions the templates load (a bump there needs one here too;
-# tests/test_security_headers.py checks). 'unsafe-inline' because the pages are full of inline scripts and on…= handlers.
-SCRIPT_SOURCES = ("'self'", "'unsafe-inline'",
-                  'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/',
-                  'https://unpkg.com/leaflet@1.9.4/',
-                  'https://unpkg.com/html5-qrcode@2.3.8/')
+# Scripts only from this server: the libraries are in static/vendor (scripts/vendor.py). 'unsafe-inline' because the pages are full
+# of inline scripts and on…= handlers.
+SCRIPT_SOURCES = ("'self'", "'unsafe-inline'")
 CSP = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; script-src " + ' '.join(SCRIPT_SOURCES)
 
 
@@ -215,8 +212,9 @@ def _garmin_heartbeat(app):
 
                     # Backfill HR for owner's recent rides that landed without it (a plain GPX import has none). Only after a new upload
                     # (or in the daily sweep): with nothing uploaded, Garmin has no more heart rate than last time.
-                    missing = query_db('''
-                        SELECT a.id, a.startDate, a.elapsedTime, a.streams
+                    from services import streams as _streams
+                    missing = query_db(f'''
+                        SELECT a.id, a.startDate, a.elapsedTime, {_streams.sql('a')}
                         FROM Ride a
                         JOIN Rider r ON r.id = a.riderId
                         WHERE r.isDefault = 1
@@ -242,10 +240,9 @@ def _garmin_heartbeat(app):
                                             'original_size': len(hr['stream_data']),
                                             'resolution': 'medium' if time_stream else 'low',
                                         }
-                                        db.execute(
-                                            'UPDATE Activity SET averageHeartrate=?, maxHeartrate=?, streams=? WHERE id=?',
-                                            [hr['avg'], hr['max'], json.dumps(streams), act['id']],
-                                        )
+                                        db.execute('UPDATE Activity SET averageHeartrate=?, maxHeartrate=? WHERE id=?',
+                                                   [hr['avg'], hr['max'], act['id']])
+                                        _streams.save(db, act['id'], streams)
                                         db.commit()
                                         log.info('Garmin HR backfill: enriched %s — avg=%s max=%s', act['id'], hr['avg'], hr['max'])
                                 except Exception as hre:
@@ -459,8 +456,6 @@ def create_app():
 
     # The phone app authenticates with a per-device Bearer token (services/device_auth.py) instead of a login session — accepted
     # only on the app's own API paths, never on the web pages.
-    # GET routes that start bulk/persistent work — treated like POSTs for the cross-site check
-    _MUTATING_GETS = {'ai_page.bulk_analyse', 'garmin.sync_activities'}
 
     _BEARER_PATHS = ('/api/v1/', '/nutrition/api/')
 
@@ -523,6 +518,20 @@ def create_app():
             h.setdefault('Strict-Transport-Security', 'max-age=31536000')
         return resp
 
+    from services import web_assets
+
+    @app.url_defaults
+    def static_version(endpoint, values):
+        """?v=<hash> on every url_for('static', ...), so the file can be cached for a year (services/web_assets.py)."""
+        if endpoint == 'static' and 'v' not in values and values.get('filename'):
+            v = web_assets.static_version(app.static_folder, values['filename'])
+            if v:
+                values['v'] = v
+
+    @app.after_request
+    def cache_and_compress(resp):
+        return web_assets.compress(web_assets.cache_static(resp), app.static_folder)
+
     riders_found = []      # once a rider exists there always is one (the owner can't be deleted): check_login stops asking
 
     @app.before_request
@@ -547,7 +556,7 @@ def create_app():
             return redirect(url_for('login.login_page'))
         # CSRF: a logged-in session must not be driven by another site. Browsers send Sec-Fetch-Site / Origin;
         # non-browser clients (curl, phone app with Bearer) send neither and are unaffected.
-        if request.method not in ('GET', 'HEAD', 'OPTIONS') or request.endpoint in _MUTATING_GETS:
+        if request.method not in ('GET', 'HEAD', 'OPTIONS'):
             if request.headers.get('Sec-Fetch-Site') == 'cross-site':
                 return jsonify(error='cross-site request blocked'), 403
             origin = request.headers.get('Origin')
@@ -668,25 +677,37 @@ def create_app():
     from routes.matched import bp as matched_bp
     app.register_blueprint(matched_bp)
 
-    threading.Thread(target=_track_summaries, args=(app,), daemon=True).start()
-    if DEMO:                                   # no background threads that talk to the network; just the nightly reset
+    if DEMO:
         from routes.demo import bp as demo_bp
         app.register_blueprint(demo_bp)
-        threading.Thread(target=_demo.reset_loop, args=(app,), daemon=True).start()
-    else:
-        threading.Thread(target=_mqtt_heartbeat,   args=(app,), daemon=True).start()
-        threading.Thread(target=_garmin_heartbeat, args=(app,), daemon=True).start()
-        threading.Thread(target=_garmin_history,   args=(app,), daemon=True).start()
-        threading.Thread(target=__import__('services.mqtt_commands', fromlist=['run']).run, args=(app,), daemon=True).start()
-        threading.Thread(target=_friends_autosync, args=(app,), daemon=True).start()
+    from services import jobs
+    jobs.bind(app)                             # a page wakes the worker's loops through the database (jobs.Wake)
 
     return app
+
+
+def start_loops(app):
+    """The timed background work, each in a thread: the track summaries once, then the Garmin and Home Assistant heartbeats, the Garmin history,
+    MQTT commands and the friends' automatic sync; in demo mode only its nightly reset. The worker starts them (services/worker.py), never the
+    web server, so each runs once however many processes serve pages."""
+    from services import demo as _demo
+    threading.Thread(target=_track_summaries, args=(app,), daemon=True).start()
+    if _demo.enabled():                        # no background threads that talk to the network; just the nightly reset
+        threading.Thread(target=_demo.reset_loop, args=(app,), daemon=True).start()
+        return
+    threading.Thread(target=_mqtt_heartbeat,   args=(app,), daemon=True).start()
+    threading.Thread(target=_garmin_heartbeat, args=(app,), daemon=True).start()
+    threading.Thread(target=_garmin_history,   args=(app,), daemon=True).start()
+    threading.Thread(target=__import__('services.mqtt_commands', fromlist=['run']).run, args=(app,), daemon=True).start()
+    threading.Thread(target=_friends_autosync, args=(app,), daemon=True).start()
 
 
 if __name__ == '__main__':
     # use_reloader=False → single process, no duplicate background threads
     debug = os.environ.get('HEADWIND_DEBUG') == '1'
     app = create_app()
+    from services import worker
+    worker.start_in_process(app)               # one process here: the background work runs in a thread of it
     if debug:   # the Werkzeug debugger runs code for anyone who reaches it, so it only listens on this machine
         log.warning('HEADWIND_DEBUG=1: debugger on, listening on 127.0.0.1 only. Never turn this on for a server others can reach.')
     app.run(debug=debug, use_reloader=False, load_dotenv=False,  # config.py loads the right env file; Flask would also pull in ./.env, leaking one instance's settings into another

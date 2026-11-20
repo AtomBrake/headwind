@@ -12,6 +12,8 @@ from PIL import Image
 import database
 from routes import import_rides
 from services import duplicates, gear, garmin, kit, photos, recently_deleted, workouts
+from services import streams as _streams
+from services import streams as stream_store
 
 
 def line(secs, speed_mps, lat0=51.5, lng0=-0.12):
@@ -43,7 +45,9 @@ def db(tmp_path):
 def add(db, aid, sport='Ride', speed=6.0, secs=1200, day='2026-10-07', **cols):
     cols = dict(dict(id=aid, name=f'{aid} name'), type=sport, sportType=sport, startDate=f'{day}T09:00:00Z', startDateLocal=f'{day}T10:00:00',
                 distance=secs * speed, movingTime=secs, elapsedTime=secs, rawData='{}', riderId=1, streams=line(secs, speed)) | cols
+    st = cols.pop('streams', None)
     db.execute(f"INSERT INTO Activity ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", list(cols.values()))
+    stream_store.save(db, aid, st)
     duplicates.rebuild_derived(db, aid)                         # segment efforts, best efforts, as an import makes them
     db.commit()
 
@@ -56,7 +60,7 @@ def add_seg(db, family):
 
 
 def row(db, aid):
-    r = db.execute('SELECT * FROM Activity WHERE id=?', [aid]).fetchone()
+    r = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [aid]).fetchone()
     return dict(r) if r else None
 
 

@@ -5,6 +5,7 @@ from flask import Flask
 import database
 from services import sanity
 from services.parser import _gain_smoothed, parse_gpx
+from services import streams as _streams
 
 
 @pytest.fixture
@@ -179,7 +180,7 @@ def test_the_real_start_can_be_given(db):
 def test_a_reimport_does_not_offer_the_wrong_date_back(db):
     from services import reimport
     dated(db, 'r', '2025-04-21T14:30:00')
-    saved = db.execute("SELECT * FROM Activity WHERE id='r'").fetchone()
+    saved = db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='r'").fetchone()
     assert reimport.differences(saved, {'startDateLocal': '2106-02-08T23:46:37'}) == []
     assert [d['label'] for d in reimport.differences(saved, {'startDateLocal': '2025-04-21T16:30:00'})] == ['Start']
 

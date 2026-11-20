@@ -137,6 +137,15 @@ def overview(db):
     garmin_on = garmin.connected(s)
     jobs = []
 
+    # The worker (services/worker.py), which runs everything below: a stopped one leaves queued jobs waiting and timed ones not running
+    from services import jobs as _jobs
+    if not _jobs.worker_alive(db):
+        waiting = db.execute("SELECT COUNT(*) FROM Job WHERE state='queued'").fetchone()[0]
+        jobs.append(_card('Background worker', 'failed',
+                          "Not running, so syncs, checks and other background work wait"
+                          + (f" ({waiting} job{'s' if waiting != 1 else ''} queued)" if waiting else '')
+                          + '. It starts with Headwind: restart Headwind, and look in the log for why it stopped.'))
+
     # Garmin sync (health data every interval; rides too in 'full' mode)
     g = last(db, 'garmin_sync')
     if not garmin_on:

@@ -14,6 +14,7 @@ bp = Blueprint('segments', __name__)
 
 
 import math as _math
+from services import streams as _streams
 
 _TIER_ORDER  = ['Easy', 'Moderate', 'Hard', 'Very Hard', 'Brutal']
 _TIER_COLOUR = {
@@ -227,7 +228,7 @@ def detail(sid):
     # Auto-compute elevation gain for segments created before this field existed
     if seg['elevationGainM'] is None and seg['sourceActivityId']:
         try:
-            src = db.execute('SELECT streams FROM Activity WHERE id=?', [seg['sourceActivityId']]).fetchone()
+            src = db.execute(f'SELECT {_streams.sql()} FROM Activity WHERE id=?', [seg['sourceActivityId']]).fetchone()
             if src and src['streams']:
                 s = json.loads(src['streams'])
                 latlng = (s.get('latlng') or {}).get('data') or []

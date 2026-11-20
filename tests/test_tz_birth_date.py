@@ -63,7 +63,7 @@ def test_an_install_from_before_the_setting_keeps_london(tmp_path):
         d = database.get_db()
         for col in ('timeZone', 'birthDate', 'birthDateGuessed'):
             d.execute(f'ALTER TABLE Settings DROP COLUMN {col}')
-        d.execute('UPDATE Settings SET birthYear=1985 WHERE id=1'); d.commit()
+        d.execute('UPDATE Settings SET birthYear=1985 WHERE id=1'); d.execute('PRAGMA user_version = 0'); d.commit()   # from before the steps
         database.migrate_db()
         row = d.execute('SELECT timeZone, birthDate, birthDateGuessed FROM Settings WHERE id=1').fetchone()
         assert tuple(row) == ('Europe/London', '1985-01-01', 1)

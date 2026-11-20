@@ -48,8 +48,9 @@ def sync():
     # (the API can be briefly down at insert time).
     try:
         from services.garmin import fetch_ride_hr, _client
-        missing = query_db('''
-            SELECT a.id, a.startDate, a.elapsedTime, a.streams
+        from services import streams as _streams
+        missing = query_db(f'''
+            SELECT a.id, a.startDate, a.elapsedTime, {_streams.sql('a')}
             FROM Ride a
             JOIN Rider r ON r.id = a.riderId
             WHERE r.isDefault = 1
@@ -74,10 +75,8 @@ def sync():
                             'original_size': len(hr['stream_data']),
                             'resolution': 'medium' if time_stream else 'low',
                         }
-                        db.execute(
-                            'UPDATE Activity SET averageHeartrate=?, maxHeartrate=?, streams=? WHERE id=?',
-                            [hr['avg'], hr['max'], json.dumps(streams), act['id']],
-                        )
+                        db.execute('UPDATE Activity SET averageHeartrate=?, maxHeartrate=? WHERE id=?', [hr['avg'], hr['max'], act['id']])
+                        _streams.save(db, act['id'], streams)
                         db.commit()
                         log.info('Garmin HR backfill on sync: enriched %s — avg=%s max=%s', act['id'], hr['avg'], hr['max'])
                 except Exception as hre:

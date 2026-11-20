@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from services import activity_detail as ad, parser
+from services import streams as stream_store
 
 
 def streams(speed_mps, secs, alt=None, every=1):
@@ -116,7 +117,7 @@ def test_reimport_fills_in_laps_without_asking(tmp_path):
         database.migrate_db()
         db = database.get_db()
         db.execute("INSERT INTO Activity (id, name, sportType, startDateLocal, distance, movingTime, elapsedTime) VALUES ('s', 'Swim', 'Swim', '2020-10-29T19:01:09', 1675, 2550, 2550)")
-        saved = db.execute("SELECT * FROM Activity WHERE id='s'").fetchone()
+        saved = db.execute(f"SELECT *, {stream_store.sql()} FROM Activity WHERE id='s'").fetchone()
         start, laps, lengths = _fit_msgs()
         act = {'distance': 1675, 'movingTime': 2550, 'elapsedTime': 2550, 'startDateLocal': '2020-10-29T19:01:09',
                'laps': parser.fit_laps(laps, lengths, {'pool_length': 25.0}, start)}
@@ -143,13 +144,15 @@ def client(tmp_path, monkeypatch):
         db.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
         db.execute("UPDATE Settings SET units='metric' WHERE id=1")
         db.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
-        ins = ("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, averageCadence, "
-               "streams, laps) VALUES (?,?,?,1,?,?,?,?,?,?,?,?)")
-        db.execute(ins, ['run', 'Parkrun', 'Run', '2026-10-01T09:00:00', 5000, 1500, 1500, 30, 85, json.dumps(streams(5000 / 1500, 1500)), None])
-        db.execute(ins, ['pool', 'Pool', 'Swim', '2026-10-02T09:00:00', 100, 140, 140, 0, 22, None, parser.fit_laps(laps, lengths, {'pool_length': 25.0}, start)])
-        db.execute(ins, ['sup', 'Paddle', 'Stand Up Paddling', '2026-10-03T09:00:00', 8000, 3600, 3600, 120, None, json.dumps(streams(2.2, 3600)), None])
-        db.execute(ins, ['yoga', 'Yoga', 'Yoga', '2026-10-04T09:00:00', 0, 3600, 3600, 0, None, None, None])
-        db.execute(ins, ['ride', 'Ride', 'Ride', '2026-10-05T09:00:00', 30000, 3600, 3600, 300, 80, json.dumps(streams(30000 / 3600, 3600)), None])
+        def ins(aid, *row, st=None):
+            db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, "
+                       "averageCadence, laps) VALUES (?,?,?,1,?,?,?,?,?,?,?)", [aid, *row])
+            stream_store.save(db, aid, st)
+        ins('run', 'Parkrun', 'Run', '2026-10-01T09:00:00', 5000, 1500, 1500, 30, 85, None, st=streams(5000 / 1500, 1500))
+        ins('pool', 'Pool', 'Swim', '2026-10-02T09:00:00', 100, 140, 140, 0, 22, parser.fit_laps(laps, lengths, {'pool_length': 25.0}, start))
+        ins('sup', 'Paddle', 'Stand Up Paddling', '2026-10-03T09:00:00', 8000, 3600, 3600, 120, None, None, st=streams(2.2, 3600))
+        ins('yoga', 'Yoga', 'Yoga', '2026-10-04T09:00:00', 0, 3600, 3600, 0, None, None)
+        ins('ride', 'Ride', 'Ride', '2026-10-05T09:00:00', 30000, 3600, 3600, 300, 80, None, st=streams(30000 / 3600, 3600))
         db.commit()
         av = credentials.auth_version()
     c = app.test_client()

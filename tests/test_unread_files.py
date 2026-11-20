@@ -15,6 +15,7 @@ import config
 import database
 from routes import import_rides
 from services import credentials, parser, reimport
+from services import streams as stream_store
 
 FIT_EPOCH = 631065600              # 1989-12-31T00:00:00Z
 START = datetime(2026, 7, 3, 9, 0, tzinfo=timezone.utc)
@@ -197,7 +198,7 @@ def run(z):
 
 
 def _streams(act_id):
-    row = database.get_db().execute('SELECT streams FROM Activity WHERE id=?', [act_id]).fetchone()
+    row = database.get_db().execute(f'SELECT {stream_store.sql()} FROM Activity WHERE id=?', [act_id]).fetchone()
     return json.loads(row['streams'] or '{}') if row else None
 
 
@@ -360,8 +361,9 @@ def test_use_stravas_climb_on_a_flagged_ride(app, client):
     with app.app_context():
         db = database.get_db()
         streams = json.dumps({'time': {'data': list(range(0, 600, 10))}, 'altitude': {'data': [_broken(i) for i in range(60)]}})
-        db.execute("""INSERT INTO Activity (id, riderId, name, sportType, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, streams, rawData)
-                      VALUES ('w', 1, 'Wahoo', 'Ride', '2021-07-16T09:00:00', 57000, 9000, 9000, 41539, ?, ?)""", [streams, json.dumps({'stravaClimb': 2714})])
+        db.execute("""INSERT INTO Activity (id, riderId, name, sportType, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, rawData)
+                      VALUES ('w', 1, 'Wahoo', 'Ride', '2021-07-16T09:00:00', 57000, 9000, 9000, 41539, ?)""", [json.dumps({'stravaClimb': 2714})])
+        stream_store.save(db, 'w', streams)
         from services import sanity
         sanity.flag(db, 'w')
         db.commit()
@@ -369,6 +371,6 @@ def test_use_stravas_climb_on_a_flagged_ride(app, client):
     assert "Use Strava's climb (8,904 ft)" in client.get('/dashboard').get_data(as_text=True)
     assert client.post('/rides/w/climb/strava').get_json() == {'ok': True, 'flagged': False}
     with app.app_context():
-        r = database.get_db().execute("SELECT totalElevationGain, streams, rawData FROM Activity WHERE id='w'").fetchone()
+        r = database.get_db().execute(f"SELECT totalElevationGain, {stream_store.sql()}, rawData FROM Activity WHERE id='w'").fetchone()
         assert r['totalElevationGain'] == 2714 and 'altitude' not in json.loads(r['streams']) and json.loads(r['rawData'])['fileClimb'] == 41539
     assert client.post('/rides/nope/climb/strava').status_code == 404

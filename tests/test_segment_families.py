@@ -11,6 +11,7 @@ import config
 import database
 from services import convert, credentials, gear, segments, sport_fix, workouts
 from services.sports import ebike_sql, segment_class, segment_family
+from services import streams as _streams
 
 
 def line(secs, speed_mps, lat0=51.5, lng0=-0.12):
@@ -35,8 +36,9 @@ def db(tmp_path):
 
 def add(db, aid, sport, speed, secs=1200, day='2026-10-07', bike=None):
     """An activity on the shared track; rides go through the ride ingest, everything else through workouts.refresh_derived, as in the app."""
-    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,rawData,riderId,streams,bikeId) "
-               "VALUES (?,?,?,?,?,?,?,?,?,'{}',1,?,?)", [aid, aid, sport, sport, f'{day}T10:00:00', f'{day}T10:00:00', secs * speed, secs, secs, line(secs, speed), bike])
+    db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,rawData,riderId,bikeId) "
+               "VALUES (?,?,?,?,?,?,?,?,?,'{}',1,?)", [aid, aid, sport, sport, f'{day}T10:00:00', f'{day}T10:00:00', secs * speed, secs, secs, bike])
+    _streams.save(db, aid, line(secs, speed))
     if sport in ('Walk', 'Run', 'Hike', 'Swim'):
         workouts.refresh_derived(db, aid)
     else:
@@ -236,8 +238,9 @@ def client(tmp_path, monkeypatch):
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
         for aid, name, sport, speed in (('walk', 'Morning walk', 'Walk', 1.4), ('pedal', 'Pedal Tuesday', 'Ride', 6.0),
                                         ('turbo', 'Turbo Thursday', 'EBikeRide', 9.0), ('zwift', 'Zwift', 'VirtualRide', 9.0)):
-            d.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,rawData,riderId,streams) "
-                      "VALUES (?,?,?,?,'2026-10-07T10:00:00','2026-10-07T10:00:00',?,1200,1200,'{}',1,?)", [aid, name, sport, sport, 1200 * speed, line(1200, speed)])
+            d.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,rawData,riderId) "
+                      "VALUES (?,?,?,?,'2026-10-07T10:00:00','2026-10-07T10:00:00',?,1200,1200,'{}',1)", [aid, name, sport, sport, 1200 * speed])
+            _streams.save(d, aid, line(1200, speed))
         d.commit()
         av = credentials.auth_version()
     c = app.test_client()

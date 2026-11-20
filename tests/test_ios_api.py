@@ -7,6 +7,7 @@ import pytest
 
 import database
 from services import sports, tz
+from services import streams as _streams
 
 
 class _NoThread:
@@ -456,8 +457,9 @@ def test_a_zwift_ride_comes_with_its_world_and_the_map_takes_the_token(phone, mo
     with phone.app_.app_context():
         d = database.get_db()
         for aid, sport in (('zw', 'VirtualRide'), ('real', 'Ride')):      # the same spot: only the virtual one is in Watopia
-            d.execute("INSERT INTO Activity (id, riderId, sportType, name, startDateLocal, distance, movingTime, rawData, streams) "
-                      "VALUES (?, 1, ?, ?, '2026-10-01T08:00:00', 20000, 3600, '{}', ?)", [aid, sport, aid, track])
+            d.execute("INSERT INTO Activity (id, riderId, sportType, name, startDateLocal, distance, movingTime, rawData) "
+                      "VALUES (?, 1, ?, ?, '2026-10-01T08:00:00', 20000, 3600, '{}')", [aid, sport, aid])
+            _streams.save(d, aid, track)
         d.commit()
     w = phone.get('/api/v1/rides/ride/zw', headers=phone.H).get_json()['zwift_world']
     assert w['slug'] == 'watopia' and w['url'] == '/api/v1/zwift/watopia.png' and w['credit']

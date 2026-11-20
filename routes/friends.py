@@ -15,6 +15,7 @@ from services.segments import scan_activity_against_segments, scan_all_activitie
 from services.limits import LimitExceeded, bounded_lines
 from services.peer_http import open_peer
 from services import feed_tokens, logs, qr, sanity, sports, vault
+from services import streams as _streams
 
 bp = Blueprint('friends', __name__)
 
@@ -148,7 +149,7 @@ def feed():
                 SELECT id, name, type, sportType, startDate, startDateLocal, distance, movingTime,
                        elapsedTime, totalElevationGain, averageSpeed, maxSpeed,
                        averageHeartrate, maxHeartrate, averageWatts, weightedAvgWatts,
-                       averageCadence, calories, startLat, startLng, streams,
+                       averageCadence, calories, startLat, startLng, {_streams.sql()},
                        weatherTempC, weatherWindKph, weatherGustKph, weatherWindDir,
                        weatherHumidity, weatherRainMm, weatherCode, weatherSummary, weatherWindRel, steps,
                        COALESCE(updatedAt, createdAt, '') AS updatedAt
@@ -585,14 +586,19 @@ def _store_ride(db, friend_id, rider_id, obj):
     vals = [obj.get(c) or 0 if c in _ZERO_IF_MISSING else obj.get(c) for c in _SHARED_COLS]
     sport = sports.canonical(obj.get('sportType'))                 # a friend on an older Headwind still sends Strava's "Virtual Ride"
     vals[_SHARED_COLS.index('sportType')] = vals[_SHARED_COLS.index('type')] = sport     # the NDJSON routing key took 'type'
-    was = db.execute(f"SELECT {', '.join(_SHARED_COLS)} FROM Activity WHERE id=?", [remote_id]).fetchone()
+    if vals[_SHARED_COLS.index('streams')] in _streams.EMPTY:
+        vals[_SHARED_COLS.index('streams')] = None                   # stored as none, so read back as None
+    was =db.execute(f"SELECT {', '.join(_streams.sql() if c == 'streams' else c for c in _SHARED_COLS)} FROM Activity WHERE id=?",
+                     [remote_id]).fetchone()
     kind = 'new' if was is None else 'changed' if list(was) != vals else None
+    cols = [c for c in _SHARED_COLS if c != 'streams']          # those go in ActivityStream
     db.execute(f'''
-        INSERT INTO Activity (id, {', '.join(_SHARED_COLS)}, rawData, riderId, srcUpdatedAt, createdAt, updatedAt)
-        VALUES (?, {', '.join('?' * len(_SHARED_COLS))}, '{{}}', ?, '', datetime('now'), datetime('now'))
-        ON CONFLICT(id) DO UPDATE SET {', '.join(f'{c}=excluded.{c}' for c in _SHARED_COLS)},
+        INSERT INTO Activity (id, {', '.join(cols)}, rawData, riderId, srcUpdatedAt, createdAt, updatedAt)
+        VALUES (?, {', '.join('?' * len(cols))}, '{{}}', ?, '', datetime('now'), datetime('now'))
+        ON CONFLICT(id) DO UPDATE SET {', '.join(f'{c}=excluded.{c}' for c in cols)},
             riderId=excluded.riderId, srcUpdatedAt='', updatedAt=datetime('now')
-    ''', [remote_id, *vals, rider_id])
+    ''', [remote_id, *(v for c, v in zip(_SHARED_COLS, vals) if c != 'streams'), rider_id])
+    _streams.save(db, remote_id, obj.get('streams'))
     return remote_id, kind
 
 
@@ -697,8 +703,8 @@ def _do_ride_sync(friend_id):
             affected.update(r[0] for r in db.execute(f'SELECT DISTINCT segmentId FROM SegmentEffort WHERE activityId IN ({marks})', ids))
             db.execute(f'DELETE FROM SegmentEffort WHERE activityId IN ({marks}) AND segmentId NOT IN ({",".join("?" * len(pending))})',
                        [*ids, *pending])
-            acts = db.execute(f"SELECT id, startDateLocal, streams, sportType FROM Activity WHERE id IN ({marks}) "
-                              "AND streams IS NOT NULL AND streams NOT IN ('null', '{}')", ids).fetchall() if others else []
+            acts = db.execute(f"SELECT id, startDateLocal, {_streams.sql()}, sportType FROM Activity WHERE id IN ({marks}) "
+                              f"AND {_streams.has_sql()}", ids).fetchall() if others else []
             for act in acts:
                 scan_activity_against_segments(db, act, others, pool=sibs)
                 db.commit()   # one ride at a time, so other writes (a token, a Garmin sync) wait milliseconds, not a minute

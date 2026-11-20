@@ -6,6 +6,7 @@ from flask import Flask
 
 import database
 from services import duplicates as dup
+from services import streams as _streams
 
 GPS = json.dumps({'latlng': {'data': [[54.0 + i * 1e-4, -1.5] for i in range(3000)]}})
 
@@ -92,8 +93,9 @@ def _add(db, rid, local, dist=33000, hr=None, notes=None, streams=None, name=Non
     """A UK local start (or an aware one) saved as every import saves it: the UTC instant in startDate."""
     utc = dup.instant(local).strftime('%Y-%m-%dT%H:%M:%S')
     db.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,totalElevationGain,averageSpeed,maxSpeed,"
-               "averageHeartrate,notes,streams,riderId,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,'n','n')",
-               [rid, name or rid, 'Ride', 'Ride', utc, local, dist, 6500, 6600, 0, 5, 9, hr, notes, streams])
+               "averageHeartrate,notes,riderId,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,'n','n')",
+               [rid, name or rid, 'Ride', 'Ride', utc, local, dist, 6500, 6600, 0, 5, 9, hr, notes])
+    _streams.save(db, rid, streams)
     db.commit()
 
 
@@ -108,7 +110,7 @@ def test_resolve_parks_the_loser_and_keeps_notes(db):
     assert res['kept'] == 'garmin_1' and res['parked'] == 'imp_phone'
     assert _live(db) == ['garmin_1']
     assert db.execute("SELECT notes FROM Activity WHERE id='garmin_1'").fetchone()[0] == 'felt great'      # nothing the user typed is lost
-    assert dup.exists_anywhere(db, 'imp_phone') and not dup.find_duplicates(db, db.execute("SELECT * FROM Activity WHERE id='garmin_1'").fetchone())
+    assert dup.exists_anywhere(db, 'imp_phone') and not dup.find_duplicates(db, db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='garmin_1'").fetchone())
 
 
 @pytest.mark.parametrize('name', ['Morning Ride', 'Lunch Weight Training', 'evening  walk', 'London Cycling', 'Royal Tunbridge Wells Road Cycling',

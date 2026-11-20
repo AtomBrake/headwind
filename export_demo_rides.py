@@ -144,12 +144,13 @@ def main():
 
     with app.app_context():
         from database import query_db
-        rides = query_db('''
+        from services import streams
+        rides = query_db(f'''
             SELECT id, name, startDateLocal, startDate, distance,
-                   totalElevationGain, movingTime, streams
+                   totalElevationGain, movingTime, {streams.sql('Ride')}
             FROM Ride
             WHERE riderId = (SELECT id FROM Rider WHERE isDefault=1)
-              AND streams IS NOT NULL
+              AND {streams.has_sql('Ride')}
               AND distance > 5000
             ORDER BY startDateLocal ASC
         ''')

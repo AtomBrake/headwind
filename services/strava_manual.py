@@ -5,6 +5,7 @@ older import, Headwind's or upstream's, saved no such mark and upgrading has no 
 track, and one duration (moving time = elapsed time; a recording with no track that Headwind couldn't read still has Strava's stops). Not a
 virtual ride or one with no distance (a gym session), which have no stops to tell them by."""
 import json
+from services import streams as _streams
 
 
 def _typed_in(row):
@@ -32,8 +33,8 @@ def fix(db):
     if not s or s['stravaManualDone']:
         return None
     marked = 0
-    for r in db.execute("SELECT id, sportType, distance, source, streams, rawData, elapsedTime, movingTime FROM Activity WHERE source IS NULL "
-                        "AND (streams IS NULL OR streams IN ('', 'null', '{}'))").fetchall():
+    for r in db.execute(f"SELECT id, sportType, distance, source, {_streams.sql()}, rawData, elapsedTime, movingTime FROM Activity WHERE source IS NULL "
+                        f"AND NOT {_streams.has_sql()}").fetchall():
         if _typed_in(dict(r)):
             db.execute("UPDATE Activity SET source='manual' WHERE id=?", [r['id']])
             marked += 1
@@ -48,7 +49,7 @@ def fix(db):
         row['source'] = 'manual'
         db.execute('UPDATE ActivityDuplicate SET rowJson=? WHERE id=?', [json.dumps(row), d['id']])
         marked += 1
-        kept = db.execute('SELECT * FROM Activity WHERE id=?', [d['primaryId']]).fetchone()
+        kept = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [d['primaryId']]).fetchone()
         if kept and not duplicates.same_ride(row, kept):
             duplicates.keep_both(db, d['id'])
             restored.append((d['id'], row.get('name')))

@@ -31,13 +31,16 @@ def ensure_schema(db):
         db.execute('ALTER TABLE ActivityTrack ADD COLUMN outOfStep INTEGER')
         db.execute('DELETE FROM ActivityTrack')                 # made again from the streams, with it (app._fill_tracks, or the next fill)
     # Any write that can change an activity's track, or its id, drops the summary; fill() makes it again when it's next needed. AFTER INSERT
-    # covers INSERT OR REPLACE, whose implicit delete fires no trigger.
+    # covers INSERT OR REPLACE, whose implicit delete fires no trigger. The streams are in ActivityStream (services/streams.py, made first).
     db.execute('''CREATE TRIGGER IF NOT EXISTS ActivityTrack_insert AFTER INSERT ON Activity
                   BEGIN DELETE FROM ActivityTrack WHERE activityId = NEW.id; END''')
-    db.execute('''CREATE TRIGGER IF NOT EXISTS ActivityTrack_update AFTER UPDATE OF streams, id ON Activity
+    db.execute('''CREATE TRIGGER IF NOT EXISTS ActivityTrack_id AFTER UPDATE OF id ON Activity
                   BEGIN DELETE FROM ActivityTrack WHERE activityId = OLD.id; END''')
     db.execute('''CREATE TRIGGER IF NOT EXISTS ActivityTrack_delete AFTER DELETE ON Activity
                   BEGIN DELETE FROM ActivityTrack WHERE activityId = OLD.id; END''')
+    for op, row in (('INSERT', 'NEW'), ('UPDATE', 'NEW'), ('DELETE', 'OLD')):
+        db.execute(f'''CREATE TRIGGER IF NOT EXISTS ActivityTrack_streams_{op.lower()} AFTER {op} ON ActivityStream
+                       BEGIN DELETE FROM ActivityTrack WHERE activityId = {row}.activityId; END''')
 
 
 def latlng_of(streams):
@@ -131,10 +134,11 @@ def store(db, activity_id, streams):
 
 def fill(db):
     """Make the missing summaries, reading those activities' streams once. Returns how many it made. Commits."""
+    from services.streams import sql as streams_sql
     todo = [r[0] for r in db.execute('SELECT a.id FROM Activity a LEFT JOIN ActivityTrack t ON t.activityId = a.id WHERE t.activityId IS NULL')]
     for i in range(0, len(todo), _BATCH):
         ids = todo[i:i + _BATCH]
-        for aid, streams in db.execute(f"SELECT id, streams FROM Activity WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall():
+        for aid, streams in db.execute(f"SELECT id, {streams_sql()} FROM Activity WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall():
             store(db, aid, streams)
         db.commit()
     return len(todo)

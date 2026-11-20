@@ -2,6 +2,7 @@ import json
 import os
 import logging
 import socket
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -461,7 +462,7 @@ def _ride_route_payloads(rid):
     """{'nutrition_ride_route': ..., 'nutrition_ride_segments': ...} for the rider's latest ride, plus every segment's personal best."""
     from database import get_db, query_db
     out = {}
-    act = query_db("SELECT id, name, startDateLocal, distance, movingTime, streams FROM Ride WHERE riderId=? ORDER BY startDate DESC LIMIT 1", [rid], one=True)
+    act = query_db(f"SELECT id, name, startDateLocal, distance, movingTime, {_streams.sql('Ride')} FROM Ride WHERE riderId=? ORDER BY startDate DESC LIMIT 1", [rid], one=True)
     if not act:
         return {'nutrition_ride_route': {'pts': []}, 'nutrition_ride_segments': {'efforts': [], 'all': []}}
     from services.sports import class_of, class_sql

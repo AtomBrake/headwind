@@ -12,6 +12,7 @@ import app as app_module
 import config
 import database
 from services import credentials, sport_records, sports, zwift
+from services import streams as _streams
 
 
 class _NoThread:
@@ -42,11 +43,12 @@ def app(tmp_path, monkeypatch):
         db.execute("UPDATE Settings SET timeZone='Europe/London' WHERE id=1")
         db.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
         for i, (aid, sport, secs, speed) in enumerate(ACTS):
-            db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime, totalElevationGain, streams) "
-                       "VALUES (?, ?, 1, ?, ?, ?, ?, 10, ?)", [aid, aid, sport, f'2026-10-0{i + 1}T08:00:00', secs * speed, secs, track(secs, speed)])
+            db.execute("INSERT INTO Activity (id, name, riderId, sportType, startDateLocal, distance, movingTime, totalElevationGain) "
+                       "VALUES (?, ?, 1, ?, ?, ?, ?, 10)", [aid, aid, sport, f'2026-10-0{i + 1}T08:00:00', secs * speed, secs])
+            _streams.save(db, aid, track(secs, speed))
         from services.best_efforts import save_best_efforts
         for aid in ('ride_out', 'ride_zw'):
-            row = db.execute('SELECT startDateLocal, streams FROM Activity WHERE id=?', [aid]).fetchone()
+            row = db.execute(f'SELECT startDateLocal, {_streams.sql()} FROM Activity WHERE id=?', [aid]).fetchone()
             save_best_efforts(db, aid, row[0], row[1])
         sport_records.ensure(db)
         a.config['AV'] = credentials.auth_version()
@@ -220,8 +222,9 @@ def test_runs_and_rides_saved_from_watopia_as_outdoor_ones_are_put_right(app):
         assert there.startswith('2026-10-18')
         for aid, sport, local in (('zrun', 'Run', there), ('zride', 'Ride', there), ('garmin_9', 'Run', '2026-10-17T18:00:00')):
             db.execute("INSERT INTO Activity (id, name, riderId, sportType, type, startDate, startDateLocal, startLat, startLng, distance, movingTime, "
-                       "weatherSummary, weatherTempC, streams) VALUES (?, ?, 1, ?, ?, '2026-10-17T17:00:00', ?, ?, ?, 6000, 1800, 'Overcast, 26°C', 26, ?)",
-                       [aid, aid, sport, sport, local, *WATOPIA, track(1800, 3.3)])
+                       "weatherSummary, weatherTempC) VALUES (?, ?, 1, ?, ?, '2026-10-17T17:00:00', ?, ?, ?, 6000, 1800, 'Overcast, 26°C', 26)",
+                       [aid, aid, sport, sport, local, *WATOPIA])
+            _streams.save(db, aid, track(1800, 3.3))
         sport_records.ensure(db)
         seg = db.execute("INSERT INTO Segment (name, startLat, startLng, endLat, endLng, distanceM, sport) VALUES ('Lap', -11.7, 166.95, -11.69, 166.95, 900, 'foot')").lastrowid
         for aid, secs in (('zrun', 300), ('run_zw', 250), ('run_out', 400)):
@@ -230,7 +233,7 @@ def test_runs_and_rides_saved_from_watopia_as_outdoor_ones_are_put_right(app):
 
         res = fix_misfiled(db)
         db.commit()
-        got = {r['id']: r for r in db.execute("SELECT * FROM Activity WHERE id IN ('zrun', 'zride', 'garmin_9')")}
+        got = {r['id']: r for r in db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id IN ('zrun', 'zride', 'garmin_9')")}
         assert sorted(m[0] for m in res['moved']) == ['garmin_9', 'zride', 'zrun']
         assert (got['zrun']['sportType'], got['zride']['sportType'], got['garmin_9']['sportType']) == ('VirtualRun', 'VirtualRide', 'VirtualRun')
         assert got['zrun']['startDateLocal'] == '2026-10-17T18:00:00'      # back on the home clock (London, BST)

@@ -4,7 +4,7 @@
 
 {% block head %}
   <link rel="manifest" href="/static/nutrition-manifest.json">
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="{{ url_for('static', filename='vendor/html5-qrcode-2.3.8/html5-qrcode.min.js') }}"></script>
   <style>
     /* ── Progress bars ─────────────────────────── */
     .nu-prog-bg   { height:6px; background:var(--border); border-radius:4px; overflow:hidden; margin-top:0.4rem; }

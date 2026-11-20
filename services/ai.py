@@ -3,6 +3,7 @@ import time
 
 from openai import OpenAI
 from database import query_db
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -500,7 +501,7 @@ def ensure_weather(db, activity):
         if w:
             save_weather(db, activity['id'], w)
             db.commit()
-            return query_db('SELECT * FROM Activity WHERE id=?', [activity['id']], one=True)
+            return query_db(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [activity['id']], one=True)
     except Exception:
         log.warning('Weather fetch before the AI analysis failed', exc_info=True)
     return activity

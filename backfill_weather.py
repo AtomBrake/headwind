@@ -11,8 +11,9 @@ with app.app_context():
     from database import get_db
     db = get_db()
 
-    rows = db.execute('''
-        SELECT id, sportType, startLat, startLng, startDateLocal, streams
+    from services import streams
+    rows = db.execute(f'''
+        SELECT id, sportType, startLat, startLng, startDateLocal, {streams.sql('Ride')}
         FROM Ride
         WHERE startLat IS NOT NULL AND startLng IS NOT NULL
           AND weatherSummary IS NULL

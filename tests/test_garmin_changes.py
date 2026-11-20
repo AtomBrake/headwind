@@ -8,7 +8,8 @@ import pytest
 from flask import Flask
 
 import database
-from services import duplicates, garmin, garmin_changes as gc, reimport
+from services import duplicates, garmin, garmin_changes as gc, jobs, reimport
+from services import streams as _streams
 
 
 class FakeAPI:
@@ -347,7 +348,7 @@ def test_a_crop_made_in_garmin_before_the_import_comes_in_cropped(db, monkeypatc
     monkeypatch.setattr('services.parser.parse_fit', walk_then_drive)
     walk = {**act(1, '2026-09-01', key='walking', dist=1600, dur=3200), 'movingDuration': 3100, 'calories': 250, 'elevationGain': 12}
     imported(db, walk)
-    r = db.execute("SELECT * FROM Activity WHERE id='garmin_1'").fetchone()
+    r = db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='garmin_1'").fetchone()
     assert (r['distance'], r['movingTime'], r['elapsedTime'], r['totalElevationGain'], r['caloriesRaw']) == (1600, 3100, 3200, 12, 250)
     assert json.loads(r['streams'])['time']['data'][-1] == 3200 and r['averageHeartrate'] == 100     # the drive's left out
     api = counted(FakeAPI([walk]))
@@ -388,8 +389,9 @@ def _typed_in_earlier(db, gid=1, dist=0.0, secs=0, key='swimming', name='Swimmin
     """A Garmin activity typed into Garmin Connect as a sync before 0.7.41 saved it: no mark, no streams, and whatever figures it was given then.
     Garmin's list now says 500 m in 40 minutes."""
     a = {**act(gid, '2016-11-01', name=name, key=key, dist=500.0, dur=2400.0), 'manualActivity': True, 'calories': 180}
-    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime, streams, rawData) "
-               "VALUES (?, ?, 'Swim', 'Swim', 1, '2016-11-01T08:00:00', '2016-11-01T09:00:00', ?, ?, ?, '{}', '{}')", [f'garmin_{gid}', name, dist, secs, secs])
+    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData) "
+               "VALUES (?, ?, 'Swim', 'Swim', 1, '2016-11-01T08:00:00', '2016-11-01T09:00:00', ?, ?, ?, '{}')", [f'garmin_{gid}', name, dist, secs, secs])
+    _streams.save(db, f'garmin_{gid}', '{}')
     from services import sanity
     sanity.flag(db, f'garmin_{gid}')
     gc.remember(db, a, read=False)
@@ -402,7 +404,7 @@ def test_one_typed_in_and_saved_empty_takes_garmins_figures(db):
     a = _typed_in_earlier(db)
     assert 'nothing was recorded' in db.execute("SELECT flagReason FROM Activity WHERE id='garmin_1'").fetchone()[0]
     res = gc.check(db, FakeAPI([a]), 1, '2016-10-01', '2016-12-01')
-    r = db.execute("SELECT * FROM Activity WHERE id='garmin_1'").fetchone()
+    r = db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='garmin_1'").fetchone()
     assert (r['distance'], r['movingTime'], r['elapsedTime'], r['source'], r['flagReason']) == (500, 2400, 2400, 'manual', None)
     assert r['averageSpeed'] == pytest.approx(500 / 2400) and r['caloriesRaw'] == 180
     assert res['filled'] == 1 and res['recordings'] == 0 and reimport.pending(db) == []
@@ -434,9 +436,9 @@ def test_one_typed_in_that_matches_garmin_is_only_marked(db):
     a = _typed_in_earlier(db, dist=500.0, secs=2400)
     res = gc.check(db, FakeAPI([a]), 1, '2016-10-01', '2016-12-01')
     assert (res['recordings'], res['filled']) == (0, 0)
-    r = db.execute("SELECT source, streams FROM Activity WHERE id='garmin_1'").fetchone()
-    assert r['source'] == 'manual' and r['streams'] == '{}'
-    assert duplicates.is_manual(db.execute("SELECT * FROM Activity WHERE id='garmin_1'").fetchone())
+    r = db.execute(f"SELECT source, {_streams.sql()} FROM Activity WHERE id='garmin_1'").fetchone()
+    assert r['source'] == 'manual' and r['streams'] is None                     # empty streams are stored as none
+    assert duplicates.is_manual(db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='garmin_1'").fetchone())
 
 
 def test_a_recording_is_never_marked_typed_in(db):
@@ -531,7 +533,6 @@ def test_settings_full_resync_button_runs_the_whole_check(tmp_path, monkeypatch)
     """Settings shows Full re-sync once Garmin is signed in for rides, and it starts garmin_changes.full in the background. Full app."""
     import app as app_module
     import config
-    from routes import garmin as garmin_routes
     from services import credentials
     monkeypatch.setattr(config.Config, 'DATABASE', str(tmp_path / 'p.db'))
     monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)
@@ -544,8 +545,6 @@ def test_settings_full_resync_button_runs_the_whole_check(tmp_path, monkeypatch)
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
         d.commit()
         av = credentials.auth_version()
-    started = []
-    monkeypatch.setattr(garmin_routes.threading, 'Thread', lambda target, args, daemon: type('T', (), {'start': lambda s: started.append(args)})())
     c = app.test_client()
     with c.session_transaction() as s:
         s['logged_in'] = True
@@ -553,15 +552,15 @@ def test_settings_full_resync_button_runs_the_whole_check(tmp_path, monkeypatch)
     assert 'Full re-sync' in c.get('/settings/').get_data(as_text=True)
     r = c.post('/garmin/changes/check?whole=1')
     assert r.status_code == 302 and r.headers['Location'].endswith('/import#garmin-changes')
-    assert started and started[0][1:] == (1, True)
-    garmin_routes._changes_lock.release()
+    with app.app_context():
+        job = jobs.active(database.get_db(), 'garmin_changes_check')
+    assert job['args'] == {'rider': 1, 'whole': True}
 
 
 def test_import_page_lists_the_missing_and_its_buttons_work(tmp_path, monkeypatch):
     """In Garmin, not here: listed on the Import page; Leave out settles it there and then, Bring in starts a background fetch. Full app."""
     import app as app_module
     import config
-    from routes import garmin as garmin_routes
     from services import credentials
     monkeypatch.setattr(config.Config, 'DATABASE', str(tmp_path / 'p.db'))
     monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)
@@ -576,8 +575,6 @@ def test_import_page_lists_the_missing_and_its_buttons_work(tmp_path, monkeypatc
         d.commit()
         gc.full(d, FakeAPI([act(1, '2026-09-01'), act(3, '2026-09-04', name='Lost ride'), act(4, '2026-09-05', name='Other lost ride')]), 1)
         av = credentials.auth_version()
-    started = []
-    monkeypatch.setattr(garmin_routes.threading, 'Thread', lambda target, args, daemon: type('T', (), {'start': lambda s: started.append(args)})())
     c = app.test_client()
     with c.session_transaction() as s:
         s['logged_in'] = True
@@ -592,11 +589,15 @@ def test_import_page_lists_the_missing_and_its_buttons_work(tmp_path, monkeypatc
     assert 'Deleted here, still in Garmin (1)' in page and 'Other lost ride' in page
     assert 'href="https://connect.garmin.com/modern/activity/4"' in page and 'href="https://connect.garmin.com/modern/activity/3"' in page
     c.post('/garmin/missing/all/import')
-    assert started and started[0][1] == ['3']
-    garmin_routes._changes_lock.release()
+    c.post('/garmin/missing/all/restore')                                   # one Garmin review job at a time: not while that one waits
+    with app.app_context():
+        db = database.get_db()
+        assert [json.loads(r[0])['ids'] for r in db.execute("SELECT args FROM Job WHERE kind='garmin_bring_in'")] == [['3']]
+        db.execute("UPDATE Job SET state='done'")
+        db.commit()
     c.post('/garmin/missing/all/restore')
-    assert started[1][1] == ['4']
-    garmin_routes._changes_lock.release()
+    with app.app_context():
+        assert jobs.active(database.get_db(), 'garmin_bring_in')['args'] == {'ids': ['4']}
 
 
 def in_step_ride(b):
@@ -610,14 +611,14 @@ def test_one_stored_out_of_step_is_read_again_and_put_right_once(db, monkeypatch
     monkeypatch.setattr('services.parser.parse_fit', in_step_ride)
     ride = act(1, '2026-09-01', dist=2995, dur=599)
     imported(db, ride)
-    st = json.loads(db.execute("SELECT streams FROM Activity WHERE id='garmin_1'").fetchone()[0])
+    st = json.loads(_streams.load_json(db, 'garmin_1'))
     st['time']['data'] = list(range(630))                         # as an older Headwind kept it: a time for each record, 30 with no fix
-    db.execute("UPDATE Activity SET streams=? WHERE id='garmin_1'", [json.dumps(st)])
+    _streams.save(db, 'garmin_1', st)
     db.commit()
     api = counted(FakeAPI([ride]))
     res = gc.check(db, api, 1, '2026-08-01', '2026-10-01')
     assert res['in_step'] == 1 and api.downloads == 1 and 'out of step' in gc.describe(res)
-    st = json.loads(db.execute("SELECT streams FROM Activity WHERE id='garmin_1'").fetchone()[0])
+    st = json.loads(_streams.load_json(db, 'garmin_1'))
     assert len(st['time']['data']) == len(st['latlng']['data']) == 600
     assert gc.check(db, api, 1, '2026-08-01', '2026-10-01')['in_step'] == 0 and api.downloads == 1   # once only
 
@@ -628,14 +629,16 @@ def test_a_copy_kept_beside_one_out_of_step_is_set_aside_once_it_is_put_right(db
     monkeypatch.setattr('services.parser.parse_fit', in_step_ride)
     ride = act(1, '2026-09-01', dist=2995, dur=599)
     imported(db, ride)
-    st = json.loads(db.execute("SELECT streams FROM Activity WHERE id='garmin_1'").fetchone()[0])
+    st = json.loads(_streams.load_json(db, 'garmin_1'))
     st['time']['data'] = [x * 0.75 for x in range(800)]                # each position's moment known only to within 150 s
-    db.execute("UPDATE Activity SET streams=?, sportType='AlpineSki', type='AlpineSki' WHERE id='garmin_1'", [json.dumps(st)])
+    db.execute("UPDATE Activity SET sportType='AlpineSki', type='AlpineSki' WHERE id='garmin_1'")
+    _streams.save(db, 'garmin_1', st)
     t = list(range(400))
     piece = {'time': {'data': t}, 'latlng': {'data': [[50.5 + (x + 200) * 5 / 111_000, -3.5] for x in t]}}
-    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime, streams) "
-               "VALUES ('14000000001', 'Ski app', 'AlpineSki', 'AlpineSki', 1, '2026-09-01T08:03:20', '2026-09-01T09:03:20', 1200, 399, 399, ?)",
-               [json.dumps(piece)])
+    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime) "
+               "VALUES ('14000000001', 'Ski app', 'AlpineSki', 'AlpineSki', 1, '2026-09-01T08:03:20', '2026-09-01T09:03:20', 1200, 399, 399)",
+               [])
+    _streams.save(db, '14000000001', json.dumps(piece))
     db.commit()
     assert duplicates.resolve(db, '14000000001') is None                  # the watch's track is minutes out where it lost the fix
     res = gc.check(db, FakeAPI([ride]), 1, '2026-08-01', '2026-10-01')
@@ -648,7 +651,7 @@ def test_one_out_of_step_that_cant_be_downloaded_is_tried_again_next_time(db, mo
     monkeypatch.setattr('services.parser.parse_fit', in_step_ride)
     ride = act(1, '2026-09-01', dist=2995, dur=599)
     imported(db, ride)
-    db.execute("UPDATE Activity SET streams=json_set(streams, '$.time.data', json('[0,1,2]')) WHERE id='garmin_1'")
+    db.execute("UPDATE ActivityStream SET data=streams_pack(json_set(streams_json(data), '$.time.data', json('[0,1,2]'))) WHERE activityId='garmin_1'")
     db.commit()
     api = FakeAPI([ride])
     api.download_activity = lambda aid, dl_fmt=None: (_ for _ in ()).throw(RuntimeError('Garmin is busy'))

@@ -7,6 +7,7 @@ import pytest
 import database
 from services import feed_tokens
 from tests.test_feed_tokens import _app, _get, _lines
+from services import streams as _streams
 
 
 @pytest.fixture
@@ -17,8 +18,10 @@ def app(tmp_path):
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (2, 'Kim', 0)")             # a second rider living here
         d.execute("INSERT INTO Rider (id, name, isDefault) VALUES (3, 'Alice', 0)")           # created by syncing a friend
         d.execute("INSERT INTO Friend (name, url, token, riderId) VALUES ('Alice', 'https://alice.example', 't', 3)")
-        d.execute("INSERT INTO Activity (id, name, riderId, startDateLocal, streams) VALUES ('kim1', 'run', 2, '2026-10-02T08:00:00', '{}')")
-        d.execute("INSERT INTO Activity (id, name, riderId, startDateLocal, streams) VALUES ('f1_a1', 'ride', 3, '2026-10-02T08:00:00', '{}')")
+        d.execute("INSERT INTO Activity (id, name, riderId, startDateLocal) VALUES ('kim1', 'run', 2, '2026-10-02T08:00:00')")
+        _streams.save(d, 'kim1', '{}')
+        d.execute("INSERT INTO Activity (id, name, riderId, startDateLocal) VALUES ('f1_a1', 'ride', 3, '2026-10-02T08:00:00')")
+        _streams.save(d, 'f1_a1', '{}')
         d.commit()
     return app
 

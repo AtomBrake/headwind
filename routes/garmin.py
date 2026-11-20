@@ -1,10 +1,8 @@
-import json
 import logging
-import threading
 
-from flask import Blueprint, Response, jsonify, request, stream_with_context
+from flask import Blueprint, jsonify, request
 from database import get_db, query_db
-from services import vault
+from services import jobs, vault
 
 bp = Blueprint('garmin', __name__)
 log = logging.getLogger(__name__)
@@ -136,8 +134,10 @@ def sync():
         return jsonify({'error': sync_error(e)}), 500
 
 
-@bp.route('/garmin/sync-activities')
+@bp.route('/garmin/sync-activities', methods=['POST'])
 def sync_activities():
+    """Queue the activity sync for the worker and return {job}: the page follows it (static/js/app.js followJob) rather than holding one of
+    the server's threads for as long as Garmin takes. One already queued or running is the one returned."""
     s = query_db('SELECT garminSyncMode FROM Settings WHERE id=1', one=True)
     if not _garmin_on():
         return jsonify({'error': 'Garmin is not connected'}), 400
@@ -147,23 +147,22 @@ def sync_activities():
     rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
     if not rider:
         return jsonify({'error': 'No default rider found'}), 400
+    db = get_db()
+    job = jobs.enqueue(db, 'garmin_activity_sync', {'rider': rider['id']}) or jobs.active(db, 'garmin_activity_sync')['id']
+    return jsonify({'job': job})
 
-    def generate():
+
+@jobs.handler('garmin_activity_sync')
+def _activity_sync_job(job):
+    """The page's events, as the stream used to send them: {msg}, {imported, skipped}, then {done, ...} or {error}."""
+    from services.garmin import sync_error, sync_garmin_activities
+    with jobs.Events(job) as ev:
         try:
-            from services.garmin import sync_garmin_activities
-            for status in sync_garmin_activities(rider['id']):
-                yield f"data: {json.dumps(status)}\n\n"
+            for status in sync_garmin_activities(job['args']['rider']):
+                ev.emit(status)
         except Exception as e:
-            log.exception('Garmin activity sync from the page failed')
-            from services.garmin import sync_error
-            yield f"data: {json.dumps({'error': sync_error(e)})}\n\n"
-
-    from services import logs
-    return Response(
-        stream_with_context(logs.keep_id(generate())),
-        mimetype='text/event-stream',
-        headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'},
-    )
+            ev.emit({'error': sync_error(e)})
+            raise
 
 
 @bp.route('/garmin/sports')
@@ -176,41 +175,32 @@ def sports_page():
                            check=tasks.last(get_db(), sport_fix.TASK))
 
 
-_sports_lock = threading.Lock()
-
-
 @bp.route('/garmin/sports/check', methods=['POST'])
 def sports_check():
-    """Start the check in the background: paging through Garmin can take minutes, and it must not stop when the browser leaves the page.
-    Its progress and result are in TaskLog, shown here and on the Tasks page."""
-    from flask import current_app, redirect, url_for
+    """Queue the check for the worker (services/jobs.py): paging through Garmin can take minutes, and it must not stop when the browser leaves
+    the page. Its progress and result are in TaskLog, shown here and on the Tasks page."""
+    from flask import redirect, url_for
     rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
     if not _garmin_on() or not rider:
         return redirect(url_for('garmin.sports_page', msg='Connect Garmin in Settings first.'))
-    if _sports_lock.acquire(blocking=False):            # already running: the page shows that one
-        threading.Thread(target=_bg_sports_check, args=(current_app._get_current_object(), rider['id']), daemon=True).start()
+    jobs.enqueue(get_db(), 'garmin_sports_check', {'rider': rider['id']})     # already queued or running: the page shows that one
     return redirect(url_for('garmin.sports_page'))
 
 
-def _bg_sports_check(app, rider_id):
+@jobs.handler('garmin_sports_check')
+def _sports_check_job(job):
     from services import sport_fix, tasks
     from services.garmin import _client
-    try:
-        with app.app_context():
-            db = get_db()
-            with tasks.run(db, sport_fix.TASK, 'Activity type check') as t:
-                try:
-                    res = sport_fix.scan(db, _client(), rider_id)
-                except Exception as e:
-                    raise RuntimeError(f'Could not reach Garmin: {e}') from e
-                missing = res['checked'] - res['found']
-                t.result = (f"Checked {res['found']} of your {res['checked']} Garmin rides: {res['proposed']} "
-                            f"{'has' if res['proposed'] == 1 else 'have'} the wrong sport.") + \
-                           (f' {missing} are no longer on Garmin and were left alone.' if missing else '')
-    except Exception as e:                              # already logged as failed by tasks.run
-        log.warning('Activity type check failed: %s', e)
-    finally:
-        _sports_lock.release()
+    db = get_db()
+    with tasks.run(db, sport_fix.TASK, 'Activity type check') as t:
+        try:
+            res = sport_fix.scan(db, _client(), job['args']['rider'])
+        except Exception as e:
+            raise RuntimeError(f'Could not reach Garmin: {e}') from e
+        missing = res['checked'] - res['found']
+        t.result = (f"Checked {res['found']} of your {res['checked']} Garmin rides: {res['proposed']} "
+                    f"{'has' if res['proposed'] == 1 else 'have'} the wrong sport.") + \
+                   (f' {missing} are no longer on Garmin and were left alone.' if missing else '')
 
 
 @bp.route('/garmin/sports/apply', methods=['POST'])
@@ -233,7 +223,7 @@ def sports_apply():
     return redirect(url_for('garmin.sports_page', msg=msg))
 
 
-_changes_lock = threading.Lock()
+_GARMIN_REVIEW = ('garmin_changes_check', 'garmin_bring_in')      # one at a time: both go through the same lists
 
 
 @bp.route('/garmin/changes/check', methods=['POST'])
@@ -241,27 +231,23 @@ def changes_check():
     """Look for activities deleted or changed in Garmin now, rather than at the daily sweep (services/garmin_changes.run), in the background.
     ?whole=1 (Settings' Full re-sync): all of the history at once (garmin_changes.full). Its progress and result are in TaskLog, shown on the
     Import page and the Tasks page."""
-    from flask import current_app, redirect, url_for
+    from flask import redirect, url_for
     rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
     whole = request.args.get('whole') == '1'
-    if _garmin_on() and rider and _changes_lock.acquire(blocking=False):     # already running: the page shows that one
-        threading.Thread(target=_bg_changes_check, args=(current_app._get_current_object(), rider['id'], whole), daemon=True).start()
+    if _garmin_on() and rider:                          # already queued or running: the page shows that one
+        jobs.enqueue(get_db(), 'garmin_changes_check', {'rider': rider['id'], 'whole': whole}, also=_GARMIN_REVIEW)
     return redirect(url_for('import_rides.index') + '#garmin-changes')
 
 
-def _bg_changes_check(app, rider_id, whole=False):
+@jobs.handler('garmin_changes_check')
+def _changes_check_job(job):
     from services import garmin_changes, tasks
     from services.garmin import _client
-    try:
-        with app.app_context():
-            db = get_db()
-            with tasks.run(db, garmin_changes.TASK, 'Garmin full re-sync' if whole else 'Garmin changes check') as t:
-                check = garmin_changes.full if whole else garmin_changes.run
-                t.result = garmin_changes.describe(check(db, _client(), rider_id))
-    except Exception as e:                              # already logged as failed by tasks.run
-        log.warning('Garmin changes check failed: %s', e)
-    finally:
-        _changes_lock.release()
+    db = get_db()
+    whole = job['args'].get('whole')
+    with tasks.run(db, garmin_changes.TASK, 'Garmin full re-sync' if whole else 'Garmin changes check') as t:
+        check = garmin_changes.full if whole else garmin_changes.run
+        t.result = garmin_changes.describe(check(db, _client(), job['args']['rider']))
 
 
 @bp.route('/garmin/missing/<gid>/<choice>', methods=['POST'])
@@ -269,7 +255,7 @@ def missing_resolve(gid, choice):
     """Activities in Garmin that Full re-sync found and didn't bring in (services/garmin_changes._left_behind). gid 'all' settles every one in
     its list. 'import' (never here) and 'restore' (deleted here) fetch them in the background (its progress and result are in TaskLog, like the
     check's); 'leave' moves one never here to the deleted ones, so no sync fetches it."""
-    from flask import current_app, flash, redirect, url_for
+    from flask import flash, redirect, url_for
     from services import garmin_changes
     db = get_db()
     ids = [m['garminId'] for m in garmin_changes.not_here(db, deleted=choice == 'restore')] if gid == 'all' else [gid]
@@ -278,28 +264,23 @@ def missing_resolve(gid, choice):
         db.commit()
         flash(f"Left out {n} activit{'ies' if n != 1 else 'y'}: no sync brings {'them' if n != 1 else 'it'} in. To change your mind, see "
               f"Deleted here, still in Garmin.", 'success')
-    elif choice in ('import', 'restore') and ids and _garmin_on() and _changes_lock.acquire(blocking=False):     # one Garmin task at a time
-        threading.Thread(target=_bg_bring_in, args=(current_app._get_current_object(), ids), daemon=True).start()
+    elif choice in ('import', 'restore') and ids and _garmin_on():
+        jobs.enqueue(db, 'garmin_bring_in', {'ids': ids}, also=_GARMIN_REVIEW)
     return redirect(url_for('import_rides.index') + '#garmin-changes')
 
 
-def _bg_bring_in(app, ids):
+@jobs.handler('garmin_bring_in')
+def _bring_in_job(job):
     from services import garmin_changes, tasks
     from services.garmin import _client
-    try:
-        with app.app_context():
-            db = get_db()
-            with tasks.run(db, garmin_changes.TASK, 'Garmin: bringing in activities') as t:
-                done, failed = garmin_changes.bring_in(db, _client(), ids)
-                t.result = f"Brought in {done} activit{'ies' if done != 1 else 'y'} from Garmin." + \
-                           (f" {failed} couldn't be read and {'are' if failed != 1 else 'is'} still listed." if failed else '')
-            if done:
-                from services.mqtt import push_update
-                push_update()
-    except Exception as e:                              # already logged as failed by tasks.run
-        log.warning('Bringing in Garmin activities failed: %s', e)
-    finally:
-        _changes_lock.release()
+    db = get_db()
+    with tasks.run(db, garmin_changes.TASK, 'Garmin: bringing in activities') as t:
+        done, failed = garmin_changes.bring_in(db, _client(), job['args']['ids'])
+        t.result = f"Brought in {done} activit{'ies' if done != 1 else 'y'} from Garmin." + \
+                   (f" {failed} couldn't be read and {'are' if failed != 1 else 'is'} still listed." if failed else '')
+    if done:
+        from services.mqtt import push_update
+        push_update()
 
 
 @bp.route('/garmin/changes/<path:ride_id>/<choice>', methods=['POST'])

@@ -11,6 +11,7 @@ retime_copies (copies of a RunKeeper file whose clock was out, put right when th
 import logging
 from datetime import datetime, timezone
 from services import tz
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -117,7 +118,7 @@ def retime_copies(db, rider_id, wrong_utc, right_utc, distance_m):
         return []
     days = [(wrong_utc + timedelta(days=d)).strftime('%Y-%m-%d') for d in (-1, 0, 1)]
     who = ' AND riderId=?' if rider_id else ' AND riderId NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)'
-    rows = db.execute(f"""SELECT id, startDate, startDateLocal, startLat, startLng, sportType, distance, streams FROM Activity
+    rows = db.execute(f"""SELECT id, startDate, startDateLocal, startLat, startLng, sportType, distance, {_streams.sql()} FROM Activity
                           WHERE substr(startDate, 1, 10) IN (?,?,?){who}""", days + ([rider_id] if rider_id else [])).fetchall()
     moved = []
     for r in rows:
@@ -178,7 +179,7 @@ def fix_local_zones(db):
             continue
         lat, lng = r['startLat'], r['startLng']
         if lat is None or lng is None:                  # older imports kept only the track
-            st = db.execute('SELECT streams FROM Activity WHERE id=?', [r['id']]).fetchone()
+            st = db.execute(f'SELECT {_streams.sql()} FROM Activity WHERE id=?', [r['id']]).fetchone()
             lat, lng = origin({'startLat': None, 'startLng': None, 'streams': st[0] if st else None})
         if lat is None and r['startDate'] and str(r['startDate'])[:19] != str(r['startDateLocal'])[:19]:
             continue                                    # nowhere to look up, and the device knew its zone (a Garmin ride abroad with no GPS)

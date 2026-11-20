@@ -31,6 +31,7 @@ from zoneinfo import ZoneInfo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+from services import streams as _streams  # noqa: E402  (after the path)
 LONDON = ZoneInfo('Europe/London')
 MI = 1609.344
 
@@ -426,9 +427,11 @@ def main():
 
     src = sqlite3.connect(f'file:{args.source}?mode=ro', uri=True, timeout=60)
     src.row_factory = sqlite3.Row
+    _streams.register(src)
     owner = src.execute('SELECT id FROM Rider WHERE isDefault=1 ORDER BY id LIMIT 1').fetchone()[0]
-    rows = src.execute("SELECT * FROM Activity WHERE riderId=? AND streams IS NOT NULL AND length(streams)>200 AND sportType LIKE '%Ride%' "
-                       "AND substr(startDateLocal,1,4) BETWEEN ? AND ? ORDER BY startDateLocal", [owner, str(args.from_year), str(args.to_year)]).fetchall()
+    rows = src.execute(f"SELECT * FROM (SELECT *, {_streams.sql()} FROM Activity WHERE riderId=? AND sportType LIKE '%Ride%' "
+                       "AND substr(startDateLocal,1,4) BETWEEN ? AND ?) WHERE length(streams)>200 ORDER BY startDateLocal",
+                       [owner, str(args.from_year), str(args.to_year)]).fetchall()
     print(f'source rides in range: {len(rows)}')
 
     # 1) privacy zones from where rides start and finish
@@ -536,12 +539,13 @@ def main():
             full = json.dumps(k['streams'])
             w = k['weather']
             db.execute('''INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain, averageSpeed, maxSpeed,
-                          averageHeartrate, maxHeartrate, averageCadence, calories, startLat, startLng, streams, rawData, riderId, weatherTempC, weatherWindKph, weatherGustKph,
+                          averageHeartrate, maxHeartrate, averageCadence, calories, startLat, startLng, rawData, riderId, weatherTempC, weatherWindKph, weatherGustKph,
                           weatherWindDir, weatherHumidity, weatherRainMm, weatherCode, weatherSummary, weatherWindRel, createdAt, updatedAt)
-                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))''',
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))''',
                        [aid, label(start_local), 'Ride', 'Ride', start_naive_utc.strftime('%Y-%m-%dT%H:%M:%S'), start_local.strftime('%Y-%m-%dT%H:%M:%S'), k['distance'], k['moving'], k['elapsed'],
-                        k['gain'], k['avg_speed'], k['max_speed'], k['avg_hr'], k['max_hr'], k['avg_cad'], k['calories'], k['start_ll'][0], k['start_ll'][1], full, '{}', rider,
+                        k['gain'], k['avg_speed'], k['max_speed'], k['avg_hr'], k['max_hr'], k['avg_cad'], k['calories'], k['start_ll'][0], k['start_ll'][1], '{}', rider,
                         w['weatherTempC'], w['weatherWindKph'], w['weatherGustKph'], w['weatherWindDir'], w['weatherHumidity'], w['weatherRainMm'], w['weatherCode'], w['weatherSummary'], w['weatherWindRel']])
+            _streams.save(db, aid, full)
             row = {'id': aid, 'startDateLocal': start_local.strftime('%Y-%m-%dT%H:%M:%S'), 'streams': full}
             save_best_efforts(db, aid, row['startDateLocal'], full)                       # full resolution, before thinning
             # cheap bounding-box pre-check, then the app's own matcher on the full-resolution track
@@ -551,7 +555,7 @@ def main():
             cand = [s for s in segments if box[0] <= s['startLat'] <= box[1] and box[2] <= s['startLng'] <= box[3] and box[0] <= s['endLat'] <= box[1] and box[2] <= s['endLng'] <= box[3]]
             if cand:
                 eff_total += scan_activity_against_segments(db, row, cand)
-            db.execute('UPDATE Activity SET streams=? WHERE id=?', [json.dumps(thin(k['streams'], args.points)), aid])
+            _streams.save(db, aid, thin(k['streams'], args.points))
             ride_minutes[start_local.date().isoformat()] += k['moving'] // 60
             if (n + 1) % 500 == 0:
                 db.commit()
@@ -577,10 +581,11 @@ def main():
     print('auditing...')
     chk = sqlite3.connect(out_db)
     chk.row_factory = sqlite3.Row
+    _streams.register(chk)
     src_ids = {r['id'] for r in rows}
     src_names = {r['name'] for r in rows if r['name']} - {'Morning Ride', 'Lunch Ride', 'Afternoon Ride', 'Evening Ride'}
     bad = []
-    for r in chk.execute('SELECT id, name, streams, startLat, startLng, rawData, description, notes, city, aiKudos FROM Activity'):
+    for r in chk.execute(f'SELECT id, name, {_streams.sql()}, startLat, startLng, rawData, description, notes, city, aiKudos FROM Activity'):
         if r['id'] in src_ids:
             bad.append('original id survived')
         if r['name'] in src_names:

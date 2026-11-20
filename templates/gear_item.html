@@ -9,7 +9,7 @@
 {% block page_title %}{{ item.name }}{% endblock %}
 {% block head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/gear.css') }}">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='vendor/chart.js-4.4.0/chart.umd.js') }}"></script>
 {% endblock %}
 {% block parent %}<a href="{{ url_for('gear.index', rider=item.rider) }}">Gear</a>{% endblock %}
 

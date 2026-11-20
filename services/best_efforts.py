@@ -1,6 +1,7 @@
 import json
 import logging
 from math import atan2, cos, radians, sin, sqrt
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -188,10 +189,10 @@ def fill_km(db):
     s = db.execute('SELECT bestEffortsKmDone FROM Settings WHERE id=1').fetchone()
     if not s or s['bestEffortsKmDone']:
         return None
-    ids = [r[0] for r in db.execute("SELECT id FROM Ride WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')")]
+    ids = [r[0] for r in db.execute(f"SELECT id FROM Ride WHERE {_streams.has_sql('Ride')}")]
     for i in range(0, len(ids), 50):
         chunk = ids[i:i + 50]
-        for r in db.execute(f"SELECT id, startDateLocal, streams FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
+        for r in db.execute(f"SELECT id, startDateLocal, {_streams.sql()} FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
             save_best_efforts(db, r['id'], r['startDateLocal'], r['streams'], sets=('metric',))
         db.commit()
     db.execute('UPDATE Settings SET bestEffortsKmDone=1 WHERE id=1')
@@ -202,8 +203,8 @@ def fill_km(db):
 def scan_all_best_efforts(db):
     """Backfill every activity. Commits every 50, so a big history never holds the write lock long enough for another writer to give up."""
     activities = db.execute(
-        "SELECT id, startDateLocal, streams FROM Ride "
-        "WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')"
+        f"SELECT id, startDateLocal, {_streams.sql('Ride')} FROM Ride "
+        f"WHERE {_streams.has_sql('Ride')}"
     ).fetchall()
     total = 0
     for i, act in enumerate(activities, 1):
@@ -224,10 +225,10 @@ def rescan_clean(db):
         return {'ran': False}
     before = {(r[2], r[0]): r[1] for r in db.execute(
         'SELECT e.distanceMi, MIN(e.elapsedSecs), a.riderId FROM BestEffort e JOIN Ride a ON a.id = e.activityId GROUP BY a.riderId, e.distanceMi')}
-    ids = [r[0] for r in db.execute("SELECT id FROM Ride WHERE streams IS NOT NULL AND streams NOT IN ('null', '{}')")]
+    ids = [r[0] for r in db.execute(f"SELECT id FROM Ride WHERE {_streams.has_sql('Ride')}")]
     for i in range(0, len(ids), 50):
         chunk = ids[i:i + 50]
-        for r in db.execute(f"SELECT id, startDateLocal, streams FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
+        for r in db.execute(f"SELECT id, startDateLocal, {_streams.sql()} FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
             save_best_efforts(db, r['id'], r['startDateLocal'], r['streams'])
         db.commit()
     after = {(r[2], r[0]): r[1] for r in db.execute(

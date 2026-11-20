@@ -9,6 +9,7 @@ import logging
 import queue
 import threading
 import time
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ def _handle(item, wait=True):
     with app.app_context():
         from database import get_db
         db = get_db()
-        activity = db.execute('SELECT * FROM Activity WHERE id=?', [act_id]).fetchone()
+        activity = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [act_id]).fetchone()
         if activity is None:
             if wait and time.monotonic() - queued_at < WAIT_COMMIT:
                 return False

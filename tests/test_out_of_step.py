@@ -8,6 +8,7 @@ from flask import Flask
 
 import database
 from services import reimport, tracks
+from services import streams as _streams
 
 
 def streams(n, extra=0):
@@ -30,8 +31,9 @@ def db(tmp_path):
 
 def add(db, aid, st, rider=1, origin=None, day='2026-09-20'):
     db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData, riderId, "
-               "streams, originId) VALUES (?, ?, 'Ride', 'Ride', ?, ?, 1000, 600, 600, '{}', ?, ?, ?)",
-               [aid, f'Ride {aid}', f'{day}T10:00:00', f'{day}T10:00:00', rider, st, origin])
+               "originId) VALUES (?, ?, 'Ride', 'Ride', ?, ?, 1000, 600, 600, '{}', ?, ?)",
+               [aid, f'Ride {aid}', f'{day}T10:00:00', f'{day}T10:00:00', rider, origin])
+    _streams.save(db, aid, st)
     db.commit()
 
 
@@ -70,7 +72,7 @@ def test_a_file_read_again_takes_it_off_the_list(db):
     add(db, 'imp_1', streams(100, 40))
     tracks.fill(db)
     reimport.ensure_schema(db)
-    reimport.propose(db, db.execute("SELECT * FROM Activity WHERE id='imp_1'").fetchone(), {'id': 'imp_1', 'streams': streams(100)}, 'test')
+    reimport.propose(db, db.execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='imp_1'").fetchone(), {'id': 'imp_1', 'streams': streams(100)}, 'test')
     tracks.fill(db)
     assert reimport.out_of_step(db)['files'] == []
 

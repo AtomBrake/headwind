@@ -9,6 +9,7 @@ import database
 from routes import api_v1
 from services import context
 from services.best_efforts import save_best_efforts
+from services import streams as _streams
 
 
 @pytest.fixture
@@ -30,8 +31,9 @@ def _add(db, aid, sport, speed, day, rider=1):
     """12 miles at a steady `speed` (m/s), with a track, and its best times worked out as every import does."""
     secs = int(12 * 1609.344 / speed)
     streams = json.dumps({'time': {'data': list(range(0, secs + 1, 5))}, 'distance': {'data': [i * speed for i in range(0, secs + 1, 5)]}})
-    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime, streams) "
-               "VALUES (?,?,?,?,?,?,?,?,?,?)", [aid, f'{sport} {aid}', sport, sport, rider, f'{day}T09:00:00', secs * speed, secs, secs, streams])
+    db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime) "
+               "VALUES (?,?,?,?,?,?,?,?,?)", [aid, f'{sport} {aid}', sport, sport, rider, f'{day}T09:00:00', secs * speed, secs, secs])
+    _streams.save(db, aid, streams)
     save_best_efforts(db, aid, day, streams)
     db.commit()
 

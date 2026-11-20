@@ -6,6 +6,7 @@ is more than a label: what only a ride has (best efforts, ride segments, the bik
 """
 
 from services.sports import SPORTS, is_ride
+from services import streams as _streams
 
 _GENERIC_NAMES = {'', 'ride', 'walk', 'run', 'hike', 'virtualride', 'garmin activity', 'ride activity'}
 
@@ -81,7 +82,7 @@ def change_sport(db, kind, act_id, sport, discard_parked=False, keep_parked=Fals
         raise ValueError('pick one of: ' + ', '.join(SPORTS))
     if kind not in ('ride', 'workout', None):
         raise ValueError('kind must be ride or workout')
-    row = db.execute('SELECT * FROM Activity WHERE id=?', [act_id]).fetchone()
+    row = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [act_id]).fetchone()
     if row and kind is None:
         kind = 'ride' if is_ride(row['sportType']) else 'workout'
     if not row or is_ride(row['sportType']) != (kind == 'ride'):

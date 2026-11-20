@@ -102,16 +102,16 @@ class _Garmin:
 
 
 def test_activity_type_check_runs_as_a_background_job(client, monkeypatch):
-    from routes import garmin as garmin_routes
+    from services import jobs
     with client.application.app_context():
         db = database.get_db()
         db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime) "
                    "VALUES ('garmin_1', 'Pool', 'Ride', 1, '2026-08-01T06:00:00', '2026-08-01T07:00:00', 1500, 1800, 1800)")
         db.commit()
-    monkeypatch.setattr(garmin_routes.threading, 'Thread', _NowThread)
     monkeypatch.setattr(garmin, '_client', lambda *a: _Garmin())
     client.post('/garmin/sports/check')
-    assert not garmin_routes._sports_lock.locked()
+    client.post('/garmin/sports/check')                                      # pressed again before the worker took it: one job
+    assert jobs.run_queued(client.application) == 1
     html = client.get('/garmin/sports').get_data(as_text=True)
     assert 'Checked 1 of your 1 Garmin rides: 1 has the wrong sport.' in html and '1 with the wrong sport' in html
     html = client.get('/tasks').get_data(as_text=True)
@@ -119,8 +119,10 @@ def test_activity_type_check_runs_as_a_background_job(client, monkeypatch):
 
     monkeypatch.setattr(garmin, '_client', lambda *a: (_ for _ in ()).throw(ConnectionError('timed out')))
     client.post('/garmin/sports/check')
-    assert not garmin_routes._sports_lock.locked()
+    assert jobs.run_queued(client.application) == 1
     assert 'Could not reach Garmin: timed out' in client.get('/tasks').get_data(as_text=True)
+    with client.application.app_context():
+        assert jobs.last(database.get_db(), 'garmin_sports_check')['state'] == 'failed'
 
 
 def test_activity_type_page_shows_a_running_check(client):

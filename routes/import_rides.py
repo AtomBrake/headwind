@@ -17,6 +17,7 @@ from database import get_db, query_db
 from services.parser import ACTIVITY_EXTENSIONS, parse_activity_file
 from services.limits import safe_gunzip, safe_zip_read, check_zip
 from services.sports import RIDES, canonical, label
+from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -509,7 +510,7 @@ def _process_single_file(path, original_name, rider_id=None, bike_id=None):
             from services.segments import scan_activity_against_segments, _refresh_prs
             segments = db.execute('SELECT * FROM Segment').fetchall()
             if segments:
-                act_row = db.execute('SELECT * FROM Activity WHERE id=?', [act['id']]).fetchone()
+                act_row = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [act['id']]).fetchone()
                 if act_row:
                     scan_activity_against_segments(db, act_row, segments)
                     for seg in segments:
@@ -541,7 +542,7 @@ def _process_single_file(path, original_name, rider_id=None, bike_id=None):
         auto_analyse.queue_ride(db, kept)               # this path does its own sanity and segment steps, not services/ingest.after_ride_added
         try:
             from services.mqtt import push_update
-            act_row = db.execute('SELECT * FROM Activity WHERE id=?', [kept]).fetchone()
+            act_row = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [kept]).fetchone()
             if act_row:
                 push_update(act_row)
         except Exception:
@@ -914,7 +915,7 @@ def _unpark_manual(db, act_id):
     d = db.execute("SELECT primaryId, rowJson FROM ActivityDuplicate WHERE id=? AND status='parked'", [act_id]).fetchone()
     if not d:
         return False
-    kept = db.execute('SELECT * FROM Activity WHERE id=?', [d['primaryId']]).fetchone()
+    kept = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [d['primaryId']]).fetchone()
     try:
         row = json.loads(d['rowJson'])
     except ValueError:
@@ -1096,7 +1097,7 @@ def _split_start(act):
 def _offer_change(db, act, source):
     """A ride with this id is already saved: compare the import with it (services/reimport.py). Returns True if it differs (it now waits on the
     Import page), False if it is the same ride, None if nothing is saved under that id (so import it as new)."""
-    saved = db.execute('SELECT * FROM Activity WHERE id=?', [act.get('id')]).fetchone()
+    saved = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [act.get('id')]).fetchone()
     if not saved:
         return None
     from services import reimport
@@ -1130,9 +1131,9 @@ def _insert(db, act, rider_id=None):
            distance, movingTime, elapsedTime,
            totalElevationGain, averageSpeed, maxSpeed,
            averageHeartrate, averageWatts,
-           averageCadence, calories, startLat, startLng, streams,
+           averageCadence, calories, startLat, startLng,
            rawData, riderId, maxHeartrate, maxWatts, caloriesRaw, source, createdAt, updatedAt)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
     ''', [
         act.get('id'),            act.get('name'),          sport,
         sport,                    start_utc, start_local,
@@ -1141,10 +1142,11 @@ def _insert(db, act, rider_id=None):
         act.get('averageHeartrate'), act.get('averageWatts'),
         act.get('averageCadence'), calories,
         act.get('startLat'),      act.get('startLng'),
-        act.get('streams'),       act.get('rawData') or '{}',
+        act.get('rawData') or '{}',
         rider_id, act.get('maxHeartrate'), act.get('maxWatts'), calories_raw, act.get('source'),
     ])
     if result.rowcount:
+        _streams.save(db, act.get('id'), act.get('streams'))
         from services.garmin import save_laps
         save_laps(db, act.get('id'), act.get('laps'))
     if result.rowcount and act.get('startLat') and act.get('startLng'):

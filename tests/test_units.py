@@ -9,6 +9,7 @@ import app as app_module
 import config
 import database
 from services import credentials, units
+from services import streams as _streams
 
 PAGES = ['/dashboard', '/rides/r1', '/rides/r2', '/data', '/riders/1', '/segments', '/segments/1', '/ai', '/planner/', '/roughness',
          '/dashboard?min_dist=10&max_dist=100']
@@ -36,8 +37,9 @@ def client(tmp_path, monkeypatch):
         db.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
         for aid, days_ago in (('r1', 1), ('r2', 9)):
             db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime, averageSpeed, maxSpeed, totalElevationGain, "
-                       "calories, streams, weatherTempC, weatherWindKph, weatherCode, weatherWindRel) VALUES (?, 'Morning ride', 'Ride', 1, ?, 19900, 2843, 3000, 7.0, 12.0, 300, 600, ?, 12, 20, 3, 'headwind')",
-                       [aid, (today - timedelta(days=days_ago)).isoformat() + 'T08:00:00', streams])
+                       "calories, weatherTempC, weatherWindKph, weatherCode, weatherWindRel) VALUES (?, 'Morning ride', 'Ride', 1, ?, 19900, 2843, 3000, 7.0, 12.0, 300, 600, 12, 20, 3, 'headwind')",
+                       [aid, (today - timedelta(days=days_ago)).isoformat() + 'T08:00:00'])
+            _streams.save(db, aid, streams)
         db.execute("INSERT INTO Segment (id, name, startLat, startLng, endLat, endLng, distanceM, elevationGainM, sourceActivityId) VALUES (1, 'Hill', 51.5, -2.6, 51.51, -2.6, 1200, 60, 'r1')")
         db.execute("INSERT INTO SegmentEffort (segmentId, activityId, activityDate, elapsedSecs, avgSpeedMps, isPR) VALUES (1, 'r1', ?, 200, 6.0, 1)", [today.isoformat()])
         db.execute("INSERT INTO BestEffort (activityId, activityDate, distanceMi, elapsedSecs, avgSpeedMps) VALUES ('r1', ?, 5, 1200, 6.7)", [today.isoformat()])
@@ -86,7 +88,7 @@ def test_the_ai_coach_is_given_metric_numbers_not_asked_to_convert(client, monke
         return 'ok'
     monkeypatch.setattr(ai, 'get_chat', lambda: fake_chat)
     with client.application.app_context():
-        act = database.get_db().execute("SELECT * FROM Activity WHERE id='r1'").fetchone()
+        act = database.get_db().execute(f"SELECT *, {_streams.sql()} FROM Activity WHERE id='r1'").fetchone()
         ai.generate_analysis(act)
     prompt = '\n'.join(m['content'] for m in sent['messages'])
     assert '19.9 km' in prompt and '25.2 km/h' in prompt and '300 m' in prompt      # this ride

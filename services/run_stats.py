@@ -10,6 +10,7 @@ from datetime import timedelta
 
 from database import get_db, query_db
 from services import sport_records, tz
+from services import streams as _streams
 
 DISTANCES = sport_records.RUN_DISTANCES
 KM_PER_MILE = 1.609344
@@ -73,7 +74,7 @@ def payloads(rid):
                 'gain': round(r['gain'] or 0), 'hr': round(r['hr']) if r['hr'] else None}
 
     latest = runs[0]
-    latest['streams'] = (query_db('SELECT streams FROM Activity WHERE id=?', [latest['id']], one=True) or {'streams': None})['streams']
+    latest['streams'] = (query_db(f'SELECT {_streams.sql()} FROM Activity WHERE id=?', [latest['id']], one=True) or {'streams': None})['streams']
     longest = max(runs, key=lambda r: r['distance'] or 0)
     fastest = max((r for r in runs if (r['distance'] or 0) >= 1000 and r['movingTime']), key=lambda r: (r['distance'] or 0) / r['movingTime'], default=None)
     try:

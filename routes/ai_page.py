@@ -1,10 +1,10 @@
-import json
 import logging
 from datetime import datetime
 
-from flask import Blueprint, Response, flash, jsonify, redirect, render_template, request, stream_with_context, url_for
+from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 from database import get_db, query_db
-from services import logs
+from services import jobs, logs
+from services import streams as _streams
 
 bp = Blueprint('ai_page', __name__)
 log = logging.getLogger(__name__)
@@ -151,37 +151,35 @@ def _activity_where(date_from, date_to, force):
     return clause, params
 
 
-@bp.route('/ai/bulk-analyse')
+@bp.route('/ai/bulk-analyse', methods=['POST'])
 def bulk_analyse():
-    date_from = request.args.get('from', '')
-    date_to   = request.args.get('to', '')
-    force     = request.args.get('force', '') == '1'
+    """Queue the batch for the worker and return {job}: the page follows it (static/js/app.js followJob) rather than holding one of the
+    server's threads for as long as the AI takes over hundreds of rides. One already queued or running is the one returned."""
+    db = get_db()
+    args = {'from': request.form.get('from', ''), 'to': request.form.get('to', ''), 'force': request.form.get('force', '') == '1'}
+    job = jobs.enqueue(db, 'ai_bulk_analyse', args) or jobs.active(db, 'ai_bulk_analyse')['id']
+    return jsonify({'job': job})
 
-    def generate():
-        db = get_db()
-        clause, params = _activity_where(date_from, date_to, force)
+
+@jobs.handler('ai_bulk_analyse')
+def _bulk_analyse_job(job):
+    """The page's events, as the stream used to send them: start {total}, progress {i, total, name, date}, error {name, detail}, then done
+    {analysed, skipped}."""
+    from services.ai import AIDeclined, AIUnavailable, analyse_ride
+    db = get_db()
+    a = job['args']
+    with jobs.Events(job) as ev:
+        clause, params = _activity_where(a.get('from', ''), a.get('to', ''), a.get('force'))
         # Only the ids up front: each ride is read whole when its turn comes, not all of them (streams and all) before the first
-        rides = query_db(
-            f'SELECT id, name, startDateLocal FROM Ride {clause} ORDER BY startDateLocal ASC',
-            params
-        )
-
+        rides = query_db(f'SELECT id, name, startDateLocal FROM Ride {clause} ORDER BY startDateLocal ASC', params)
         total = len(rides)
-        yield f'data: {json.dumps({"type":"start","total":total})}\n\n'
-
-        if total == 0:
-            yield f'data: {json.dumps({"type":"done","analysed":0,"skipped":0})}\n\n'
-            return
-
-        analysed = 0
-        skipped  = 0
-
+        ev.emit({'type': 'start', 'total': total})
+        analysed = skipped = 0
         for i, listed in enumerate(rides):
             name = listed['name'] or listed['id']
             date = str(listed['startDateLocal'] or '')[:10]
-            yield f'data: {json.dumps({"type":"progress","i":i+1,"total":total,"name":name,"date":date})}\n\n'
-            from services.ai import AIDeclined, AIUnavailable, analyse_ride
-            activity = db.execute('SELECT * FROM Ride WHERE id=?', [listed['id']]).fetchone()
+            ev.emit({'type': 'progress', 'i': i + 1, 'total': total, 'name': name, 'date': date})
+            activity = db.execute(f'SELECT *, {_streams.sql("Ride")} FROM Ride WHERE id=?', [listed['id']]).fetchone()
             if not activity:                           # deleted while the others were analysed
                 skipped += 1
                 continue
@@ -190,16 +188,12 @@ def bulk_analyse():
                 analysed += 1
             except (AIUnavailable, AIDeclined) as e:   # our own words: no key set, or the model said no
                 skipped += 1
-                yield f'data: {json.dumps({"type":"error","name":name,"detail":str(e)})}\n\n'
+                ev.emit({'type': 'error', 'name': name, 'detail': str(e)})
             except Exception:
                 log.exception('Bulk analysis of activity %s failed', activity['id'])
                 skipped += 1
-                yield f'data: {json.dumps({"type":"error","name":name,"detail":logs.failed("Analysis failed")})}\n\n'
-
-        yield f'data: {json.dumps({"type":"done","analysed":analysed,"skipped":skipped})}\n\n'
-
-    return Response(stream_with_context(logs.keep_id(generate())), mimetype='text/event-stream',
-                    headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'})
+                ev.emit({'type': 'error', 'name': name, 'detail': logs.failed('Analysis failed')})
+        ev.emit({'type': 'done', 'analysed': analysed, 'skipped': skipped})
 
 
 @bp.route('/ai/count')

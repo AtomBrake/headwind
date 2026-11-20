@@ -9,6 +9,7 @@ import app as app_module
 import config
 import database
 from services import credentials, sports, zwift
+from services import streams as stream_store
 
 
 class _NoThread:
@@ -37,8 +38,9 @@ def client(tmp_path, monkeypatch):
         db.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
         db.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
         for aid, sport, lat0, lng0 in RIDES:
-            db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, rawData, streams) "
-                       "VALUES (?, ?, ?, 1, '2026-10-01T08:00:00', 20000, 3600, '{}', ?)", [aid, aid, sport, _streams(lat0, lng0)])
+            db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, rawData) "
+                       "VALUES (?, ?, ?, 1, '2026-10-01T08:00:00', 20000, 3600, '{}')", [aid, aid, sport])
+            stream_store.save(db, aid, _streams(lat0, lng0))
         db.commit()
         av = credentials.auth_version()
     c = app.test_client()
