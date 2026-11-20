@@ -42,7 +42,7 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
   - [ ] **Later:** show friends linked through the feed that you're out now, on their Friends page; and a safety alert to the chosen contacts (ntfy, `services/notify.py`) when you've stopped moving for a set time away from home.
   - [ ] Tests: a link shows the track and stops working once revoked or expired; an unknown token gets the same page as an expired one; the page never shows another rider or an earlier activity; two riders recording at once keep their own tracks; a restart mid-ride keeps the track.
 
-- [ ] **Friends' new rides are hard to find.** They only show after picking the friend's rider at the top of the Dashboard or Activities page (`dashboard._activity_list` lists one rider). Show each friend's latest activity on the Friends page with a link to their list, and after a sync that brought new ones, say so there ("Sam: 1 new ride, Ride Activity, 20 Oct") with a link. Optionally, a "Friends" choice in the rider buttons that lists everyone's activities by date.
+- [ ] **Everyone's activities in one list.** A "Friends" choice in the rider buttons on the Dashboard and Activities page that lists all friends' activities together by date, each with its rider's avatar. Today the list shows one rider at a time (`dashboard._activity_list`, `where = ['a.riderId=?']`); the Friends page has each friend's latest and what a sync brought (0.7.46).
 
 ### Privacy and security
 
