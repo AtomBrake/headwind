@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.43-beta] - 2026-11-20
 
 ### Added
 - **Favourite sports in the sidebar.** Under **Settings → Display**, tick the sports you do most, and each gets its own item under Activities in the sidebar, opening the list with only that sport. A favourite can be Cycling (every kind of ride: road, indoor, e-bike, mountain bike, gravel), On foot (runs, walks and hikes), Swimming, or one sport on its own, such as Run without the walks. The list it opens says what it keeps, not what it leaves out, so a kind of ride you first record next year shows up under Cycling by itself. The item is highlighted while that's the only filter on. The **Only rides** / **Only on foot** links work the same way now. The iPhone app gets the favourites from `GET /api/v1/ping` (`favourite_sports`), in the form its activity list already filters by.
