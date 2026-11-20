@@ -1,6 +1,7 @@
 """A Strava export is kept after it's imported (services/strava_export.py), so it can be imported again without uploading it. Full app, throwaway
 DB; the import's background thread runs straight through."""
 import io
+import json
 import os
 import threading
 import zipfile
@@ -10,7 +11,7 @@ import pytest
 import app as app_module
 import config
 import database
-from services import credentials, strava_export
+from services import credentials, jobs, strava_export
 
 GPX = ('<?xml version="1.0"?><gpx version="1.1" creator="t" xmlns="http://www.topografix.com/GPX/1/1"><trk><name>Tour</name><trkseg>'
        + ''.join(f'<trkpt lat="{50.4 + i * 0.0001:.5f}" lon="-4.7"><ele>50</ele><time>2026-07-04T09:{i // 60:02d}:{i % 60:02d}Z</time></trkpt>'
@@ -21,19 +22,16 @@ ROW = '101,"Jul 4, 2026, 9:00:00 AM",Tour,Ride,600,0.66,590,600,660,activities/1
 MANUAL = '102,"Jul 5, 2026, 9:00:00 AM",Typed in,Ride,3600,20.0,3600,3600,20000,\n'
 
 
-class _Thread:
-    """The import's worker runs on start(), before the response streams; the app's own background threads don't run at all."""
-    def __init__(self, *a, target=None, **kw):
-        self.target = target
-    def start(self):
-        if self.target and self.target.__qualname__.startswith('_start.'):
-            self.target()
+class _NoThread:
+    """The app's own background threads don't run at all; the import's job is run by _post, as the worker would."""
+    def __init__(self, *a, **kw): pass
+    def start(self): pass
 
 
 @pytest.fixture
 def app(tmp_path, monkeypatch):
     monkeypatch.setattr(config.Config, 'DATABASE', str(tmp_path / 't.db'))
-    monkeypatch.setattr(threading, 'Thread', _Thread)
+    monkeypatch.setattr(threading, 'Thread', _NoThread)
     a = app_module.create_app()
     with a.app_context():
         db = database.get_db()
@@ -69,8 +67,14 @@ def _files_zip():
 
 
 def _post(client, url, data):
-    body = client.post(url, data=data).get_data(as_text=True)
-    return [e for e in body.split('\n\n') if e.startswith('data:')][-1]
+    """The import's last word, as JSON text: the error it was refused with, or the last thing the job it queued said, run here as the worker
+    would run it."""
+    d = client.post(url, data=data).get_json()
+    if 'job' not in d:
+        return json.dumps(d)
+    jobs.run_queued(client.application)
+    with client.application.app_context():
+        return json.dumps(jobs.events(database.get_db(), d['job'])[-1])
 
 
 def _upload(client, data, name='export.zip', **form):

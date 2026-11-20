@@ -6,17 +6,18 @@ import json
 import logging
 import os
 import tempfile
-import threading
+import time
 import traceback
 import zipfile
 from datetime import datetime, timezone
 
-from flask import Blueprint, Response, current_app, render_template, request, stream_with_context
+from flask import Blueprint, current_app, jsonify, render_template, request
 
 from database import get_db, query_db
 from services.parser import ACTIVITY_EXTENSIONS, parse_activity_file
 from services.limits import safe_gunzip, safe_zip_read, check_zip
 from services.sports import RIDES, canonical, label
+from services import jobs
 from services import streams as _streams
 
 log = logging.getLogger(__name__)
@@ -180,9 +181,13 @@ def resolve_change(ride_id, choice):
 
 @bp.route('/import/upload', methods=['POST'])
 def upload():
+    """Save the upload and queue its import for the background worker: {job} for the page to follow (static/js/app.js followJob), or
+    {error}. The import goes on whether or not the page stays open."""
     f = request.files.get('zipfile')
     if not f or not f.filename:
-        return Response('data: {"error":"No file selected"}\n\n', mimetype='text/event-stream')
+        return jsonify(error='No file selected')
+    if _active(get_db()):
+        return jsonify(error='An import is already running')
 
     from database import query_db as _qdb
     from services import strava_export
@@ -194,86 +199,161 @@ def upload():
         default = _qdb('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
         rider_id = default['id'] if default else None
 
-    opt_segments = request.form.get('importSegments') == '1'         # a Strava export's segments.csv: off unless asked for
-    opt_photos = request.form.get('importPhotos', '1') == '1'        # its photos: on unless turned off
-    opt_keep = request.form.get('keepExport', '1') == '1'            # a Strava export kept for Import again: on unless turned off
-
     name_lower = f.filename.lower()
     is_single = name_lower.endswith(ACTIVITY_EXTENSIONS)
-
     suffix = next((e for e in ACTIVITY_EXTENSIONS if name_lower.endswith(e)), '.zip')
     db_path = current_app.config['DATABASE']
-    if is_single:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    else:                                               # beside the database: a Strava export kept for Import again is moved, not copied (GBs)
-        strava_export.clear_stale_uploads(db_path)
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix=strava_export.UPLOAD_PREFIX, dir=strava_export.export_dir(db_path))
+    # beside the database, where the worker reads it: a Strava export kept for Import again is moved, not copied (GBs)
+    strava_export.clear_stale_uploads(db_path)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix=strava_export.UPLOAD_PREFIX, dir=strava_export.export_dir(db_path))
     f.save(tmp)
     tmp.close()
-
-    def work(job):
-        if is_single:
-            for item in _process_single_file(tmp.name, f.filename, rider_id):
-                job.put(item)
-            return
-        done = None
-        with zipfile.ZipFile(tmp.name) as zf:
-            check_zip(zf)
-            names = set(zf.namelist())
-            log.info('Import started — %d files in zip, has_csv=%s', len(names), 'activities.csv' in names)
-            strava = 'activities.csv' in names
-            if strava:
-                gen = _process_strava_export(zf, names, rider_id, segments=opt_segments, photos=opt_photos)
-            else:
-                gen = _process_generic_zip(zf, names, rider_id)
-            for item in gen:
-                if strava and '"complete": true' in item:
-                    done = json.loads(item[len('data: '):])     # held back until the zip is closed and kept, so the summary can say so
-                else:
-                    job.put(item)
-        if done is not None:
-            if rider_id:
-                strava_export.note_read(get_db(), rider_id)
-            if opt_keep and rider_id:
-                try:
-                    strava_export.keep(get_db(), db_path, rider_id, tmp.name, job.state.get('total'), opt_segments, opt_photos)
-                    done['kept'] = True
-                except OSError as e:
-                    log.error('Strava import: could not keep the export (%s)', e)
-            job.put(_event(done))
-
-    def cleanup():
-        try:
-            os.unlink(tmp.name)                         # gone already when the export was kept
-        except FileNotFoundError:
-            pass
-
-    return _start(work, cleanup)
+    return _queue({'upload': tmp.name, 'filename': f.filename, 'single': is_single, 'rider': rider_id,
+                   'segments': request.form.get('importSegments') == '1',       # a Strava export's segments.csv: off unless asked for
+                   'photos': request.form.get('importPhotos', '1') == '1',      # its photos: on unless turned off
+                   'keep': request.form.get('keepExport', '1') == '1'})         # a Strava export kept for Import again: on unless turned off
 
 
 @bp.route('/import/strava-export/<int:rider_id>/again', methods=['POST'])
 def import_again(rider_id):
     """Import a rider's kept Strava export again (services/strava_export.py), with the options ticked on the page. The file stays kept."""
     from services import strava_export
-    if _current_job is not None and not _current_job.done:
-        return Response('data: {"error":"An import is already running"}\n\n', mimetype='text/event-stream')
+    if _active(get_db()):
+        return jsonify(error='An import is already running')
     path = strava_export.path_for(current_app.config['DATABASE'], rider_id)
     if not os.path.isfile(path) or not get_db().execute('SELECT 1 FROM StravaExport WHERE riderId=?', [rider_id]).fetchone():
-        return Response('data: {"error":"That export is no longer kept"}\n\n', mimetype='text/event-stream')
-    opt_segments = request.form.get('importSegments') == '1'
-    opt_photos = request.form.get('importPhotos', '1') == '1'
+        return jsonify(error='That export is no longer kept')
+    return _queue({'again': rider_id, 'segments': request.form.get('importSegments') == '1',
+                   'photos': request.form.get('importPhotos', '1') == '1'})
 
-    def work(job):
-        with zipfile.ZipFile(path) as zf:
-            check_zip(zf)
-            names = set(zf.namelist())
-            log.info('Import again of the kept Strava export for rider %s — %d files in zip', rider_id, len(names))
-            for item in _process_strava_export(zf, names, rider_id, segments=opt_segments, photos=opt_photos):
-                job.put(item)
-        strava_export.read_again(get_db(), rider_id, job.state.get('total'), opt_segments, opt_photos)
-        strava_export.note_read(get_db(), rider_id)
 
-    return _start(work)
+def _queue(args):
+    job = jobs.enqueue(get_db(), 'import', args)
+    if job is None:                                     # another got in first
+        if args.get('upload'):
+            _unlink(args['upload'])
+        return jsonify(error='An import is already running')
+    return jsonify(job=job)
+
+
+def _active(db):
+    return jobs.active(db, 'import')
+
+
+def clear_uploads(db):
+    """When the worker starts: the uploads of imports a restart cut short (gigabytes, for a Strava export), not a day later. Not one a queued
+    import will read, nor one still arriving from a browser."""
+    from services import strava_export
+    waiting = {json.loads(r[0]).get('upload') for r in db.execute("SELECT args FROM Job WHERE kind='import' AND state='queued'")}
+    strava_export.clear_stale_uploads(current_app.config['DATABASE'], waiting, idle=600)
+
+
+def _unlink(path):
+    try:
+        os.unlink(path)                                 # gone already when the export was kept
+    except FileNotFoundError:
+        pass
+
+
+class _Log:
+    """What an import says, as the page reads it: each event (_event's text) in order, through jobs.Events, with its fields merged into the
+    job's progress for the indicator on every page. Progress counts go at most once a second (and the last one at the end): a big export has
+    thousands."""
+
+    def __init__(self, ev):
+        self.ev, self.held, self.sent = ev, None, 0.0
+
+    @property
+    def state(self):
+        return {**self.ev.state, **(self.held or {})}
+
+    def put(self, item):
+        d = json.loads(item[len('data: '):])
+        if 'done' in d and 'complete' not in d:
+            self.held = d
+            if time.monotonic() - self.sent < 1:
+                return
+        self.flush()
+        if self.held is not d:
+            self.ev.emit(d)
+
+    def flush(self):
+        if self.held is not None:
+            self.ev.emit(self.held)
+            self.held, self.sent = None, time.monotonic()
+
+
+@jobs.handler('import')
+def _import_job(job):
+    """An upload (args: upload, filename, single, rider, segments, photos, keep) or a kept Strava export read again (args: again, the rider)."""
+    a = job['args']
+    with jobs.Events(job, state=True) as ev:
+        out = _Log(ev)
+        try:
+            if a.get('again'):
+                _read_again(out, a['again'], a['segments'], a['photos'])
+            else:
+                _read_upload(out, a)
+        except zipfile.BadZipFile:
+            log.error('Import failed: bad zip file')
+            out.flush()
+            ev.emit({'error': 'Not a valid zip file'})
+            raise
+        except Exception as e:
+            log.error('Import failed: %s\n%s', e, traceback.format_exc())
+            out.flush()
+            ev.emit({'error': str(e)})
+            raise
+        finally:
+            out.flush()
+            if a.get('upload'):
+                _unlink(a['upload'])
+
+
+def _read_upload(out, a):
+    from services import strava_export
+    path, rider_id = a['upload'], a['rider']
+    if a['single']:
+        for item in _process_single_file(path, a['filename'], rider_id):
+            out.put(item)
+        return
+    done = None
+    with zipfile.ZipFile(path) as zf:
+        check_zip(zf)
+        names = set(zf.namelist())
+        log.info('Import started — %d files in zip, has_csv=%s', len(names), 'activities.csv' in names)
+        strava = 'activities.csv' in names
+        if strava:
+            gen = _process_strava_export(zf, names, rider_id, segments=a['segments'], photos=a['photos'])
+        else:
+            gen = _process_generic_zip(zf, names, rider_id)
+        for item in gen:
+            if strava and '"complete": true' in item:
+                done = json.loads(item[len('data: '):])     # held back until the zip is closed and kept, so the summary can say so
+            else:
+                out.put(item)
+    if done is not None:
+        if rider_id:
+            strava_export.note_read(get_db(), rider_id)
+        if a['keep'] and rider_id:
+            try:
+                strava_export.keep(get_db(), current_app.config['DATABASE'], rider_id, path, out.state.get('total'), a['segments'], a['photos'])
+                done['kept'] = True
+            except OSError as e:
+                log.error('Strava import: could not keep the export (%s)', e)
+        out.put(_event(done))
+
+
+def _read_again(out, rider_id, segments, photos):
+    from services import strava_export
+    with zipfile.ZipFile(strava_export.path_for(current_app.config['DATABASE'], rider_id)) as zf:
+        check_zip(zf)
+        names = set(zf.namelist())
+        log.info('Import again of the kept Strava export for rider %s — %d files in zip', rider_id, len(names))
+        for item in _process_strava_export(zf, names, rider_id, segments=segments, photos=photos):
+            out.put(item)
+    strava_export.read_again(get_db(), rider_id, out.state.get('total'), segments, photos)
+    strava_export.note_read(get_db(), rider_id)
 
 
 @bp.route('/import/strava-export/<int:rider_id>/not-now', methods=['POST'])
@@ -289,7 +369,7 @@ def advice_not_now(rider_id):
 def delete_kept(rider_id):
     from flask import flash, redirect, url_for
     from services import strava_export
-    if _current_job is not None and not _current_job.done:
+    if _active(get_db()):
         flash('An import is running: delete the export once it has finished.', 'error')
         return redirect(url_for('import_rides.index'))
     db = get_db()
@@ -299,115 +379,41 @@ def delete_kept(rider_id):
     return redirect(url_for('import_rides.index'))
 
 
-def _start(work, cleanup=None):
-    """Run work(job) in a background thread so a browser disconnect can't kill the import, and stream its job log. The worker appends to a log that
-    never blocks; any number of SSE streams (the page that started it, or the import page reopened later) read from it."""
-    job = _Job()
-    global _current_job
-    _current_job = job
-    app = current_app._get_current_object()
-
-    def _worker():
-        with app.app_context():
-            try:
-                work(job)
-            except zipfile.BadZipFile:
-                log.error('Import failed: bad zip file')
-                job.put(_event({'error': 'Not a valid zip file'}))
-            except Exception as e:
-                log.error('Import failed: %s\n%s', e, traceback.format_exc())
-                job.put(_event({'error': str(e)}))
-            finally:
-                if cleanup:
-                    cleanup()
-                job.finish()  # always signals end
-
-    threading.Thread(target=_worker, daemon=True).start()
-    return _sse(job.stream())
+def _latest(db):
+    """The last import's job, unless its outcome has been shown (the page that followed it to the end, or the indicator dismissed)."""
+    job = jobs.last(db, 'import')
+    if job is None or (job['state'] in ('done', 'failed') and (job['progress'] or {}).get('delivered')):
+        return None
+    return job
 
 
 @bp.route('/import/status')
 def status():
-    """Re-attach to the import still running in the background after the page was left, or show once how one that finished
-    while nobody was watching turned out. Streams nothing when there is neither."""
-    job = _current_job
-    if job is None or (job.done and job.delivered):
-        return _sse(iter(()))
-    return _sse(job.stream())
+    """{job} of the import still running after the page was left, or of one that finished while nobody was watching, shown once; {} when
+    there is neither. The page follows it as it does one it started."""
+    job = _latest(get_db())
+    return jsonify(job=job['id']) if job else jsonify({})
 
 
 @bp.route('/import/progress')
 def progress():
     """Snapshot of the background import for the indicator every page shows: {} when there is nothing to show."""
-    job = _current_job
-    if job is None or (job.done and job.delivered):
+    job = _latest(get_db())
+    if job is None:
         return {}
-    with job.cond:
-        return dict(job.state, running=not job.done)
+    state = {k: v for k, v in (job['progress'] or {}).items() if k != 'delivered'}
+    if job['state'] == 'failed' and not state.get('error'):
+        state['error'] = job['error']                   # cut short by a restart (jobs.fail_orphans), or failed before it said why
+    return dict(state, running=job['state'] in ('queued', 'running'))
 
 
 @bp.route('/import/progress/dismiss', methods=['POST'])
 def dismiss():
-    job = _current_job
-    if job is not None and job.done:
-        job.delivered = True
+    db = get_db()
+    job = jobs.last(db, 'import')
+    if job is not None and job['state'] in ('done', 'failed'):
+        jobs.progress(db, job['id'], delivered=True)
     return {}
-
-
-def _sse(gen):
-    return Response(
-        stream_with_context(gen),
-        mimetype='text/event-stream',
-        headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'},
-    )
-
-
-class _Job:
-    """Event log of one web import. Gunicorn runs a single worker process, so a module-level job is visible to every request."""
-
-    def __init__(self):
-        self.events = []            # (is_progress, sse_text)
-        self.done = False
-        self.delivered = False      # the outcome has been shown: a stream passed the end on, or the indicator was dismissed
-        self.state = {}             # every field seen so far (total, done, imported, ..., complete, error), for /import/progress
-        self.cond = threading.Condition()
-
-    def put(self, item):
-        with self.cond:
-            self.events.append(('"done":' in item, item))
-            try:
-                self.state.update(json.loads(item[len('data: '):]))
-            except ValueError:
-                pass
-            self.cond.notify_all()
-
-    def finish(self):
-        with self.cond:
-            self.done = True
-            self.cond.notify_all()
-
-    def stream(self):
-        i = 0
-        while True:
-            with self.cond:
-                while i == len(self.events) and not self.done:
-                    if not self.cond.wait(timeout=15):
-                        break
-                batch, i, done = self.events[i:], len(self.events), self.done
-            if not batch and not done:
-                yield ': keepalive\n\n'   # also how a vanished browser is noticed; the worker carries on regardless
-                continue
-            # A late joiner catching up on a big Strava export only needs the latest progress, not thousands of them.
-            last_progress = max((n for n, (p, _) in enumerate(batch) if p), default=-1)
-            for n, (is_progress, item) in enumerate(batch):
-                if not is_progress or n == last_progress:
-                    yield item
-            if done:
-                self.delivered = True
-                return
-
-
-_current_job = None
 
 
 @bp.route('/import/api/upload-ride', methods=['POST'])
@@ -687,7 +693,8 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
             _mark_manual(db, act_id)                    # check must not take for a recording (services/duplicates.is_manual)
         else:                                           # it has a file: a recording, whatever an upgrade guessed (services/strava_manual)
             db.execute("UPDATE Activity SET source=NULL WHERE id=? AND source='manual'", [act_id])
-        seen_key = 'strava:' + act_id
+        db.commit()                                     # not held through reading the file (seconds, for a big FIT): the worker's other jobs
+        seen_key = 'strava:' + act_id                   # and the pages write meanwhile
         seen_fp = reimport.fingerprint(rider_id, row, reimport.zip_fingerprint(zf, filename) if filename in names else '')
         if reimport.unchanged(db, seen_key, seen_fp):                # the same file and row, read before by the same code: nothing new in it
             unchanged += 1

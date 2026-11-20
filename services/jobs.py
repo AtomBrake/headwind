@@ -143,24 +143,34 @@ def fail_orphans(db):
 
 class Events:
     """What a job says as it goes (any JSON-able dicts), for the page following it (events()). Written through a connection of its own, so
-    they never commit the job's own work halfway: when the job is holding the database, they wait in memory and go with the next one, or at
-    close(). with jobs.Events(job) as ev: ev.emit({...})."""
+    they never commit the job's own work halfway: while the job's own connection is in a transaction (it holds the write lock, so no other
+    can write), or another holds the database, they wait in memory and go with the next, or at the end. with jobs.Events(job) as ev: ev.emit({...}).
+    state=True: every event's fields merged into the job's progress as well, for a glance at how it's going without reading them all."""
 
-    def __init__(self, job):
+    def __init__(self, job, state=False):
         self.job_id, self.n, self._waiting = job['id'], 0, []
+        self.state = {} if state else None
 
     def emit(self, event):
         self._waiting.append(event)
+        if self.state is not None:
+            self.state.update(event)
         self._flush(0.2)
 
     def _flush(self, timeout):
         if not self._waiting or not _database:
+            return
+        from flask import g, has_app_context
+        own = g.get('db') if has_app_context() else None
+        if own is not None and own.in_transaction and timeout < 1:
             return
         try:
             conn = sqlite3.connect(_database, timeout=timeout)
             try:
                 conn.executemany('INSERT INTO JobEvent (jobId, n, data) VALUES (?, ?, ?)',
                                  [(self.job_id, self.n + i, json.dumps(e)) for i, e in enumerate(self._waiting)])
+                if self.state is not None:
+                    conn.execute('UPDATE Job SET progress=? WHERE id=?', [json.dumps(self.state), self.job_id])
                 conn.commit()
             finally:
                 conn.close()
@@ -266,14 +276,18 @@ class Wake:
             conn.close()
 
     def clear(self):
-        conn = self._conn()
-        if conn is None:
-            return
+        """Never raises: the loops call it outside their own try, and one left set only wakes them once more."""
         try:
-            conn.execute('DELETE FROM Wake WHERE name=?', [self.name])
-            conn.commit()
-        finally:
-            conn.close()
+            conn = self._conn()
+            if conn is None:
+                return
+            try:
+                conn.execute('DELETE FROM Wake WHERE name=?', [self.name])
+                conn.commit()
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            log.warning('Wake %s: could not clear it (database busy); it wakes its loop once more', self.name, exc_info=True)
 
     def wait(self, timeout):
         """True as soon as it's set, False after timeout seconds."""

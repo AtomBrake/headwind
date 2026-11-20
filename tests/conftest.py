@@ -14,15 +14,13 @@ def _home_zone(monkeypatch):
 
 @pytest.fixture
 def backup_zip(monkeypatch):
-    """backup_zip(client, secrets=False) -> the download's response: Make backup on Settings, with the background job run there and then
+    """backup_zip(client, secrets=False) -> the download's response: Make backup on Settings, with the job the worker would run run there and then
     (services/downloads.py)."""
-    from services import downloads
-    monkeypatch.setattr(downloads, '_spawn', lambda fn: fn())
-    monkeypatch.setattr(downloads, '_expire_later', lambda kind, path: None)
-    monkeypatch.setattr(downloads, '_jobs', {})
+    from services import jobs
 
     def make(client, secrets=False):
         assert client.post('/settings/backup/export', data={'secrets': '1'} if secrets else {}).status_code == 302
+        jobs.run_queued(client.application)
         status = client.get('/settings/backup/status').get_json()
         assert status['state'] == 'ready', status
         return client.get(status['url'])
@@ -37,4 +35,3 @@ def _no_friend_sync_left_running():
     friends = sys.modules.get('routes.friends')
     if friends:
         friends._syncing.clear()
-        friends._last.clear()

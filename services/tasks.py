@@ -8,7 +8,7 @@ kept in TaskLog.logId so the Tasks page can point at them.
 Never raises into the job it describes: a logging problem must not stop a sync."""
 import logging
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from services import logs
 
@@ -225,16 +225,16 @@ def overview(db):
                           f"{a['label']}: {a['error'] or a['result'] or 'in progress…'}" if a else 'Waiting for a new ride.',
                           (a or {}).get('finishedAt'), {'url': '/ai', 'label': 'AI Coach'}))
 
-    # An import started on the Import page
+    # An import started on the Import page, running or in the last day (routes/import_rides: a job the worker runs)
     try:
-        from routes import import_rides
-        job = import_rides._current_job
-        if job is not None:
-            st = dict(job.state)
-            if not job.done:
+        from services import jobs as _jobs
+        job = _jobs.last(db, 'import')
+        if job is not None and (job['state'] in ('queued', 'running') or (job['finishedAt'] or '') >= (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec='seconds')):
+            st = job['progress'] or {}
+            if job['state'] in ('queued', 'running'):
                 jobs.append(_card('Import', 'running', f"{st.get('done', 0)} / {st.get('total', '?')} files", None, {'url': '/import', 'label': 'Open'}))
-            elif st.get('error'):
-                jobs.append(_card('Import', 'failed', st['error'], None, {'url': '/import', 'label': 'Open'}))
+            elif st.get('error') or job['state'] == 'failed':
+                jobs.append(_card('Import', 'failed', st.get('error') or job['error'], None, {'url': '/import', 'label': 'Open'}))
             else:
                 jobs.append(_card('Import', 'done', f"{st.get('imported', 0)} imported, {st.get('skipped', 0)} skipped, {st.get('errors', 0)} errors.", None,
                                   {'url': '/import', 'label': 'Open'}))

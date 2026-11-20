@@ -929,7 +929,7 @@ Like the Android app it **requires HTTPS**. Pair it from **Phones**: name the ph
 
 ## How it works
 
-**Stack** — Python 3.14 / Flask, SQLite (WAL), Jinja templates, vanilla JavaScript, Chart.js, Leaflet. One gunicorn worker with several threads serves the pages; the background work (Garmin sync, MQTT, friend sync, the jobs pages queue) runs in a worker process beside it, which Gunicorn starts. Shipped as a multi-arch Docker image. Windows build: PyInstaller + waitress + pystray.
+**Stack** — Python 3.14 / Flask, SQLite (WAL), Jinja templates, vanilla JavaScript, Chart.js, Leaflet. One gunicorn worker with several threads serves the pages; the background work (imports, backups, the Garmin and friend syncs, MQTT, AI analyses: whatever a page starts, and the timed loops) runs in a worker process beside it, which Gunicorn starts. Shipped as a multi-arch Docker image. Windows build: PyInstaller + waitress + pystray.
 
 **Layout**
 

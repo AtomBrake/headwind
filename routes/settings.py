@@ -3,16 +3,12 @@ import os
 import shutil
 import sqlite3
 import ssl
-import threading as _threading
 from datetime import datetime
 from pathlib import Path
 
-_backfill_lock  = _threading.Lock()
-_backfill_state = {'running': False, 'done': 0, 'failed': 0}
-
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from database import get_db, migrate_db, query_db
-from services import external_url, logs, vault
+from services import external_url, jobs, logs, vault
 
 import time
 bp = Blueprint('settings', __name__)
@@ -355,39 +351,28 @@ _WX_MISSING = f"""FROM Activity WHERE weatherSummary IS NULL AND startDateLocal 
 
 @bp.route('/weather-backfill', methods=['POST'])
 def weather_backfill():
-    from flask import current_app
-    from database import get_db
-
+    """Start fetching the weather for every activity without it, in the background worker, or say how far it has got: the page posts again
+    every 2 s until nothing remains. Not started again when every one still missing failed last time (Open-Meteo has nothing for them)."""
     db = get_db()
     remaining = db.execute('SELECT COUNT(*) ' + _WX_MISSING).fetchone()[0]
-
-    with _backfill_lock:
-        if _backfill_state['running']:
-            return jsonify(done=_backfill_state['done'], failed=_backfill_state['failed'], remaining=remaining, running=True)
-        if remaining == 0 or (_backfill_state.get('last_failed') and _backfill_state['last_failed'] >= remaining):
-            return jsonify(done=_backfill_state['done'], failed=_backfill_state['failed'], remaining=0)
-        _backfill_state['running'] = True
-        _backfill_state['done'] = 0
-        _backfill_state['failed'] = 0
-
-    app = current_app._get_current_object()
-
-    def _each(done, failed):
-        with _backfill_lock:
-            _backfill_state['done'], _backfill_state['failed'] = done, failed
-
-    def _run():
-        from services.weather import backfill_missing
-        with app.app_context():
-            try:
-                backfill_missing(get_db(), on_each=_each)      # start point, or the first GPS point of the track for older imports
-            finally:
-                with _backfill_lock:
-                    _backfill_state['running'] = False
-                    _backfill_state['last_failed'] = _backfill_state['failed']
-
-    _threading.Thread(target=_run, daemon=True).start()
+    job = jobs.active(db, 'weather_backfill')
+    if job:
+        p = job['progress'] or {}
+        return jsonify(done=p.get('done', 0), failed=p.get('failed', 0), remaining=remaining, running=True)
+    last = jobs.last(db, 'weather_backfill')
+    p = (last or {}).get('progress') or {}
+    if remaining == 0 or (p.get('failed') and p['failed'] >= remaining):
+        return jsonify(done=p.get('done', 0), failed=p.get('failed', 0), remaining=0)
+    jobs.enqueue(db, 'weather_backfill')
     return jsonify(done=0, failed=0, remaining=remaining, started=True)
+
+
+@jobs.handler('weather_backfill')
+def _weather_backfill(job):
+    """From the start point, or the first GPS point of the track for older imports."""
+    from services.weather import backfill_missing
+    db = get_db()
+    backfill_missing(db, on_each=lambda done, failed: jobs.progress(db, job['id'], done=done, failed=failed))     # each ride is committed first
 
 
 @bp.route('/password', methods=['POST'])
@@ -470,8 +455,7 @@ def backup_export():
     key = vault.key_path() if request.form.get('secrets') else None
     avatar_dir = _avatar_dir()
     name = f"headwind-backup{'-with-secrets' if key else ''}-{datetime.now():%Y-%m-%d}.zip"
-    started = downloads.start(current_app._get_current_object(), backup.KIND, 'Backup',
-                              lambda work_dir, report: backup.build(db, work_dir, avatar_dir, key=key, report=report),
+    started = downloads.start(backup.KIND, 'Backup', {'database': db, 'avatars': avatar_dir, 'key': key},
                               name, '/settings#backup', url_for('settings.backup_download', name=name), notify=True)
     if not started:
         flash('A backup is already being made: it will be offered here when it\'s ready.', 'error')

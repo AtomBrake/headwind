@@ -72,8 +72,7 @@ def troubleshooting_copy():
     from services import downloads, troubleshooting_copy as copy
     no_gps, no_streams = bool(request.form.get('no_gps')), bool(request.form.get('no_streams'))
     database = current_app.config['DATABASE']
-    started = downloads.start(current_app._get_current_object(), copy.KIND, 'Copy for troubleshooting',
-                              lambda work_dir, report: copy.build(database, work_dir, no_gps=no_gps, no_streams=no_streams),
+    started = downloads.start(copy.KIND, 'Copy for troubleshooting', {'database': database, 'no_gps': no_gps, 'no_streams': no_streams},
                               f"headwind-troubleshooting-{datetime.now():%Y-%m-%d-%H%M}.zip",
                               url_for('tasks.index') + '#copy', url_for('tasks.troubleshooting_copy_download'))
     if not started:

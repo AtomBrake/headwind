@@ -13,7 +13,7 @@ from flask import Flask
 import app as app_module
 import config
 import database
-from services import backup, credentials, downloads, notify
+from services import backup, credentials, downloads, jobs, notify
 
 JPEG = b'\xff\xd8\xff\xe0' + b'photo' * 2000
 
@@ -45,11 +45,7 @@ def setup(tmp_path, monkeypatch):
     os.makedirs(tmp_path / 'avatars')
     (tmp_path / 'avatars' / 'rider_1.png').write_bytes(b'\x89PNG' + b'x' * 100)
     monkeypatch.setattr(config.Config, 'DATABASE', path)
-    monkeypatch.setattr(downloads, '_jobs', {})
-    monkeypatch.setattr(downloads, '_expire_later', lambda kind, path: None)
-    waiting = []
-    monkeypatch.setattr(downloads, '_spawn', waiting.append)      # the job waits until the test runs it
-    return path, app_module.create_app(), waiting
+    return path, app_module.create_app()                         # no worker: a test runs what's queued with jobs.run_queued
 
 
 def _client(app):
@@ -62,6 +58,11 @@ def _client(app):
     return c
 
 
+def _queued(app):
+    with app.app_context():
+        return database.get_db().execute("SELECT COUNT(*) FROM Job WHERE state='queued'").fetchone()[0]
+
+
 def _pill(c):
     return {i['id']: i for i in c.get('/tasks/background').get_json()['items']}
 
@@ -71,15 +72,15 @@ def _made(path):
 
 
 def test_the_button_returns_at_once_and_the_zip_restores(setup, tmp_path):
-    path, app, waiting = setup
+    path, app = setup
     c = _client(app)
     r = c.post('/settings/backup/export')
     assert r.status_code == 302 and r.headers['Location'].endswith('/settings#backup')
-    assert len(waiting) == 1                                     # nothing made yet: the request only started it
+    assert _queued(app) == 1                                     # nothing made yet: the request only queued it
     assert c.get('/settings/backup/status').get_json()['state'] == 'running'
     assert 'Making the backup' in c.get('/settings/').get_data(as_text=True)
     assert _pill(c)['download:backup']['state'] == 'running'
-    waiting.pop()()
+    jobs.run_queued(app)
     s = c.get('/settings/backup/status').get_json()
     name = f'headwind-backup-{datetime.now():%Y-%m-%d}.zip'
     assert s['state'] == 'ready' and s['url'] == f'/settings/backup/download/{name}'
@@ -107,30 +108,30 @@ def test_the_button_returns_at_once_and_the_zip_restores(setup, tmp_path):
 
 
 def test_a_second_press_while_one_runs_starts_nothing(setup):
-    path, app, waiting = setup
+    path, app = setup
     c = _client(app)
     c.post('/settings/backup/export')
     c.post('/settings/backup/export', data={'secrets': '1'})
-    assert len(waiting) == 1
+    assert _queued(app) == 1
     with c.session_transaction() as s:
         assert any('already being made' in m for _, m in s.get('_flashes', []))
-    waiting.pop()()
+    jobs.run_queued(app)
     assert c.get('/settings/backup/status').get_json()['state'] == 'ready'
 
 
 def test_the_download_refuses_a_name_it_didnt_make(setup):
-    path, app, waiting = setup
+    path, app = setup
     c = _client(app)
     assert c.get('/settings/backup/download/headwind-backup-2026-01-01.zip').status_code == 302      # nothing made: back to the card
     c.post('/settings/backup/export')
-    waiting.pop()()
+    jobs.run_queued(app)
     assert c.get('/settings/backup/download/headwind-backup-2026-01-01.zip').status_code == 404
     assert c.get('/settings/backup/download/..%2Ft.db').status_code == 404
     assert c.get('/settings/backup/download/' + _made(path)[0]).status_code == 404          # the file's own name on disk isn't one
 
 
 def test_a_failed_run_shows_on_the_tasks_page_and_leaves_no_half_written_zip(setup, monkeypatch):
-    path, app, waiting = setup
+    path, app = setup
     real = backup._files
 
     def files(*a):
@@ -140,7 +141,7 @@ def test_a_failed_run_shows_on_the_tasks_page_and_leaves_no_half_written_zip(set
     monkeypatch.setattr(backup, '_files', files)
     c = _client(app)
     c.post('/settings/backup/export')
-    waiting.pop()()
+    jobs.run_queued(app)
     s = c.get('/settings/backup/status').get_json()
     assert s['state'] == 'failed' and 'No space left' in s['error']
     assert _made(path) == []                                     # neither a zip nor the folder it was being made in
@@ -153,10 +154,10 @@ def test_a_failed_run_shows_on_the_tasks_page_and_leaves_no_half_written_zip(set
 
 
 def test_the_secrets_key_goes_only_inside_the_zip_and_with_it(setup):
-    path, app, waiting = setup
+    path, app = setup
     c = _client(app)
     c.post('/settings/backup/export', data={'secrets': '1'})
-    waiting.pop()()
+    jobs.run_queued(app)
     s = c.get('/settings/backup/status').get_json()
     assert 'with-secrets' in s['url']
     z = zipfile.ZipFile(io.BytesIO(c.get(s['url']).data))
@@ -167,35 +168,43 @@ def test_the_secrets_key_goes_only_inside_the_zip_and_with_it(setup):
 
 
 def test_earlier_backups_stay_out_of_the_next_one(setup, tmp_path):
-    path, app, waiting = setup
+    path, app = setup
     c = _client(app)
     c.post('/settings/backup/export')
-    waiting.pop()()
+    jobs.run_queued(app)
     (tmp_path / 'rideimg' / 'headwind-backup.zip').write_bytes(b'PK old one')       # one copied into a photo folder by hand
     c.post('/settings/backup/export')
-    waiting.pop()()
+    jobs.run_queued(app)
     assert len(_made(path)) == 1                                 # the one before is deleted when the next is made
     names = zipfile.ZipFile(io.BytesIO(c.get(c.get('/settings/backup/status').get_json()['url']).data)).namelist()
     assert not [n for n in names if n.endswith('.zip') or downloads.FOLDER in n]
 
 
 def test_ready_says_so_through_ntfy_and_the_file_goes_after_a_day(setup, monkeypatch):
-    path, app, waiting = setup
+    path, app = setup
     sent = []
     monkeypatch.setattr(notify, 'send_notification', lambda *a: sent.append(a))
     app.config['APP_URL'] = 'https://headwind.example/'
     c = _client(app)
     c.post('/settings/backup/export')
-    waiting.pop()()
+    jobs.run_queued(app)
     title, body, click = sent[0]
     assert title == 'Backup ready' and 'kept for a day' in body and click == 'https://headwind.example/settings#backup'
-    downloads._expire('backup', downloads._jobs['backup']['path'])
-    assert _made(path) == [] and c.get('/settings/backup/status').get_json()['state'] == 'none'
+    monkeypatch.setattr(downloads, 'KEEP_SECS', -1)
+    assert c.get('/settings/backup/status').get_json()['state'] == 'none' and _made(path) == []
 
 
-def test_start_up_clears_what_a_run_before_the_restart_left(setup):
-    path, app, waiting = setup
+def test_the_worker_clears_what_a_run_before_the_restart_left_and_keeps_the_one_offered(setup):
+    path, app = setup
+    c = _client(app)
+    c.post('/settings/backup/export')
+    jobs.run_queued(app)
+    [offered] = _made(path)
     left = os.path.join(downloads.folder(path), 'backup-20260101-000000.zip')
     open(left, 'wb').write(b'PK')
-    app_module.create_app()
-    assert not os.path.exists(left)
+    os.makedirs(os.path.join(downloads.folder(path), '.making-backup'))
+    app_module.create_app()                                      # a web process starting leaves the folder alone: the worker may be writing there
+    assert len(_made(path)) == 3
+    with app.app_context():
+        downloads.clear(database.get_db(), path)                 # as the worker does when it starts
+    assert _made(path) == [offered] and c.get('/settings/backup/status').get_json()['state'] == 'ready'

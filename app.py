@@ -34,29 +34,9 @@ def _friends_autosync(app):
                 continue
             time.sleep(interval * 60)
             with app.app_context():
-                from database import query_db as _qdb, get_db as _gdb
-                from routes.friends import _do_sync
-                from services import tasks
-                friends = _qdb('SELECT id, name FROM Friend')
-                task_id = tasks.start(_gdb(), 'friend_sync', 'Friend sync') if friends else None
-                failed, rides = [], 0
-                for f in (friends or []):
-                    try:
-                        res = _do_sync(f['id'])                   # (activities new or changed here, error text or None)
-                        if isinstance(res, tuple) and res[1]:
-                            failed.append(f"{f['name']}: {str(res[1])[:80]}")
-                        elif isinstance(res, tuple):
-                            rides += res[0] or 0
-                    except Exception:
-                        failed.append(f"{f['name']}: the sync failed, the details are in the log")
-                        log.warning('Auto-sync failed for friend %s', f['id'], exc_info=True)
-                if task_id:
-                    n = len(friends)
-                    summary = f"{n - len(failed)} of {n} friend{'s' if n != 1 else ''} synced, " + \
-                        (f"{rides} new or changed activit{'ies' if rides != 1 else 'y'}." if rides else 'nothing new.')
-                    if failed and len(failed) < n:
-                        summary += ' Failed: ' + '; '.join(failed)
-                    tasks.finish(_gdb(), task_id, summary, '; '.join(failed) if failed and len(failed) == n else None)
+                from database import get_db
+                from services import jobs
+                jobs.enqueue(get_db(), 'friends_autosync')      # routes/friends._autosync_job; not while the last is still going
         except Exception as e:
             log.warning('Friends autosync loop error: %s', e)
             time.sleep(60)
@@ -329,8 +309,6 @@ def create_app():
         from services import vault
         vault.seal_plain(get_db())                    # keys and passwords saved before they were encrypted
         vault.seal_copies()                           # and in the copies of the database kept beside it (.pre-0.7.0, .pre-restore)
-        from services import downloads
-        downloads.clear(app.config['DATABASE'])        # files made for download before a restart
     _ensure_default_avatar(app)
 
     # ── Template filters ─────────────────────────────────────────
@@ -682,6 +660,7 @@ def create_app():
         app.register_blueprint(demo_bp)
     from services import jobs
     jobs.bind(app)                             # a page wakes the worker's loops through the database (jobs.Wake)
+    from services import auto_analyse, backup, troubleshooting_copy  # noqa: F401  (services with job handlers, beside the routes': the worker runs what they queue)
 
     return app
 

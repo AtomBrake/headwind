@@ -19,7 +19,7 @@ import sqlite3
 import zipfile
 from datetime import datetime
 
-from services import diagnostics, streams, vault
+from services import diagnostics, downloads, streams, vault
 
 KIND = 'troubleshooting'        # its job in services/downloads.py
 
@@ -220,6 +220,11 @@ def readme(no_gps, no_streams):
     out += ['', f'Left in it: {LEFT}' + ('.' if no_gps or no_streams else ', and the GPS tracks.'), '',
             'It is a Headwind backup with no photos: Settings -> Backup & Restore -> Restore loads it into a test server.']
     return '\n'.join(out) + '\n'
+
+
+@downloads.maker(KIND)
+def _make(args, work_dir, report):
+    return build(args['database'], work_dir, no_gps=args['no_gps'], no_streams=args['no_streams'])
 
 
 def build(database, tmp_dir, no_gps=False, no_streams=False):

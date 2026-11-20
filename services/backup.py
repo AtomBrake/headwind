@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import tempfile
 import zipfile
+from services import downloads
 from services import streams as _streams
 
 MAX_DB_BYTES = 2 * 1024 ** 3
@@ -44,6 +45,11 @@ def _files(database, avatar_dir):
                 path = os.path.join(src, name)
                 if pattern.match(f'{folder}/{name}') and os.path.isfile(path):
                     yield path, f'{folder}/{name}'
+
+
+@downloads.maker(KIND)
+def _make(args, work_dir, report):
+    return build(args['database'], work_dir, args['avatars'], key=args.get('key'), report=report)
 
 
 def build(database, work_dir, avatar_dir, key=None, report=lambda text, pct=None: None):

@@ -520,7 +520,7 @@ async function startUpload() {
   document.getElementById('progressCard').style.display = 'block';
   document.getElementById('doneCard').style.display = 'none';
 
-  await readStream(await fetch('/import/upload', { method: 'POST', body: fd }));
+  await follow(await fetch('/import/upload', { method: 'POST', body: fd }));
 }
 
 // Import again: the export kept on the server, read with the options ticked above. Nothing to upload.
@@ -533,39 +533,34 @@ async function importAgain(riderId, btn) {
   document.getElementById('progressCard').style.display = 'block';
   document.getElementById('doneCard').style.display = 'none';
   document.getElementById('progressCard').scrollIntoView({ behavior: 'smooth' });
-  await readStream(await fetch(`/import/strava-export/${riderId}/again`, { method: 'POST', body: fd }));
+  await follow(await fetch(`/import/strava-export/${riderId}/again`, { method: 'POST', body: fd }));
 }
 
-// The import keeps running on the server if this page is left; coming back re-attaches to it (or shows how it finished).
+// The import runs in the background worker, on the server, whether or not this page stays open; coming back re-attaches to it (or shows
+// how one that finished meanwhile turned out, once).
 (async () => {
-  const resp = await fetch('/import/status');
-  let shown = false;
-  await readStream(resp, () => {
-    if (shown) return;
-    shown = true;
-    uploadBtn.disabled = true;
-    document.getElementById('progressCard').style.display = 'block';
-  });
+  const d = await (await fetch('/import/status')).json();
+  if (!d.job) return;
+  uploadBtn.disabled = true;
+  document.getElementById('progressCard').style.display = 'block';
+  watch(d.job);
 })();
 
-async function readStream(resp, onFirst) {
-  const reader = resp.body.getReader();
-  const dec = new TextDecoder();
-  let buf = '';
+// {job} from the server: follow it to the end. {error}: say so.
+async function follow(resp) {
+  let d;
+  try { d = await resp.json(); } catch { d = { error: 'Could not start the import (' + resp.status + ')' }; }
+  if (d.job) watch(d.job);
+  else handleEvent(d);
+}
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, { stream: true });
-    const parts = buf.split('\n\n');
-    buf = parts.pop();
-    for (const chunk of parts) {
-      const line = chunk.trim();
-      if (!line.startsWith('data:')) continue;
-      if (onFirst) onFirst();
-      try { handleEvent(JSON.parse(line.slice(5).trim())); } catch {}
-    }
-  }
+function watch(id) {
+  let said = false;
+  followJob(id, d => { said = said || !!d.error; handleEvent(d); }, (state, error) => {
+    if (state === 'lost') return handleEvent({ error: 'Lost touch with Headwind: the import goes on there. Reload to see how it\'s getting on.' });
+    if (state === 'failed' && !said) handleEvent({ error: error || 'The import stopped' });
+    fetch('/import/progress/dismiss', { method: 'POST' }).catch(() => {});      // seen here: not again, nor in the indicator
+  });
 }
 
 function handleEvent(d) {

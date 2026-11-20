@@ -13,7 +13,7 @@ from flask import Flask
 import app as app_module
 import config
 import database
-from services import backup, credentials, downloads
+from services import backup, credentials, downloads, jobs
 from services import streams as stream_store
 
 SECRETS = ('sk-openai-copy-test', 'sk-ant-copy-test', 'ha-token-copy-test', 'mqtt-pw-copy-test', 'friend-token-copy-test')
@@ -71,9 +71,7 @@ def setup(tmp_path, monkeypatch):
         d.commit()
         database.close_db()
     monkeypatch.setattr(config.Config, 'DATABASE', path)
-    monkeypatch.setattr(downloads, '_spawn', lambda fn: fn())
-    monkeypatch.setattr(downloads, '_jobs', {})
-    return path, app_module.create_app()
+    return path, app_module.create_app()                       # no worker: a test runs what's queued with jobs.run_queued
 
 
 def _client(app):
@@ -90,6 +88,7 @@ def _copy(app, tmp_path, **form):
     c = _client(app)
     r = c.post('/tasks/troubleshooting-copy', data=form)
     assert r.status_code == 302 and r.headers['Location'].endswith('/tasks#copy')
+    jobs.run_queued(app)
     assert c.get('/tasks/troubleshooting-copy/status').get_json()['state'] == 'ready'
     r = c.get('/tasks/troubleshooting-copy/download')
     assert r.status_code == 200 and 'headwind-troubleshooting-' in r.headers['Content-Disposition']
@@ -169,8 +168,6 @@ def test_the_tasks_page_says_what_is_left(setup):
 
 def test_it_is_made_in_the_background_and_offered_when_ready(setup, monkeypatch):
     path, app = setup
-    waiting = []
-    monkeypatch.setattr(downloads, '_spawn', waiting.append)          # started, not run yet
     c = _client(app)
     assert c.get('/tasks/troubleshooting-copy/status').get_json() == {'state': 'none'}
     c.post('/tasks/troubleshooting-copy')
@@ -178,9 +175,10 @@ def test_it_is_made_in_the_background_and_offered_when_ready(setup, monkeypatch)
     html = c.get('/tasks').get_data(as_text=True)
     assert 'Making the copy' in html and 'Make a copy for troubleshooting' not in html
     c.post('/tasks/troubleshooting-copy')                               # one at a time
-    assert len(waiting) == 1
+    with app.app_context():
+        assert database.get_db().execute("SELECT COUNT(*) FROM Job WHERE state='queued'").fetchone()[0] == 1
     assert c.get('/tasks/troubleshooting-copy/download').status_code == 302      # nothing to download yet
-    waiting[0]()
+    jobs.run_queued(app)
     html = c.get('/tasks').get_data(as_text=True)
     assert 'Your copy is ready' in html and '/tasks/troubleshooting-copy/download' in html
     folder = os.path.join(os.path.dirname(path), downloads.FOLDER)
@@ -199,13 +197,21 @@ def test_delete_it_now_and_a_restart_clears_what_is_left(setup, tmp_path, monkey
     path, app = setup
     c = _client(app)
     c.post('/tasks/troubleshooting-copy')
+    jobs.run_queued(app)
     folder = os.path.join(os.path.dirname(path), downloads.FOLDER)
     assert len(os.listdir(folder)) == 1
     c.post('/tasks/troubleshooting-copy/delete')
     assert os.listdir(folder) == [] and c.get('/tasks/troubleshooting-copy/status').get_json() == {'state': 'none'}
-    c.post('/tasks/troubleshooting-copy')
-    app_module.create_app()
-    assert not os.path.exists(folder)
+    c.post('/tasks/troubleshooting-copy')                               # cut short by a restart, half made
+    os.makedirs(os.path.join(folder, '.making-troubleshooting'))
+    app_module.create_app()                                             # a web process starting leaves it: the worker may be writing there
+    assert os.listdir(folder) == ['.making-troubleshooting']
+    with app.app_context():
+        db = database.get_db()
+        db.execute("UPDATE Job SET state='running' WHERE kind='download:troubleshooting'")
+        jobs.fail_orphans(db)                                           # what the worker does as it starts
+        downloads.clear(db, path)
+    assert os.listdir(folder) == [] and c.get('/tasks/troubleshooting-copy/status').get_json()['state'] == 'failed'
 
 
 def test_a_failed_copy_says_why(setup, monkeypatch):
@@ -216,5 +222,6 @@ def test_a_failed_copy_says_why(setup, monkeypatch):
     monkeypatch.setattr(troubleshooting_copy, 'build', broken)
     c = _client(app)
     c.post('/tasks/troubleshooting-copy')
+    jobs.run_queued(app)
     assert c.get('/tasks/troubleshooting-copy/status').get_json()['error'] == 'disk full'
     assert 'The last copy failed: disk full' in c.get('/tasks').get_data(as_text=True)

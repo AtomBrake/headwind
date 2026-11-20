@@ -6,7 +6,7 @@ import urllib.parse
 import urllib.request
 import urllib.error
 
-from flask import Blueprint, Response, abort, current_app, jsonify, redirect, render_template, request, stream_with_context, url_for
+from flask import Blueprint, Response, abort, jsonify, redirect, render_template, request, stream_with_context, url_for
 
 log = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ from database import get_db, query_db
 from services.segments import scan_activity_against_segments, scan_all_activities, _refresh_prs, seg_sport, siblings_of
 from services.limits import LimitExceeded, bounded_lines
 from services.peer_http import open_peer
-from services import feed_tokens, logs, qr, sanity, sports, vault
+from services import feed_tokens, jobs, logs, qr, sanity, sports, vault
 from services import streams as _streams
 
 bp = Blueprint('friends', __name__)
@@ -176,8 +176,7 @@ def index():
         ORDER BY f.name
     ''')
 
-    with _syncing_lock:
-        syncing = set(_syncing)
+    syncing = syncing_now(get_db())
     from services import external_url
     outside = external_url.describe(settings)['https'] if settings else external_url.https()
     return render_template('friends.html', friends=friends, feed_tokens=feed_tokens.tokens(), own_riders=feed_tokens.own_riders(),
@@ -297,34 +296,82 @@ def add_friend(name, url, token, rider_name):
 
 
 def start_sync(friend_id, name):
-    """Sync one friend in the background, shown on the Tasks page: a first sync can take minutes, longer than a request should hold one of
-    the server's threads. False when a sync of them is already running (the automatic one): the page waits for that one instead."""
-    if not _claim(friend_id):
+    """Sync one friend in the background worker, shown on the Tasks page: a first sync can take minutes, longer than a request should hold one
+    of the server's threads. False when a sync of them is already queued or running: the page waits for that one instead."""
+    db = get_db()
+    if friend_id in syncing_now(db):
         return False
-    app, log_id = current_app._get_current_object(), logs.current_id()
-    _spawn(lambda: _bg_sync(app, friend_id, name, log_id))
+    jobs.enqueue(db, 'friend_sync', {'friend': friend_id, 'name': name}, once=False)
     return True
 
 
-def _spawn(fn):
-    threading.Thread(target=fn, daemon=True, name='friend-sync').start()
-
-
-def _bg_sync(app, friend_id, name, log_id):
-    token = logs.bind(log_id)                  # its lines, and the error the page shows, carry the id of the request that started it
+@jobs.handler('friend_sync')
+def _sync_job(job):
+    """One friend, from the page. When the automatic sync has them, after it: theirs is over by then, and this one finds little or nothing new."""
+    from services import tasks
+    friend_id, name = job['args']['friend'], job['args']['name']
+    db = get_db()
+    row = tasks.start(db, 'friend_sync', 'Friend sync')
+    while not _claim(friend_id):
+        time.sleep(1)
     try:
-        with app.app_context():
-            from services import tasks
-            row = tasks.start(get_db(), 'friend_sync', 'Friend sync')
-            try:
-                count, err = _run_claimed(friend_id)
-            except Exception:
-                log.exception('Sync of friend %s failed', friend_id)
-                count, err = _last[friend_id]
-            tasks.finish(get_db(), row, f"{name}: " + (f"{count} new or changed activit{'ies' if count != 1 else 'y'}." if count else 'nothing new.'),
-                         f'{name}: {err}' if err else None)
-    finally:
-        logs.reset(token)
+        count, err = _run_claimed(friend_id)
+    except Exception:
+        log.exception('Sync of friend %s failed', friend_id)
+        count, err = 0, logs.failed('The sync failed')
+    jobs.progress(db, job['id'], synced=count, error=err)
+    tasks.finish(db, row, f"{name}: " + (f"{count} new or changed activit{'ies' if count != 1 else 'y'}." if count else 'nothing new.'),
+                 f'{name}: {err}' if err else None)
+
+
+@jobs.handler('friends_autosync')
+def _autosync_job(job):
+    """Every friend in turn, every Settings.friendSyncInterval minutes (app._friends_autosync queues it), as one run on the Tasks page. Its
+    progress says which friend it's on and how each went, for the Friends page (syncing_now, sync_status)."""
+    from services import tasks
+    db = get_db()
+    friends = query_db('SELECT id, name FROM Friend')
+    if not friends:
+        return
+    task_id = tasks.start(db, 'friend_sync', 'Friend sync')
+    failed, rides, results = [], 0, {}
+    for f in friends:
+        jobs.progress(db, job['id'], friend=f['id'], results=results)
+        try:
+            res = _do_sync(f['id'])                   # (activities new or changed here, error text or None)
+            results[str(f['id'])] = list(res)
+            if res[1]:
+                failed.append(f"{f['name']}: {str(res[1])[:80]}")
+            else:
+                rides += res[0] or 0
+        except Exception:
+            results[str(f['id'])] = [0, logs.failed('The sync failed')]
+            failed.append(f"{f['name']}: the sync failed, the details are in the log")
+            log.warning('Auto-sync failed for friend %s', f['id'], exc_info=True)
+    jobs.progress(db, job['id'], friend=None, results=results)
+    n = len(friends)
+    summary = f"{n - len(failed)} of {n} friend{'s' if n != 1 else ''} synced, " + \
+        (f"{rides} new or changed activit{'ies' if rides != 1 else 'y'}." if rides else 'nothing new.')
+    if failed and len(failed) < n:
+        summary += ' Failed: ' + '; '.join(failed)
+    tasks.finish(db, task_id, summary, '; '.join(failed) if failed and len(failed) == n else None)
+
+
+def _sync_jobs(db, where, limit=None):
+    rows = db.execute(f"SELECT kind, args, state, progress, error FROM Job WHERE kind IN ('friend_sync', 'friends_autosync') AND {where} "
+                      f"ORDER BY id DESC{f' LIMIT {limit}' if limit else ''}").fetchall()
+    return [(r['kind'], json.loads(r['args']), r['state'], json.loads(r['progress'] or '{}'), r['error']) for r in rows]
+
+
+def syncing_now(db):
+    """The ids of the friends a sync is queued or running for: one from the page, or the one the automatic sync is on."""
+    out = set()
+    for kind, args, state, progress, _ in _sync_jobs(db, "state IN ('queued', 'running')"):
+        if kind == 'friend_sync':
+            out.add(args['friend'])
+        elif progress.get('friend'):
+            out.add(progress['friend'])
+    return out
 
 
 @bp.route('/friends/<int:fid>/sync', methods=['POST'])
@@ -341,14 +388,18 @@ def sync(fid):
 def sync_status(fid):
     """{'running': true} while a sync of this friend runs (the one the page started, or the automatic one), then how the last one went:
     ok, synced (activities new or changed here) and error."""
-    with _syncing_lock:
-        if fid in _syncing:
-            return jsonify({'running': True})
-        last = _last.get(fid)
-    if last is None:
-        return jsonify({'running': False, 'ok': False, 'error': 'No sync of this friend has run since Headwind started.'})
-    count, err = last
-    return jsonify({'running': False, 'ok': err is None, 'synced': count, 'error': err})
+    db = get_db()
+    if fid in syncing_now(db):
+        return jsonify({'running': True})
+    for kind, args, state, progress, error in _sync_jobs(db, "state IN ('done', 'failed')", limit=50):
+        if kind == 'friend_sync' and args['friend'] == fid:
+            count, err = progress.get('synced', 0), progress.get('error') or error
+        elif kind == 'friends_autosync' and str(fid) in progress.get('results', {}):
+            count, err = progress['results'][str(fid)]
+        else:
+            continue
+        return jsonify({'running': False, 'ok': err is None, 'synced': count, 'error': err})
+    return jsonify({'running': False, 'ok': False, 'error': 'No sync of this friend has run lately.'})
 
 
 @bp.route('/friends/<int:fid>/token', methods=['POST'])
@@ -392,9 +443,8 @@ def delete(fid):
     return redirect(url_for('friends.index'))
 
 
-_syncing = set()                 # friend ids with a sync running: a second one would only fight the first for the write lock
+_syncing = set()                 # friend ids with a sync running in this process (the worker): a second would only fight the first for the write lock
 _syncing_lock = threading.Lock()
-_last = {}                       # friend id -> (count, error) of their last sync since start-up, for the page's Sync button (sync_status)
 
 
 def _claim(friend_id):
@@ -413,15 +463,12 @@ def _do_sync(friend_id):
 
 
 def _run_claimed(friend_id):
-    """_do_sync once _claim has said yes: the sync, then the friend is free again and its result kept in _last."""
-    res = None
+    """_do_sync once _claim has said yes: the sync, then the friend is free again."""
     try:
-        res = _do_sync_once(friend_id)
-        return res
+        return _do_sync_once(friend_id)
     finally:
         with _syncing_lock:
             _syncing.discard(friend_id)
-            _last[friend_id] = res or (0, logs.failed('The sync failed'))
 
 
 def _do_sync_once(friend_id):

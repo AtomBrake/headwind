@@ -1,5 +1,5 @@
 """New rides analysed by the AI coach as they're imported (services/auto_analyse.py): only when the setting is on, only recent rides, and a failing
-provider leaves the ride imported with a failed task. No network: the chat is faked, and the queue is run in the test's own thread."""
+provider leaves the ride imported with a failed task. No network: the chat is faked, and the queued jobs are run in the test's own thread."""
 import io
 import zipfile
 from datetime import datetime, timedelta, timezone
@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 import database
-from services import auto_analyse
+from services import auto_analyse, jobs
 
 
 class _NoThread:
@@ -45,9 +45,6 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setattr(config.Config, 'DATABASE', str(tmp_path / 'app.db'))
     monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)
     monkeypatch.setattr('services.weather.fetch_weather', lambda *a, **k: None)
-    monkeypatch.setattr(auto_analyse, '_queue', auto_analyse.queue.Queue())
-    monkeypatch.setattr(auto_analyse, '_pending', set())
-    monkeypatch.setattr(auto_analyse, '_started', True)        # no worker thread: tests call run_queued()
     a = app_module.create_app()
     with a.app_context():
         d = database.get_db()
@@ -103,10 +100,12 @@ def test_a_new_upload_is_analysed_when_on(app, chat, tmp_path):
     _on(app)
     _import_file(app, gpx(NOW - timedelta(hours=2)), tmp_path)
     rid = _rides(app)[0]['id']
-    assert auto_analyse.is_pending(rid)
-    auto_analyse.run_queued()
+    with app.app_context():
+        assert auto_analyse.is_pending(rid)
+    jobs.run_queued(app)
     assert _rides(app)[0]['aiKudos'].startswith('🚴 The ride') and chat.calls == 1
-    assert not auto_analyse.is_pending(rid)
+    with app.app_context():
+        assert not auto_analyse.is_pending(rid)
     assert _tasks(app) == [{'status': 'done', 'error': None}]
     with app.app_context():
         assert database.get_db().execute('SELECT COUNT(*) FROM RideMemory WHERE rideId=?', [rid]).fetchone()[0] == 1
@@ -114,7 +113,7 @@ def test_a_new_upload_is_analysed_when_on(app, chat, tmp_path):
 
 def test_nothing_is_analysed_when_off(app, chat, tmp_path):
     _import_file(app, gpx(NOW - timedelta(hours=2)), tmp_path)
-    auto_analyse.run_queued()
+    jobs.run_queued(app)
     assert _rides(app)[0]['aiKudos'] is None and chat.calls == 0 and _tasks(app) == []
 
 
@@ -123,7 +122,7 @@ def test_a_zip_analyses_only_its_recent_rides(app, chat):
     _import_zip(app, {'old1.gpx': gpx(datetime(2020, 5, 1, 8, tzinfo=timezone.utc)),
                       'old2.gpx': gpx(NOW - timedelta(days=auto_analyse.RECENT_DAYS + 2)),
                       'new.gpx': gpx(NOW - timedelta(hours=3))})
-    auto_analyse.run_queued()
+    jobs.run_queued(app)
     rides = _rides(app)
     assert [bool(r['aiKudos']) for r in rides] == [False, False, True] and chat.calls == 1
 
@@ -131,7 +130,7 @@ def test_a_zip_analyses_only_its_recent_rides(app, chat):
 def test_runs_are_not_analysed(app, chat, tmp_path):
     _on(app)
     _import_file(app, gpx(NOW - timedelta(hours=2), kind='running'), tmp_path)
-    auto_analyse.run_queued()
+    jobs.run_queued(app)
     assert _rides(app)[0]['aiKudos'] is None and chat.calls == 0
 
 
@@ -140,11 +139,12 @@ def test_a_failing_provider_leaves_the_ride_and_records_a_failed_task(app, monke
     monkeypatch.setattr('services.ai.get_chat', lambda: c)
     _on(app)
     _import_file(app, gpx(NOW - timedelta(hours=2)), tmp_path)
-    auto_analyse.run_queued()
+    jobs.run_queued(app)
     rides = _rides(app)
     assert len(rides) == 1 and rides[0]['aiKudos'] is None and c.calls == 1      # tried once, not retried
     assert _tasks(app) == [{'status': 'failed', 'error': 'rate limited'}]
-    assert not auto_analyse.is_pending(rides[0]['id'])
+    with app.app_context():
+        assert not auto_analyse.is_pending(rides[0]['id'])
 
 
 def _client(app):
@@ -183,7 +183,21 @@ def test_the_ride_page_says_analysing_until_it_is_done(app, chat, tmp_path):
     c = _client(app)
     assert 'Analysing…' in c.get(f'/rides/{rid}').get_data(as_text=True)
     assert c.get(f'/rides/{rid}/kudos/status').get_json() == {'pending': True, 'kudos': None}
-    auto_analyse.run_queued()
+    jobs.run_queued(app)
     assert c.get(f'/rides/{rid}/kudos/status').get_json()['pending'] is False
     page = c.get(f'/rides/{rid}').get_data(as_text=True)
     assert 'Analysing…' not in page and 'Honest verdict' in page
+
+
+def test_an_import_rolled_back_leaves_nothing_queued(app, chat):
+    """Queued inside the import's transaction: no ride, no job, so nothing waits for a ride that never comes."""
+    _on(app)
+    with app.app_context():
+        d = database.get_db()
+        start = (NOW - timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%S')
+        d.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal) VALUES ('x1', 'Ride', 'Ride', 1, ?)", [start])
+        auto_analyse.queue_ride(d, 'x1')
+        assert auto_analyse.is_pending('x1')
+        d.rollback()
+        assert not auto_analyse.is_pending('x1')
+    assert jobs.run_queued(app) == 0 and chat.calls == 0

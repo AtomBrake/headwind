@@ -171,16 +171,13 @@ def test_a_friend_sync_from_the_page_runs_in_the_background(app, client, monkeyp
         db = database.get_db()
         fid = db.execute("INSERT INTO Friend (name, url, token) VALUES ('Sam', 'https://sam.example', 't')").lastrowid
         db.commit()
-    waiting = []
-    monkeypatch.setattr(routes.friends, '_spawn', waiting.append)          # started, not run yet
+    from services import jobs
     monkeypatch.setattr(routes.friends, '_do_sync_once', lambda f: (3, None))
-    assert client.post(f'/friends/{fid}/sync').get_json() == {'ok': True, 'running': True}
+    assert client.post(f'/friends/{fid}/sync').get_json() == {'ok': True, 'running': True}      # queued for the worker, not run yet
     assert client.get(f'/friends/{fid}/sync/status').get_json() == {'running': True}
     assert 'data-syncing' in client.get('/friends').get_data(as_text=True)          # a page opened meanwhile waits for it too
     client.post(f'/friends/{fid}/sync')                                        # pressed again: no second sync
-    assert routes.friends._do_sync(fid) == (0, 'Already syncing')              # nor the automatic one
-    assert len(waiting) == 1
-    waiting[0]()
+    assert jobs.run_queued(app) == 1
     assert client.get(f'/friends/{fid}/sync/status').get_json() == {'running': False, 'ok': True, 'synced': 3, 'error': None}
     with app.app_context():
         row = database.get_db().execute("SELECT status, result FROM TaskLog WHERE task='friend_sync'").fetchone()
@@ -197,9 +194,10 @@ def test_a_friend_sync_that_raises_shows_on_the_tasks_page(app, client, monkeypa
 
     def boom(f):
         raise RuntimeError('boom at /srv/secret.py')
-    monkeypatch.setattr(routes.friends, '_spawn', lambda fn: fn())
+    from services import jobs
     monkeypatch.setattr(routes.friends, '_do_sync_once', boom)
     r = client.post(f'/friends/{fid}/sync')
+    jobs.run_queued(app)
     status = client.get(f'/friends/{fid}/sync/status').get_json()
     assert status['ok'] is False and 'secret' not in status['error'] and r.headers['X-Request-Id'] in status['error']
     with app.app_context():

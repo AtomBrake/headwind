@@ -20,7 +20,7 @@ BEAT = 30               # seconds between heartbeats (jobs.beat): the Tasks page
 def serve(app, stop=None):
     """Run the loops, then jobs as they're queued, until stop (a threading.Event) is set; for ever without one."""
     from database import get_db
-    from services import jobs, tasks
+    from services import downloads, jobs, tasks
     import app as app_module
     jobs.bind(app)
     with app.app_context():
@@ -28,6 +28,9 @@ def serve(app, stop=None):
         tasks.close_orphans(db)
         jobs.fail_orphans(db)
         db.commit()
+        downloads.clear(db, app.config['DATABASE'])     # files made for download that no finished job offers
+        from routes import import_rides
+        import_rides.clear_uploads(db)                  # and uploads no queued import will read
     app_module.start_loops(app)
     log.info('Background worker started')
     running = {}                                        # kind -> thread

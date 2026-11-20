@@ -61,13 +61,14 @@ def path_for(db_path, rider_id):
     return os.path.join(export_dir(db_path), f'{int(rider_id)}.zip')
 
 
-def clear_stale_uploads(db_path):
-    """Delete upload files a crash or restart left behind (over a day old)."""
+def clear_stale_uploads(db_path, waiting=None, idle=_STALE_UPLOAD_SECS):
+    """Delete upload files a crash or restart left behind (over a day old). waiting: the paths imports still queued will read, kept whatever
+    their age, when the worker starts (routes/import_rides.clear_uploads), and then idle can be shorter: not written to for that long."""
     d = export_dir(db_path)
     for name in os.listdir(d):
         p = os.path.join(d, name)
         try:
-            if name.startswith(UPLOAD_PREFIX) and time.time() - os.path.getmtime(p) > _STALE_UPLOAD_SECS:
+            if (name.startswith(UPLOAD_PREFIX) and p not in (waiting or ()) and time.time() - os.path.getmtime(p) > idle):
                 os.unlink(p)
                 log.info('Deleted an upload left behind: %s', name)
         except OSError:

@@ -118,7 +118,8 @@ def test_notification_links_use_it(app, monkeypatch):
     sent = []
     monkeypatch.setattr(notify, 'send_notification', lambda *a: sent.append(a))
     _save(_client(app), 'https://bike.example.com')
-    downloads._notify(app, {'state': 'failed', 'label': 'Backup', 'page': '/settings#backup'})
+    with app.app_context():
+        downloads._notify({'state': 'failed', 'label': 'Backup', 'page': '/settings#backup'})
     assert sent[0][2] == 'https://bike.example.com/tasks'
 
 
