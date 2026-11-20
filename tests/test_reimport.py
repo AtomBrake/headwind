@@ -161,6 +161,20 @@ def test_fill_in_gaps_is_offered_only_for_what_the_saved_ride_lacks(db):
                               [{'label': 'Recorded data', 'old': 'GPS, altitude', 'new': 'GPS, altitude, heart rate'}]) == ['heart rate']
 
 
+def test_a_change_to_an_activity_no_longer_saved_is_not_listed(db):
+    # found by the Garmin check, then the ride was deleted or set aside behind its Strava copy: its link on the Import page went to a 404
+    db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData, riderId, createdAt, updatedAt) "
+               "VALUES ('garmin_7', 'Detling', 'Ride', 'Ride', '2026-07-04T09:00:00', '2026-07-04T10:00:00', 6272, 2191, 3724, '{}', 1, 'n', 'n')")
+    reimport.propose(db, db.execute("SELECT * FROM Activity").fetchone(), {'distance': 6272, 'movingTime': 2475}, 'Garmin')
+    row = db.execute("SELECT * FROM Activity WHERE id='garmin_7'").fetchone()
+    db.execute("DELETE FROM Activity WHERE id='garmin_7'")
+    assert reimport.pending(db) == []
+    cols = row.keys()
+    db.execute(f"INSERT INTO Activity ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", list(row))
+    [c] = reimport.pending(db)                                                      # back again (restored from the bin): offered again
+    assert c['rideId'] == 'garmin_7'
+
+
 def _saved_track(db, ride_id):
     s = json.loads(_streams.load_json(db, ride_id))
     return s['time']['data'], s['distance']['data'], s['latlng']['data']

@@ -217,15 +217,16 @@ def propose(db, saved, act, source):
 
 def pending(db):
     """The activities waiting on the Import page, newest found first, with the saved one's date and sport and `fills`: what Fill in gaps would
-    add (fill_adds)."""
+    add (fill_adds). Only those still saved: one deleted, or set aside behind another recording, since its difference was found isn't listed
+    (its link would go nowhere), and comes back if it does."""
     cols = ', '.join(f'a.{c}' for c in COLUMNS if c not in ('streams', 'rawData'))
     rows = db.execute(f'''SELECT c.*, a.sportType, a.calories, {cols},
                                  CASE WHEN {stream_store.has_sql('a')} THEN 1 END AS streams
-                          FROM ImportChange c LEFT JOIN Activity a ON a.id = c.rideId ORDER BY c.foundAt DESC, c.rideId''').fetchall()
+                          FROM ImportChange c JOIN Activity a ON a.id = c.rideId ORDER BY c.foundAt DESC, c.rideId''').fetchall()
     out = []
     for r in rows:
         diffs = json.loads(r['diffs'])
-        out.append(dict(r, diffs=diffs, fills=fill_adds(r, json.loads(r['act']), diffs) if r['startDateLocal'] else []))
+        out.append(dict(r, diffs=diffs, fills=fill_adds(r, json.loads(r['act']), diffs)))
     return out
 
 
