@@ -1,5 +1,7 @@
-"""Phone sensor sidecars (attach by time overlap, summary) and the live-ride publisher (pure message building, idle timer). Throwaway DB."""
+"""Phone sensor sidecars (attach by time overlap, summary) and the live-ride publisher (message building, the reading kept per rider, going
+idle). Throwaway DB."""
 import json
+import sqlite3
 
 import pytest
 from flask import Flask
@@ -147,48 +149,50 @@ def test_live_messages_include_discovery_once_and_a_tracker():
     assert attrs['latitude'] == 51.5 and attrs['longitude'] == -0.12
 
 
-def test_live_update_publishes_and_idle_always_publishes():
+def _status(msgs):
+    return [m['payload'] for m in msgs if m['topic'].endswith('live_ride_status/state')]
+
+
+def test_live_update_publishes_and_idle_always_publishes(db):
     sent = []
-    live._state.update(last=None, last_pub=0.0, timer=None, sent_discovery=False)
-    live.update({'state': 'riding', 'speed_mps': 5}, sender=lambda m, *a: sent.append(m), conn=('h', 1883, None))
+    send = lambda m, *a: sent.append(m)
+    live.update({'state': 'riding', 'speed_mps': 5}, sender=send, conn=('h', 1883, None))
     n1 = len(sent)
-    live.update({'state': 'riding', 'speed_mps': 6}, sender=lambda m, *a: sent.append(m), conn=('h', 1883, None))   # inside the 2 s gap: not published
+    live.update({'state': 'riding', 'speed_mps': 6}, sender=send, conn=('h', 1883, None))   # inside the 2 s gap: not published
     assert len(sent) == n1
-    live.update({'state': 'idle'}, sender=lambda m, *a: sent.append(m), conn=('h', 1883, None))
-    assert len(sent) > n1
-    status = [m['payload'] for m in sent[-1] if m['topic'].endswith('live_ride_status/state')]
-    assert status == ['idle']
-    t = live._state['timer']
-    assert t is None
+    assert live.snapshot()['speed_mph'] == 13.4                                            # but kept
+    live.update({'state': 'idle'}, sender=send, conn=('h', 1883, None))
+    assert len(sent) > n1 and _status(sent[-1]) == ['idle']
 
 
-def test_live_goes_idle_if_the_phone_stops_talking():
+def test_the_reading_is_kept_in_the_database_for_every_process(db, tmp_path):
+    """A reading posted to one web process is what another serves and what the worker checks: nothing is in one process's memory."""
+    live.update({'state': 'riding', 'speed_mps': 5, 'lat': 51.5, 'lng': -0.12}, sender=lambda m, *a: None, conn=('h', 1883, None))
+    other = sqlite3.connect(str(tmp_path / 't.db'))
+    reading, state = other.execute('SELECT reading, state FROM LiveReading WHERE riderId=1').fetchone()
+    other.close()
+    assert state == 'riding' and json.loads(reading)['lat'] == 51.5
+
+
+def test_live_goes_idle_if_the_phone_stops_talking(db, monkeypatch):
     sent = []
-    live._state.update(last=None, last_pub=0.0, timer=None, sent_discovery=False)
-    c = live.update({'state': 'riding', 'speed_mps': 5}, sender=lambda m, *a: sent.append(m), conn=('h', 1883, None))
-    live._state['timer'].cancel()
-    live._idle_check(c['ts'], sender=lambda m, *a: sent.append(m), conn=('h', 1883, None))
-    status = [m['payload'] for m in sent[-1] if m['topic'].endswith('live_ride_status/state')]
-    assert status == ['idle']
+    send = lambda m, *a: sent.append(m)
+    live.update({'state': 'riding', 'speed_mps': 5, 'lat': 51.5, 'lng': -0.12}, sender=send, conn=('h', 1883, None))
+    assert live.go_idle(db, sender=send, conn=('h', 1883, None)) == 0                   # not yet
+    later = live.time.time() + live.IDLE_AFTER_S + 1
+    monkeypatch.setattr(live.time, 'time', lambda: later)
+    assert live.go_idle(db, sender=send, conn=('h', 1883, None)) == 1
+    assert _status(sent[-1]) == ['idle']
+    assert live.snapshot()['state'] == 'idle' and live.snapshot()['lat'] == 51.5        # the last position is kept
+    assert live.go_idle(db, sender=send, conn=('h', 1883, None)) == 0                   # once
 
 
-def test_going_idle_reaches_the_broker_from_the_timer_thread(monkeypatch):
-    """The idle timer runs on its own thread, with no app context: the broker it publishes to is the one read during the phone's request."""
-    import threading
-    from flask import current_app
-    app = Flask(__name__)
+def test_announce_only_before_any_reading(db):
     sent = []
-    monkeypatch.setattr(live, '_connection', lambda: current_app.config['BROKER'])          # needs an app context, as reading Settings does
-    app.config['BROKER'] = ('h', 1883, None)
-    live._state.update(last=None, last_pub=0.0, timer=None, sent_discovery=False)
-    with app.app_context():
-        live.update({'state': 'riding', 'speed_mps': 5}, sender=lambda m, *a: sent.append(m))
-    t = live._state['timer']
-    t.cancel()
-    th = threading.Thread(target=t.function, args=t.args)
-    th.start(); th.join()
-    status = [m['payload'] for m in sent[-1] if m['topic'].endswith('live_ride_status/state')]
-    assert status == ['idle']
+    send = lambda m, *a: sent.append(m)
+    assert live.announce(sender=send, conn=('h', 1883, None)) and _status(sent[-1]) == ['idle']
+    live.update({'state': 'riding', 'speed_mps': 5}, sender=send, conn=('h', 1883, None))
+    assert not live.announce(sender=send, conn=('h', 1883, None))                       # the worker's heartbeat never sends idle over a ride
 
 
 def test_cadence_summary_and_old_rows():

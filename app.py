@@ -89,6 +89,20 @@ def _ensure_default_avatar(app):
         log.warning('Could not put the default rider picture in %s: %s', av_dir, e)
 
 
+def _live_idle(app):
+    """A live ride whose phone has gone quiet is marked idle in Home Assistant (services/live.go_idle). Here, not in the process that took the
+    phone's last reading, which may be any of the web processes."""
+    from services import live
+    while True:
+        time.sleep(live.IDLE_CHECK_S)
+        try:
+            with app.app_context():
+                from database import get_db
+                live.go_idle(get_db())
+        except Exception:
+            log.warning('Checking for a live ride gone quiet failed', exc_info=True)
+
+
 def _mqtt_heartbeat(app):
     time.sleep(10)  # let the app finish starting up
     tick = 0
@@ -667,15 +681,16 @@ def create_app():
 
 
 def start_loops(app):
-    """The timed background work, each in a thread: the track summaries once, then the Garmin and Home Assistant heartbeats, the Garmin history,
-    MQTT commands and the friends' automatic sync; in demo mode only its nightly reset. The worker starts them (services/worker.py), never the
-    web server, so each runs once however many processes serve pages."""
+    """The timed background work, each in a thread: the track summaries once, then the Garmin and Home Assistant heartbeats, a live ride's
+    idle check, the Garmin history, MQTT commands and the friends' automatic sync; in demo mode only its nightly reset. The worker starts them
+    (services/worker.py), never the web server, so each runs once however many processes serve pages."""
     from services import demo as _demo
     threading.Thread(target=_track_summaries, args=(app,), daemon=True).start()
     if _demo.enabled():                        # no background threads that talk to the network; just the nightly reset
         threading.Thread(target=_demo.reset_loop, args=(app,), daemon=True).start()
         return
     threading.Thread(target=_mqtt_heartbeat,   args=(app,), daemon=True).start()
+    threading.Thread(target=_live_idle,        args=(app,), daemon=True).start()
     threading.Thread(target=_garmin_heartbeat, args=(app,), daemon=True).start()
     threading.Thread(target=_garmin_history,   args=(app,), daemon=True).start()
     threading.Thread(target=__import__('services.mqtt_commands', fromlist=['run']).run, args=(app,), daemon=True).start()

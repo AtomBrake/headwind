@@ -5,6 +5,7 @@ file, which needs no network)."""
 import io
 import json
 import sqlite3
+import threading
 import zipfile
 
 import garminconnect
@@ -17,6 +18,7 @@ import database
 from services import credentials, garmin, tasks, vault
 
 RealGarmin = garminconnect.Garmin
+RealThread = threading.Thread           # the app fixture stubs threading.Thread out, for create_app's threads
 
 
 class _NoThread:
@@ -152,6 +154,53 @@ def test_an_account_waiting_on_mfa_is_saved_only_once_the_code_works(app, client
     assert client.post('/garmin/connect/mfa', json={'token': 'tok', 'code': '123456'}).get_json() == {'ok': True}
     s = _settings(app)
     assert s['garminEmail'] == 'new@example.com' and s['garminPassword'] is None
+
+
+@pytest.fixture
+def worker(app):
+    """The worker as a thread: alive, running what's queued, as services/worker.py does in a process of its own."""
+    import time
+    from services import jobs
+    stop = threading.Event()
+
+    def run():
+        while not stop.is_set():
+            with app.app_context():
+                jobs.beat(database.get_db())
+            jobs.run_queued(app)
+            time.sleep(0.05)
+    with app.app_context():
+        jobs.beat(database.get_db())
+    t = RealThread(target=run, daemon=True)
+    t.start()
+    yield
+    stop.set()
+    t.join(5)
+
+
+def test_signing_in_runs_in_the_worker_which_keeps_a_login_waiting_on_mfa(app, client, monkeypatch, worker):
+    """The page processes are several and the worker one: both steps run there, so the code reaches the login that asked for it, and the
+    password is gone from the job before Garmin is asked."""
+    where, seen = [], []
+    monkeypatch.setattr(garmin, 'start_login', lambda e, p: (where.append(threading.current_thread()), seen.append(p),
+                                                              {'ok': False, 'needs_mfa': True, 'token': 'tok'})[-1])
+    monkeypatch.setattr(garmin, 'complete_mfa', lambda t, c: (where.append(threading.current_thread()), {'ok': True, 'email': 'new@example.com'})[-1])
+    assert client.post('/garmin/connect', json={'email': 'new@example.com', 'password': 'pw'}).get_json() == {'ok': False, 'needs_mfa': True, 'token': 'tok'}
+    assert client.post('/garmin/connect/mfa', json={'token': 'tok', 'code': '123456'}).get_json() == {'ok': True}
+    assert len(where) == 2 and threading.current_thread() not in where and seen == ['pw']
+    assert _settings(app)['garminEmail'] == 'new@example.com'
+    with app.app_context():
+        args = [r[0] for r in database.get_db().execute("SELECT args FROM Job WHERE kind IN ('garmin_sign_in', 'garmin_mfa')")]
+    assert args == ['{}', '{}']
+
+
+def test_a_sign_in_garmin_turns_down_in_the_worker_says_why(app, client, monkeypatch, worker):
+    def turned_down(e, p):
+        raise garminconnect.GarminConnectAuthenticationError('Invalid email or password')
+    monkeypatch.setattr(garmin, 'start_login', turned_down)
+    r = client.post('/garmin/connect', json={'email': 'new@example.com', 'password': 'pw'})
+    assert r.status_code == 400 and 'Invalid email or password' in r.get_json()['error']
+    assert _settings(app)['garminEmail'] == 'tom@example.com'
 
 
 def test_sign_out_deletes_the_tokens(app, client):

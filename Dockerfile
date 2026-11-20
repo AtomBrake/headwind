@@ -43,11 +43,11 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10m --retries=3 \
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
-# The background work runs in a process of its own, which Gunicorn's master starts (gunicorn.conf.py, services/worker.py). Still one web
-# worker, with several request threads: an import's progress, a download being made, the live ride and the sign-in limiter are kept in one
-# process's memory, so a second worker would see none of what the first has (TODO.md). Several threads, so a long streaming sync or import
-# doesn't block every other page.
+# The background work runs in a process of its own, which Gunicorn's master starts (gunicorn.conf.py, services/worker.py). WEB_WORKERS
+# processes serve pages (2 by default; each takes about 120 MB), each with several request threads, so a page that reads a lot of
+# activities doesn't hold up every other behind Python's one lock per process. What they share is in the database: nothing a page shows is
+# kept in one process's memory.
 # Timeout 300s covers large Strava export imports.
 # Logging (services/logs.py): LOG_LEVEL (default INFO; DEBUG when chasing a fault) sets Gunicorn's level too. Headwind logs each request itself,
 # with an id, so Gunicorn's access log stays off; the log files go to /data/logs.
-CMD ["sh", "-c", "exec gunicorn --workers 1 --threads 8 --bind 0.0.0.0:5001 --timeout 300 --log-level \"${LOG_LEVEL:-info}\" 'app:create_app()'"]
+CMD ["sh", "-c", "exec gunicorn --workers \"${WEB_WORKERS:-2}\" --threads 8 --bind 0.0.0.0:5001 --timeout 300 --log-level \"${LOG_LEVEL:-info}\" 'app:create_app()'"]

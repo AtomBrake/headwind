@@ -2,9 +2,9 @@
 (services/diagnostics.py: no data) can't show, with what isn't needed taken out. Only the copy is changed, never the live database.
 
 Always taken out: every saved key, password and token (even encrypted), the Garmin email, addresses (Home Assistant, Ollama, ntfy, the
-MQTT broker and user, friends' servers), the install id, friends' names, their riders with everything of theirs (activities, photos, best
-times, weigh-ins, food), their segments and foods, the names of feed tokens and paired phones, and the Garmin account's name in Garmin's
-listings. No photo or avatar file goes in the zip. On request: GPS (tracks, start points, segments, planned routes, and the coordinates in
+MQTT broker and user, friends' servers, failed sign-ins), a live ride's last reading, the install id, friends' names, their riders with
+everything of theirs (activities, photos, best times, weigh-ins, food), their segments and foods, the names of feed tokens and paired
+phones, and the Garmin account's name in Garmin's listings. No photo or avatar file goes in the zip. On request: GPS (tracks, start points, segments, planned routes, and the coordinates in
 the other copies of an activity), or the streams altogether (heart rate, power and the rest, and GPS with them).
 
 Everything else is left: the person's own activities with their names, dates, notes and figures, riders' names, gear, weight, food,
@@ -203,6 +203,9 @@ def strip(db, no_gps=False, no_streams=False):
     for t, label in (('FeedToken', 'Token'), ('DeviceToken', 'Phone')):      # hashes only, but a name says whose
         if t in tables:
             db.execute(f"UPDATE {t} SET name='{label} ' || id, tokenHash='removed-' || id")
+    for t in ('SignInFail', 'LiveReading'):     # the addresses of failed sign-ins, and where a rider was a moment ago
+        if t in tables:
+            db.execute(f'DELETE FROM {t}')
     _without_friends(db, tables)
     for t, cols in _LISTINGS.items():
         if t in tables:

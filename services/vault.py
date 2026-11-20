@@ -12,6 +12,7 @@ import logging
 import os
 import sqlite3
 import threading
+import time
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -74,9 +75,15 @@ def _fernet(db_path, create=False):
                 if not create:
                     return None
                 key = Fernet.generate_key()
-                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                with os.fdopen(fd, 'wb') as fh:
-                    fh.write(key)
+                try:
+                    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                except FileExistsError:             # another process (a second web worker) made it first: use that one
+                    time.sleep(0.2)
+                    with open(path, 'rb') as fh:
+                        key = fh.read().strip()
+                else:
+                    with os.fdopen(fd, 'wb') as fh:
+                        fh.write(key)
             _keys[path] = Fernet(key)
         except (OSError, ValueError) as e:      # unreadable, or not a key: leave it be, so a fixable fault doesn't lose the secrets
             if path not in _warned:

@@ -7,10 +7,14 @@
 
 ### Changed
 - **One upload path for everything from the iPhone and the Watch.** Rides, other sports with a GPS track and sessions with none now go through the same door on the server, and each keeps the phone's id for it. A ride sent again is found by that id as well as by its content, and every sport gets the same duplicate check against Garmin, Strava and file imports. The older apps' upload paths still work and answer as before.
+- **Two processes serve pages in Docker.** Before this there was one, so a page that reads a lot (the dashboard, a long activity list) held up every other page behind Python's one lock per process. Now there are two, each with 8 threads, and what they need to share is in the database: a live ride's last reading (one per rider), failed sign-ins, and a Garmin sign-in waiting for its MFA code, which now runs in the background worker. `WEB_WORKERS` in `.env` sets how many; each takes about 120 MB, so `1` suits a machine short of memory.
 
 ### Fixed
 - **A workout you deleted no longer comes back from Apple Health.** A full look through Apple Health uploaded it again; the phone now leaves out workouts deleted on the server. Uploading a recording yourself still brings it back.
 - **A typed-in or timed session that turned out to be a copy of another recording says so.** The phone was told it was new and shown the copy's id; it's now told it was already on the server, with the id of the activity that was kept, as a recording with a track already was.
+- **A live ride is marked idle whichever process heard from the phone last.** The 90-second check that marks a ride idle when the phone stops sending now runs in the background worker, from the saved reading, rather than on a timer in the process that took the last reading.
+- **The sign-in lockout counts every attempt, and survives a restart.** Failed sign-ins are kept in the database, so 8 failures from one address (and 30 from all) are counted across every process serving pages, and a restart no longer resets the count.
+- **Two processes starting at once no longer both run a start-up repair.** Every process checks the database when it starts, and each once-only repair checks its flag first. Two processes starting together could both find it unset and both run it. They now take turns.
 
 ## [0.7.46-beta] - 2026-11-20
 

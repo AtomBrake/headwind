@@ -7,4 +7,4 @@ if [ ! -f /data/bike.db ]; then
   cp /demo/pristine.db /data/bike.db
   [ -d /demo/bikeimg ] && mkdir -p /data/bikeimg && cp -r /demo/bikeimg/. /data/bikeimg/ || true
 fi
-exec gunicorn --workers 1 --threads 8 --bind 0.0.0.0:5001 --timeout 120 'app:create_app()'
+exec gunicorn --workers "${WEB_WORKERS:-2}" --threads 8 --bind 0.0.0.0:5001 --timeout 120 'app:create_app()'

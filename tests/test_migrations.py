@@ -209,3 +209,21 @@ def test_a_backup_from_a_newer_headwind_is_not_restored(fresh):
     conn.close()
     with pytest.raises(backup.BackupError, match='newer Headwind'):
         backup.prepare(str(fresh))
+
+
+def test_one_process_migrates_at_a_time(tmp_path):
+    """Every process migrates at its start (each web worker and the background worker), and _every_start's once-only repairs read a flag and
+    then act: a second waits on <database>.lock until the first is done."""
+    import fcntl
+    import threading
+    path = tmp_path / 'locked.db'
+    _migrate(path)
+    done = threading.Event()
+    with open(f'{path}.lock', 'a') as f:
+        fcntl.flock(f, fcntl.LOCK_EX)                                   # another process migrating
+        t = threading.Thread(target=lambda: (_migrate(path), done.set()))
+        t.start()
+        assert not done.wait(0.5)
+        fcntl.flock(f, fcntl.LOCK_UN)
+    t.join(30)
+    assert done.is_set()

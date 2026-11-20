@@ -1448,6 +1448,21 @@ def _step_8(db):
     db.execute('CREATE INDEX IF NOT EXISTS idx_activity_client ON Activity(riderId, clientId) WHERE clientId IS NOT NULL')
 
 
+def _step_9(db):
+    """What one web process kept in its memory, in the database, so more than one can serve pages: a live ride's last reading per rider
+    (services/live.py) and the recent failed sign-ins (routes/login.py)."""
+    db.execute('''CREATE TABLE IF NOT EXISTS LiveReading (
+        riderId     INTEGER PRIMARY KEY,
+        reading     TEXT NOT NULL,              -- JSON: services/live.clean of the phone's last POST
+        state       TEXT NOT NULL,              -- riding | idle
+        ts          REAL NOT NULL,              -- when it came, epoch seconds
+        publishedAt REAL NOT NULL DEFAULT 0     -- when a reading last went to Home Assistant
+    )''')
+    db.execute('CREATE TABLE IF NOT EXISTS SignInFail (ip TEXT, at REAL NOT NULL)')    # at: epoch seconds; ip NULL once that address signed in
+    db.execute('CREATE INDEX IF NOT EXISTS idx_signinfail_ip ON SignInFail(ip, at)')
+    db.execute('CREATE INDEX IF NOT EXISTS idx_signinfail_at ON SignInFail(at)')
+
+
 def _compact(db):
     """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
     a temporary file and once through the WAL. Logged either way. Commits."""
@@ -1498,6 +1513,7 @@ STEPS = (
     (_step_6, False),
     (_step_7, False),
     (_step_8, False),
+    (_step_9, False),
 )
 LATEST = len(STEPS)
 
@@ -1542,9 +1558,38 @@ def _keep_copy(db, n):
 
 def migrate_db():
     """Bring the database up to this version: the steps it hasn't had, then _every_start. Raises SchemaTooNew when a newer Headwind has opened it,
-    rather than guess at what that one changed."""
-    log = logging.getLogger(__name__)
+    rather than guess at what that one changed. One process at a time (_one_at_a_time)."""
     db = get_db()
+    with _one_at_a_time(db):
+        _migrate(db)
+
+
+def _one_at_a_time(db):
+    """An exclusive lock on <database>.lock, held while a process migrates. Every process does at its start, each web worker and the
+    background worker, and _every_start's once-only repairs read their flag and then act, which two processes at once would both do. Nothing
+    to hold where there's no fcntl (Windows: the app is one process) or no file (a database in memory)."""
+    import contextlib
+    try:
+        import fcntl
+    except ImportError:
+        return contextlib.nullcontext()
+    path = db.execute('PRAGMA database_list').fetchone()[2]
+    if not path:
+        return contextlib.nullcontext()
+
+    @contextlib.contextmanager
+    def held():
+        with open(f'{path}.lock', 'a') as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+    return held()
+
+
+def _migrate(db):
+    log = logging.getLogger(__name__)
     db.execute('PRAGMA journal_mode = WAL')     # kept in the database file, so once here (and on a restored backup) rather than per connection
     have = schema_version(db)
     if have > LATEST:

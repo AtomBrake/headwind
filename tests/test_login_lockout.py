@@ -31,15 +31,22 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv('APP_USERNAME', 'rob')
     monkeypatch.setenv('APP_PASSWORD', 'the-right-password')
     monkeypatch.delenv('TRUSTED_PROXIES', raising=False)
-    monkeypatch.setattr(login, '_fails', {})
-    monkeypatch.setattr(login, '_all_fails', login.deque())
     clock = _Clock()
-    monkeypatch.setattr(login.time, 'monotonic', clock)
+    monkeypatch.setattr(login.time, 'time', clock)
     a = app_module.create_app()
     with a.app_context():
         db = database.get_db()
         db.execute("INSERT INTO Rider (name, isDefault) VALUES ('Rob', 1)"); db.commit()
     return a.test_client(), clock
+
+
+def _fails(c, ip=None):
+    """Failures still counted: SignInFail, kept in the database for every web process."""
+    with c.application.app_context():
+        db = database.get_db()
+        if ip is None:
+            return db.execute('SELECT COUNT(*) FROM SignInFail').fetchone()[0]
+        return db.execute('SELECT COUNT(*) FROM SignInFail WHERE ip=?', [ip]).fetchone()[0]
 
 
 def _sign_in(c, password, claimed=None, peer='172.17.0.1'):
@@ -75,7 +82,7 @@ def test_refused_attempts_dont_count(client):
         _sign_in(c, 'wrong', claimed=f'198.51.100.{i}')
     for i in range(50):
         assert _sign_in(c, 'wrong', claimed=f'192.0.2.{i}') == 429
-    assert len(login._all_fails) == login._MAX_ALL_FAILS
+    assert _fails(c) == login._MAX_ALL_FAILS
     clock.t += login._WINDOW + 1
     assert _sign_in(c, 'wrong', claimed='192.0.2.200') == 200
 
@@ -84,10 +91,10 @@ def test_addresses_are_forgotten_once_their_window_has_passed(client):
     c, clock = client
     for i in range(20):
         _sign_in(c, 'wrong', claimed=f'198.51.100.{i}')
-    assert len(login._fails) == 20
+    assert _fails(c) == 20
     clock.t += login._WINDOW + 1
     _sign_in(c, 'wrong', claimed='198.51.100.250')
-    assert list(login._fails) == ['198.51.100.250'] and len(login._all_fails) == 1
+    assert _fails(c) == 1 and _fails(c, '198.51.100.250') == 1
 
 
 def test_signing_in_clears_only_that_address(client):
@@ -96,5 +103,5 @@ def test_signing_in_clears_only_that_address(client):
         _sign_in(c, 'wrong', claimed='198.51.100.7')
     _sign_in(c, 'wrong', claimed='198.51.100.8')
     assert _sign_in(c, 'the-right-password', claimed='198.51.100.7') == 302
-    assert '198.51.100.7' not in login._fails and '198.51.100.8' in login._fails
-    assert len(login._all_fails) == 6
+    assert _fails(c, '198.51.100.7') == 0 and _fails(c, '198.51.100.8') == 1
+    assert _fails(c) == 6

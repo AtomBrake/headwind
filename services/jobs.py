@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 log = logging.getLogger(__name__)
 
 HANDLERS = {}           # kind -> fn(job): runs inside an app context; job is the Job row as a dict, args parsed
+QUICK = set()           # kinds a page waits for (wait): the worker runs them even when it already has MAX_AT_ONCE going
 _database = None        # the database's path, for Wake outside an app context (bind)
 
 
@@ -46,10 +47,13 @@ def ensure_schema(db):
     db.execute('CREATE TABLE IF NOT EXISTS Wake (name TEXT PRIMARY KEY, at TEXT NOT NULL)')
 
 
-def handler(kind):
-    """@jobs.handler('garmin_sports_check') def fn(job): ... — what the worker runs for a job of this kind."""
+def handler(kind, quick=False):
+    """@jobs.handler('garmin_sports_check') def fn(job): ... — what the worker runs for a job of this kind. quick: a few seconds' work that a
+    page waits for (wait), run however busy the worker is."""
     def register(fn):
         HANDLERS[kind] = fn
+        if quick:
+            QUICK.add(kind)
         return fn
     return register
 
@@ -112,13 +116,17 @@ def progress(db, job_id, **fields):
     db.commit()
 
 
-def claim(db, skip_kinds=()):
-    """The oldest queued job not of these kinds, now running, as a dict; None when there is none. Commits."""
+def claim(db, skip_kinds=(), only=None):
+    """The oldest queued job not of these kinds (and of the kinds in only, when given), now running, as a dict; None when there is none.
+    Commits."""
     skip = list(skip_kinds)
+    where = f" AND kind NOT IN ({','.join('?' * len(skip))})" if skip else ''
+    if only is not None:
+        only = list(only)
+        where += f" AND kind IN ({','.join('?' * len(only))})"
     db.commit()
     db.execute('BEGIN IMMEDIATE')
-    r = db.execute(f"SELECT id FROM Job WHERE state='queued'{' AND kind NOT IN (' + ','.join('?' * len(skip)) + ')' if skip else ''} "
-                   'ORDER BY id LIMIT 1', skip).fetchone()
+    r = db.execute(f"SELECT id FROM Job WHERE state='queued'{where} ORDER BY id LIMIT 1", skip + (only or [])).fetchone()
     if r:
         db.execute("UPDATE Job SET state='running', startedAt=? WHERE id=?", [now(), r[0]])
     db.commit()
@@ -212,6 +220,19 @@ def run(app, job):
             finish(get_db(), job['id'], error)
     finally:
         logs.reset(token)
+
+
+def wait(db, job_id, timeout, poll=0.25):
+    """For a page that needs a job's answer before it can reply: the job as a dict once it has ended, or None after timeout seconds. Its
+    kind should be quick (handler), so a busy worker doesn't leave it queued."""
+    end = time.monotonic() + timeout
+    while True:
+        job = get(db, job_id)
+        if job and job['state'] in ('done', 'failed'):
+            return job
+        if time.monotonic() >= end:
+            return None
+        time.sleep(poll)
 
 
 def run_queued(app):

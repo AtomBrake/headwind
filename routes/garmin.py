@@ -7,6 +7,24 @@ from services import jobs, vault
 bp = Blueprint('garmin', __name__)
 log = logging.getLogger(__name__)
 
+SIGN_IN_WAIT = 150      # seconds: Garmin's library tries up to five ways of signing in, one after another
+
+
+def _in_worker(kind, args, here):
+    """A step of signing in to Garmin, run in the worker, and its result. A sign-in paused on MFA is a live client object
+    (services/garmin._PENDING_MFA) that only the process that started it can finish, and the worker is one process however many serve pages.
+    With no worker running (tests, or one that has stopped), here() runs the step in this process instead. Raises with the step's error."""
+    db = get_db()
+    if not jobs.worker_alive(db):
+        return here()
+    db.commit()                 # so enqueue commits the job: the worker can't see it, nor claim anything, behind an open write
+    job = jobs.wait(db, jobs.enqueue(db, kind, args, once=False), SIGN_IN_WAIT)
+    if job is None:
+        raise RuntimeError('Garmin took too long to answer: try again in a few minutes.')
+    if job['state'] == 'failed':
+        raise RuntimeError(job['error'])
+    return job['progress']['result']
+
 
 @bp.route('/garmin/connect', methods=['POST'])
 def connect():
@@ -23,8 +41,9 @@ def connect():
         return jsonify({'error': 'Email and password are required'}), 400
 
     try:
-        from services.garmin import start_login
-        result = start_login(email, password)
+        from services import garmin
+        result = _in_worker('garmin_sign_in', {'email': email, 'password': vault.seal(password)},
+                            lambda: garmin.start_login(email, password))
     except Exception as e:
         log.warning('Garmin sign-in failed', exc_info=True)
         return jsonify({'error': str(e)}), 400   # nothing changed: the saved sign-in stays in place
@@ -44,8 +63,8 @@ def connect_mfa():
         return jsonify({'error': 'Missing code'}), 400
 
     try:
-        from services.garmin import complete_mfa
-        result = complete_mfa(token, code)
+        from services import garmin
+        result = _in_worker('garmin_mfa', {'token': token, 'code': code}, lambda: garmin.complete_mfa(token, code))
     except Exception as e:
         log.warning('Garmin MFA failed', exc_info=True)
         return jsonify({'error': str(e)}), 400

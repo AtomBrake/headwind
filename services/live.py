@@ -3,16 +3,19 @@
 The phone never talks to MQTT itself when it is paired with a server (only one publisher per broker, or sensors overwrite each other), so it
 POSTs /api/v1/live every few seconds and this module publishes: a handful of sensors (status, speed, distance, elapsed, elevation, roughness,
 lean, pressure, phone battery) plus a device_tracker whose attributes carry the position, so the HA map card can follow the ride.
-A final {"state": "idle"} ends it; if the stream just stops (phone died, no signal) a timer marks the ride idle after IDLE_AFTER_S.
+A final {"state": "idle"} ends it; if the stream just stops (phone died, no signal) the worker marks the ride idle after IDLE_AFTER_S (go_idle).
+
+The last reading is kept per rider in LiveReading, not in this process's memory: with more than one web process, the phone's POSTs land on
+any of them, and the worker that checks for silence is a process of its own.
 """
 import json
 import logging
-import threading
 import time
 
 log = logging.getLogger(__name__)
 
 IDLE_AFTER_S = 90
+IDLE_CHECK_S = 15         # how often the worker looks for a ride gone quiet
 MIN_PUBLISH_GAP_S = 2.0
 
 SENSORS = [   # (uid, name, icon, unit)
@@ -29,8 +32,7 @@ SENSORS = [   # (uid, name, icon, unit)
 ]
 TRACKER = ('live_ride_position', 'Live Ride Position', 'mdi:bike')
 
-_lock = threading.Lock()
-_state = {'last': None, 'last_pub': 0.0, 'timer': None, 'sent_discovery': False, 'rider': None}
+_sent = {'discovery': False}    # per process: discovery is retained by the broker, so each process sending it once is harmless
 
 
 def _fmt_elapsed(secs):
@@ -124,60 +126,71 @@ def _publish(c, sender=None, conn=None):
     if not conn:
         return False
     from services import mqtt
-    msgs = build_messages(c, with_discovery=not _state['sent_discovery'])
+    msgs = build_messages(c, with_discovery=not _sent['discovery'])
     try:
         (sender or mqtt._broker_send)(msgs, *conn)
-        _state['sent_discovery'] = True
-        _state['last_pub'] = time.time()
+        _sent['discovery'] = True
         return True
     except Exception as e:
         log.warning('live ride publish failed (non-fatal): %s', e)
         return False
 
 
+def _rider_id(db):
+    r = db.execute('SELECT id FROM Rider WHERE isDefault=1 ORDER BY id LIMIT 1').fetchone()
+    return r[0] if r else 0
+
+
+def _save(db, rider_id, c, published_at):
+    db.execute('INSERT INTO LiveReading (riderId, reading, state, ts, publishedAt) VALUES (?, ?, ?, ?, ?) ON CONFLICT(riderId) DO UPDATE SET '
+               'reading=excluded.reading, state=excluded.state, ts=excluded.ts, publishedAt=excluded.publishedAt',
+               [rider_id, json.dumps(c), c['state'], c['ts'], published_at])
+    db.commit()
+
+
 def announce(sender=None, conn=None):
     """Publish the live-ride entities (retained discovery + an idle state) once, without a ride, so Home Assistant has them, and the Live dashboard tab can show,
     before the first ride is ever streamed. Safe to repeat. Returns True if published."""
-    with _lock:
-        if _state['last'] is not None:
-            return False              # a real reading has already gone out
-        return _publish(clean({'state': 'idle'}), sender, conn)
+    from database import get_db
+    if get_db().execute('SELECT 1 FROM LiveReading LIMIT 1').fetchone():
+        return False              # a real reading has already gone out
+    return _publish(clean({'state': 'idle'}), sender, conn)
 
 
-def update(payload, sender=None, conn=None, app=None):
-    """Handle one POST from the phone. Returns the cleaned reading. Publishes at most every MIN_PUBLISH_GAP_S, but always publishes idle."""
+def update(payload, sender=None, conn=None):
+    """Handle one POST from the phone, for the default rider (as /api/v1 is). Returns the cleaned reading. Publishes at most every
+    MIN_PUBLISH_GAP_S, but always publishes idle and a change of state."""
+    from database import get_db
     c = clean(payload)
-    if conn is None:
-        conn = _connection()       # here, in the request: the idle timer runs on its own thread, with no app context to read the broker settings from
-    with _lock:
-        prev = _state['last']
-        _state['last'] = c
-        due = c['state'] == 'idle' or (time.time() - _state['last_pub']) >= MIN_PUBLISH_GAP_S or prev is None or prev['state'] != c['state']
-        if due:
-            _publish(c, sender, conn)
-        t = _state['timer']
-        if t:
-            t.cancel()
-        if c['state'] == 'riding':
-            t = threading.Timer(IDLE_AFTER_S, _idle_check, [c['ts'], sender, conn])
-            t.daemon = True
-            t.start()
-            _state['timer'] = t
-        else:
-            _state['timer'] = None
+    db = get_db()
+    rider_id = _rider_id(db)
+    prev = db.execute('SELECT state, publishedAt FROM LiveReading WHERE riderId=?', [rider_id]).fetchone()
+    published_at = prev['publishedAt'] if prev else 0.0
+    if c['state'] == 'idle' or prev is None or prev['state'] != c['state'] or time.time() - published_at >= MIN_PUBLISH_GAP_S:
+        if _publish(c, sender, conn):         # before the write, so no write lock is held while the broker answers
+            published_at = time.time()
+    _save(db, rider_id, c, published_at)
     return c
 
 
-def _idle_check(ts, sender=None, conn=None):
-    """No update for IDLE_AFTER_S: the phone went away. Mark the ride idle (keeps the last position)."""
-    with _lock:
-        last = _state['last']
-        if not last or last['ts'] != ts or last['state'] == 'idle':
-            return
-        last = dict(last, state='idle', ts=time.time())
-        _state['last'] = last
-        _publish(last, sender, conn)
+def go_idle(db, sender=None, conn=None):
+    """A ride with no reading for IDLE_AFTER_S: the phone went away. Mark it idle (keeping the last position) and publish that. The worker runs
+    this every IDLE_CHECK_S. Returns how many went idle."""
+    n = 0
+    for r in db.execute("SELECT riderId, reading, ts FROM LiveReading WHERE state='riding' AND ts < ?", [time.time() - IDLE_AFTER_S]).fetchall():
+        last = dict(json.loads(r['reading']), state='idle', ts=time.time())
+        cur = db.execute("UPDATE LiveReading SET reading=?, state='idle', ts=? WHERE riderId=? AND state='riding' AND ts=?",
+                         [json.dumps(last), last['ts'], r['riderId'], r['ts']])
+        db.commit()
+        if cur.rowcount:                  # not if a reading came in meanwhile
+            _publish(last, sender, conn)
+            n += 1
+    return n
 
 
 def snapshot():
-    return _state['last']
+    """The default rider's last reading, or None."""
+    from database import get_db
+    db = get_db()
+    r = db.execute('SELECT reading FROM LiveReading WHERE riderId=?', [_rider_id(db)]).fetchone()
+    return json.loads(r['reading']) if r else None

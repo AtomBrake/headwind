@@ -631,6 +631,7 @@ Set these in a `.env` file next to `docker-compose.yml` (Compose reads it automa
 | `HEADWIND_MQTT_PREFIX` / `HEADWIND_MQTT_NAME` | *(defaults)* | Give a second instance on the same MQTT broker its own entity prefix and device name so they don't collide. |
 | `HEADWIND_MQTT_NUTRITION` | `1` | `0` publishes only the ride sensors, not nutrition. |
 | `HEADWIND_ENV` | `./.env` | Point an instance at a different env file (useful for running two instances from one code folder). |
+| `WEB_WORKERS` | `2` | How many processes serve pages in Docker, each with 8 threads, so a slow page doesn't hold up the rest. Each takes about 120 MB of memory: `1` suits a machine short of it. The background work runs in a process of its own whatever this is. |
 | `PORT` | `5001` | Port for `python3 app.py`. |
 | `HEADWIND_DEBUG` | *(unset)* | `1` turns on Flask's debug mode for `python3 app.py`, listening on `127.0.0.1` only. |
 | `LOG_LEVEL` | `INFO` | How much goes in the log. `DEBUG` adds every page load and every call to Strava, Garmin, the weather, food lookup and the AI; use it while chasing a fault. |
@@ -922,7 +923,7 @@ Like the Android app it **requires HTTPS**. Pair it from **Phones**: name the ph
 
 ## How it works
 
-**Stack** — Python 3.14 / Flask, SQLite (WAL), Jinja templates, vanilla JavaScript, Chart.js, Leaflet. One gunicorn worker with several threads serves the pages; the background work (imports, backups, the Garmin and friend syncs, MQTT, AI analyses: whatever a page starts, and the timed loops) runs in a worker process beside it, which Gunicorn starts. Shipped as a multi-arch Docker image. Windows build: PyInstaller + waitress + pystray.
+**Stack** — Python 3.14 / Flask, SQLite (WAL), Jinja templates, vanilla JavaScript, Chart.js, Leaflet. Two gunicorn workers (`WEB_WORKERS`) with several threads each serve the pages, sharing nothing but the database; the background work (imports, backups, the Garmin and friend syncs, MQTT, AI analyses: whatever a page starts, and the timed loops) runs in a worker process beside it, which Gunicorn starts. Shipped as a multi-arch Docker image. Windows build: PyInstaller + waitress + pystray.
 
 **Layout**
 

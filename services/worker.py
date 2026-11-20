@@ -1,8 +1,9 @@
 """The worker: Headwind's background work in a process of its own, beside the web server, so it runs once however many processes serve pages,
 and its parsing and matching don't hold up a page behind Python's one lock per process.
 
-It runs the timed loops (app.start_loops: the Garmin and Home Assistant heartbeats, the Garmin history, MQTT commands, the friends' automatic
-sync, the track summaries) and the jobs pages queue (services/jobs.py), each in a thread, up to MAX_AT_ONCE jobs at a time and one of each kind.
+It runs the timed loops (app.start_loops: the Garmin and Home Assistant heartbeats, a live ride's idle check, the Garmin history, MQTT
+commands, the friends' automatic sync, the track summaries) and the jobs pages queue (services/jobs.py), each in a thread, up to MAX_AT_ONCE
+jobs at a time (and beyond that the quick ones a page waits for) and one of each kind.
 
 Started by Gunicorn's master in Docker (gunicorn.conf.py runs `python -m services.worker --keep`, which starts it again if it stops), or as a thread of the
 one process by the Windows app and `python app.py` (start_in_process). At its start it marks what the last one left running as stopped."""
@@ -42,10 +43,8 @@ def serve(app, stop=None):
                 with app.app_context():
                     jobs.beat(get_db())
                 beat = time.monotonic()
-            job = None
-            if len(running) < MAX_AT_ONCE:
-                with app.app_context():
-                    job = jobs.claim(get_db(), skip_kinds=running)
+            with app.app_context():                     # when full, only what a page is waiting for (jobs.QUICK)
+                job = jobs.claim(get_db(), skip_kinds=running, only=None if len(running) < MAX_AT_ONCE else jobs.QUICK)
             if job:
                 t = threading.Thread(target=jobs.run, args=(app, job), daemon=True, name=f"job-{job['kind']}")
                 t.start()

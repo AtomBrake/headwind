@@ -35,13 +35,12 @@ log = logging.getLogger(__name__)
 TOKEN_DIR = Path(_os.environ['HEADWIND_TOKEN_DIR']) if _os.environ.get('HEADWIND_TOKEN_DIR') else Path(__file__).parent.parent / '.garmin_tokens'
 
 # In-memory holding pen for logins paused on an MFA challenge. Keyed by a random
-# token handed to the browser (kept in the Flask session, not a cookie itself);
-# the value is the *live* Garmin client object, because the installed
-# garminconnect library stores MFA-pending state on the client instance itself
-# (see resume_login below) rather than in anything serializable — there is no
-# token we could stash in the DB and hand to a fresh client on the next request.
-# Safe as a plain module dict because this app runs single-process
-# (debug=True, use_reloader=False — see bike-flask/CLAUDE.md).
+# token handed to the browser; the value is the *live* Garmin client object,
+# because the installed garminconnect library stores MFA-pending state on the
+# client instance itself (see resume_login below), with a curl_cffi session,
+# rather than in anything serializable — there is no token we could stash in
+# the DB and hand to a fresh client on the next request. So both steps run in
+# the worker (the jobs below), one process however many serve pages.
 _PENDING_MFA = {}
 _MFA_TTL_SECS = 300  # Garmin's own SMS/email codes expire on a similar timescale
 
@@ -190,6 +189,29 @@ def complete_mfa(token, code):
     _PENDING_MFA.pop(token, None)
     api.client.dump(str(TOKEN_DIR))
     return {'ok': True, 'email': email}
+
+
+@jobs.handler('garmin_sign_in', quick=True)
+def _sign_in_job(job):
+    """start_login, in the worker (routes/garmin.py waits for it). The password came sealed, for this alone: it's gone from the job before
+    Garmin is asked."""
+    from database import get_db
+    from services import vault
+    db = get_db()
+    db.execute("UPDATE Job SET args='{}' WHERE id=?", [job['id']])
+    db.commit()
+    result = start_login(job['args']['email'], vault.unseal(job['args']['password']) or '')
+    jobs.progress(db, job['id'], result=result)
+
+
+@jobs.handler('garmin_mfa', quick=True)
+def _mfa_job(job):
+    """complete_mfa, in the worker, which holds the login _sign_in_job left waiting for the code."""
+    from database import get_db
+    db = get_db()
+    db.execute("UPDATE Job SET args='{}' WHERE id=?", [job['id']])
+    db.commit()
+    jobs.progress(db, job['id'], result=complete_mfa(job['args']['token'], job['args']['code']))
 
 
 def _parse_rhr(stats):

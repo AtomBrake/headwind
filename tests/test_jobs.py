@@ -24,6 +24,11 @@ def _fail(job):
     raise RuntimeError('it broke')
 
 
+@jobs.handler('test_quick', quick=True)
+def _quick(job):
+    jobs.progress(database.get_db(), job['id'], result=job['args']['n'] * 2)
+
+
 @pytest.fixture
 def app(tmp_path):
     a = Flask(__name__)
@@ -66,6 +71,32 @@ def test_one_queued_in_a_transaction_that_is_rolled_back_never_runs(app):
         jobs.enqueue(db, 'test_append', {'n': 1})
         db.rollback()
     assert jobs.run_queued(app) == 0
+
+
+def test_a_busy_worker_still_runs_what_a_page_waits_for(app):
+    """At MAX_AT_ONCE the worker claims only quick jobs (a Garmin sign-in), which a page waits for with wait()."""
+    with app.app_context():
+        db = database.get_db()
+        jobs.enqueue(db, 'test_append', {'n': 1})
+        quick = jobs.enqueue(db, 'test_quick', {'n': 21})
+        assert jobs.claim(db, only=jobs.QUICK)['id'] == quick                       # the older, slow one waits
+        assert jobs.claim(db, skip_kinds=['test_append'], only=jobs.QUICK) is None
+        jobs.finish(db, quick)
+        assert jobs.wait(db, quick, 1)['state'] == 'done'
+        slow = db.execute("SELECT id FROM Job WHERE kind='test_append'").fetchone()[0]
+        start = time.monotonic()
+        assert jobs.wait(db, slow, 0.3, poll=0.05) is None and time.monotonic() - start >= 0.3
+
+
+def test_wait_gives_the_job_once_the_worker_has_run_it(app):
+    with app.app_context():
+        jid = jobs.enqueue(database.get_db(), 'test_quick', {'n': 21})
+    t = threading.Thread(target=lambda: (time.sleep(0.2), jobs.run_queued(app)))
+    t.start()
+    with app.app_context():
+        job = jobs.wait(database.get_db(), jid, 5, poll=0.05)
+    t.join()
+    assert job['state'] == 'done' and job['progress'] == {'result': 42}
 
 
 def test_progress_is_kept_for_the_page(app):
