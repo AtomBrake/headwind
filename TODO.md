@@ -11,18 +11,7 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
 
 ## P1, next
 
-### Data and import
-
-- [ ] **Duplicates the 0.7.41 rules still miss or keep badly** (what's left of the live server's 3,539 activities to Strava's 3,433; the rest is in the changelog).
-  - [ ] Four of the ten Alpe d'Huez ski sessions (10–13 Mar 2025) are still kept twice on the 5005 copy; the other four now match (CHANGELOG: a track stored with more times than positions). Their watch copies (`wk_2e07057e7271cb92`, `wk_e5075469ca6122f4`, `wk_5842017ccce237f1`, `wk_60a7764963123939`) are 106–221 records out of step, so each position's moment is only known to within 3–8 minutes, and only reading the file again (`garmin_changes._put_in_step`, which now runs `duplicates.resolve`) can match them. The 5005 copy has no Garmin login, so check on the live server once this is deployed. If the live server read March 2025 again before the update and had already run `recheck_matching` (`dupMatchFixDone`), nothing checks them again: run `duplicates.resolve` on the four Strava copies (13842966386, 13850900568, 13862304589, 13871689975) by hand. 13 March also needs **Import again** of the Strava export: its Strava copy was stored uncropped, 625 s late (CHANGELOG: a Strava crop that keeps the end of a recording).
-
-### Housekeeping
-
-- [ ] **The install steps install upstream's image, not this repo's.** `docker-compose.yml` uses `lordmerchant99/headwind:latest` (Docker Hub), and the README's Docker section downloads that compose file and `.env.example` from `raw.githubusercontent.com/lordmaa/headwind`, names `lordmerchant99/headwind` as where images are published (tags `latest`, `0.1.0-beta`), and its badge links to that Docker Hub page; From source clones `lordmaa/headwind`. This repo's releases are built by `.github/workflows/docker.yml` and pushed to `ghcr.io/${{ github.repository }}` (`ghcr.io/atombrake/headwind`) as `:<version>` and `:beta` for a `-beta` tag; `:latest` only moves on a tag with no suffix, so it has never been pushed. Someone following the README gets upstream's image and none of the 0.6–0.7 releases. Found updating the README, 2026-10-25.
-  - [ ] Decide what this repo's README and compose file are for: this repo's own users (point at ghcr), or kept matching upstream for the upstream PRs. Can't be both in one file without saying so.
-  - [ ] If this repo's: `docker-compose.yml` to `ghcr.io/atombrake/headwind:beta` (or `latest` once a release has no suffix), the README's `curl` and `git clone` URLs, the published-images line and the Docker badge. Check the ghcr package is public, or `docker compose pull` fails without a login.
-  - [ ] The update check is a third name: `version_check` (`routes/settings.py`, `/settings/version-check`) asks Docker Hub for `lordmerchant99/bike-flask` `tags/latest`, so it reports an image this repo doesn't publish. Point it at the same place as the compose file (ghcr's API needs a token even for public packages, so the GitHub releases API may be simpler), and compare with `version.py` rather than a date.
-  - [ ] The "GitHub →" link on Settings (`templates/settings.html`) and "get Headwind" in the demo banner (`templates/base.html`) go to `lordmaa/headwind`; decide with the rest.
+Nothing at the moment.
 
 ## P2, soon
 
@@ -351,6 +340,12 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
 - [ ] **Backups from a script.** Scripts that fetched `GET /settings/backup/export` get a 405 now. If anyone backs up with curl, offer a token-authenticated way to start one and fetch it when ready.
 
 ## Someday
+
+- [ ] **The install steps install upstream's image, not this repo's.** `docker-compose.yml` uses `lordmerchant99/headwind:latest` (Docker Hub), and the README's Docker section downloads that compose file and `.env.example` from `raw.githubusercontent.com/lordmaa/headwind`, names `lordmerchant99/headwind` as where images are published (tags `latest`, `0.1.0-beta`), and its badge links to that Docker Hub page; From source clones `lordmaa/headwind`. This repo's releases are built by `.github/workflows/docker.yml` and pushed to `ghcr.io/${{ github.repository }}` (`ghcr.io/atombrake/headwind`) as `:<version>` and `:beta` for a `-beta` tag; `:latest` only moves on a tag with no suffix, so it has never been pushed. Someone following the README gets upstream's image and none of the 0.6–0.7 releases. Found updating the README, 2026-10-25. Waiting on the upstream maintainer (2026-11-20): whether this repo's changes go into upstream's version and are kept in step with it, or this becomes a spin-off of its own. That answer decides the first sub-item.
+  - [ ] Decide what this repo's README and compose file are for: this repo's own users (point at ghcr), or kept matching upstream for the upstream PRs. Can't be both in one file without saying so.
+  - [ ] If this repo's: `docker-compose.yml` to `ghcr.io/atombrake/headwind:beta` (or `latest` once a release has no suffix), the README's `curl` and `git clone` URLs, the published-images line and the Docker badge. Check the ghcr package is public, or `docker compose pull` fails without a login.
+  - [ ] The update check is a third name: `version_check` (`routes/settings.py`, `/settings/version-check`) asks Docker Hub for `lordmerchant99/bike-flask` `tags/latest`, so it reports an image this repo doesn't publish. Point it at the same place as the compose file (ghcr's API needs a token even for public packages, so the GitHub releases API may be simpler), and compare with `version.py` rather than a date.
+  - [ ] The "GitHub →" link on Settings (`templates/settings.html`) and "get Headwind" in the demo banner (`templates/base.html`) go to `lordmaa/headwind`; decide with the rest.
 
 - [ ] **The fold APIs on iPhone Duo, once the SDK has them.** Reserved regions (`reservedRegions(kind:)` on `GeometryProxy`, `.division` while half-folded) for the views that draw themselves (the Record map's overlay, `CardColumns`), so nothing sits on the crease, and `ArrangementView` for Activities' list and detail. iOS 27.1 SDK only (shown in Apple's Tech Talks, not yet in a shipped Xcode); check the names against the Xcode 27.1 beta. Also needed then: iPhone Duo screenshots for the App Store (outer 1398×2034, inner 2007×2853).
 
