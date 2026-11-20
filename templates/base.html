@@ -154,6 +154,7 @@
          class="nav-item {% if request.blueprint == 'heatmap' %}active{% endif %}">
         {% include 'icons/_pin.svg' %} Heatmap
       </a>
+      {# Roughness and the route planner are hidden until they work; their pages are still at /roughness and /planner.
       <a href="{{ url_for('roughness.index') }}"
          class="nav-item {% if request.blueprint == 'roughness' %}active{% endif %}">
         {% include 'icons/_road.svg' %} Roughness
@@ -162,6 +163,7 @@
          class="nav-item {% if request.blueprint == 'route_builder' %}active{% endif %}">
         {% include 'icons/_route.svg' %} Planner
       </a>
+      #}
       <a href="{{ url_for('ai_page.index') }}"
          class="nav-item {% if request.blueprint == 'ai_page' %}active{% endif %}">
         {% include 'icons/_spark.svg' %} AI Coach

@@ -139,11 +139,6 @@ Daily weigh-ins with a smoothed trend line, rate of change, and progress against
 
 <img src="docs/screenshots/weight-trend.jpg" alt="Weight trend" width="900">
 
-### Route planner
-Plan a route on the map, see distance and the elevation profile, and export it as GPX.
-
-<img src="docs/screenshots/route-planner.jpg" alt="Route planner" width="900">
-
 ### Goals and challenges
 Set a distance, climbing, time or activity-count goal for a sport, per week, month or year, and see whether you're ahead of an even pace on the Goals page and the dashboard. Challenge linked friends to a race over set dates; each instance works out the standings from the activities it syncs.
 
@@ -220,10 +215,6 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 **Profile and trophy case: lifetime stats, segment PRs, best efforts and badges.**
 
 <img src="docs/screenshots/profile.jpg" alt="Profile and trophy case: lifetime stats, segment PRs, best efforts and badges." width="800">
-
-**Route planner with a saved route loaded: distance, waypoints and GPX export.**
-
-<img src="docs/screenshots/route-planner.jpg" alt="Route planner with a saved route loaded: distance, waypoints and GPX export." width="800">
 
 **Import: drop in .fit / .gpx / .tcx files or a full Strava export zip.**
 
@@ -453,7 +444,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 
 ### Activity pages and analytics
 - Map, speed/elevation/heart-rate/power/cadence streams, wind overlay, co-rider badges. Hovering a chart marks the spot on the map, and the map's cursor on the track shows on the charts, the phone sensor charts included.
-- **Map types** — every map (activities, segments, heatmap, route planner, road roughness) has a picker: Esri satellite, satellite + labels, dark, light and topographic, OpenTopoMap (contours, paths and tracks) and CyclOSM (surfaces, MTB trail grades), with Waymarked Trails' mountain bike and cycle routes over any of them. Thunderforest's OpenCycleMap and Outdoors, and Ordnance Survey's Outdoor map of Great Britain, join it once you save your own free key under **Settings → Maps**. On an activity, direction arrows, distance markers every mile or km (fewer when zoomed out) and the wind arrows each have their own switch. Each kind of map remembers your choice in the browser.
+- **Map types** — every map (activities, segments, heatmap) has a picker: Esri satellite, satellite + labels, dark, light and topographic, OpenTopoMap (contours, paths and tracks) and CyclOSM (surfaces, MTB trail grades), with Waymarked Trails' mountain bike and cycle routes over any of them. Thunderforest's OpenCycleMap and Outdoors, and Ordnance Survey's Outdoor map of Great Britain, join it once you save your own free key under **Settings → Maps**. On an activity, direction arrows, distance markers every mile or km (fewer when zoomed out) and the wind arrows each have their own switch. Each kind of map remembers your choice in the browser.
 - **Pages that fit the sport** — pace and splits per mile or km on foot; pace per 100 m, sets, strokes and SWOLF for swims; each run of a ski day with vertical descent; no climb on the water; laps from your device for any sport.
 - **Same route** — the other times you've done this activity's route (same start, finish and roads, same way round, same kind of activity), ranked by moving time, compared with the last 20 and charted. The AI coach gets the same comparison.
 - **Zwift rides and runs** are matched to one of Zwift's worlds and drawn over its map alone, with no satellite map around it, on the activity page (in the iPhone app too) and when comparing its recordings. A ride or run that starts in one of Zwift's made-up worlds (Watopia, Makuri Islands, France, Crit City) counts as a Zwift one whatever its file called it, and Garmin's virtual and treadmill runs come in as indoor runs. Indoor rides and runs have no segments.
