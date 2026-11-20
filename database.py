@@ -1622,6 +1622,13 @@ def _one_at_a_time(db):
     return held()
 
 
+def _first_sentence(step):
+    """A step's docstring to its first full stop, for the log: the first line alone stops mid-sentence where the docstring wraps."""
+    import re
+    text = ' '.join((step.__doc__ or step.__name__).split())
+    return re.split(r'(?<!\.)\.(?:\s|$)', text, maxsplit=1)[0] + '.'
+
+
 def _migrate(db):
     log = logging.getLogger(__name__)
     db.execute('PRAGMA journal_mode = WAL')     # kept in the database file, so once here (and on a restored backup) rather than per connection
@@ -1633,9 +1640,9 @@ def _migrate(db):
     new = not db.execute("SELECT 1 FROM sqlite_master WHERE type='table'").fetchone()     # nothing in it to keep a copy of
     for n in range(have + 1, LATEST + 1):
         step, keep_copy = STEPS[n - 1]
+        log.info('Database: step %d of %d, %s', n, LATEST, _first_sentence(step))
         if keep_copy and not new:
             _keep_copy(db, n)
-        log.info('Database: step %d of %d, %s', n, LATEST, (step.__doc__ or step.__name__).split('\n')[0])
         db.commit()
         db.execute('BEGIN IMMEDIATE')
         step(db)
