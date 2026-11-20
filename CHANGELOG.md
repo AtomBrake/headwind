@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Apple Health sends only the workouts your server doesn't have.** Before this, the iPhone read every other app's workout again on a full look (the first sync, choosing to go further back, Health's permission granted again), with its route and heart rate, and uploaded it for the server to recognise. Over three years that took minutes. Now the phone asks the server which it has before reading their routes, and sends only the rest. Workouts already sent before this update are recognised too. Settings → Apple Health counts them as "already on the server". Needs the updated iPhone app.
+
+### Changed
+- **One upload path for everything from the iPhone and the Watch.** Rides, other sports with a GPS track and sessions with none now go through the same door on the server, and each keeps the phone's id for it. A ride sent again is found by that id as well as by its content, and every sport gets the same duplicate check against Garmin, Strava and file imports. The older apps' upload paths still work and answer as before.
+
+### Fixed
+- **A workout you deleted no longer comes back from Apple Health.** A full look through Apple Health uploaded it again; the phone now leaves out workouts deleted on the server. Uploading a recording yourself still brings it back.
+- **A typed-in or timed session that turned out to be a copy of another recording says so.** The phone was told it was new and shown the copy's id; it's now told it was already on the server, with the id of the activity that was kept, as a recording with a track already was.
+
 ## [0.7.46-beta] - 2026-11-20
 
 ### Added

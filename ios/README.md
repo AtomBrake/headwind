@@ -6,7 +6,7 @@ A native SwiftUI companion for a Headwind server. It uses the same phone API and
 | Tab | Shows | Endpoint |
 |---|---|---|
 | Today | Calories ring (eaten / goal / burned), macros, water, steps, weight trend, food diary by meal, today's other activities with their own icons | `GET /api/v1/today` |
-| Record | Map (or a clock for a timed sport), live stats, start / pause / finish any sport the phone records, on a chosen bike; list of recordings, their upload status, bike and waiting photos (add, remove, reorder) | `POST /api/v1/rides`, `/workouts`, `/activities`, `/rides/ride/<id>/bike`, `/rides/<kind>/<id>/photos`, `/live` |
+| Record | Map (or a clock for a timed sport), live stats, start / pause / finish any sport the phone records, on a chosen bike; list of recordings, their upload status, bike and waiting photos (add, remove, reorder) | `POST /api/v1/activities` (older servers: `/rides`, `/workouts`), `/rides/ride/<id>/bike`, `/rides/<kind>/<id>/photos`, `/live` |
 | Activities | Every activity of every sport, paged, searchable and filtered by sport, and by whose (Me, a friend, Everyone); each with its map (a Zwift ride's over its Zwift world), stats, charts and photos (add, delete, reorder, caption), and delete. A friend's is read-only | `GET /api/v1/rides` (`?rider=`), `/friends`, `/rides/<kind>/<id>`, `/photos/<name>`, `/zwift/<slug>.png`, `/rides/<kind>/<id>/photos…` |
 | Overview | A card per sport group for week / month / year / all time, a 12-week chart of one sport by distance or every sport by time, latest recovery (Garmin's or Apple Health's) | `GET /api/v1/overview` |
 | Settings | Paired server, rider, units, Bluetooth sensors (pair, forget, battery, wheel size), Apple Health (what to send, how far back), friends (make a QR code for a friend with what they may see; add a friend by scanning or pasting their code), unpair | `GET /api/v1/ping`, `POST /api/v1/health/days`, `GET`/`DELETE /api/v1/health`, `POST /api/v1/friends/tokens`, `/friends/probe`, `/friends` |
@@ -32,8 +32,9 @@ minute to be kept.
 ## Recording rides
 
 - **Sport and bike:** pick Ride, E-bike ride, Run, Walk or Hike before Start, on the phone or the Watch, and for rides
-  the bike (the server's default to begin with; the last choice is remembered). Both are fixed once recording. Rides
-  upload to `/api/v1/rides` with `bike_id`; on foot they go to `/api/v1/workouts` with their sport. On foot the live
+  the bike (the server's default to begin with; the last choice is remembered). Both are fixed once recording. Every
+  recording uploads to `/api/v1/activities` with its sport, a ride with its `bike_id`; to a server older than that (its
+  `/api/v1/ping` says `api` 1) rides go to `/api/v1/rides` and the rest to `/api/v1/workouts`. On foot the live
   stats show pace, and the Watch records the matching Apple Health workout. A ride's bike can be changed later from its
   menu under Recordings, before or after upload.
 - **iPhone:** GPS keeps recording with the screen locked. While recording, the phone reports its position to
@@ -99,7 +100,9 @@ looks through that history again, since HealthKit hides what it may not share ra
   apart, and the Overview says which it shows. Apple has no sleep score or body battery.
 - A weigh-in never replaces a manual or Garmin one for the same day.
 - Workouts from other apps go up as Headwind's recordings do (with their route and heart rate, or timed without a route),
-  with `ah_<uuid>` as their client id. Headwind's own (the Watch saves every workout to Health) are left out, and so are
+  with `ah_<uuid>` as their client id. Before reading a batch's routes and heart rate, the phone asks the server which of
+  those ids it has (`POST /api/v1/activities/known`) and leaves them out, so a look back through years of workouts sends only
+  the new ones. One deleted on the server counts as had, so a sync doesn't bring it back. Headwind's own (the Watch saves every workout to Health) are left out, and so are
   sports Headwind doesn't have (an elliptical, say). A workout deleted in Health isn't deleted on the server: the server's
   copy may be the one it kept of several. Settings shows what the last look found, by app, and what became of each. It
   warns when the server refuses one, and when a look through all your history finds no other app's workouts: HealthKit
@@ -193,7 +196,7 @@ xcodebuild test -project ios/Headwind.xcodeproj -scheme Headwind -destination 'p
 
 The unit tests cover pairing links, decoding, formatting, and the recording maths: distance, moving time, GPS-jump
 rejection, climbing, pauses, GPX output (with power and cadence), journal recovery (timed sessions too), where each sport
-uploads to, the Watch's ids, Apple Health's sleep merging, and the Bluetooth sensors: GATT parsing, counters wrapping, 3 s power,
+uploads to (by the server's `api`), the Watch's ids, Apple Health's sleep merging, and the Bluetooth sensors: GATT parsing, counters wrapping, 3 s power,
 combining sensors, distance by sensor and a timed session's samples. The decoding tests use JSON captured from a real
 server in `HeadwindTests/Fixtures/`. If an endpoint's shape changes, refresh those files and the tests show what
 the app no longer understands.

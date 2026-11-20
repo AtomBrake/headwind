@@ -465,8 +465,9 @@ def api_upload_ride():
     return {'status': 'imported' if result['imported'] else 'skipped', 'rider': rider['name'], **result}
 
 
-def _process_single_file(path, original_name, rider_id=None, bike_id=None):
-    """bike_id (the phone app's choice, already checked to be the rider's) goes on the ride instead of the default bike."""
+def _process_single_file(path, original_name, rider_id=None, bike_id=None, client_id=None):
+    """bike_id (the phone app's choice, already checked to be the rider's) goes on the ride instead of the default bike. client_id is the phone's
+    id for the upload (services/uploads.py), kept on the ride before the duplicate check, so a copy set aside keeps it too."""
     yield _event({'total': 1, 'source': 'files'})
     db = get_db()
     try:
@@ -497,6 +498,8 @@ def _process_single_file(path, original_name, rider_id=None, bike_id=None):
             return
 
         _insert(db, act, rider_id)
+        if client_id:
+            db.execute('UPDATE Activity SET clientId=? WHERE id=?', [client_id, act['id']])
         if bike_id:                                     # before the segment scan, so an e-bike's efforts race for e-bike PRs from the start
             db.execute('UPDATE Activity SET bikeId=? WHERE id=?', [bike_id, act['id']])
             from services import gear as _gear

@@ -73,8 +73,7 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
     tracked = tuple(s for s in WORKOUTS if s not in NO_DISTANCE)
     sport = sport if sport in tracked else (act.get('sportType') if act.get('sportType') in tracked else 'Walk')
     local, utc = _local(act['startDateLocal'], act.get('startLat'), act.get('startLng'), sport)
-    key = client_id or f"{local}|{round(act.get('distance') or 0)}"
-    wid = 'wk_' + hashlib.sha1(f'{rider_id}|{key}'.encode()).hexdigest()[:16]
+    wid = track_id(rider_id, client_id or f"{local}|{round(act.get('distance') or 0)}")
     existing = _get(wid)
     if existing:                                       # sent again (or since changed to another sport: it is still that recording)
         return existing, False
@@ -100,11 +99,11 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
     db = get_db()
     db.execute('''INSERT INTO Activity (id, riderId, type, sportType, name, startDate, startDateLocal, distance, movingTime, elapsedTime,
                                         totalElevationGain, averageSpeed, averageHeartrate, calories, steps, startLat, startLng,
-                                        weatherSummary, source, caloriesRaw, rawData)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
+                                        weatherSummary, source, caloriesRaw, clientId, rawData)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
                [wid, rider_id, sport, sport, (name or '').strip() or None, utc, local, dist, secs, int(act.get('elapsedTime') or secs), gain,
                 act.get('averageSpeed'), act.get('averageHeartrate'), kcal, steps, act.get('startLat'), act.get('startLng'),
-                weather, source, kcal_raw])
+                weather, source, kcal_raw, client_id])
     _streams.save(db, wid, act.get('streams'))
     refresh_derived(db, wid)
     from services import duplicates
@@ -117,6 +116,11 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
     if dup and dup['parked'] == wid:
         return _kept_instead(wid), False
     return _get(wid), True
+
+
+def track_id(rider_id, key):
+    """The id a recording with a track gets from its client_id (or, without one, its start and distance): the same every time it's sent."""
+    return 'wk_' + hashlib.sha1(f'{rider_id}|{key}'.encode()).hexdigest()[:16]
 
 
 def _get(act_id):

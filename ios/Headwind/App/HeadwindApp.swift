@@ -62,7 +62,7 @@ struct HeadwindApp: App {
     }
 
     private func syncWatch() {
-        watch.updateWatch(units: session.info?.units, paired: session.pairing != nil, bikes: session.bikes)
+        watch.updateWatch(units: session.info?.units, paired: session.pairing != nil, bikes: session.bikes, api: session.info?.api)
         Task { await watch.provisionWatch(using: session) }
     }
 }

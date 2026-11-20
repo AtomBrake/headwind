@@ -4,13 +4,14 @@
                             server_url, the https outside address set in Settings (null when there's none), and favourite_sports: the
                             rider's favourites ({label, icon, group} or {label, icon, sport}, for GET /api/v1/rides' group= or sport=)
   GET  /api/v1/today       everything the app's home screen needs in ONE request (fast start)
-  POST /api/v1/workouts    upload a recorded walk/run/swim (multipart: file=GPX, optional sport, name, client_id, steps, calories, source=android|ios) — idempotent
+  POST /api/v1/activities  every activity from the phone, the Watch or Apple Health, whatever its sport (services/uploads.py): multipart
+                            with file=GPX for one with a track, JSON for a session with no track (strength, a pool swim, an indoor ride).
+                            Idempotent per client_id. POST /api/v1/activities/known {client_ids} says which the server has.
+  POST /api/v1/rides, POST /api/v1/workouts   the older upload paths for a ride or another sport with a track: the same, with the kind
+                            decided and the reply the released apps read. Kept until they all send to /activities (ping's api 2 says it's there).
   GET  /api/v1/workouts    recent workouts
   DELETE /api/v1/workouts/<id>
-  POST /api/v1/rides       upload a recorded cycling ride (multipart: file=GPX, optional bike_id) — saved as a ride, not a workout, via the
-                            same pipeline as the web's single-file import (best efforts, segment matching, MQTT, weather)
   POST /api/v1/rides/ride/<id>/bike   change a ride's bike (JSON {bike_id: id or null})
-  POST /api/v1/activities  a session with no track (JSON), timed on the phone or the Watch or typed in: strength, a pool swim, an indoor ride
   POST /api/v1/rides/<kind>/<id>/photos   add one photo (multipart: file); DELETE .../photos/<pid>; GET /api/v1/photos/<name> serves one;
                             POST .../photos/order puts them in order (JSON {ids}); PATCH .../photos/<pid> sets a caption (JSON {caption})
   GET  /api/v1/zwift/<slug>.png   a Zwift world's map, for a virtual ride's zwift_world in GET /api/v1/rides/<kind>/<id>
@@ -23,8 +24,6 @@
 The nutrition endpoints the app also uses (/nutrition/api/log, /water, /search, /lookup/<barcode> ...) accept the same token.
 """
 import logging
-import os
-import tempfile
 from datetime import datetime, timedelta
 
 from flask import Blueprint, current_app, jsonify, request
@@ -60,7 +59,8 @@ def ping():
     r = _rider()
     from services import favourites
     s = query_db('SELECT units, calorieAdjustPct, favouriteSports FROM Settings WHERE id=1', one=True)
-    return jsonify({'ok': True, 'api': 1, 'rider': r['name'] if r else None, 'units': (s['units'] if s else None) or 'imperial',
+    return jsonify({'ok': True, 'api': 2,        # 2: POST /activities takes every upload, and /activities/known is there
+                    'rider': r['name'] if r else None, 'units': (s['units'] if s else None) or 'imperial',
                     'calorie_adjust_pct': (s['calorieAdjustPct'] if s and s['calorieAdjustPct'] is not None else 0),
                     'favourite_sports': [{'label': d['label'], 'icon': d['icon'], ('group' if d['arg'][0] == 'group' else 'sport'): d['arg'][1]}
                                          for d in map(favourites.describe, favourites.parse(s['favouriteSports'] if s else None))],
@@ -305,57 +305,75 @@ def perform():
 
 @bp.route('/rides', methods=['POST'])
 def upload_ride():
-    """Upload a phone-recorded cycling ride as a ride (not a workout) — full treatment: parsed the same
-    way as any single-file GPX import (services/parser.parse_gpx), best-efforts scan, segment matching + PR
-    refresh, weather, MQTT push. Multipart: file=GPX. Idempotent for free: parse_gpx's activity id is content-
-    addressed (sha1 of start time + distance) and _process_single_file also guards near-duplicates (same rider,
-    start within 90s, distance within 3%) — no client_id needed, unlike /workouts. An optional bike_id puts the ride on that
-    bike instead of the default; one that isn't the rider's (deleted or archived since the app last asked) falls back to the default
-    rather than refusing the ride."""
-    from routes.import_rides import _process_single_file
-    import json as _json
-
+    """The older path for a phone-recorded ride with a track (multipart: file=GPX, optional bike_id, client_id, source): POST /activities with
+    the kind decided, and the reply the released apps read. Kept until they all send to /activities."""
     rider = _rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
-    f = request.files.get('file')
-    if not f or not f.filename:
-        return jsonify({'error': 'file (GPX) is required'}), 400
-    data = f.read(MAX_GPX + 1)
-    if len(data) > MAX_GPX:
-        return jsonify({'error': 'file too large'}), 413
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.gpx') as tmp:
-        tmp.write(data)
-    try:
-        result = {'imported': 0, 'skipped': 0, 'errors': 0}
-        ride = None
-        duplicate = None
-        bike_id = _own_bike(rider['id'], request.form.get('bike_id')) if request.form.get('bike_id') else None
-        for ev in _process_single_file(tmp.name, f.filename, rider['id'], bike_id=bike_id):
-            payload = _json.loads(ev[len('data: '):]) if ev.startswith('data: ') else {}
-            if payload.get('complete'):
-                result = {k: payload.get(k, 0) for k in ('imported', 'skipped', 'errors')}
-                ride = payload.get('activity')
-                duplicate = payload.get('duplicate')
-            elif payload.get('error'):
-                return jsonify({'error': payload['error']}), 422
-    finally:
-        try:
-            os.unlink(tmp.name)
-        except OSError:
-            pass
-
-    if result['errors']:
-        return jsonify({'error': 'could not parse that recording', **result}), 500
-    if result['imported'] and ride and ride.get('id'):          # recorded on the phone, not a file imported on the web (the list's source filter)
-        src = request.form.get('source') if request.form.get('source') in ('android', 'ios') else 'phone'
-        get_db().execute(r"UPDATE Activity SET source=? WHERE id=? AND source IS NULL AND id LIKE 'imp\_%' ESCAPE '\'", [src, str(ride['id'])])
-        get_db().commit()
-
+    res, err = _upload(rider, kind='ride')
+    if err:
+        return err
+    imported = int(res['created'])
     # imported=0/skipped=1 means it was already uploaded (retry after a dropped connection) — not an error,
-    # ride/activity still identifies which one so the app can show "Uploaded X mi" either way.
-    return jsonify({'status': 'duplicate' if duplicate else ('imported' if result['imported'] else 'skipped'), **result, 'ride': ride, 'duplicate': duplicate})
+    # ride still identifies which one so the app can show "Uploaded X mi" either way.
+    return jsonify({'status': 'duplicate' if res['duplicate'] else ('imported' if imported else 'skipped'), 'imported': imported,
+                    'skipped': int(not imported and not res['duplicate']), 'errors': 0, 'ride': res.get('activity') or _summary(res['id']),
+                    'duplicate': res['duplicate']})
+
+
+def _summary(act_id):
+    row = query_db('SELECT id, name, distance FROM Activity WHERE id=?', [act_id], one=True)
+    return dict(row) if row else {'id': act_id}
+
+
+def _upload(rider, kind=None):
+    """One upload from the phone through services/uploads.receive, whatever its sport: multipart with file=GPX (and sport, name, client_id,
+    source, bike_id, calories, steps), or JSON for a session with no track. Returns (result, None) or (None, an error reply)."""
+    from services import uploads
+    f = request.files.get('file')
+    if f is not None:
+        if not f.filename:
+            return None, (jsonify({'error': 'file (GPX) is required'}), 400)
+        data = f.read(MAX_GPX + 1)
+        if len(data) > MAX_GPX:
+            return None, (jsonify({'error': 'file too large'}), 413)
+        form = request.form
+        try:
+            kcal = float(form['calories']) if form.get('calories') else None
+        except ValueError:
+            kcal = None
+        steps = form.get('steps')
+        args = dict(gpx=data, filename=f.filename, sport=form.get('sport'), name=form.get('name'), client_id=form.get('client_id'),
+                    source=form.get('source'), calories=kcal, steps=int(steps) if steps and steps.isdigit() else None,
+                    bike_id=_own_bike(rider['id'], form.get('bike_id')) if form.get('bike_id') else None)
+    elif kind:
+        return None, (jsonify({'error': 'file (GPX) is required'}), 400)
+    else:
+        b = request.get_json(silent=True) or {}
+        start = str(b['start']) if b.get('start') else f"{b.get('date')}T{str(b.get('time') or '12:00')[:5]}:00"
+        args = dict(sport=b.get('sport'), name=b.get('name'), client_id=b.get('client_id'), source=b.get('source'),
+                    bike_id=_own_bike(rider['id'], b.get('bike_id')) if b.get('bike_id') is not None else None,
+                    session={'start': start, **{k: b.get(k) for k in ('duration_s', 'distance_m', 'elev_m', 'calories', 'avg_hr', 'notes')}})
+    try:
+        res = uploads.receive(get_db(), rider['id'], kind=kind, **args)
+    except uploads.Refused as e:
+        return None, (jsonify({'error': str(e)}), e.status)
+    if res['created']:
+        _after_upload(res, rider)
+    return res, None
+
+
+def _after_upload(res, rider):
+    """Home Assistant and the push notification for a new activity (never fatal). A ride's import has already updated Home Assistant."""
+    try:
+        if res['via'] == 'track':
+            from services.mqtt import push_workout, push_update_nutrition
+            push_workout(res['workout'], rider['name'], f"{external_url.get()}/rides/{res['id']}")
+            push_update_nutrition()                      # the day's burn changed
+        elif res['via'] == 'session':
+            _refresh_after_change(res['kind'])
+    except Exception as e:
+        log.warning('upload side effects failed (non-fatal): %s', e)
 
 
 def _friend_riders():
@@ -720,36 +738,19 @@ def sync_nutrition():
 
 @bp.route('/workouts', methods=['POST'])
 def post_workout():
-    from services import workouts
-    f = request.files.get('file')
-    if not f:
-        return jsonify({'error': 'file (GPX) is required'}), 400
-    data = f.read(MAX_GPX + 1)
-    if len(data) > MAX_GPX:
-        return jsonify({'error': 'file too large'}), 413
+    """The older path for a sport other than a ride with a track (multipart: file=GPX, sport, name, client_id, steps, calories, source):
+    POST /activities with the kind decided, and the reply the released apps read. Kept until they all send to /activities."""
     rider = _rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
-    steps = request.form.get('steps')
-    source = request.form.get('source') if request.form.get('source') in ('android', 'ios') else 'android'   # older Android apps send none
-    try:
-        kcal = float(request.form['calories']) if request.form.get('calories') else None
-    except ValueError:
-        kcal = None
-    try:
-        w, created = workouts.save_from_gpx(rider['id'], data, sport=request.form.get('sport'), name=(request.form.get('name') or '')[:80] or None,
-                                            client_id=(request.form.get('client_id') or '').strip()[:80] or None,
-                                            steps=int(steps) if steps and steps.isdigit() else None, source=source, calories=kcal)
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 422
-    if created:
-        try:
-            from services.mqtt import push_workout, push_update_nutrition
-            push_workout(w, rider['name'], f"{external_url.get()}/rides/{w['id']}")
-            push_update_nutrition()                      # the day's burn changed
-        except Exception as e:
-            log.warning('workout side effects failed (non-fatal): %s', e)
-    return jsonify({'status': 'created' if created else 'exists', 'workout': _public(w)}), (201 if created else 200)
+    if request.files.get('file') is None:
+        return jsonify({'error': 'file (GPX) is required'}), 400
+    res, err = _upload(rider, kind='workout')
+    if err:
+        return err
+    from services import workouts
+    w = res.get('workout') or workouts._get(res['id'])
+    return jsonify({'status': res['status'], 'workout': _public(w)}), (201 if res['created'] else 200)
 
 
 @bp.route('/workouts', methods=['GET'])
@@ -781,29 +782,38 @@ def delete_workout(wid):
 
 @bp.route('/activities', methods=['POST'])
 def post_activity():
-    """Add an activity with no track (JSON): {sport, date 'YYYY-MM-DD', time 'HH:MM' (the server's local time) or start (ISO 8601 with its offset, as
-    the iPhone sends it), duration_s, distance_m (not for Strength, HIIT or Yoga), elev_m?, calories?, avg_hr?, name?, notes?, client_id?,
-    source? (manual, ios or android), bike_id? (a ride's: one of the rider's, else the default)}. The sports are services/manual_activity.SPORTS. Idempotent per client_id."""
-    from services import manual_activity
+    """Every activity from the phone, the Watch or Apple Health (services/uploads.py), idempotent per client_id. With a track, multipart:
+    file=GPX, sport (the file's own when none), name?, client_id, source (ios or android), bike_id? (a ride's), calories?, steps?. With none,
+    JSON: {sport, date 'YYYY-MM-DD', time 'HH:MM' (the server's local time) or start (ISO 8601 with its offset, as the iPhone sends it),
+    duration_s, distance_m (not for Strength, HIIT or Yoga), elev_m?, calories?, avg_hr?, name?, notes?, client_id?, source? (manual, ios or
+    android), bike_id?}; its sports are services/manual_activity.SPORTS. A bike_id that isn't one of the rider's gets the default bike.
+    Replies {status 'created'|'exists', kind, id, duplicate}."""
     rider = _rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
-    b = request.get_json(silent=True) or {}
-    try:
-        start = str(b['start']) if b.get('start') else f"{b.get('date')}T{str(b.get('time') or '12:00')[:5]}:00"
-        res = manual_activity.create(get_db(), rider['id'], b.get('sport'), start, b.get('duration_s'), b.get('distance_m'), b.get('elev_m'),
-                                     b.get('calories'), b.get('name'), b.get('notes'), (str(b['client_id'])[:80] if b.get('client_id') else None),
-                                     source=b.get('source') or 'manual', avg_hr=b.get('avg_hr'))
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-    bike = _own_bike(rider['id'], b.get('bike_id')) if b.get('bike_id') is not None else None
-    if bike and res['created'] and res['kind'] == 'ride':        # an indoor ride on the bike chosen on the phone, as /rides does
-        from services import gear
-        db = get_db()
-        gear.set_ride_bike(db, res['id'], bike)
-        db.commit()
-    _refresh_after_change(res['kind'])
-    return jsonify({'status': 'created' if res['created'] else 'exists', **res}), (201 if res['created'] else 200)
+    res, err = _upload(rider)
+    if err:
+        return err
+    out = {k: res[k] for k in ('status', 'created', 'kind', 'id', 'duplicate')}
+    if res.get('sport_guess'):
+        out['sport_guess'] = res['sport_guess']
+    return jsonify(out), (201 if res['created'] else 200)
+
+
+@bp.route('/activities/known', methods=['POST'])
+def known_activities():
+    """Which of the phone's client ids the server has (JSON {client_ids: [...]}, at most services/uploads.MAX_KNOWN): live, set aside behind
+    another recording, or deleted. Apple Health's sync asks before reading a workout's route, and leaves those out. Replies {known: [...]}."""
+    from services import uploads
+    rider = _rider()
+    if not rider:
+        return jsonify({'error': 'no rider'}), 409
+    ids = (request.get_json(silent=True) or {}).get('client_ids')
+    if not isinstance(ids, list):
+        return jsonify({'error': 'client_ids must be a list'}), 400
+    if len(ids) > uploads.MAX_KNOWN:
+        return jsonify({'error': f'at most {uploads.MAX_KNOWN} client_ids at once'}), 400
+    return jsonify({'known': uploads.known(get_db(), rider['id'], ids)})
 
 
 def _refresh_after_change(kind):

@@ -86,6 +86,8 @@ struct WorkoutCheck: Equatable, Sendable {
     /// Other apps' workouts, by the app's name.
     var sources: [String: Int] = [:]
     var sent = 0
+    /// On the server already (sent before, set aside behind another recording of it, or deleted there): their routes weren't read.
+    var already = 0
     var unsupported = 0
     var tooShort = 0
     var refused = 0
@@ -96,7 +98,7 @@ struct WorkoutCheck: Equatable, Sendable {
     var summary: String {
         guard others > 0 else { return "None from other apps" + (own > 0 ? " (\(own) of Headwind's own)" : "") }
         let from = sources.sorted { ($0.value, $1.key) > ($1.value, $0.key) }.map { "\($0.key) \($0.value)" }.joined(separator: ", ")
-        let outcomes = [(sent, "sent"), (unsupported, "of a sport Headwind doesn't have"), (tooShort, "under a minute"),
+        let outcomes = [(sent, "sent"), (already, "already on the server"), (unsupported, "of a sport Headwind doesn't have"), (tooShort, "under a minute"),
                         (refused, "refused by the server")].filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }
         return from + (outcomes.isEmpty ? "" : ": " + outcomes.joined(separator: ", "))
     }
@@ -452,8 +454,9 @@ final class HealthSync {
             } catch {
                 throw .health(underlying: error)
             }
+            let known = try await alreadySent(result.addedSamples, using: session)
             for workout in result.addedSamples {
-                try await send(workout, into: &check, using: session)     // a failure stops here, before the anchor moves: the batch is read again next time
+                try await send(workout, skipping: known, into: &check, using: session)     // a failure stops here, before the anchor moves: the batch is read again next time
             }
             anchor = result.newAnchor
             if let data = try? NSKeyedArchiver.archivedData(withRootObject: result.newAnchor, requiringSecureCoding: true) {
@@ -464,10 +467,27 @@ final class HealthSync {
         }
     }
 
-    private func send(_ workout: HKWorkout, into check: inout WorkoutCheck, using session: Session) async throws(AppError) {
+    /// The client ids of these workouts the server has already (POST /api/v1/activities/known), so their routes and heart rate aren't read
+    /// again: a full look goes over years of them. Empty from a server before the one upload path (/ping's `api` 2), which finds them itself.
+    private func alreadySent(_ workouts: [HKWorkout], using session: Session) async throws(AppError) -> Set<String> {
+        guard (session.info?.api ?? 1) >= Uploader.oneDoor else { return [] }
+        let ids = workouts.filter { !$0.sourceRevision.source.bundleIdentifier.hasPrefix(Self.ownBundlePrefix) }.map { Self.clientID($0.uuid) }
+        guard !ids.isEmpty else { return [] }
+        let reply = try await session.call { client async throws(AppError) in
+            try await client.post("activities/known", json: KnownRequest(client_ids: ids), as: KnownReply.self)
+        }
+        return Set(reply.known)
+    }
+
+    private struct KnownRequest: Encodable, Sendable { var client_ids: [String] }
+    private struct KnownReply: Decodable, Sendable { var known: [String] }
+
+    private func send(_ workout: HKWorkout, skipping known: Set<String>, into check: inout WorkoutCheck,
+                      using session: Session) async throws(AppError) {
         let source = workout.sourceRevision.source
         guard !source.bundleIdentifier.hasPrefix(Self.ownBundlePrefix) else { check.own += 1; return }
         check.sources[source.name, default: 0] += 1
+        guard !known.contains(Self.clientID(workout.uuid)) else { check.already += 1; return }
         guard workout.duration >= RideSummary.minimumSession else { check.tooShort += 1; return }
         guard let sport = Sport(health: workout.workoutActivityType, indoor: workout.metadata?[HKMetadataKeyIndoorWorkout] as? Bool ?? false) else {
             check.unsupported += 1
@@ -487,10 +507,11 @@ final class HealthSync {
                                   elevationGain: 0, averageHeartRate: hrs.isEmpty ? nil : hrs.reduce(0, +) / hrs.count, sport: sport, calories: kcal)
         let name = GPXWriter.rideName(summary)
         let gpx = points.count >= 2 ? GPXWriter.gpx(segments: [points], name: name, type: sport.gpxType, creator: "Apple Health") : nil
+        let api = session.info?.api
         do throws(AppError) {
             _ = try await session.call { client async throws(AppError) in
                 try await Uploader.upload(summary: summary, id: workout.uuid, name: name, gpx: gpx, clientID: Self.clientID(workout.uuid),
-                                          with: client)
+                                          api: api, with: client)
             }
             workoutsSent += 1
             check.sent += 1
@@ -502,8 +523,8 @@ final class HealthSync {
         }
     }
 
-    /// The same id for a workout every time it's sent: `ah_` and its HealthKit UUID, as the Apple Health export import names them, so a
-    /// workout that came in from an export isn't saved again.
+    /// The same id for a workout every time it's sent: `ah_` and its HealthKit UUID, so the server finds it again by it (services/uploads.py)
+    /// and can say it has it (`alreadySent`).
     nonisolated static func clientID(_ uuid: UUID) -> String { "ah_" + uuid.uuidString.lowercased() }
 
     /// The workout's route with the heart rate nearest each point, or nothing for one without a route.

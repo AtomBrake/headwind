@@ -283,9 +283,10 @@ final class RideStore {
             gpx = data
         }
         update(ride.id) { $0.status = .uploading; $0.message = nil }
+        let api = session.info?.api
         do throws(AppError) {
             let reply = try await session.call { [gpx] client async throws(AppError) in
-                try await Uploader.upload(summary: ride.summary, id: ride.id, name: ride.name, gpx: gpx, with: client)
+                try await Uploader.upload(summary: ride.summary, id: ride.id, name: ride.name, gpx: gpx, api: api, with: client)
             }
             update(ride.id) {
                 $0.status = .uploaded
@@ -305,8 +306,8 @@ final class RideStore {
     }
 
     /// Where a recording goes (Uploader.destination), kept here for the tests.
-    nonisolated static func destination(_ ride: SavedRide) -> (path: String, fields: [String: String]) {
-        Uploader.destination(summary: ride.summary, id: ride.id, name: ride.name)
+    nonisolated static func destination(_ ride: SavedRide, api: Int? = nil) -> (path: String, fields: [String: String]) {
+        Uploader.destination(summary: ride.summary, id: ride.id, name: ride.name, api: api)
     }
 
     /// Put a ride on another bike. Before upload it's only noted here and goes up with the ride; after, the server is told

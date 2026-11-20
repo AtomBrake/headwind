@@ -58,9 +58,15 @@ def _num(v, name, lo=0, hi=None, required=False):
     return x
 
 
+def session_id(rider_id, key, ride):
+    """The id a session with no track gets from its client_id (or, without one, its start, sport, distance and time): the same every time."""
+    return ('man_' if ride else 'wk_') + hashlib.sha1(f'{rider_id}|manual|{key}'.encode()).hexdigest()[:16]
+
+
 def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, calories=None, name=None, notes=None, client_id=None,
            source='manual', avg_hr=None):
-    """Store one manual activity. Returns {'kind', 'id', 'created', 'duplicate'}; raises ValueError with a readable reason. Commits.
+    """Store one manual activity. Returns {'kind', 'id', 'created', 'duplicate'}: id is the activity that stands for it, and created is False when it
+    was here already or was set aside behind another recording of it. Raises ValueError with a readable reason. Commits.
     Strength, HIIT and Yoga need no distance. `source` is SOURCES; a phone's timed session also gives its average heart rate."""
     if sport not in SPORTS:
         raise ValueError('sport must be one of ' + ', '.join(SPORTS))
@@ -76,8 +82,7 @@ def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, 
     notes = (notes or '').strip()[:1000] or None
     local = start.strftime('%Y-%m-%dT%H:%M:%S')
     utc = start_utc.strftime('%Y-%m-%dT%H:%M:%S')
-    key = client_id or f'{local}|{sport}|{round(dist)}|{secs}'
-    aid = ('man_' if is_ride(sport) else 'wk_') + hashlib.sha1(f'{rider_id}|manual|{key}'.encode()).hexdigest()[:16]
+    aid = session_id(rider_id, client_id or f'{local}|{sport}|{round(dist)}|{secs}', is_ride(sport))
     avg = dist / secs if secs else 0
     from services import goal_model
     kg = goal_model.current_weight_kg(rider_id) or 70.0
@@ -91,11 +96,11 @@ def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, 
         if kcal is None:
             kcal_raw, kcal = _kcal_pair(estimate_calories(sport, dist, secs, gain, kg) or estimate_met_calories(sport, secs, kg))
         db.execute('''INSERT INTO Activity (id, riderId, type, sportType, name, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain,
-                                            averageSpeed, averageHeartrate, calories, source, caloriesRaw, rawData) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
-                   [aid, rider_id, sport, sport, name, utc, local, dist, secs, secs, gain, avg, hr, kcal, source, kcal_raw])
+                                            averageSpeed, averageHeartrate, calories, source, caloriesRaw, clientId, rawData) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'{}')''',
+                   [aid, rider_id, sport, sport, name, utc, local, dist, secs, secs, gain, avg, hr, kcal, source, kcal_raw, client_id])
         dup = duplicates.resolve(db, aid)                # already recorded by a device? the recording wins over typed-in numbers
         db.commit()
-        return {'kind': 'workout', 'id': (dup or {}).get('kept', aid), 'created': True, 'duplicate': dup}
+        return {'kind': 'workout', 'id': (dup or {}).get('kept', aid), 'created': (dup or {}).get('parked') != aid, 'duplicate': dup}
 
     if duplicates.exists_anywhere(db, aid):
         return {'kind': 'ride', 'id': aid, 'created': False, 'duplicate': None}
@@ -105,9 +110,10 @@ def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, 
         from services.calorie_adjust import pair as _kcal_pair
         kcal_raw, kcal = _kcal_pair(estimate_ride_calories(dist, secs, kg))
     db.execute('''INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, totalElevationGain,
-                                        averageSpeed, maxSpeed, calories, notes, rawData, riderId, caloriesRaw, createdAt, updatedAt)
-                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))''',
-               [aid, name or ('Indoor ride' if sport == 'VirtualRide' else 'Ride'), sport, sport, utc, local, dist, secs, secs, gain, avg, 0, kcal, notes, '{}', rider_id, kcal_raw])
+                                        averageSpeed, maxSpeed, calories, notes, rawData, riderId, caloriesRaw, clientId, createdAt, updatedAt)
+                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))''',
+               [aid, name or ('Indoor ride' if sport == 'VirtualRide' else 'Ride'), sport, sport, utc, local, dist, secs, secs, gain, avg, 0, kcal, notes, '{}', rider_id, kcal_raw,
+                client_id])
     dup = None
     try:
         dup = duplicates.resolve(db, aid)
@@ -117,4 +123,4 @@ def create(db, rider_id, sport, local_iso, duration_s, distance_m, elev_m=None, 
         db.rollback()
         raise
     db.commit()
-    return {'kind': 'ride', 'id': aid, 'created': True, 'duplicate': dup}
+    return {'kind': 'ride', 'id': (dup or {}).get('kept', aid), 'created': (dup or {}).get('parked') != aid, 'duplicate': dup}

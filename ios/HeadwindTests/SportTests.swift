@@ -166,6 +166,15 @@ struct UploadRoutingTests {
                   source: .phone, status: .pending)
     }
 
+    @Test func everythingWithATrackGoesToActivitiesOnAServerWithOneDoor() {
+        let ride = saved(.ebike, bike: 2)
+        let r = RideStore.destination(ride, api: 2)
+        #expect(r.path == "activities" && r.fields["sport"] == "EBikeRide" && r.fields["bike_id"] == "2")
+        #expect(r.fields["client_id"] == ride.id.uuidString && r.fields["source"] == "ios")          // a ride is found again by it too
+        let walk = RideStore.destination(saved(.walk, bike: 2), api: 2)
+        #expect(walk.path == "activities" && walk.fields["sport"] == "Walk" && walk.fields["bike_id"] == nil)   // a walk has no bike
+    }
+
     @Test func ridesGoToRidesWithTheirBike() {
         #expect(RideStore.destination(saved(.ride)).path == "rides")
         #expect(RideStore.destination(saved(.ride)).fields.isEmpty)        // the server gives it the default bike
@@ -437,6 +446,11 @@ struct WorkoutCheckTests {
         #expect(check.summary == "None from other apps (12 of Headwind's own)")
         #expect(check.warning(backfillDays: 1095)?.hasPrefix("Apple Health gave Headwind no workouts from other apps in the last 3 years.") == true)
         #expect(WorkoutCheck(full: false).warning(backfillDays: 90) == nil)
+    }
+
+    @Test func saysHowManyTheServerHadAlready() {
+        let check = WorkoutCheck(sources: ["Strava": 5], sent: 1, already: 4)
+        #expect(check.summary == "Strava 5: 1 sent, 4 already on the server")
     }
 
     @Test func aRefusalWarns() {

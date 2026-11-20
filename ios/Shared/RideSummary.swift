@@ -102,6 +102,8 @@ enum WatchLink {
     static let pairedKey = "paired"
     /// iPhone → Watch application context: the rider's bikes (Bike.dictionary), for the Watch's bike picker.
     static let bikesKey = "bikes"
+    /// iPhone → Watch application context: the server's /ping `api`, for where the Watch's own uploads go (Uploader.destination).
+    static let apiKey = "api"
     /// iPhone → Watch user info: the Watch's own pairing (server and token, from POST /api/v1/devices/watch), or `forgetKey` to drop it.
     static let watchServerKey = "watch-server"
     static let watchTokenKey = "watch-token"
