@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.48-beta] - 2026-11-20
 
 ### Added
 - **Every friend's activities in one list.** The rider buttons on the dashboard and the Activities page have a **Friends** choice once two friends have synced: their activities together, newest first, each row with its rider's avatar. Search, the more filters, the sport filter, the totals and the weekly chart work over them all together, as for one rider. Nothing on it can be changed here, as with any friend's activity: it has no **Select** bar, gear filter, **Change the type of all results** or **Add an activity by hand**. Another rider who lives on this instance isn't a friend and is never listed under Friends. Before, a friend's activities showed one friend at a time.
