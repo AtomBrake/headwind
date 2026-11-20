@@ -1434,6 +1434,12 @@ def _step_5(db):
         _compact(db)
 
 
+def _step_7(db):
+    """Friend.newFrom: when the first sync that brought activities not yet dismissed on the Friends page began (routes/friends.py)."""
+    if 'newFrom' not in {r[1] for r in db.execute('PRAGMA table_info(Friend)').fetchall()}:
+        db.execute('ALTER TABLE Friend ADD COLUMN newFrom TEXT')
+
+
 def _compact(db):
     """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
     a temporary file and once through the WAL. Logged either way. Commits."""
@@ -1482,6 +1488,7 @@ STEPS = (
     (_step_4, False),
     (_step_5, True),         # an older Headwind puts a copy set aside back without its streams
     (_step_6, False),
+    (_step_7, False),
 )
 LATEST = len(STEPS)
 

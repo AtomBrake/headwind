@@ -21,6 +21,7 @@ bp = Blueprint('friends', __name__)
 
 BATCH = 50
 MAX_IDS = 100        # rides asked for by id in one request (?ids=): a short URL, and an interrupted request loses little
+NOW_MS = "strftime('%Y-%m-%d %H:%M:%f', 'now')"     # a friend activity's createdAt, to the millisecond: a sync a second after another tells its own apart
 
 OWN_RIDERS_SQL = feed_tokens.OWN_RIDERS_SQL       # riders who live here, not friends synced to here
 
@@ -169,18 +170,71 @@ def index():
     settings = query_db('SELECT friendSyncInterval, externalUrl FROM Settings WHERE id=1', one=True)
     sync_interval = settings['friendSyncInterval'] if settings and settings['friendSyncInterval'] is not None else 15
 
-    friends = query_db('''
+    friends = [_with_activities(dict(f)) for f in query_db('''
         SELECT f.*, r.name AS rider_name, r.avatarPath AS rider_avatar
         FROM Friend f
         LEFT JOIN Rider r ON r.id = f.riderId
         ORDER BY f.name
-    ''')
+    ''')]
 
     syncing = syncing_now(get_db())
     from services import external_url
     outside = external_url.describe(settings)['https'] if settings else external_url.https()
     return render_template('friends.html', friends=friends, feed_tokens=feed_tokens.tokens(), own_riders=feed_tokens.own_riders(),
                            sync_interval=sync_interval, syncing=syncing, share_address=outside or request.host_url.rstrip('/'), outside_address=outside)
+
+
+_COUNTED = {'ride', 'run', 'walk', 'hike', 'swim', 'indoor run'}       # sports whose name counts as a noun: "2 new runs", not "2 new yogas"
+
+
+def _with_activities(f):
+    """A Friend row with their newest activity ('latest') and what came in since the Friends page last said so ('new': how many, in words, and
+    the newest of them), for the page to show without first picking their rider on the Activities page."""
+    from routes.dashboard import _name
+    f['latest'], f['new'] = None, None
+    if not f['riderId']:
+        return f
+    cols = 'id, name, sportType, startDateLocal, distance, movingTime'
+    latest = query_db(f'SELECT {cols} FROM Activity WHERE riderId=? ORDER BY startDateLocal DESC LIMIT 1', [f['riderId']], one=True)
+    if latest:
+        f['latest'] = dict(latest, name=_name(latest), when=_day(latest['startDateLocal']))
+    if f['newFrom']:
+        new = query_db(f'SELECT {cols} FROM Activity WHERE riderId=? AND createdAt >= ? ORDER BY startDateLocal DESC',
+                       [f['riderId'], f['newFrom']])
+        if new:
+            f['new'] = {'n': len(new), 'text': _count(len(new), [a['sportType'] for a in new]),
+                        'newest': dict(new[0], name=_name(new[0]), when=_day(new[0]['startDateLocal']))}
+    return f
+
+
+def _count(n, sport_types):
+    """'1 new ride', '3 new runs', '2 new activities' (sports mixed, or one with no noun of its own)."""
+    words = {'ride' if sports.is_ride(s) else sports.label(s).lower() for s in sport_types}
+    word = words.pop() if len(words) == 1 else 'activity'
+    if word not in _COUNTED:
+        word = 'activity'
+    return f"{n} new {word if n == 1 else 'activities' if word == 'activity' else word + 's'}"
+
+
+def _day(local):
+    """'20 Oct', with the year when it isn't this one."""
+    from datetime import datetime
+    from services import tz
+    from services.dates import day_month, day_month_year
+    try:
+        d = datetime.fromisoformat(str(local)[:19])
+    except ValueError:
+        return ''
+    return day_month(d) if d.year == tz.today().year else day_month_year(d)
+
+
+@bp.route('/friends/<int:fid>/seen', methods=['POST'])
+def seen(fid):
+    """Dismiss the "new activities" note for this friend; the next sync that brings some starts a new one."""
+    db = get_db()
+    db.execute('UPDATE Friend SET newFrom=NULL WHERE id=?', [fid])
+    db.commit()
+    return redirect(url_for('friends.index'))
 
 
 @bp.route('/friends/sync-interval', methods=['POST'])
@@ -641,7 +695,7 @@ def _store_ride(db, friend_id, rider_id, obj):
     cols = [c for c in _SHARED_COLS if c != 'streams']          # those go in ActivityStream
     db.execute(f'''
         INSERT INTO Activity (id, {', '.join(cols)}, rawData, riderId, srcUpdatedAt, createdAt, updatedAt)
-        VALUES (?, {', '.join('?' * len(cols))}, '{{}}', ?, '', datetime('now'), datetime('now'))
+        VALUES (?, {', '.join('?' * len(cols))}, '{{}}', ?, '', {NOW_MS}, datetime('now'))
         ON CONFLICT(id) DO UPDATE SET {', '.join(f'{c}=excluded.{c}' for c in cols)},
             riderId=excluded.riderId, srcUpdatedAt='', updatedAt=datetime('now')
     ''', [remote_id, *(v for c, v in zip(_SHARED_COLS, vals) if c != 'streams'), rider_id])
@@ -672,6 +726,7 @@ def _do_ride_sync(friend_id):
     if not friend:
         return 0, 'Friend not found'
 
+    began = query_db(f'SELECT {NOW_MS} AS t', one=True)['t']        # what this sync adds has a createdAt from here on
     rider = ['rider=' + urllib.parse.quote(friend['riderName'])] if friend['riderName'] else []
     # What a friend before 0.7.6 reads (it ignores manifest=1): trimmed to the date so we don't miss rides added on the same day as last sync
     since = ['since=' + friend['lastSynced'][:10]] if friend['lastSynced'] else []
@@ -775,6 +830,10 @@ def _do_ride_sync(friend_id):
     # so a friend's server can't put whatever it likes in the friends page
     if not err and (pull.complete or old_friend):
         db.execute("UPDATE Friend SET lastSynced=datetime('now') WHERE id=?", [friend_id])
+    # New activities, for the Friends page to say so until dismissed: from the first sync since then, so the ones from several add up. Not
+    # from the first sync of all, which brings the friend's whole history (or as much as the token shares).
+    if pull.new and friend['lastSynced']:
+        db.execute('UPDATE Friend SET newFrom=COALESCE(newFrom, ?) WHERE id=?', [began, friend_id])
     db.commit()
     log.info('Friends sync: %s — received %d rides (%d new, %d changed), %d segments for "%s"',
              'done' if not err else 'stopped early', len(pull.rides), pull.new, pull.changed, pull.segments, pull.name)

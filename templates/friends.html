@@ -43,6 +43,9 @@
   .fr-who { display:flex; align-items:center; gap:0.6rem; }
   .fr-who img, .fr-who .rider-initial { width:28px; height:28px; border-radius:50%; object-fit:cover; font-size:0.75rem; flex:none; }
   .fr-url { font-size:0.8125rem; word-break:break-all; }
+  .fr-who .fr-url { display:block; font-size:0.75rem; font-weight:400; }
+  .fr-news { display:flex; align-items:center; justify-content:space-between; gap:0.75rem; margin:0 0 0.6rem; font-size:0.875rem; }
+  .fr-news a { color:inherit; text-decoration:underline; }
   .fr-x { background:none; border:none; cursor:pointer; color:var(--text-muted); font-size:1.1rem; line-height:1; padding:0.2rem 0.4rem; }
   .fr-x:hover { color:var(--danger); }
 
@@ -82,6 +85,67 @@
 {% endblock %}
 
 {% block content %}
+
+<!-- Friends list, with what each has been doing: first, as it's what the page is opened for once friends are linked -->
+<div class="card fr-card">
+  <div class="card-title">Your Friends</div>
+  {% for f in friends if f.new %}
+  <div class="flash flash-success fr-news">
+    <span><b>{{ f.name }}</b>: {{ f.new.text }}, {% if f.new.n > 1 %}the latest {% endif %}<a href="{{ url_for('rides.detail', rid=f.new.newest.id) }}">{{ f.new.newest.name or (f.new.newest.sportType | sport_label) }}</a>, {{ f.new.newest.when }}{% if f.new.n > 1 %}
+      · <a href="{{ url_for('dashboard.activities_page', rider=f.riderId) }}">all {{ f.name }}'s activities</a>{% endif %}</span>
+    <form method="POST" action="{{ url_for('friends.seen', fid=f.id) }}">
+      <button type="submit" class="fr-x" title="Dismiss" aria-label="Dismiss">×</button>
+    </form>
+  </div>
+  {% endfor %}
+  {% if friends %}
+  <table class="table fr-table sortable" data-sort-name="friends">
+    <thead>
+      <tr><th>Rider</th><th data-first="desc">Latest activity</th><th data-first="desc">Last synced</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for f in friends %}
+      <tr>
+        <td class="name" data-sort="{{ f.name }}">
+          <div class="fr-who">
+            {% if f.rider_avatar %}
+              <img src="{{ url_for('static', filename='avatars/' + f.rider_avatar) }}" alt="{{ f.name }}">
+            {% else %}
+              <span class="rider-initial">{{ f.name[0]|upper }}</span>
+            {% endif %}
+            <span>
+              {% if f.riderId %}<a href="{{ url_for('dashboard.activities_page', rider=f.riderId) }}" title="{{ f.name }}'s activities">{{ f.name }}</a>{% else %}{{ f.name }}{% endif %}
+              <span class="fr-url muted"><code>{{ f.url }}</code></span>
+            </span>
+          </div>
+        </td>
+        <td data-label="Latest" data-sort="{{ f.latest.startDateLocal if f.latest else '' }}">
+          {% if f.latest %}
+          {{ f.latest.sportType | sport_icon }} <a href="{{ url_for('rides.detail', rid=f.latest.id) }}">{{ f.latest.name or (f.latest.sportType | sport_label) }}</a>
+          <span class="muted">· {{ f.latest.when }}{% if f.latest.distance %} · {{ f.latest.distance | fmt_dist }}{% endif %}</span>
+          {% else %}<span class="muted">None yet</span>{% endif %}
+        </td>
+        <td class="muted" data-label="Last synced" data-sort="{{ f.lastSynced or '' }}">{% if f.lastSynced %}{{ f.lastSynced | fmt_when }}{% else %}Never{% endif %}</td>
+        <td class="act">
+          <button type="button" onclick="syncFriend({{ f.id }}, this)" class="btn btn-secondary btn-sm"{% if f.id in syncing %} data-syncing="{{ f.id }}"{% endif %}>Sync</button>
+          <form method="POST" action="{{ url_for('friends.set_friend_token', fid=f.id) }}"
+                data-prompt="New feed token from {{ f.name }}:" onsubmit="var t = prompt(this.dataset.prompt); if (!t) return false; this.token.value = t; return true;">
+            <input type="hidden" name="token">
+            <button type="submit" class="btn btn-secondary btn-sm" title="Paste a new token this friend gave you; their activities stay">Token</button>
+          </form>
+          <form method="POST" action="{{ url_for('friends.delete', fid=f.id) }}"
+                data-confirm="Remove {{ f.name }}? Their activities and segments here are deleted; nothing changes on their own Headwind." onsubmit="return confirm(this.dataset.confirm)">
+            <button type="submit" class="fr-x" title="Remove {{ f.name }}" aria-label="Remove {{ f.name }}">×</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="fr-intro" style="margin:0;">No friends connected yet: add one below with the code they made for you.</p>
+  {% endif %}
+</div>
 
 <!-- Who can read your feed: one token per friend -->
 <div class="card fr-card" id="feed-tokens">
@@ -277,50 +341,6 @@
       {% endfor %}
     </select>
   </form>
-</div>
-
-<!-- Friends list -->
-<div class="card fr-card">
-  <div class="card-title">Connected Instances</div>
-  {% if friends %}
-  <table class="table fr-table sortable" data-sort-name="friends">
-    <thead>
-      <tr><th>Rider</th><th>Address</th><th data-first="desc">Last synced</th><th></th></tr>
-    </thead>
-    <tbody>
-      {% for f in friends %}
-      <tr>
-        <td class="name" data-sort="{{ f.name }}">
-          <div class="fr-who">
-            {% if f.rider_avatar %}
-              <img src="{{ url_for('static', filename='avatars/' + f.rider_avatar) }}" alt="{{ f.name }}">
-            {% else %}
-              <span class="rider-initial">{{ f.name[0]|upper }}</span>
-            {% endif %}
-            <span>{{ f.name }}</span>
-          </div>
-        </td>
-        <td class="muted fr-url"><code>{{ f.url }}</code></td>
-        <td class="muted" data-label="Last synced" data-sort="{{ f.lastSynced or '' }}">{% if f.lastSynced %}{{ f.lastSynced | fmt_when }}{% else %}Never{% endif %}</td>
-        <td class="act">
-          <button type="button" onclick="syncFriend({{ f.id }}, this)" class="btn btn-secondary btn-sm"{% if f.id in syncing %} data-syncing="{{ f.id }}"{% endif %}>Sync</button>
-          <form method="POST" action="{{ url_for('friends.set_friend_token', fid=f.id) }}"
-                data-prompt="New feed token from {{ f.name }}:" onsubmit="var t = prompt(this.dataset.prompt); if (!t) return false; this.token.value = t; return true;">
-            <input type="hidden" name="token">
-            <button type="submit" class="btn btn-secondary btn-sm" title="Paste a new token this friend gave you; their activities stay">Token</button>
-          </form>
-          <form method="POST" action="{{ url_for('friends.delete', fid=f.id) }}"
-                data-confirm="Remove {{ f.name }}? Their activities and segments here are deleted; nothing changes on their own Headwind." onsubmit="return confirm(this.dataset.confirm)">
-            <button type="submit" class="fr-x" title="Remove {{ f.name }}" aria-label="Remove {{ f.name }}">×</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="fr-intro" style="margin:0;">No friends connected yet — add one above.</p>
-  {% endif %}
 </div>
 
 {% endblock %}
