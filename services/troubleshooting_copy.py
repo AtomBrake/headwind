@@ -133,12 +133,14 @@ def _without_friends(db, tables):
 
 def _without_gps(db, tables):
     # The streams are most of the file, and their only place is `latlng`: SQLite's JSON functions take it out several times as quickly as
-    # reading each into Python would (15 s against 40 s for 1.5 GB). An activity's are compressed in ActivityStream (services/streams.py); a
-    # parked duplicate's row holds them as a string.
-    if 'ActivityStream' in tables:
-        streams.register(db)
-        db.execute("UPDATE ActivityStream SET data=streams_pack(json_remove(streams_json(data), '$.latlng')) "
-                   "WHERE json_type(streams_json(data), '$.latlng') IS NOT NULL")
+    # reading each into Python would (15 s against 40 s for 1.5 GB). An activity's are compressed in ActivityStream (services/streams.py), and a
+    # parked duplicate's and an import's waiting on the Import page in their own streams column (streams.apart); a parked duplicate's row kept
+    # from before database step 5 holds them as a string.
+    streams.register(db)
+    for t, col in (('ActivityStream', 'data'), ('ActivityDuplicate', 'streams'), ('ImportChange', 'streams')):
+        if t in tables and col in _cols(db, t):
+            db.execute(f"UPDATE {t} SET {col}=streams_pack(json_remove(streams_json({col}), '$.latlng')) "
+                       f"WHERE json_type(streams_json({col}), '$.latlng') IS NOT NULL")
     _blank(db, 'Activity', ('summaryPolyline', 'startLat', 'startLng'))
     for col in ('rawData', 'laps'):
         _scrub_json(db, 'Activity', col, _GPS)
@@ -168,6 +170,9 @@ def _without_gps(db, tables):
 def _without_streams(db, tables):
     if 'ActivityStream' in tables:
         db.execute('DELETE FROM ActivityStream')
+    for t in ('ActivityDuplicate', 'ImportChange'):
+        if t in tables and 'streams' in _cols(db, t):
+            db.execute(f'UPDATE {t} SET streams=NULL')
     if 'ActivityDuplicate' in tables:
         for rowid, raw in db.execute("SELECT rowid, rowJson FROM ActivityDuplicate WHERE rowJson LIKE '%\"streams\"%'").fetchall():
             try:

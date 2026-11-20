@@ -66,6 +66,9 @@ def test_a_broken_ride_imported_again_waits_for_review_then_is_repaired(db):
     [c] = reimport.pending(db)
     labels = {d['label'] for d in c['diffs']}
     assert {'Distance', 'Recorded data'} <= labels and 'Start' not in labels                 # same start, once both are local time
+    act, data = db.execute('SELECT act, streams FROM ImportChange').fetchone()
+    assert 'streams' not in json.loads(act) and 'latlng' in _streams.unpack(data)            # the file's track compressed beside its figures
+    assert 'the recorded track' in c['fills']                                                # which the page knows of without reading it
 
     assert reimport.resolve(db, '20294689368', 'replace')
     db.commit()

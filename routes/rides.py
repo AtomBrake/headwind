@@ -825,7 +825,7 @@ def view_duplicate(rid, dup_id=None):
     main = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [rid]).fetchone()
     if not d or not main:
         abort(404)
-    other = json.loads(d['rowJson'] or '{}')
+    other = duplicates.parked_row(db, d['id'])
     compare = request.args.get('compare') == '1'
     starts = [s for s in (start_instant(r) for r in (dict(main), other)) if s]
     t0 = min(starts) if starts else None

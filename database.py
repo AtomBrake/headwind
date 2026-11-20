@@ -1392,6 +1392,40 @@ def _step_4(db):
         db.execute('UPDATE PlannedRoute SET distance=? WHERE id=?', [d, rid])
 
 
+def _step_5(db):
+    """The streams of copies set aside or in the bin (ActivityDuplicate.rowJson) and of imports waiting on the Import page (ImportChange.act)
+    out of their JSON into a streams column of their own, compressed (services/streams.apart): 460 MB of proposals from one Strava export
+    imported again. In SQL, _HEAVY_BATCH rows to a commit, so a start stopped halfway carries on from there. Then the file is compacted."""
+    log = logging.getLogger(__name__)
+    from services import streams
+    streams.register(db)
+    moved = 0
+    for table, col in (('ActivityDuplicate', 'rowJson'), ('ImportChange', 'act')):
+        have = {r[1] for r in db.execute(f'PRAGMA table_info({table})').fetchall()}
+        if not have:                                    # made with the column by its ensure_schema
+            continue
+        if 'streams' not in have:
+            db.execute(f'ALTER TABLE {table} ADD COLUMN streams BLOB')
+        db.commit()
+        total, last, done = db.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0], 0, 0
+        while True:
+            ids = [r[0] for r in db.execute(f'SELECT rowid FROM {table} WHERE rowid > ? ORDER BY rowid LIMIT ?', [last, _HEAVY_BATCH])]
+            if not ids:
+                break
+            last = ids[-1]
+            # json_extract gives a string's text (how a row's streams are kept) and an object's JSON alike
+            moved += db.execute(f"""UPDATE {table} SET streams = COALESCE(streams_pack(json_extract({col}, '$.streams')), streams),
+                                                       {col} = json_remove({col}, '$.streams')
+                                    WHERE rowid IN ({','.join('?' * len(ids))}) AND json_valid({col})
+                                      AND json_type({col}, '$.streams') IS NOT NULL""", ids).rowcount
+            db.commit()
+            done += len(ids)
+            if done % (_HEAVY_BATCH * 20) < _HEAVY_BATCH:
+                log.warning('%s: streams compressed, %d of %d rows', table, done, total)
+    if moved:
+        _compact(db)
+
+
 def _compact(db):
     """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
     a temporary file and once through the WAL. Logged either way. Commits."""
@@ -1438,6 +1472,7 @@ STEPS = (
     (_step_2, True),         # an older Headwind reads Activity.streams
     (_step_3, False),
     (_step_4, False),
+    (_step_5, True),         # an older Headwind puts a copy set aside back without its streams
 )
 LATEST = len(STEPS)
 

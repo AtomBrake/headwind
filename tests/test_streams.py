@@ -93,7 +93,9 @@ def test_deleted_restored_and_parked_ones_keep_their_streams(app):
     add(db, 'b', track={'time': {'data': [0, 1, 2]}})
     duplicates.park(db, 'b', 'a', 'test')
     db.commit()
-    assert streams.load(db, 'b') == {} and json.loads(json.loads(db.execute("SELECT rowJson FROM ActivityDuplicate WHERE id='b'").fetchone()[0])['streams'])
+    kept = db.execute("SELECT rowJson, streams FROM ActivityDuplicate WHERE id='b'").fetchone()
+    assert streams.load(db, 'b') == {} and 'streams' not in json.loads(kept['rowJson'])         # compressed beside the row, not in it
+    assert json.loads(streams.unpack(kept['streams'])) == {'time': {'data': [0, 1, 2]}}
     duplicates.swap(db, 'b')
     db.commit()
     assert streams.load(db, 'b') == {'time': {'data': [0, 1, 2]}} and streams.load(db, 'a') == {}

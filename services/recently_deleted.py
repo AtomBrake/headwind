@@ -1,14 +1,14 @@
 """Recently deleted: an activity deleted here is kept whole for DAYS, so it can be put back as it was.
 
 The bin is ActivityDuplicate rows with status 'deleted', the same rows that have always remembered a deleted id so no sync brings it back
-(duplicates.is_deleted). A row in the bin has the whole Activity row in rowJson, as a copy set aside does (duplicates.park); a bare tombstone has
-'{}' (one purged from the bin, one deleted before the bin, a Garmin activity left out on the Import page). Its photos stay on disk and in
+(duplicates.is_deleted). A row in the bin has the whole Activity row in rowJson and streams, as a copy set aside does (duplicates.park); a
+bare tombstone has '{}' (one purged from the bin, one deleted before the bin, a Garmin activity left out on the Import page). Its photos stay on disk and in
 ActivityPhoto under its id, and the copies set aside behind it stay parked behind it, so they come back with it. Its segment times, best times
 and the rest are worked out again when it is restored (duplicates.rebuild_derived), as they would be for any activity that arrives.
 
 After DAYS, purge() cuts each one down to the bare tombstone and deletes its photo files then."""
-import json
 import logging
+from services import streams
 
 log = logging.getLogger(__name__)
 DAYS = 30
@@ -21,8 +21,8 @@ def put(db, row):
     from services import duplicates
     duplicates.ensure_schema(db)
     apart = db.execute("SELECT primaryId FROM ActivityDuplicate WHERE id=? AND status='kept_both'", [row['id']]).fetchone()
-    db.execute("INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson) VALUES (?,?,?,?,?,?,?)",
-               [row['id'], apart[0] if apart else '', row['riderId'], 'deleted', 'deleted by you', 'deleted', json.dumps(dict(row))])
+    db.execute("INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson, streams) VALUES (?,?,?,?,?,?,?,?)",
+               [row['id'], apart[0] if apart else '', row['riderId'], 'deleted', 'deleted by you', 'deleted', *streams.apart(row)])
 
 
 def listing(db):
@@ -51,7 +51,7 @@ def restore(db, act_id):
         return None
     _, row = duplicates._restore(db, act_id)
     if d['primaryId']:                                  # kept apart from another recording before it was deleted: still kept apart
-        db.execute("UPDATE ActivityDuplicate SET status='kept_both' WHERE id=?", [act_id])
+        db.execute("UPDATE ActivityDuplicate SET status='kept_both', streams=NULL WHERE id=?", [act_id])
     else:
         db.execute('DELETE FROM ActivityDuplicate WHERE id=?', [act_id])
     lost = False
@@ -81,11 +81,11 @@ def empty(db, ids, db_path):
         if not db.execute(f'SELECT 1 FROM ActivityDuplicate WHERE id=? AND {_BINNED}', [act_id]).fetchone():
             continue
         if not db.execute('SELECT 1 FROM Activity WHERE id=?', [act_id]).fetchone():     # one live again (a file imported since) keeps its own
-            db.execute("UPDATE ActivityDuplicate SET rowJson='{}', status='discarded' WHERE primaryId=? AND status='parked' AND id<>?", [act_id, act_id])
+            db.execute("UPDATE ActivityDuplicate SET rowJson='{}', streams=NULL, status='discarded' WHERE primaryId=? AND status='parked' AND id<>?", [act_id, act_id])
             db.execute("UPDATE ActivityDuplicate SET primaryId='' WHERE primaryId=? AND status='kept_both'", [act_id])
             photos.delete_for(db, [act_id], db_path)
             best_efforts.delete_for(db, 'activityId=?', [act_id])     # a run's from a Strava export, which workouts.forget leaves
-        db.execute("UPDATE ActivityDuplicate SET rowJson='{}', primaryId='' WHERE id=? AND status='deleted'", [act_id])
+        db.execute("UPDATE ActivityDuplicate SET rowJson='{}', streams=NULL, primaryId='' WHERE id=? AND status='deleted'", [act_id])
         done.append(act_id)
     return len(done)
 

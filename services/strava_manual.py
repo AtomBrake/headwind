@@ -39,15 +39,15 @@ def fix(db):
             db.execute("UPDATE Activity SET source='manual' WHERE id=?", [r['id']])
             marked += 1
     restored = []
-    for d in db.execute("SELECT id, primaryId, rowJson FROM ActivityDuplicate WHERE status='parked'").fetchall():
+    for d in db.execute("SELECT id, primaryId, rowJson, streams FROM ActivityDuplicate WHERE status='parked'").fetchall():
         try:
-            row = json.loads(d['rowJson'])
+            row = _streams.together(d['rowJson'], d['streams'])
         except (TypeError, ValueError):
             continue
         if not row or not _typed_in(row):
             continue
         row['source'] = 'manual'
-        db.execute('UPDATE ActivityDuplicate SET rowJson=? WHERE id=?', [json.dumps(row), d['id']])
+        db.execute("UPDATE ActivityDuplicate SET rowJson=json_set(rowJson, '$.source', 'manual') WHERE id=?", [d['id']])
         marked += 1
         kept = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [d['primaryId']]).fetchone()
         if kept and not duplicates.same_ride(row, kept):

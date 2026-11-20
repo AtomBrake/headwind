@@ -31,8 +31,9 @@ def ensure_schema(db):
             source    TEXT,                             -- 'Garmin' / 'Phone or file' (display only)
             reason    TEXT,                             -- why it lost, shown to the user
             status    TEXT NOT NULL DEFAULT 'parked',   -- parked | kept_both
-            rowJson   TEXT NOT NULL,                    -- the full Activity row
-            parkedAt  TEXT DEFAULT (datetime('now'))
+            rowJson   TEXT NOT NULL,                    -- the full Activity row but its streams
+            parkedAt  TEXT DEFAULT (datetime('now')),
+            streams   BLOB                              -- its streams, compressed (services/streams.apart): database step 5 adds it
         )''')
     cols = {r[1] for r in db.execute('PRAGMA table_info(ActivityDuplicate)').fetchall()}
     if 'bikeId' not in cols:                            # the gear chosen on the copy (chosen_gear), checked against the one kept (services/merged_gear.py)
@@ -593,8 +594,9 @@ def park(db, loser_id, primary_id, reason):
         _take_better_name(db, primary_id, winner['name'], row['name'])
         from services import photos
         photos.move(db, loser_id, primary_id)
-    db.execute('INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson, bikeId, kitId, sportType) VALUES (?,?,?,?,?,?,?,?,?,?)',
-               [loser_id, primary_id, row['riderId'], source_label(row), reason, 'parked', json.dumps(dict(row)), *chosen_gear(row), row['sportType']])
+    db.execute('INSERT OR REPLACE INTO ActivityDuplicate (id, primaryId, riderId, source, reason, status, rowJson, streams, bikeId, kitId, sportType) '
+               'VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+               [loser_id, primary_id, row['riderId'], source_label(row), reason, 'parked', *_streams.apart(row), *chosen_gear(row), row['sportType']])
     # Copies set aside under this one now hang off the one kept: a copy set aside under a copy that is itself set aside was lost to everything
     # that follows primaryId to a live activity (the Strava bike or shoes of the copy, services/strava_gear._rides)
     moved = [r[0] for r in db.execute("SELECT id FROM ActivityDuplicate WHERE primaryId=? AND status='parked' AND id<>?", [loser_id, primary_id])]
@@ -682,10 +684,10 @@ def settle_parked(db, act_id, by_garmin=False):
     so no sync brings it back). Returns the id now standing for the session when one does (where the photos can go), else None. Does not commit."""
     ensure_schema(db)
     stands = None
-    for d in db.execute("SELECT id, rowJson FROM ActivityDuplicate WHERE primaryId=? AND status='parked' AND id<>? ORDER BY parkedAt",
+    for d in db.execute("SELECT id, rowJson, streams FROM ActivityDuplicate WHERE primaryId=? AND status='parked' AND id<>? ORDER BY parkedAt",
                         [act_id, act_id]).fetchall():
         try:
-            row = json.loads(d['rowJson'] or '{}')
+            row = _streams.together(d['rowJson'], d['streams'])
         except (TypeError, ValueError):
             row = {}
         other = _match_for(db, row, (act_id,)) if row else None
@@ -728,8 +730,15 @@ def delete_activity(db, act_id, by_garmin=False):
 
 
 def parked_for(db, primary_id):
+    """The copies set aside behind this activity, their rowJson without the streams (parked_row has those)."""
     ensure_schema(db)
     return db.execute("SELECT id, source, reason, status, parkedAt, rowJson FROM ActivityDuplicate WHERE primaryId=? AND status='parked' ORDER BY parkedAt", [primary_id]).fetchall()
+
+
+def parked_row(db, dup_id):
+    """A copy's whole row as a dict, streams and all: {} for one discarded or not there. Raises ValueError for rowJson that isn't JSON."""
+    d = db.execute('SELECT rowJson, streams FROM ActivityDuplicate WHERE id=?', [dup_id]).fetchone()
+    return _streams.together(d['rowJson'], d['streams']) if d else {}
 
 
 def _insert_row(db, row):
@@ -746,7 +755,7 @@ def _restore(db, dup_id):
     d = db.execute('SELECT * FROM ActivityDuplicate WHERE id=?', [dup_id]).fetchone()
     if not d:
         return None, None
-    row = json.loads(d['rowJson'])
+    row = _streams.together(d['rowJson'], d['streams'])
     if not row:                                         # discarded: the data is gone
         return None, None
     _insert_row(db, row)
@@ -759,7 +768,7 @@ def swap(db, dup_id):
     if not d or d['status'] != 'parked':
         return None
     old_primary = d['primaryId']
-    row = json.loads(d['rowJson'])
+    row = _streams.together(d['rowJson'], d['streams'])
     if not row:
         return None
     db.execute('DELETE FROM ActivityDuplicate WHERE id=?', [dup_id])
@@ -778,7 +787,7 @@ def keep_both(db, dup_id):
     d, _ = _restore(db, dup_id)
     if not d:
         return None
-    db.execute("UPDATE ActivityDuplicate SET status='kept_both' WHERE id=?", [dup_id])
+    db.execute("UPDATE ActivityDuplicate SET status='kept_both', streams=NULL WHERE id=?", [dup_id])     # live: its streams are its own now
     rebuild_derived(db, dup_id)
     return dup_id
 
@@ -793,11 +802,11 @@ def recheck_parked(db, primary_id, only=None):
     if not kept or only is not None and not only:
         return []
     back = []
-    for d in db.execute("SELECT id, reason, rowJson FROM ActivityDuplicate WHERE primaryId=? AND status='parked'", [primary_id]).fetchall():
+    for d in db.execute("SELECT id, reason, rowJson, streams FROM ActivityDuplicate WHERE primaryId=? AND status='parked'", [primary_id]).fetchall():
         if d['reason'] == CHOSEN or only is not None and d['id'] not in only:
             continue
         try:
-            row = json.loads(d['rowJson'])
+            row = _streams.together(d['rowJson'], d['streams'])
         except (TypeError, ValueError):
             continue
         if not row or not span(row) or same_ride(row, kept):
@@ -813,7 +822,7 @@ def recheck_parked(db, primary_id, only=None):
 
 def discard(db, dup_id):
     """Delete a parked recording for good. Its id stays remembered (so a Garmin re-sync does not bring it back)."""
-    n = db.execute("UPDATE ActivityDuplicate SET rowJson='{}', status='discarded' WHERE id=? AND status='parked'", [dup_id]).rowcount
+    n = db.execute("UPDATE ActivityDuplicate SET rowJson='{}', streams=NULL, status='discarded' WHERE id=? AND status='parked'", [dup_id]).rowcount
     return bool(n)
 
 
@@ -918,9 +927,9 @@ def repair_stranded_parked(db):
                                         AND COALESCE(riderId, -1) NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL) ORDER BY parkedAt""")]
     moved, unmatched = [], []
     for dup_id in ids:                                  # one at a time: rowJson is a whole activity with its streams
-        d = db.execute('SELECT primaryId, rowJson FROM ActivityDuplicate WHERE id=?', [dup_id]).fetchone()
+        d = db.execute('SELECT primaryId, rowJson, streams FROM ActivityDuplicate WHERE id=?', [dup_id]).fetchone()
         try:
-            row = json.loads(d['rowJson'] or '{}')
+            row = _streams.together(d['rowJson'], d['streams'])
         except (TypeError, ValueError):
             row = {}
         other = _match_for(db, row) if row.get('riderId') is not None else None

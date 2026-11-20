@@ -98,3 +98,21 @@ def split(row):
     friend's) back into Activity."""
     row = dict(row)
     return row, row.pop('streams', None)
+
+
+# A whole activity kept as JSON beside the table's own `streams` column: a copy set aside or in the bin (ActivityDuplicate.rowJson), an import's
+# figures waiting on the Import page (ImportChange.act). The streams are almost all of it, so they're stored as here, compressed, and the JSON
+# stays small enough for SQLite's JSON functions to read a name or a date out of it cheaply. Moved out by database step 5.
+def apart(row):
+    """(the row as JSON text without its streams, the streams as stored, or None)."""
+    row, s = split(row)
+    return json.dumps(row), pack(s)
+
+
+def together(text, data):
+    """apart()'s opposite: the row as a dict with its streams (JSON text) back in it when the column has any. One kept before step 5 still has
+    its own in the JSON. Raises ValueError for text that isn't JSON."""
+    row = json.loads(text or '{}')
+    if data is not None:
+        row['streams'] = unpack(data)
+    return row

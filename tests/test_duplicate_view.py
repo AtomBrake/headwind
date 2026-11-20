@@ -74,9 +74,8 @@ def test_a_zwift_ride_is_drawn_over_its_world(client):
     with app_module.create_app().app_context():
         db = database.get_db()
         db.execute("UPDATE Activity SET sportType='VirtualRide' WHERE id='garmin_1'")
-        row = json.loads(db.execute("SELECT rowJson FROM ActivityDuplicate WHERE id='imp_2'").fetchone()[0])
-        row['streams'] = json.dumps({'time': {'data': [0, 60]}, 'latlng': {'data': [[-11.65, 166.95], [-11.66, 166.96]]}})
-        db.execute("UPDATE ActivityDuplicate SET rowJson=? WHERE id='imp_2'", [json.dumps(row)])
+        track = {'time': {'data': [0, 60]}, 'latlng': {'data': [[-11.65, 166.95], [-11.66, 166.96]]}}
+        db.execute("UPDATE ActivityDuplicate SET streams=? WHERE id='imp_2'", [stream_store.pack(track)])
         db.commit()
     for url in ('/rides/garmin_1/duplicate/imp_2', '/rides/garmin_1/duplicate/imp_2?compare=1'):
         html = client.get(url).get_data(as_text=True)

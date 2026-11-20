@@ -933,12 +933,12 @@ def _unpark_manual(db, act_id):
     """A manual entry set aside as a duplicate before manual entries were known by their missing file: if, seen as manual (_mark_manual has
     run), it isn't the same ride as the one kept in its place, bring it back as its own activity. True if it did. Commits."""
     from services import duplicates
-    d = db.execute("SELECT primaryId, rowJson FROM ActivityDuplicate WHERE id=? AND status='parked'", [act_id]).fetchone()
+    d = db.execute("SELECT primaryId, rowJson, streams FROM ActivityDuplicate WHERE id=? AND status='parked'", [act_id]).fetchone()
     if not d:
         return False
     kept = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [d['primaryId']]).fetchone()
     try:
-        row = json.loads(d['rowJson'])
+        row = _streams.together(d['rowJson'], d['streams'])
     except ValueError:
         return False
     if not row or not kept or duplicates.same_ride(row, kept):

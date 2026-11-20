@@ -112,6 +112,34 @@ def test_step_3_keeps_the_settings_a_build_before_the_steps_added(tmp_path):
     assert conn.execute('PRAGMA user_version').fetchone()[0] == database.LATEST
 
 
+def test_step_5_compresses_the_streams_of_copies_set_aside_and_of_imports_waiting(tmp_path):
+    """Kept in their JSON as text until step 5: out into a streams column of their own, compressed, the rest of the row as it was."""
+    import json
+    from services import streams
+    old = tmp_path / 'step1.db'
+    _from_sql(old, 'schema_step_1.sql', 1)
+    track = json.dumps({'time': {'data': list(range(500))}})
+    row = {'id': 'imp_1', 'name': 'Morning Ride', 'distance': 20000, 'streams': track}
+    conn = sqlite3.connect(old)
+    conn.execute("INSERT INTO Activity (id, name, startDateLocal) VALUES ('1', 'Ride', '2026-11-01T08:00:00')")
+    for i in range(database._HEAVY_BATCH + 3):          # more than one batch
+        conn.execute("INSERT INTO ActivityDuplicate (id, primaryId, riderId, status, rowJson) VALUES (?, '1', 1, 'parked', ?)",
+                     [f'imp_{i}', json.dumps({**row, 'id': f'imp_{i}'})])
+    conn.execute("INSERT INTO ActivityDuplicate (id, primaryId, riderId, status, rowJson) VALUES ('gone', '', 1, 'deleted', '{}')")
+    conn.execute("INSERT INTO ActivityDuplicate (id, primaryId, riderId, status, rowJson) VALUES ('bad', '1', 1, 'parked', 'not json')")
+    conn.execute("INSERT INTO ImportChange (rideId, riderId, diffs, act) VALUES ('1', 1, '[]', ?)", [json.dumps({'distance': 21000, 'streams': track})])
+    conn.commit()
+    conn.close()
+    _migrate(old)
+    conn = sqlite3.connect(old)
+    kept = dict(((i, (j, s)) for i, j, s in conn.execute('SELECT id, rowJson, streams FROM ActivityDuplicate')))
+    assert streams.together(*kept['imp_0']) == {**row, 'id': 'imp_0'} and streams.together(*kept[f'imp_{database._HEAVY_BATCH + 2}'])['streams'] == track
+    assert 'streams' not in json.loads(kept['imp_0'][0]) and len(kept['imp_0'][1]) < len(track) / 2
+    assert kept['gone'] == ('{}', None) and kept['bad'] == ('not json', None)
+    act, data = conn.execute('SELECT act, streams FROM ImportChange').fetchone()
+    assert json.loads(act) == {'distance': 21000} and streams.unpack(data) == track
+
+
 def test_a_newer_database_is_refused_and_left_alone(fresh, monkeypatch):
     conn = sqlite3.connect(fresh)
     conn.execute(f'PRAGMA user_version = {database.LATEST + 1}')

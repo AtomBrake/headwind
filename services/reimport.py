@@ -31,7 +31,8 @@ def ensure_schema(db):
         source    TEXT,
         foundAt   TEXT DEFAULT (datetime('now')),
         diffs     TEXT NOT NULL,             -- [{label, old, new}] for the page
-        act       TEXT NOT NULL              -- the imported ride, normalised (startDate / startDateLocal split as _insert stores them)
+        act       TEXT NOT NULL,             -- the imported ride, normalised (startDate / startDateLocal split as _insert stores them), but its streams
+        streams   BLOB                       -- its streams, compressed (services/streams.apart): database step 5 adds it
     )''')
     db.execute('''CREATE TABLE IF NOT EXISTS ImportProblem (
         rideId    TEXT PRIMARY KEY,
@@ -210,23 +211,25 @@ def propose(db, saved, act, source):
     if not diffs:
         return False
     keep = {k: act.get(k) for k in COLUMNS + ('calories', 'name', 'cropped') if act.get(k) is not None}
-    db.execute('INSERT OR REPLACE INTO ImportChange (rideId, riderId, rideName, source, diffs, act) VALUES (?,?,?,?,?,?)',
-               [saved['id'], saved['riderId'], saved['name'], source, json.dumps(diffs), json.dumps(keep)])
+    db.execute('INSERT OR REPLACE INTO ImportChange (rideId, riderId, rideName, source, diffs, act, streams) VALUES (?,?,?,?,?,?,?)',
+               [saved['id'], saved['riderId'], saved['name'], source, json.dumps(diffs), *stream_store.apart(keep)])
     return True
 
 
 def pending(db):
     """The activities waiting on the Import page, newest found first, with the saved one's date and sport and `fills`: what Fill in gaps would
     add (fill_adds). Only those still saved: one deleted, or set aside behind another recording, since its difference was found isn't listed
-    (its link would go nowhere), and comes back if it does."""
+    (its link would go nowhere), and comes back if it does. Neither's streams are read, only whether there are any."""
     cols = ', '.join(f'a.{c}' for c in COLUMNS if c not in ('streams', 'rawData'))
-    rows = db.execute(f'''SELECT c.*, a.sportType, a.calories, {cols},
-                                 CASE WHEN {stream_store.has_sql('a')} THEN 1 END AS streams
+    rows = db.execute(f'''SELECT c.rideId, c.riderId, c.rideName, c.source, c.foundAt, c.diffs, c.act, c.streams IS NOT NULL AS importStreams,
+                                 a.sportType, a.calories, {cols}, CASE WHEN {stream_store.has_sql('a')} THEN 1 END AS streams
                           FROM ImportChange c JOIN Activity a ON a.id = c.rideId ORDER BY c.foundAt DESC, c.rideId''').fetchall()
     out = []
     for r in rows:
-        diffs = json.loads(r['diffs'])
-        out.append(dict(r, diffs=diffs, fills=fill_adds(r, json.loads(r['act']), diffs)))
+        diffs, act = json.loads(r['diffs']), json.loads(r['act'])
+        if r['importStreams']:
+            act['streams'] = True                   # all fill_adds asks of them
+        out.append(dict(r, diffs=diffs, fills=fill_adds(r, act, diffs)))
     return out
 
 
@@ -281,7 +284,7 @@ def resolve(db, ride_id, choice):
     saved = db.execute(f'SELECT *, {stream_store.sql()} FROM Activity WHERE id=?', [ride_id]).fetchone()
     if choice == 'keep' or not saved:
         return False
-    act = json.loads(row['act'])
+    act = stream_store.together(row['act'], row['streams'])
     sets = {}
     for col in COLUMNS:
         new = act.get(col)
