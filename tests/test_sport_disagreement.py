@@ -110,6 +110,7 @@ def test_copies_set_aside_before_the_sport_column_get_it_from_their_row(db):
     _add(db, 'garmin_1', 'Ride')
     _add(db, '1234', 'EBikeRide')
     duplicates.park(db, '1234', 'garmin_1', 'Kept the Garmin recording.')
+    db.execute('DROP INDEX idx_actdup_cover')          # newer than the columns, and on them
     db.execute('ALTER TABLE ActivityDuplicate DROP COLUMN sportChecked')
     db.execute('ALTER TABLE ActivityDuplicate DROP COLUMN sportType')
     duplicates.ensure_schema(db)

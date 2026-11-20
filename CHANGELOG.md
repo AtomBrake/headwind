@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **The dashboard loads much faster with many merged activities.** Its counts of merged activities whose two recordings disagree about the gear or sport read every copy set aside in full, streams and all, on each load: with a few thousand copies, that was over 600 MB, and several seconds for the first load after a restart. They now read only an index. The first start after updating builds it once.
+
 ## [0.7.44-beta] - 2026-11-20
 
 ### Added

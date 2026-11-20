@@ -34,7 +34,6 @@ def ensure_schema(db):
             rowJson   TEXT NOT NULL,                    -- the full Activity row
             parkedAt  TEXT DEFAULT (datetime('now'))
         )''')
-    db.execute('CREATE INDEX IF NOT EXISTS idx_actdup_primary ON ActivityDuplicate(primaryId)')
     cols = {r[1] for r in db.execute('PRAGMA table_info(ActivityDuplicate)').fetchall()}
     if 'bikeId' not in cols:                            # the gear chosen on the copy (chosen_gear), checked against the one kept (services/merged_gear.py)
         db.execute('ALTER TABLE ActivityDuplicate ADD COLUMN bikeId INTEGER')
@@ -49,6 +48,11 @@ def ensure_schema(db):
         db.execute('ALTER TABLE ActivityDuplicate ADD COLUMN sportType TEXT')
         db.execute('ALTER TABLE ActivityDuplicate ADD COLUMN sportChecked INTEGER')    # 1: the rider said the kept activity's sport is right
         db.execute("UPDATE ActivityDuplicate SET sportType = json_extract(rowJson, '$.sportType') WHERE status='parked' AND json_valid(rowJson)")
+    # Everything but rowJson, by primaryId. The columns added since sit after rowJson (a whole activity, streams and all), so reading one from the
+    # table reads every copy's streams too: 650 MB of them for the dashboard's counts of merged activities to check (merged_gear, merged_sport).
+    db.execute('CREATE INDEX IF NOT EXISTS idx_actdup_cover ON ActivityDuplicate'
+               '(primaryId, status, id, source, sportType, sportChecked, bikeId, kitId, gearChecked)')
+    db.execute('DROP INDEX IF EXISTS idx_actdup_primary')      # the one above starts with primaryId too
 
 
 # ---------- time + matching (pure) ----------

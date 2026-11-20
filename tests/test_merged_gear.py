@@ -96,6 +96,7 @@ def test_gear_since_deleted_is_left_out(db):
 def test_copies_set_aside_before_the_upgrade_get_their_chosen_gear(db):
     amflow, charles = _bikes(db)
     _add(db, 'garmin_1', bike=amflow, bike_auto=amflow)
+    db.execute('DROP INDEX idx_actdup_cover')          # newer than the columns, and on them
     for col in ('bikeId', 'kitId', 'gearChecked'):
         db.execute(f'ALTER TABLE ActivityDuplicate DROP COLUMN {col}')
     rows = {'imp_2': {'id': 'imp_2', 'bikeId': charles, 'bikeAuto': None}, 'imp_3': {'id': 'imp_3', 'bikeId': charles, 'bikeAuto': charles},
