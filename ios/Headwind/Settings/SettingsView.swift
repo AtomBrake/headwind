@@ -122,7 +122,7 @@ struct SettingsView: View {
             }
             if !health.enabled.isEmpty {
                 Button {
-                    Task { await health.sync(using: session) }
+                    Task { await health.syncAskingFirst(using: session) }
                 } label: {
                     HStack {
                         Text("Send now")
@@ -134,8 +134,14 @@ struct SettingsView: View {
                 if let last = health.lastSync {
                     LabeledContent("Last sent", value: last.formatted(.relative(presentation: .named)))
                 }
-                if health.enabled.contains(.workouts), health.workoutsSent > 0 || health.workoutsSkipped > 0 {
-                    LabeledContent("Workouts sent", value: "\(health.workoutsSent)" + (health.workoutsSkipped > 0 ? " · \(health.workoutsSkipped) of a sport Headwind doesn't have" : ""))
+                if health.enabled.contains(.workouts) {
+                    if health.workoutsSent > 0 { LabeledContent("Workouts sent", value: "\(health.workoutsSent)") }
+                    if let check = health.workoutCheck {
+                        LabeledContent("Last workouts found", value: check.summary)
+                        if let warning = check.warning(backfillDays: health.backfillDays) {
+                            Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+                        }
+                    }
                 }
                 if let error = health.lastError {
                     Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)

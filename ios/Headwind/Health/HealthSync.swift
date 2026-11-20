@@ -77,6 +77,42 @@ struct HealthDay: Encodable, Equatable, Sendable {
     var value: Double
 }
 
+/// What a look at Apple Health's workouts found, for Settings. HealthKit hides data it isn't allowed to share rather than saying so, so a full
+/// look (the first, or after going further back) that finds no other app's workouts gets a warning.
+struct WorkoutCheck: Equatable, Sendable {
+    var full = false
+    /// Headwind's own, left out: already on the server.
+    var own = 0
+    /// Other apps' workouts, by the app's name.
+    var sources: [String: Int] = [:]
+    var sent = 0
+    var unsupported = 0
+    var tooShort = 0
+    var refused = 0
+    var refusal: String?
+
+    var others: Int { sources.values.reduce(0, +) }
+
+    var summary: String {
+        guard others > 0 else { return "None from other apps" + (own > 0 ? " (\(own) of Headwind's own)" : "") }
+        let from = sources.sorted { ($0.value, $1.key) > ($1.value, $0.key) }.map { "\($0.key) \($0.value)" }.joined(separator: ", ")
+        let outcomes = [(sent, "sent"), (unsupported, "of a sport Headwind doesn't have"), (tooShort, "under a minute"),
+                        (refused, "refused by the server")].filter { $0.0 > 0 }.map { "\($0.0) \($0.1)" }
+        return from + (outcomes.isEmpty ? "" : ": " + outcomes.joined(separator: ", "))
+    }
+
+    /// Something the user should look at, or nil.
+    func warning(backfillDays days: Int) -> String? {
+        if refused > 0 {
+            return "Your server refused \(refused) workout\(refused == 1 ? "" : "s") from Apple Health" + (refusal.map { ": \($0)" } ?? ".")
+        }
+        guard full, others == 0 else { return nil }
+        let span = days >= 365 ? "\(days / 365) year\(days >= 730 ? "s" : "")" : "\(days) days"
+        return "Apple Health gave Headwind no workouts from other apps in the last \(span). If you have some, check the Health app: "
+            + "Sharing → Apps → Headwind, and turn on Workouts."
+    }
+}
+
 /// A sleep analysis sample as plain values, for `HealthSync.stages`: its HKCategoryValueSleepAnalysis, the source that wrote it, and whether
 /// that's an Apple Watch.
 struct SleepSample: Sendable {
@@ -101,18 +137,15 @@ final class HealthSync {
     private(set) var syncing = false
     private(set) var lastSync: Date?
     private(set) var lastError: String?
-    /// Workouts from other apps sent so far, and the last pass's ones Headwind has no sport for (an elliptical, say).
+    /// Workouts from other apps sent so far, and what the last look that found any (or looked at everything) made of them.
     private(set) var workoutsSent: Int
-    private(set) var workoutsSkipped = 0
+    private(set) var workoutCheck: WorkoutCheck?
     /// How far back the first sync goes. Going further back later sends the extra days (and looks at every workout again; the server
     /// keeps one copy of each).
     var backfillDays: Int {
         didSet {
             defaults.set(backfillDays, forKey: Keys.backfill)
-            if backfillDays > oldValue {
-                defaults.removeObject(forKey: Keys.through)
-                defaults.removeObject(forKey: Keys.anchor)
-            }
+            if backfillDays > oldValue { lookAgain() }
         }
     }
 
@@ -157,12 +190,37 @@ final class HealthSync {
                 return
             }
             enabled.formUnion(metrics)
+            lookAgain()
         } else {
             enabled.subtract(metrics)
         }
         defaults.set(enabled.map(\.rawValue), forKey: Keys.enabled)
         observe(using: session)
         if on { await sync(using: session) }
+    }
+
+    /// Send what's new, first asking HealthKit again for anything switched on that it has no answer for: Health's permissions were reset, or
+    /// the app was moved to another signing team. Otherwise HealthKit hides that data without saying so, and the switch here still looks on.
+    /// For the foreground only, since HealthKit's sheet needs the app on screen; it shows nothing when every type has been asked about.
+    func syncAskingFirst(using session: Session) async {
+        if Self.isAvailable, !enabled.isEmpty, session.pairing != nil {
+            let types = enabled.reduce(into: Set<HKObjectType>()) { $0.formUnion($1.objectTypes) }
+            if (try? await store.statusForAuthorizationRequest(toShare: [], read: types)) == .shouldRequest {
+                do {
+                    try await store.requestAuthorization(toShare: [], read: types)
+                    lookAgain()
+                } catch {
+                    lastError = error.localizedDescription
+                }
+            }
+        }
+        await sync(using: session)
+    }
+
+    /// Start again from `backfillDays`: data HealthKit couldn't share before is behind where the last sync stopped. The server keeps one copy.
+    private func lookAgain() {
+        defaults.removeObject(forKey: Keys.through)
+        defaults.removeObject(forKey: Keys.anchor)
     }
 
     /// Forget everything sent from Apple Health, on the server (DELETE /api/v1/health) and here, and stop sending.
@@ -172,6 +230,7 @@ final class HealthSync {
         for key in [Keys.enabled, Keys.through, Keys.lastSync, Keys.anchor, Keys.sent] { defaults.removeObject(forKey: key) }
         lastSync = nil
         workoutsSent = 0
+        workoutCheck = nil
         observe(using: session)
     }
 
@@ -381,7 +440,9 @@ final class HealthSync {
     private func syncWorkouts(using session: Session) async throws(AppError) {
         let first = calendar.date(byAdding: .day, value: -backfillDays, to: calendar.startOfDay(for: .now)) ?? .now
         var anchor = (defaults.data(forKey: Keys.anchor)).flatMap { try? NSKeyedUnarchiver.unarchivedObject(ofClass: HKQueryAnchor.self, from: $0) }
-        workoutsSkipped = 0
+        var check = WorkoutCheck(full: anchor == nil)
+        // Shown even when a failure stops the pass part way. A pass that found nothing new keeps the last one that did on screen.
+        defer { if check.full || check.others > 0 { workoutCheck = check } }
         while true {
             let query = HKAnchoredObjectQueryDescriptor(predicates: [.workout(HKQuery.predicateForSamples(withStart: first, end: nil))],
                                                         anchor: anchor, limit: Self.workoutBatch)
@@ -392,7 +453,7 @@ final class HealthSync {
                 throw .health(underlying: error)
             }
             for workout in result.addedSamples {
-                try await send(workout, using: session)     // a failure stops here, before the anchor moves: the batch is read again next time
+                try await send(workout, into: &check, using: session)     // a failure stops here, before the anchor moves: the batch is read again next time
             }
             anchor = result.newAnchor
             if let data = try? NSKeyedArchiver.archivedData(withRootObject: result.newAnchor, requiringSecureCoding: true) {
@@ -403,11 +464,13 @@ final class HealthSync {
         }
     }
 
-    private func send(_ workout: HKWorkout, using session: Session) async throws(AppError) {
-        guard !workout.sourceRevision.source.bundleIdentifier.hasPrefix(Self.ownBundlePrefix), workout.duration >= RideSummary.minimumSession,
-              let sport = Sport(health: workout.workoutActivityType, indoor: workout.metadata?[HKMetadataKeyIndoorWorkout] as? Bool ?? false)
-        else {
-            if !workout.sourceRevision.source.bundleIdentifier.hasPrefix(Self.ownBundlePrefix) { workoutsSkipped += 1 }
+    private func send(_ workout: HKWorkout, into check: inout WorkoutCheck, using session: Session) async throws(AppError) {
+        let source = workout.sourceRevision.source
+        guard !source.bundleIdentifier.hasPrefix(Self.ownBundlePrefix) else { check.own += 1; return }
+        check.sources[source.name, default: 0] += 1
+        guard workout.duration >= RideSummary.minimumSession else { check.tooShort += 1; return }
+        guard let sport = Sport(health: workout.workoutActivityType, indoor: workout.metadata?[HKMetadataKeyIndoorWorkout] as? Bool ?? false) else {
+            check.unsupported += 1
             return
         }
         let distance = sport.distanceType.flatMap { workout.statistics(for: $0)?.sumQuantity()?.doubleValue(for: .meter()) } ?? 0
@@ -430,9 +493,12 @@ final class HealthSync {
                                           with: client)
             }
             workoutsSent += 1
+            check.sent += 1
             defaults.set(workoutsSent, forKey: Keys.sent)
         } catch {
             guard error.isRejection else { throw error }     // one the server can't read is skipped, not retried for ever
+            check.refused += 1
+            check.refusal = error.localizedDescription
         }
     }
 

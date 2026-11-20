@@ -424,3 +424,24 @@ struct HealthSleepTests {
         #expect(night("2026-10-22") == ["sleep_deep": 2, "sleep_rem": 0, "sleep_core": 4, "sleep_awake": 0, "sleep_in_bed": 6])
     }
 }
+
+struct WorkoutCheckTests {
+    @Test func saysWhatCameFromWhere() {
+        let check = WorkoutCheck(full: false, own: 4, sources: ["Strava": 3, "Peloton": 1], sent: 2, unsupported: 1, tooShort: 1)
+        #expect(check.summary == "Strava 3, Peloton 1: 2 sent, 1 of a sport Headwind doesn't have, 1 under a minute")
+        #expect(check.warning(backfillDays: 90) == nil)
+    }
+
+    @Test func aFullLookWithNothingFromOtherAppsWarns() {
+        let check = WorkoutCheck(full: true, own: 12)
+        #expect(check.summary == "None from other apps (12 of Headwind's own)")
+        #expect(check.warning(backfillDays: 1095)?.hasPrefix("Apple Health gave Headwind no workouts from other apps in the last 3 years.") == true)
+        #expect(WorkoutCheck(full: false).warning(backfillDays: 90) == nil)
+    }
+
+    @Test func aRefusalWarns() {
+        let check = WorkoutCheck(sources: ["Strava": 1], refused: 1, refusal: "Unreadable GPX")
+        #expect(check.summary == "Strava 1: 1 refused by the server")
+        #expect(check.warning(backfillDays: 90) == "Your server refused 1 workout from Apple Health: Unreadable GPX")
+    }
+}

@@ -56,7 +56,7 @@ struct HeadwindApp: App {
             // Retry anything that failed to upload while offline, and send what Apple Health has new.
             if phase == .active {
                 Task { await store.uploadPending(using: session) }
-                Task { await health.sync(using: session) }
+                Task { await health.syncAskingFirst(using: session) }
             }
         }
     }

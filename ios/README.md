@@ -87,7 +87,9 @@ Settings → Apple Health on the phone. Each kind of data is switched on by itse
 steps, resting heart rate, HRV, sleep, weight, body fat, active and resting calories, and workouts from other apps. Headwind
 only reads, and sends what it reads to your own server (`POST /api/v1/health/days`, one figure per day and metric, safe to
 send twice). Observer queries with background delivery wake the app when there's something new; it also sends whenever it
-comes to the foreground. The first time it goes back as far as you choose (30 days to 3 years).
+comes to the foreground. The first time it goes back as far as you choose (30 days to 3 years). Coming to the foreground, it
+asks HealthKit again for anything switched on that HealthKit has no answer for (Health's permissions were reset, say), then
+looks through that history again, since HealthKit hides what it may not share rather than saying so.
 
 - Steps, calories and HRV are HealthKit's daily statistics, so the iPhone's and Watch's samples are counted once.
 - Sleep is every asleep stage from every source, overlaps counted once, dated to the morning the night ends. Its deep, core and
@@ -99,7 +101,10 @@ comes to the foreground. The first time it goes back as far as you choose (30 da
 - Workouts from other apps go up as Headwind's recordings do (with their route and heart rate, or timed without a route),
   with `ah_<uuid>` as their client id. Headwind's own (the Watch saves every workout to Health) are left out, and so are
   sports Headwind doesn't have (an elliptical, say). A workout deleted in Health isn't deleted on the server: the server's
-  copy may be the one it kept of several.
+  copy may be the one it kept of several. Settings shows what the last look found, by app, and what became of each. It
+  warns when the server refuses one, and when a look through all your history finds no other app's workouts: HealthKit
+  hides data it isn't allowed to share without saying so, so that usually means Workouts is off for Headwind in the
+  Health app.
 - **Remove Apple Health data from Headwind** deletes the daily figures and weigh-ins on the server and stops sending.
 
 ## iPhone Duo and other screen sizes
