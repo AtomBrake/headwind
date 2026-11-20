@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.49-beta] - 2026-11-20
 
 ### Fixed
 - **An activity type you changed in Garmin no longer comes back on Activity types after every restart.** When you changed an activity's type in Garmin Connect to the sport Headwind already had (walking made hiking, rowing made canoeing), a re-sync saw nothing to offer, but kept the type Garmin had when the activity first came in. Each start then listed it again on Settings → Activity types, to be changed back to the old type. A re-sync now takes Garmin's new type, and the activity drops off the list. Run **Full re-sync** once after updating to catch older activities.
