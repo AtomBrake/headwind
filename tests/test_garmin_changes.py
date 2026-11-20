@@ -298,6 +298,19 @@ def test_the_riders_own_rename_wins(db):
     assert db.execute("SELECT name FROM Activity WHERE id='garmin_1'").fetchone()[0] == 'Into the hills'
 
 
+def test_a_sport_changed_in_garmin_to_the_one_here_is_taken_as_garmins_from_then_on(db):
+    """Walking in Garmin, a Hike here; then made hiking in Garmin too. Nothing to offer, but the start-up sport check must stop going by walking."""
+    from services import sport_fix
+    imported(db, act(1, '2026-09-01', name='Teignbridge Walking', key='walking'))
+    db.execute("UPDATE Activity SET sportType='Hike', type='Hike' WHERE id='garmin_1'")
+    sport_fix.from_seen(db)
+    assert [p['newSport'] for p in sport_fix.pending(db, 1)] == ['Walk']
+    gc.check(db, FakeAPI([act(1, '2026-09-01', name='Teignbridge Walking', key='hiking')]), 1, '2026-08-01', '2026-10-01')
+    assert gc.pending(db) == [] and sport_fix.pending(db, 1) == []
+    assert json.loads(db.execute("SELECT summary FROM GarminSeen WHERE garminId='1'").fetchone()[0])['typeKey'] == 'hiking'
+    assert sport_fix.from_seen(db) == {}                                    # nor again at the next start
+
+
 def test_first_check_of_older_imports_sets_a_baseline_and_flags_nothing(db):
     imported(db, act(1, '2026-09-01', name='Morning ride'))
     db.execute('DELETE FROM GarminSeen')                                                     # imported before Garmin's summary was kept

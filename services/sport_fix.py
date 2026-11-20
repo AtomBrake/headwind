@@ -63,6 +63,15 @@ def _same_sport(saved, new):
     return new == saved or new == from_type(saved)
 
 
+def settled(db, activity_id, saved, type_key):
+    """Drop the proposal for this activity when Garmin's type (`type_key`) now gives the sport it is saved with (`saved`): the rider changed it in
+    Garmin to what Headwind already had. Does not commit. True when one went."""
+    from services.garmin import garmin_sport
+    if not type_key or not _same_sport(saved, garmin_sport(type_key)):
+        return False
+    return db.execute("DELETE FROM SportFix WHERE activityId=? AND status='pending'", [activity_id]).rowcount > 0
+
+
 def _propose(db, rider_id, rows, types, only_generic=()):
     """Write down a proposal for each of `rows` ({id: Activity row}) whose sport isn't the one its Garmin type (`types`: {id: typeKey}) gives,
     unless the rider has already said to keep it. For the ids in `only_generic`, only when the activity has no sport in particular (Other,
@@ -111,11 +120,12 @@ def from_seen(db):
                              UNION ALL
                              SELECT {cols}, 1 FROM Activity a JOIN GarminSeen s ON a.originId = 'garmin_' || s.garminId
                              WHERE a.id NOT LIKE 'garmin\_%' ESCAPE '\' AND {not_friends}"""):
-        if r['id'] in pending:
-            continue
         try:
             key = (json.loads(r['summary']).get('typeKey') or '').lower()
         except (ValueError, AttributeError):
+            continue
+        if r['id'] in pending:
+            settled(db, r['id'], r['sportType'], key)       # changed in Garmin since to the sport it has here
             continue
         rows, types = by_rider.setdefault(r['riderId'], ({}, {}))
         rows[r['id']], types[r['id']] = r, key

@@ -169,6 +169,15 @@ def test_a_proposal_kept_or_made_stale_is_not_offered(db):
 
 
 
+def test_a_proposal_goes_once_garmin_has_the_sport_it_has_here(db):
+    """Proposed from Garmin's rowing_v2; the rider then made it canoeing in Garmin, and a check took that in."""
+    _add(db, 'garmin_1', 'Canoe')
+    _seen(db, '1', 'rowing_v2')
+    assert sport_fix.from_seen(db) == {1: 1}
+    db.execute("UPDATE GarminSeen SET summary=? WHERE garminId='1'", [json.dumps({'name': 'Ride', 'typeKey': 'canoeing'})])
+    assert sport_fix.from_seen(db) == {} and sport_fix.count(db, 1) == 0
+
+
 def test_another_name_for_garmins_sport_is_not_offered_and_an_old_proposal_of_one_goes(db):
     """Strava's "Stand Up Paddling" is Garmin's stand_up_paddleboarding_v2 (Paddle): applying it would only rename it, and remove the recording set aside."""
     for gid, sport, key in (('1', 'Stand Up Paddling', 'stand_up_paddleboarding_v2'), ('2', 'Nordic Ski', 'cross_country_skiing_ws'),

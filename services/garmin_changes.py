@@ -280,6 +280,13 @@ def check(db, api, rider_id, start, end, whole=False):
             res['edited'] += 1
         elif not diffs and flag:                                # put back in Garmin before it was reviewed
             db.execute('DELETE FROM GarminChange WHERE activityId=?', [flag['activityId']])
+        if not diffs:                                           # a rename or new sport in Garmin that Headwind has already, or has its own
+            now = {k: new[k] or old.get(k) for k in ('name', 'typeKey')}     # for: nothing to offer, but it is what Garmin says from now on
+            if any(now[k] != old.get(k) for k in now):
+                old = {**old, **now}
+                _accept(db, gid, old)
+                from services import sport_fix
+                sport_fix.settled(db, row['id'], row['sportType'], old['typeKey'])
         if _moved(old, new):
             if _recording_changed(db, api, a, row['id']) is not None:
                 _accept(db, gid, {**old, 'distance': new['distance'], 'duration': new['duration'], 'start': new['start']})
