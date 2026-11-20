@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.44-beta] - 2026-11-20
 
 ### Added
 - **The map and charts are linked when comparing two recordings.** On an activity's **Compare side by side** page, hovering a chart puts a dot on the map where each recording was at that minute, in its own colour, and the cursor on either track shows that minute on every chart, as on the activity page.
@@ -8,6 +8,7 @@
 
 ### Fixed
 - **Times under the segment sliders.** Making a segment from an activity now shows how far into it each end is ("12m in"), as it was always meant to.
+- **The Import page no longer lists an activity that differs from its file once that activity has been deleted** or set aside behind another recording. Before, it was shown without a date or sport, and its link went to a page that wasn't found.
 
 ## [0.7.43-beta] - 2026-11-20
 
