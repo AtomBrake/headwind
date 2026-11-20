@@ -2,7 +2,8 @@
    Shared by the dashboard and the Activities page (routes/dashboard.py); list_path is the page it's on, so its links stay there.
    Needs list_path, rider_query, sf, active_rider, q, date_from, date_to, min_dist, max_dist, is_filtered, search_results, grouped,
    activities, typed, back_url, clear_url, sport_choices, the gear filter's gear, gear_choices, gear_types, row_picker and gear_pickers, and the
-   more filters' af (services/activity_filters), narrowed, result_ids, result_total, page, pages, prev_url and next_url. #}
+   more filters' af (services/activity_filters), narrowed, result_ids, result_total, page, pages, prev_url and next_url. friends_list (every
+   friend's activities together) leaves out the Select bar and "change the type": nothing on it can be changed here. #}
 {% from '_activity_row.html' import activity_row, gear_row %}
 {% set rq = rider_query %}
 {% macro list_url(f, t) %}{{ list_path }}?{% if rq %}{{ rq }}&amp;{% endif %}from={{ f }}&amp;to={{ t }}#ride-history{% endmacro %}
@@ -85,7 +86,7 @@
   <div class="card-title" style="display:flex; align-items:center; gap:0.5rem;">
     Activities
     {% if is_filtered %}<span style="font-size:0.8125rem; font-weight:400; color:var(--text-muted); margin-left:0.5rem;">{{ '{:,}'.format(result_total) }} result{{ 's' if result_total != 1 }}{% if pages > 1 %} · page {{ page }} of {{ pages }}{% endif %}</span>{% endif %}
-    {% if activities %}<button type="button" class="btn btn-secondary pick-toggle" data-pick-toggle title="Pick several activities to delete, re-type, move or download">Select</button>{% endif %}
+    {% if activities and not friends_list %}<button type="button" class="btn btn-secondary pick-toggle" data-pick-toggle title="Pick several activities to delete, re-type, move or download">Select</button>{% endif %}
   </div>
 
   {% if gear_types %}
@@ -98,7 +99,7 @@
   {% if typed %}{% set t = typed.split('|') %}<div style="margin:0.4rem 0 0.8rem; padding:0.5rem 0.8rem; border:1px solid var(--border); border-radius:8px; font-size:0.85rem;">{{ t[0] }} activit{{ 'y' if t[0] == '1' else 'ies' }} changed to {{ t[2] }}{% if t[1] != '0' %}, {{ t[1] }} could not be changed{% endif %}.</div>{% endif %}
   {% if is_filtered %}
   {% if search_results %}
-  {% if narrowed %}
+  {% if narrowed and not friends_list %}
   <form method="POST" action="/activities/bulk-sport" style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; margin:0.2rem 0 0.8rem; padding:0.55rem 0.8rem; border:1px solid var(--border); border-radius:8px;"
         data-submit="confirmBulkSport(this, {{ result_total }})">
     <input type="hidden" name="ids" value="{{ result_ids | join(',') }}">
@@ -158,12 +159,14 @@
   <div class="empty-state">
     <div class="empty-icon">🚴</div>
     <h3>No activities yet</h3>
-    <p>Connect Garmin in Settings, record with the phone app, or import files.</p>
-    <a class="btn btn-primary" href="/import">Import files</a>
+    {% if friends_list %}<p>Your friends' activities arrive with each sync.</p>
+    <a class="btn btn-secondary" href="{{ url_for('friends.index') }}">Friends</a>
+    {% else %}<p>Connect Garmin in Settings, record with the phone app, or import files.</p>
+    <a class="btn btn-primary" href="/import">Import files</a>{% endif %}
   </div>
   {% endif %}
   {% endif %}{# end is_filtered #}
 </div>
-{% include '_bulk_bar.html' %}
+{% if not friends_list %}{% include '_bulk_bar.html' %}{% endif %}
 
 <script src="{{ url_for('static', filename='js/activity_list.js') }}" data-rider-query="{{ rider_query or '' }}" data-list-path="{{ list_path }}"></script>

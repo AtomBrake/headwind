@@ -16,7 +16,7 @@
 
 {% block content %}
 {% set rq = rider_query %}
-{% set data_url = '/data' ~ ('?' ~ rq if rq else '') %}
+{% set data_url = '#ride-history' if friends_list else '/data' ~ ('?' ~ rq if rq else '') %}{# the Data page is one rider's #}
 {% macro list_url(f, t) %}/dashboard?{% if rq %}{{ rq }}&amp;{% endif %}from={{ f }}&amp;to={{ t }}#ride-history{% endmacro %}
 {% if gear_due %}
 <div class="card" style="margin-bottom:1.25rem;border-color:var(--due-line);">
@@ -61,28 +61,12 @@
   {% endif %}
 </div>
 {% endif %}
-{% if all_riders | length > 1 %}
-<div style="display:flex; gap:0.5rem; margin-bottom:1.25rem; flex-wrap:wrap;">
-  {% for r in all_riders %}
-  <a href="{{ url_for('dashboard.dashboard', rider=r.id) }}"
-     style="display:inline-flex; align-items:center; gap:0.5rem; padding:0.4rem 0.75rem 0.4rem 0.4rem;
-            border-radius:999px; border:1px solid {% if r.id == active_rider.id %}var(--accent){% else %}var(--border){% endif %};
-            background:{% if r.id == active_rider.id %}var(--accent-soft){% else %}var(--card-bg){% endif %};
-            text-decoration:none; color:var(--text); font-size:0.875rem; font-weight:{% if r.id == active_rider.id %}600{% else %}400{% endif %};">
-    {% if r.avatarPath %}
-      <img src="{{ url_for('static', filename='avatars/' + r.avatarPath) }}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
-    {% else %}
-      <span class="rider-initial" style="width:28px;height:28px;font-size:0.75rem;flex-shrink:0;">{{ r.name[0] | upper }}</span>
-    {% endif %}
-    {{ r.name }}
-  </a>
-  {% endfor %}
-</div>
-{% endif %}
+{% set endpoint = 'dashboard.dashboard' %}{% include '_rider_buttons.html' %}
 
 <div class="page-greeting" style="display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
   <div>
-    <h2 id="greetingText" data-name="{{ active_rider.name if active_rider else 'rider' }}">Welcome back, {{ active_rider.name if active_rider else 'rider' }}</h2>
+    {% if friends_list %}<h2>Friends' activities</h2>{% else %}
+    <h2 id="greetingText" data-name="{{ active_rider.name if active_rider else 'rider' }}">Welcome back, {{ active_rider.name if active_rider else 'rider' }}</h2>{% endif %}
     <div class="sub">{{ now | fmt_date }}</div>
   </div>
   {% if weather %}

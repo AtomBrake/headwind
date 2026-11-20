@@ -1,0 +1,29 @@
+{# The rider buttons above the activity list, on the dashboard and the Activities page (endpoint: the page's). Friends lists every friend's
+   activities together (routes/dashboard.FRIENDS), offered once two have synced (with one, their own button is the same list). Needs all_riders, active_rider, friend_riders and friends_list. #}
+{% macro pill(href, on) %}
+<a href="{{ href }}"
+   style="display:inline-flex; align-items:center; gap:0.5rem; padding:0.4rem 0.75rem 0.4rem 0.4rem;
+          border-radius:999px; border:1px solid {% if on %}var(--accent){% else %}var(--border){% endif %};
+          background:{% if on %}var(--accent-soft){% else %}var(--card-bg){% endif %};
+          text-decoration:none; color:var(--text); font-size:0.875rem; font-weight:{% if on %}600{% else %}400{% endif %};">{{ caller() }}</a>
+{% endmacro %}
+{% if all_riders | length > 1 %}
+<div style="display:flex; gap:0.5rem; margin-bottom:1.25rem; flex-wrap:wrap;">
+  {% for r in all_riders %}
+  {% call pill(url_for(endpoint, rider=r.id), r.id == active_rider.id) %}
+    {% if r.avatarPath %}
+      <img src="{{ url_for('static', filename='avatars/' + r.avatarPath) }}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
+    {% else %}
+      <span class="rider-initial" style="width:28px;height:28px;font-size:0.75rem;flex-shrink:0;">{{ r.name[0] | upper }}</span>
+    {% endif %}
+    {{ r.name }}
+  {% endcall %}
+  {% endfor %}
+  {% if friend_riders > 1 or friends_list %}
+  {% call pill(url_for(endpoint, rider='friends'), friends_list) %}
+    <span class="rider-initial" style="width:28px;height:28px;flex-shrink:0;" title="Every friend's activities together">{% include 'icons/_users.svg' %}</span>
+    Friends
+  {% endcall %}
+  {% endif %}
+</div>
+{% endif %}

@@ -15,15 +15,17 @@ bp = Blueprint('dashboard', __name__)
 
 def _weekly_data(rider_id, sf=None):
     """The last 12 weeks of the sports the filter leaves in: totals, and the same per stat group ('by') for the stacked bars. Without a filter, rides
-    only (the phone app's weekly bars). The week's own distance is None when the sports don't share one: a swim's doesn't add to a ride's."""
+    only (the phone app's weekly bars). The week's own distance is None when the sports don't share one: a swim's doesn't add to a ride's.
+    rider_id is one rider's id or a list of them (the Friends list)."""
+    ids = rider_id if isinstance(rider_id, (list, tuple)) else [rider_id]
     today  = tz.today()                                  # the server's home zone, as every other date here
     monday = today - timedelta(days=today.weekday())
     first  = monday - timedelta(weeks=11)
     clause, cparams = sf.sql() if sf else (sports.RIDE_SQL, [])
     rows = query_db(
         f"SELECT date(startDateLocal) AS d, sportType, distance, movingTime, {sports.climb_sql()} AS totalElevationGain, calories FROM Activity "
-        f"WHERE riderId=? AND date(startDateLocal) >= ? AND date(startDateLocal) < ? AND {clause}",
-        [rider_id, first.isoformat(), (monday + timedelta(days=7)).isoformat()] + cparams,
+        f"WHERE riderId IN ({','.join('?' * len(ids))}) AND date(startDateLocal) >= ? AND date(startDateLocal) < ? AND {clause}",
+        ids + [first.isoformat(), (monday + timedelta(days=7)).isoformat()] + cparams,
     )
     keys = ('dist_m', 'secs', 'elev_m', 'cals')
     weeks = []
@@ -162,10 +164,20 @@ def index():
     return redirect('/dashboard')
 
 
-def _riders(args):
-    """(every rider, the rider shown, their id): ?rider= or the owner."""
+FRIENDS = 'friends'     # ?rider=friends on the dashboard and Activities: every friend's activities together, newest first, read-only
+
+
+def _riders(args, friends=False):
+    """(every rider, the rider shown, their id): ?rider= or the owner. With friends (the activity list's pages), ?rider=friends gives a stand-in
+    for every friend synced here together, {'id': 'friends', 'name': 'Friends', 'isDefault': 0, 'avatarPath': None, 'ids': [their rider ids]},
+    and no id: see _ids. Another rider who lives here is never one of them (services/friend_rides.friend_riders). With no friend synced it's
+    the owner, as for any rider that isn't there."""
     all_riders = query_db('SELECT * FROM Rider ORDER BY isDefault DESC, name')
     owner      = next((r for r in all_riders if r['isDefault']), all_riders[0] if all_riders else None)
+    if friends and args.get('rider') == FRIENDS:
+        ids = list(friend_rides.friend_riders(get_db()))
+        if ids:
+            return all_riders, {'id': FRIENDS, 'name': 'Friends', 'isDefault': 0, 'avatarPath': None, 'ids': ids}, None
     try:
         rid = int(args.get('rider') or owner['id'])
     except (TypeError, ValueError):
@@ -176,6 +188,20 @@ def _riders(args):
 
 def _rider_args(active_rider):
     return [] if not active_rider or active_rider['isDefault'] else [('rider', active_rider['id'])]
+
+
+def _is_friends(active_rider):
+    return bool(active_rider) and active_rider['id'] == FRIENDS
+
+
+def _ids(active_rider, rid):
+    """The rider ids whose activities the list shows: the one rider's, or every friend's for the Friends list."""
+    return list(active_rider['ids']) if _is_friends(active_rider) else [rid]
+
+
+def _whose_sql(ids):
+    """(condition on a.riderId, params) for these riders."""
+    return f"a.riderId IN ({','.join('?' * len(ids))})", list(ids)
 
 
 def _activities(where, params, order='a.startDateLocal DESC', limit=None, offset=0):
@@ -199,12 +225,14 @@ def _activities(where, params, order='a.startDateLocal DESC', limit=None, offset
 def history():
     """The days of one stretch of the history tree (a month, from= to=), drawn when it is opened: the dashboard draws only the open month, so it
     doesn't carry every activity ever recorded. Same rider, sport and gear filter as the dashboard it came from."""
-    _, active_rider, rid = _riders(request.args)
-    sf = SportFilter(get_db(), rid, request.args)
+    _, active_rider, rid = _riders(request.args, friends=True)
+    ids = _ids(active_rider, rid)
+    sf = SportFilter(get_db(), ids, request.args)
     gf = _gear_filter(get_db(), rid, request.args.get('gear', '').strip())
     date_from, date_to = request.args.get('from', '').strip(), request.args.get('to', '').strip()
     clause, cparams = sf.sql('a.sportType')
-    where, params = ['a.riderId=?', clause], [rid] + cparams
+    whose, wparams = _whose_sql(ids)
+    where, params = [whose, clause], wparams + cparams
     if gf['sql']:
         where.append(gf['sql']); params += gf['params']
     if date_from:
@@ -227,6 +255,8 @@ def _gear_filter(db, rid, value):
     for the form as [(group, [(value, label)])], row_picker (a bike or kit picker on each row, to deal with them one by one), pickers (the
     rider's bikes and kit for it, the retired ones last: an old activity may have been on one)}."""
     from services import gear, kit
+    if rid is None:                                     # the Friends list: gear is one rider's own
+        return dict(value='', sql=None, params=[], args=[], choices=[], row_picker=False, pickers={'bike': [], 'kit': []})
     bikes = gear.list_bikes(db, rid, include_archived=True)
     items = kit.list_kit(db, rid, include_retired=True)
     choices = [('', [('none', 'No gear (every sport)')])] if bikes or items else []
@@ -261,6 +291,8 @@ def _open_newest(grouped):
 def _gear_types(db, rid, value, sf, link):
     """For a "no gear" list: [(sport, n, link to that sport alone, active)] of the activities it has, the "All" link first (sport None)."""
     from services import gear
+    if not value:
+        return []
     counts = gear.no_gear_counts(db, rid, value)
     if not counts:
         return []
@@ -274,20 +306,22 @@ def _activity_list(args, list_path):
     """The activity list's filters and rows, shared by the dashboard and the Activities page: (the template's values, where, params, the rider
     links' args). Name, dates, distance, gear, the sports left in (services/sport_filter), what each has, where it came from and the order
     (services/activity_filters) all come from the URL, so a filtered list can be linked. A search or one of the more filters gives one flat list,
-    a page at a time; otherwise it's the history tree."""
+    a page at a time; otherwise it's the history tree. ?rider=friends lists every friend's activities together, each row with its rider's
+    avatar: nothing on it can be changed here, so it has no Select bar, gear filter or "change the type of all results"."""
     from services.activity_filters import PAGE, ActivityFilters
-    all_riders, active_rider, rid = _riders(args)
+    all_riders, active_rider, rid = _riders(args, friends=True)
+    ids       = _ids(active_rider, rid)
     q         = args.get('q', '').strip()
     date_from = args.get('from', '').strip()
     date_to   = args.get('to', '').strip()
     min_dist, max_dist, min_m, max_m = dist_filters(args)
-    sf        = SportFilter(get_db(), rid, args)     # the sports left in, for the totals, the chart and the list alike
+    sf        = SportFilter(get_db(), ids, args)     # the sports left in, for the totals, the chart and the list alike
     gf        = _gear_filter(get_db(), rid, args.get('gear', '').strip())    # kept in the history tree: a gear filter's list is paged by month
     af        = ActivityFilters(args)
     is_filtered = any([q, date_from, date_to, min_dist, max_dist]) or af.flat
 
-    where  = ['a.riderId=?']
-    params = [rid]
+    whose, params = _whose_sql(ids)
+    where  = [whose]
     if q:
         where.append('a.name LIKE ?');  params.append(f'%{q}%')
     if date_from:
@@ -340,6 +374,8 @@ def _activity_list(args, list_path):
         sport_links=[(label, icon, link(group=g), active) for label, icon, g, active in sf.shortcuts()],
         all_riders=all_riders,
         active_rider=active_rider,
+        friends_list=_is_friends(active_rider),
+        friend_riders=len(friend_rides.friend_riders(get_db())),     # the Friends button is offered once two have synced
         rider_query=urlencode(rider_args + sf.args() + gf['args'] + af.args()),     # kept on every link the page makes: the rider, the sports left out, the gear, the more filters
         clear_url=list_path + ('?' + urlencode(rider_args + sf.args()) if rider_args or sf.args() else ''),     # Clear drops the search and the gear
     )
@@ -363,7 +399,7 @@ def activities_page():
     st = query_db('SELECT units FROM Settings WHERE id=1', one=True)
     return render_template('activities.html', totals=totals, today=tz.today().isoformat(), now=tz.now().strftime('%H:%M'),
                            units=(st['units'] if st and st['units'] else 'imperial'), error=request.args.get('error'),
-                           can_add=bool(ctx['active_rider']) and not friend_rides.is_friend_rider(get_db(), ctx['active_rider']['id']),
+                           can_add=bool(ctx['rid']) and not friend_rides.is_friend_rider(get_db(), ctx['rid']),
                            **ctx)
 
 
@@ -410,6 +446,8 @@ def dashboard():
 
     ctx, where, params, link = _activity_list(request.args, '/dashboard')
     active_rider, sf, rid = ctx['active_rider'], ctx['sf'], ctx['rid']
+    ids = _ids(active_rider, rid)
+    whose, wparams = _whose_sql(ids)
 
     # The headline numbers are for the sports left in. A distance only when they all share one (sf.group): a swim's doesn't add to a ride's.
     totals = query_db(f'''
@@ -424,14 +462,14 @@ def dashboard():
     # Speed (or pace) per activity this year: only when the sports left in share one, so a walk's pace never sits on a line of ride speeds.
     year_speed = []
     if sf.group:
-        fclause, fparams = sf.sql()
+        fclause, fparams = sf.sql('a.sportType')
         year_speed = [
             {'id': r['id'], 'd': r['d'], 'mps': float(r['mps']), 'name': _name(r)}
             for r in query_db(
-                f"SELECT id, date(startDateLocal) as d, {speed_sql()} AS mps, name, sportType, startDateLocal FROM Activity "
-                f"WHERE riderId=? AND strftime('%Y', startDateLocal) = strftime('%Y', 'now') AND {speed_sql()} > 0 AND {fclause} "
-                f"ORDER BY startDateLocal",
-                [rid] + fparams,
+                f"SELECT a.id, date(a.startDateLocal) as d, {speed_sql('a.')} AS mps, a.name, a.sportType, a.startDateLocal FROM Activity a "
+                f"WHERE {whose} AND strftime('%Y', a.startDateLocal) = strftime('%Y', 'now') AND {speed_sql('a.')} > 0 AND {fclause} "
+                f"ORDER BY a.startDateLocal",
+                wparams + fparams,
             )
         ]
 
@@ -454,6 +492,10 @@ def dashboard():
                 weather = {'condition': ha_row['haWeatherCondition'], 'temp_c': ha_row['haWeatherTempC']}
         except ValueError:
             pass
+
+    if _is_friends(active_rider):                       # the Friends list: what follows is one rider's own, and none of it is changed here
+        return render_template('dashboard.html', athlete=athlete, totals=totals, group_totals=group_totals, weekly=_weekly_data(ids, sf),
+                               year_speed=year_speed, chart_groups=chart_groups(sf.groups), now=date.today(), weather=weather, **ctx)
 
     try:
         from services import gear

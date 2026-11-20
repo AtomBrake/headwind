@@ -32,7 +32,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, current_app, jsonify, request
 
 from database import get_db, query_db
-from services import external_url, tz
+from services import external_url, friend_rides, tz
 from services.sports import KIND_SQL, kind as sport_kind, kind_of
 from services import streams as _streams
 
@@ -383,15 +383,10 @@ def _after_upload(res, rider):
         log.warning('upload side effects failed (non-fatal): %s', e)
 
 
-def _friend_riders():
-    """{riderId: name} for each friend synced to here (Friend.riderId, made by routes/friends._do_ride_sync), by the name they're shown as."""
-    return {r['riderId']: r['name'] for r in query_db('SELECT riderId, name FROM Friend WHERE riderId IS NOT NULL ORDER BY name COLLATE NOCASE')}
-
-
 def _listed_riders(rider, which):
     """{riderId: name} for GET /api/v1/activities?rider=: empty for the phone's own rider, a friend's rider id, or 'all' for both. None for anything
     else, another local rider's included: the app only ever sees its own and its friends'."""
-    friends = _friend_riders()
+    friends = friend_rides.friend_riders(get_db())
     if not which:
         return {rider['id']: rider['name']}
     if which == 'all':

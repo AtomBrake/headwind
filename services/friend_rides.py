@@ -6,6 +6,12 @@ FRIEND_RIDERS_SQL = 'SELECT riderId FROM Friend WHERE riderId IS NOT NULL'
 REFUSED = "This is a friend's activity: it can only be changed on their instance."
 
 
+def friend_riders(db):
+    """{riderId: name} for each friend synced to here (Friend.riderId, made by routes/friends._do_ride_sync), by the name they're shown as. Another
+    rider who lives on this instance is never one of them."""
+    return {r[0]: r[1] for r in db.execute('SELECT riderId, name FROM Friend WHERE riderId IS NOT NULL ORDER BY name COLLATE NOCASE')}
+
+
 def friend_of(db, act_id):
     """The Friend row (name, lastSynced, ...) whose activity this is, or None for one of this instance's own (or no such activity)."""
     return db.execute('SELECT f.* FROM Activity a JOIN Friend f ON f.riderId = a.riderId WHERE a.id=?', [str(act_id)]).fetchone()

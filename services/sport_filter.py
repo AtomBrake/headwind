@@ -42,8 +42,10 @@ class SportFilter:
     commute_labels = COMMUTE_LABELS
 
     def __init__(self, db, rider_id, args):
-        rows = db.execute(f"SELECT {COL_SQL.format(col='sportType')} AS s, COUNT(*), SUM(commute = 1) FROM Activity WHERE riderId=? GROUP BY s",
-                          [rider_id]).fetchall()
+        """rider_id: one rider's id, or a list of them (the Friends list: every friend's activities together)."""
+        ids = rider_id if isinstance(rider_id, (list, tuple)) else [rider_id]
+        rows = db.execute(f"SELECT {COL_SQL.format(col='sportType')} AS s, COUNT(*), SUM(commute = 1) FROM Activity "
+                          f"WHERE riderId IN ({','.join('?' * len(ids))}) GROUP BY s", ids).fetchall()
         self.sports = sorted(((r[0], r[1]) for r in rows), key=lambda r: (sports.stat_order(sports.stat_group(r[0])), r[0]))
         self.commutes = sum(r[2] or 0 for r in rows)
         self.commute = args.get('commute') if args.get('commute') in COMMUTE_SQL else ''
