@@ -29,7 +29,7 @@ enum HealthMetric: String, CaseIterable, Identifiable, Codable, Sendable {
         case .steps: "The day's total, counted once across iPhone and Watch. Headwind takes the highest of every source."
         case .restingHeartRate: "For the recovery card and the AI coach."
         case .hrv: "Apple's is SDNN through the day, not Garmin's overnight figure, so it's kept apart from Garmin's."
-        case .sleep: "Time asleep each night, dated to the morning it ends."
+        case .sleep: "Time asleep each night, dated to the morning it ends, with its deep, core and REM sleep and time awake where the Watch recorded them."
         case .weight: "Weigh-ins from a smart scale. A manual or Garmin entry for the same day is never replaced."
         case .bodyFat: "From a smart scale, on days with no other reading."
         case .activeEnergy: "With resting calories, the day's burn where there's no Garmin."
@@ -75,6 +75,16 @@ struct HealthDay: Encodable, Equatable, Sendable {
     var date: String
     var metric: String
     var value: Double
+}
+
+/// A sleep analysis sample as plain values, for `HealthSync.stages`: its HKCategoryValueSleepAnalysis, the source that wrote it, and whether
+/// that's an Apple Watch.
+struct SleepSample: Sendable {
+    var start: Date
+    var end: Date
+    var value: Int
+    var source: String
+    var watch: Bool
 }
 
 /// Reads Apple Health on the iPhone and sends it to the server: daily steps, resting heart rate, HRV, sleep, weight, body fat and calories
@@ -291,7 +301,7 @@ final class HealthSync {
     }
 
     /// Hours asleep per night: every asleep stage from every source (Watch, iPhone, a sleep app), overlaps counted once, dated to the day the
-    /// night ends, as Garmin's are.
+    /// night ends, as Garmin's are. Then the night's stages, from one source (see `stages`).
     private func sleep(from start: Date, to end: Date) async throws -> [HealthDay] {
         // A night that ends on the first day began the evening before.
         let from = calendar.date(byAdding: .hour, value: -18, to: start) ?? start
@@ -301,7 +311,11 @@ final class HealthSync {
         let samples = try await query.result(for: store)
         let asleep = Set(HKCategoryValueSleepAnalysis.allAsleepValues.map(\.rawValue))
         let intervals = samples.filter { asleep.contains($0.value) }.map { ($0.startDate, $0.endDate) }
-        return Self.nights(intervals, calendar: calendar)
+        let stageSamples = samples.map {
+            SleepSample(start: $0.startDate, end: $0.endDate, value: $0.value, source: $0.sourceRevision.source.bundleIdentifier,
+                        watch: $0.sourceRevision.productType?.hasPrefix("Watch") ?? false)
+        }
+        return (Self.nights(intervals, calendar: calendar) + Self.stages(stageSamples, calendar: calendar))
             .filter { $0.date >= Self.day(start, calendar) }
     }
 
@@ -310,21 +324,52 @@ final class HealthSync {
         var byDay: [String: [(Date, Date)]] = [:]
         for (s, e) in intervals where e > s { byDay[day(e, calendar), default: []].append((s, e)) }
         return byDay.keys.sorted().compactMap { key in
-            var total: TimeInterval = 0
-            var current: (Date, Date)?
-            for (s, e) in byDay[key]!.sorted(by: { $0.0 < $1.0 }) {
-                if let c = current, s <= c.1 {
-                    current = (c.0, max(c.1, e))
-                } else {
-                    if let c = current { total += c.1.timeIntervalSince(c.0) }
-                    current = (s, e)
-                }
-            }
-            if let c = current { total += c.1.timeIntervalSince(c.0) }
-            let hours = (total / 3600 * 100).rounded() / 100
-            return hours > 0 ? HealthDay(date: key, metric: "sleep_hours", value: min(hours, 24)) : nil
+            let hours = Self.hours(merged(byDay[key]!))
+            return hours > 0 ? HealthDay(date: key, metric: "sleep_hours", value: hours) : nil
         }
     }
+
+    /// Each night's deep, core and REM sleep, time awake and time in bed, from one source, since two sources' stages for the same minutes
+    /// disagree: the Watch where it recorded the night, else the source with the most staged sleep. A night with no staged sleep from any source
+    /// (only "asleep", from an iPhone, a sleep app or an older Watch) has none. Time in bed is that source's samples merged, gaps left out, so a
+    /// nap the next afternoon doesn't stretch the night. Exposed for the tests.
+    nonisolated static func stages(_ samples: [SleepSample], calendar: Calendar) -> [HealthDay] {
+        let deep = HKCategoryValueSleepAnalysis.asleepDeep.rawValue, rem = HKCategoryValueSleepAnalysis.asleepREM.rawValue,
+            core = HKCategoryValueSleepAnalysis.asleepCore.rawValue, awake = HKCategoryValueSleepAnalysis.awake.rawValue
+        var byDay: [String: [SleepSample]] = [:]
+        for s in samples where s.end > s.start { byDay[day(s.end, calendar), default: []].append(s) }
+        return byDay.keys.sorted().flatMap { key -> [HealthDay] in
+            let night = byDay[key]!
+            var staged: [String: TimeInterval] = [:]
+            for s in night where [deep, rem, core].contains(s.value) { staged[s.source, default: 0] += s.end.timeIntervalSince(s.start) }
+            let watches = Set(night.filter(\.watch).map(\.source))
+            let rank = { (source: String) in (watches.contains(source) ? 1 : 0, staged[source]!) }
+            guard let source = staged.keys.max(by: { rank($0) < rank($1) }) else { return [] }
+            let mine = night.filter { $0.source == source }
+            let hours = { (value: Int?) in Self.hours(merged(mine.filter { value == nil || $0.value == value }.map { ($0.start, $0.end) })) }
+            return [("sleep_deep", hours(deep)), ("sleep_rem", hours(rem)), ("sleep_core", hours(core)), ("sleep_awake", hours(awake)),
+                    ("sleep_in_bed", hours(nil))].map { HealthDay(date: key, metric: $0.0, value: $0.1) }
+        }
+    }
+
+    /// The time covered by some intervals, counting overlaps once.
+    nonisolated private static func merged(_ intervals: [(Date, Date)]) -> TimeInterval {
+        var total: TimeInterval = 0
+        var current: (Date, Date)?
+        for (s, e) in intervals.sorted(by: { $0.0 < $1.0 }) {
+            if let c = current, s <= c.1 {
+                current = (c.0, max(c.1, e))
+            } else {
+                if let c = current { total += c.1.timeIntervalSince(c.0) }
+                current = (s, e)
+            }
+        }
+        if let c = current { total += c.1.timeIntervalSince(c.0) }
+        return total
+    }
+
+    /// Seconds as hours to two places, at most a day.
+    nonisolated private static func hours(_ seconds: TimeInterval) -> Double { min((seconds / 3600 * 100).rounded() / 100, 24) }
 
     nonisolated static func day(_ date: Date, _ calendar: Calendar) -> String {
         let c = calendar.dateComponents([.year, .month, .day], from: date)

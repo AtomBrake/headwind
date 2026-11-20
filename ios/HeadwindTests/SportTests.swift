@@ -1,4 +1,5 @@
 import Foundation
+import HealthKit
 import Testing
 @testable import Headwind
 
@@ -395,5 +396,31 @@ struct HealthSleepTests {
         let nights = HealthSync.nights([(d(19, 23, 0), d(20, 3, 0)), (d(20, 2, 0), d(20, 6, 30)), (d(20, 14, 0), d(20, 14, 30))], calendar: cal)
         #expect(nights == [HealthDay(date: "2026-10-20", metric: "sleep_hours", value: 8.0)])
         #expect(HealthSync.clientID(UUID(uuidString: "E621E1F8-C36C-495A-93FC-0C247A3E6E5F")!) == "ah_e621e1f8-c36c-495a-93fc-0c247a3e6e5f")
+    }
+
+    @Test func stagesComeFromOneSourceTheWatchFirst() {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "Europe/London")!
+        let d = { (day: Int, h: Int, m: Int) in cal.date(from: DateComponents(year: 2026, month: 10, day: day, hour: h, minute: m))! }
+        let inBed = HKCategoryValueSleepAnalysis.inBed.rawValue, asleep = HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue,
+            awake = HKCategoryValueSleepAnalysis.awake.rawValue, core = HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+            deep = HKCategoryValueSleepAnalysis.asleepDeep.rawValue, rem = HKCategoryValueSleepAnalysis.asleepREM.rawValue
+        let watch = { (s: Date, e: Date, v: Int) in SleepSample(start: s, end: e, value: v, source: "watch", watch: true) }
+        let other = { (source: String, s: Date, e: Date, v: Int) in SleepSample(start: s, end: e, value: v, source: source, watch: false) }
+        let samples = [
+            // 20th: the Watch's stages win over a sleep app's, though the app has more; the iPhone's bedtime isn't the Watch's time in bed.
+            watch(d(19, 23, 0), d(20, 1, 0), core), watch(d(20, 1, 0), d(20, 2, 0), deep), watch(d(20, 2, 0), d(20, 2, 15), awake),
+            watch(d(20, 2, 15), d(20, 3, 15), rem), watch(d(20, 3, 15), d(20, 6, 30), core),
+            other("app", d(19, 23, 0), d(20, 7, 0), deep), other("iphone", d(19, 22, 0), d(20, 7, 30), inBed),
+            // 21st: only "asleep" from the iPhone, so no stages.
+            other("iphone", d(20, 23, 0), d(21, 7, 0), asleep),
+            // 22nd: no Watch, so the source with more staged sleep.
+            other("a", d(21, 23, 0), d(22, 3, 0), core), other("b", d(21, 23, 0), d(22, 1, 0), deep), other("b", d(22, 1, 0), d(22, 5, 0), core),
+        ]
+        let days = HealthSync.stages(samples, calendar: cal)
+        let night = { (date: String) in Dictionary(uniqueKeysWithValues: days.filter { $0.date == date }.map { ($0.metric, $0.value) }) }
+        #expect(night("2026-10-20") == ["sleep_deep": 1, "sleep_rem": 1, "sleep_core": 5.25, "sleep_awake": 0.25, "sleep_in_bed": 7.5])
+        #expect(night("2026-10-21").isEmpty)
+        #expect(night("2026-10-22") == ["sleep_deep": 2, "sleep_rem": 0, "sleep_core": 4, "sleep_awake": 0, "sleep_in_bed": 6])
     }
 }

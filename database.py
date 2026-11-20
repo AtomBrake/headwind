@@ -1392,6 +1392,14 @@ def _step_4(db):
         db.execute('UPDATE PlannedRoute SET distance=? WHERE id=?', [d, rid])
 
 
+def _step_6(db):
+    """Garmin's sleep stages: GarminDaily gets the night's deep, REM, light and awake hours (services/garmin._parse_sleep)."""
+    have = {r[1] for r in db.execute('PRAGMA table_info(GarminDaily)').fetchall()}
+    for col in ('sleepDeep', 'sleepRem', 'sleepLight', 'sleepAwake'):
+        if col not in have:
+            db.execute(f'ALTER TABLE GarminDaily ADD COLUMN {col} REAL')
+
+
 def _step_5(db):
     """The streams of copies set aside or in the bin (ActivityDuplicate.rowJson) and of imports waiting on the Import page (ImportChange.act)
     out of their JSON into a streams column of their own, compressed (services/streams.apart): 460 MB of proposals from one Strava export
@@ -1473,6 +1481,7 @@ STEPS = (
     (_step_3, False),
     (_step_4, False),
     (_step_5, True),         # an older Headwind puts a copy set aside back without its streams
+    (_step_6, False),
 )
 LATEST = len(STEPS)
 

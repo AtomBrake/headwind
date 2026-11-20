@@ -360,6 +360,10 @@ def _build_garmin_context(ride_date, rid=None):
                 parts.append(f'HRV {r["hrv"]} ({status})')
         if r['sleepHours']:
             parts.append(f'sleep {r["sleepHours"]}h')
+            if r['sleepDeep'] is not None:
+                parts.append(f'deep {r["sleepDeep"]:.1f}h, REM {r["sleepRem"]:.1f}h, light {r["sleepLight"]:.1f}h')
+            if r['sleepEfficiency']:
+                parts.append(f'efficiency {r["sleepEfficiency"]}% ({r["sleepAwakeMin"] or 0} min awake)')
             if r['sleepScore']:
                 parts.append(f'score {r["sleepScore"]}')
         if r['bodyBattery']:

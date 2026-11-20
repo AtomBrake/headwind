@@ -11,7 +11,7 @@ for a day when it has one and Apple Health's otherwise:
 
 Apple's HRV is SDNN from spot readings through the day; Garmin's is overnight RMSSD. The numbers aren't comparable, so Apple's is kept as its own metric,
 said to be Apple's ('hrv_kind': 'sdnn') and never compared with Garmin's baseline (GarminDaily.hrvBalanced). Apple has no sleep score or body battery:
-those stay empty.
+those stay empty. Sleep stages come from the same source as the night's hours, never Garmin's total with Apple's stages.
 
 Sending the same day twice is harmless: a metric is replaced, never added to. A manual or Garmin weigh-in, or a body fat from Home Assistant, is never
 overwritten by Apple Health's for the same day."""
@@ -29,12 +29,22 @@ METRICS = {
     'resting_hr':  ('resting_hr_apple', 'bpm', 20, 200),
     'hrv_sdnn':    ('hrv_sdnn_apple', 'ms', 1, 500),
     'sleep_hours': ('sleep_apple', 'h', 0, 24),
+    # A night's stages, from one source (the Watch where there is one), and its time in bed: asleep and awake, gaps between left out
+    'sleep_deep':   ('sleep_deep_apple', 'h', 0, 24),
+    'sleep_rem':    ('sleep_rem_apple', 'h', 0, 24),
+    'sleep_core':   ('sleep_core_apple', 'h', 0, 24),
+    'sleep_awake':  ('sleep_awake_apple', 'h', 0, 24),
+    'sleep_in_bed': ('sleep_in_bed_apple', 'h', 0, 24),
     'active_kcal': ('active_kcal_apple', 'kcal', 0, 20_000),
     'basal_kcal':  ('basal_kcal_apple', 'kcal', 0, 10_000),
     'body_fat':    ('body_fat', '%', 1, 75),
 }
 WEIGHT = ('weight_kg', 20, 400)        # into WeightLog, not BodyMetric
 SHARED = {'body_fat'}                  # metrics another source also writes: Apple's only fills a day that has none
+
+
+_GARMIN = ('date, restingHR, hrv, hrvBalanced, sleepHours, sleepScore, bodyBattery, steps, stressScore, '
+           'sleepDeep, sleepRem, sleepLight, sleepAwake')
 
 
 def _day(v):
@@ -99,7 +109,7 @@ def save_days(db, rider_id, items):
 
 def _apple(rid, since, until=None):
     """{date: {metric: value}} of Apple Health's recovery metrics between two dates (inclusive)."""
-    names = [METRICS[k][0] for k in ('resting_hr', 'hrv_sdnn', 'sleep_hours', 'steps')]
+    names = [METRICS[k][0] for k in ('resting_hr', 'hrv_sdnn', 'sleep_hours', 'steps', 'sleep_deep', 'sleep_rem', 'sleep_core', 'sleep_awake', 'sleep_in_bed')]
     q = f"SELECT logDate, metric, value FROM BodyMetric WHERE riderId=? AND source=? AND metric IN ({','.join('?' * len(names))}) AND logDate>=?"
     a = [rid, SOURCE, *names, since]
     if until:
@@ -131,19 +141,43 @@ def _merge(day, garmin, apple, steps_source='garmin'):
     hrv = pick('hrv', 'hrv_sdnn_apple', round)
     kind = None if hrv is None else ('rmssd' if g.get('hrv') else 'sdnn')
     sleep = pick('sleepHours', 'sleep_apple', lambda v: round(v, 2))
+    stages = _stages(g, a)
     steps = (g.get('steps') if steps_source == 'garmin' else int(a.get('steps_health') or 0)) or None
     if any(g.get(k) for k in ('sleepScore', 'bodyBattery', 'stressScore')):
         used.add('garmin')
     return {'date': day, 'restingHR': rhr, 'hrv': hrv, 'hrv_kind': kind, 'hrvBalanced': g.get('hrvBalanced') if kind == 'rmssd' else None,
-            'sleepHours': sleep, 'sleepScore': g.get('sleepScore'), 'bodyBattery': g.get('bodyBattery'), 'steps': steps,
+            'sleepHours': sleep, **stages, 'sleepScore': g.get('sleepScore'), 'bodyBattery': g.get('bodyBattery'), 'steps': steps,
             'stressScore': g.get('stressScore'), 'source': '+'.join(sorted(used)) or None}
+
+
+def _stages(g, a):
+    """The night's stages in hours (sleepDeep, sleepRem, sleepLight: Apple's Core), minutes awake, time in bed and sleep efficiency (asleep ÷ in bed,
+    as a percentage), from whichever source gave its hours. Garmin's time in bed is its stages plus awake; Apple's is sent."""
+    if g.get('sleepHours'):
+        deep, rem, light, awake = (g.get(k) for k in ('sleepDeep', 'sleepRem', 'sleepLight', 'sleepAwake'))
+        staged = (deep or 0) + (rem or 0) + (light or 0)
+        in_bed = staged + (awake or 0) if staged else None
+    elif a.get('sleep_apple'):
+        deep, rem, light, awake, in_bed = (a.get(k) for k in ('sleep_deep_apple', 'sleep_rem_apple', 'sleep_core_apple', 'sleep_awake_apple',
+                                                              'sleep_in_bed_apple'))
+        staged = (deep or 0) + (rem or 0) + (light or 0)
+    else:
+        deep = rem = light = awake = in_bed = None
+        staged = 0
+    if staged:
+        deep, rem, light = deep or 0, rem or 0, light or 0       # a stage with no minutes that night
+    else:
+        deep = rem = light = None
+    r2 = lambda v: round(v, 2) if v is not None else None
+    return {'sleepDeep': r2(deep), 'sleepRem': r2(rem), 'sleepLight': r2(light),
+            'sleepAwakeMin': round(awake * 60) if awake is not None and staged else None, 'sleepInBed': r2(in_bed) if staged else None,
+            'sleepEfficiency': min(100, round(100 * staged / in_bed)) if staged and in_bed else None}
 
 
 def latest_recovery(rid):
     """The latest day with recovery data from Garmin or Apple Health, merged (see _merge), or None. The shape of GarminDaily's row as the phone API
     always sent it, plus hrv_kind and source."""
-    g = query_db('SELECT date, restingHR, hrv, hrvBalanced, sleepHours, sleepScore, bodyBattery, steps, stressScore FROM GarminDaily '
-                 'ORDER BY date DESC LIMIT 1', one=True)
+    g = query_db(f'SELECT {_GARMIN} FROM GarminDaily ORDER BY date DESC LIMIT 1', one=True)
     a = query_db("SELECT MAX(logDate) d FROM BodyMetric WHERE riderId=? AND source=? AND metric IN (?,?,?)",
                  [rid, SOURCE, 'resting_hr_apple', 'hrv_sdnn_apple', 'sleep_apple'], one=True)
     a_day = a['d'] if a else None
@@ -151,8 +185,7 @@ def latest_recovery(rid):
         return None
     day = max(d for d in (g['date'] if g else None, a_day) if d)
     if g and g['date'] != day:
-        g = query_db('SELECT date, restingHR, hrv, hrvBalanced, sleepHours, sleepScore, bodyBattery, steps, stressScore FROM GarminDaily WHERE date=?',
-                     [day], one=True)
+        g = query_db(f'SELECT {_GARMIN} FROM GarminDaily WHERE date=?', [day], one=True)
     from services import steps
     return _merge(day, g, _apple(rid, day, day).get(day), steps.effective_source())
 
@@ -160,8 +193,7 @@ def latest_recovery(rid):
 def recovery_days(rid, until, days=3):
     """Merged recovery for each day with any, from `days` days before `until` to `until`, newest first."""
     since = (date.fromisoformat(until) - timedelta(days=days)).isoformat()
-    garmin = {r['date']: r for r in query_db('SELECT date, restingHR, hrv, hrvBalanced, sleepHours, sleepScore, bodyBattery, steps, stressScore '
-                                             'FROM GarminDaily WHERE date<=? AND date>=?', [until, since])}
+    garmin = {r['date']: r for r in query_db(f'SELECT {_GARMIN} FROM GarminDaily WHERE date<=? AND date>=?', [until, since])}
     apple = _apple(rid, since, until)
     from services import steps
     src = steps.effective_source()

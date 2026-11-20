@@ -670,3 +670,20 @@ def test_a_new_activity_from_the_last_few_days_is_announced(env, monkeypatch):
     run([_act(3, f'{day} 08:00:00'), _act(2, recent), _act(1, old)])
     assert _ids(db) == ['garmin_1', 'garmin_2', 'garmin_3']          # kept in place of the phone's copy, which was announced when it came
     assert sent == []
+
+
+def test_sleep_stages_are_kept_and_merged_for_recovery(henv):
+    db = henv[0]
+    from services import health
+    dto = {'sleepTimeSeconds': 7 * 3600, 'deepSleepSeconds': 5400, 'remSleepSeconds': 6300, 'lightSleepSeconds': 13500, 'awakeSleepSeconds': 1800,
+           'sleepScores': {'overall': {'value': 81}}}
+    hours, score, stages = garmin._parse_sleep({'dailySleepDTO': dto})
+    assert (hours, score, stages) == (7.0, 81, {'sleepDeep': 1.5, 'sleepRem': 1.75, 'sleepLight': 3.75, 'sleepAwake': 0.5})
+    assert garmin._parse_sleep({'dailySleepDTO': {'sleepTimeSeconds': 3600, 'deepSleepSeconds': 0}})[2] == {}   # no stages: none stored
+    blank = dict.fromkeys(['restingHR', 'hrv', 'hrvBalanced', 'sleepScore', 'bodyBattery', 'steps', 'stressScore', 'hrStream', 'bodyBatteryStream',
+                           'totalCalories', 'activeCalories'])
+    garmin._save_day(db, '2026-10-20', {**blank, 'sleepHours': hours, **stages})
+    garmin._save_day(db, '2026-10-20', {**blank, 'sleepHours': hours})                  # a later fetch without them keeps them
+    rec = health.recovery_days(1, '2026-10-20', 0)[0]
+    assert (rec['sleepDeep'], rec['sleepRem'], rec['sleepLight'], rec['sleepAwakeMin'], rec['sleepInBed'], rec['sleepEfficiency']) == \
+        (1.5, 1.75, 3.75, 30, 7.5, 93)

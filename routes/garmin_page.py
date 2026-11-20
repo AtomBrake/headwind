@@ -29,6 +29,7 @@ def index():
     date_index = {r['date']: r for r in rows}
 
     labels, rhr, battery, sleep, steps, stress, has_ride = [], [], [], [], [], [], []
+    stages = {'deep': [], 'rem': [], 'light': [], 'awake': []}     # a night without stages is drawn as one bar of its hours
     for i in range(days):
         d = (start + timedelta(days=i)).isoformat()
         r = date_index.get(d)
@@ -36,6 +37,10 @@ def index():
         rhr.append(r['restingHR'] if r else None)
         battery.append(r['bodyBattery'] if r else None)
         sleep.append(r['sleepHours'] if r else None)
+        staged = bool(r and r['sleepDeep'] is not None)
+        for k, col in (('deep', 'sleepDeep'), ('rem', 'sleepRem'), ('light', 'sleepLight')):
+            stages[k].append(r[col] if staged else None)
+        stages['awake'].append(round(r['sleepAwakeMin'] / 60, 2) if staged and r['sleepAwakeMin'] else None)
         steps.append(r['steps'] if r else None)
         stress.append(r['stressScore'] if r else None)
         has_ride.append(1 if d in ride_dates else None)
@@ -60,6 +65,7 @@ def index():
         rhr=rhr,
         battery=battery,
         sleep=sleep,
+        stages=stages if any(v is not None for v in stages['deep']) else None,
         steps=steps,
         stress=stress,
         has_ride=has_ride,

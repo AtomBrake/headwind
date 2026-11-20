@@ -90,7 +90,9 @@ send twice). Observer queries with background delivery wake the app when there's
 comes to the foreground. The first time it goes back as far as you choose (30 days to 3 years).
 
 - Steps, calories and HRV are HealthKit's daily statistics, so the iPhone's and Watch's samples are counted once.
-- Sleep is every asleep stage from every source, overlaps counted once, dated to the morning the night ends.
+- Sleep is every asleep stage from every source, overlaps counted once, dated to the morning the night ends. Its deep, core and
+  REM sleep, time awake and time in bed come from one source per night, the Watch's where it recorded the night, else the one with
+  the most staged sleep; a night that's only "asleep" (an iPhone alone, an older Watch) has none.
 - Garmin's figure wins for a day it has one. Apple's HRV is SDNN through the day, Garmin's RMSSD overnight: they're kept
   apart, and the Overview says which it shows. Apple has no sleep score or body battery.
 - A weigh-in never replaces a manual or Garmin one for the same day.

@@ -181,6 +181,40 @@ def test_garmin_wins_for_a_day_it_has(phone):
     assert rec['sleepHours'] == 6.5 and rec['steps'] == 6000 and rec['source'] == 'apple_health+garmin'   # Garmin had no sleep that night
 
 
+def apple_night(d, deep=1.5, rem=1.75, core=4.0, awake=0.25, in_bed=7.5):
+    return [{'date': d, 'metric': m, 'value': v} for m, v in (('sleep_hours', deep + rem + core), ('sleep_deep', deep), ('sleep_rem', rem),
+                                                              ('sleep_core', core), ('sleep_awake', awake), ('sleep_in_bed', in_bed))]
+
+
+def test_apple_health_sleep_stages(phone):
+    from services import context
+    d = tz.today().isoformat()
+    r = post_health(phone, apple_night(d) + [{'date': d, 'metric': 'sleep_deep', 'value': 25}])
+    assert r.get_json()['saved'] == 6 and r.get_json()['errors'] == ['sleep_deep out of range']
+    rec = phone.get('/api/v1/overview', headers=phone.H).get_json()['recovery']
+    assert (rec['sleepHours'], rec['sleepDeep'], rec['sleepRem'], rec['sleepLight'], rec['sleepAwakeMin'], rec['sleepInBed'], rec['sleepEfficiency']) == \
+        (7.25, 1.5, 1.75, 4.0, 15, 7.5, 97)
+    page = phone.web.get('/recovery').get_data(as_text=True)
+    head, body = page[page.index('Daily Log'):page.index('</thead>')], page[page.index('<tbody>'):page.index('</tbody>')]
+    assert '>Deep / REM<' in head and '1.5h / 1.8h' in body and '97%' in body
+    assert '"deep": [' in page and "stage('Deep'" in page
+    with phone.app_.app_context():
+        block = context._build_garmin_context(d, 1)
+    assert 'deep 1.5h, REM 1.8h, light 4.0h' in block and 'efficiency 97% (15 min awake)' in block
+
+
+def test_garmins_sleep_comes_with_its_own_stages_not_apples(phone):
+    d = tz.today().isoformat()
+    with phone.app_.app_context():
+        database.get_db().execute('INSERT INTO GarminDaily (date, sleepHours) VALUES (?, 6.8)', [d])     # an older Garmin: hours, no stages
+        database.get_db().commit()
+    post_health(phone, apple_night(d))
+    rec = phone.get('/api/v1/overview', headers=phone.H).get_json()['recovery']
+    assert rec['sleepHours'] == 6.8 and rec['sleepDeep'] is None and rec['sleepEfficiency'] is None
+    page = phone.web.get('/recovery').get_data(as_text=True)
+    assert '>Deep / REM<' not in page and 'const stageData  = null' in page
+
+
 def test_apple_health_never_overwrites_another_sources_weigh_in_or_body_fat(phone):
     d, d2 = tz.today().isoformat(), (tz.today() - timedelta(days=1)).isoformat()
     with phone.app_.app_context():

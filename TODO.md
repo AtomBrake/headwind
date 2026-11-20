@@ -89,15 +89,6 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
 
 - [ ] **Favourite sports in the iPhone app.** The web's favourites (`services/favourites.py`, Settings → Display) reach the app as `favourite_sports` in `GET /api/v1/ping`, each `{label, icon, group}` or `{label, icon, sport}`, the arguments `GET /api/v1/rides` filters by. The Activities tab could offer them as one-tap filters beside its sport menu.
 
-### Health
-
-- [ ] **Sleep stages from Apple Health** (raised 2026-10-31). The cheapest of the Apple Health additions: `sleep(from:to:)` in `ios/Headwind/Health/HealthSync.swift` already reads every `sleepAnalysis` sample, stages included (`asleepCore`, `asleepDeep`, `asleepREM`, `awake`, `inBed`), and `HealthSync.nights` adds the asleep ones into one `sleep_hours` figure and drops the rest. No new permission is needed.
-  - [ ] Send per night, dated to the morning as `sleep_hours` is: deep, REM and core hours, minutes awake, and time in bed (from the first to the last sample, or `inBed` where a source writes it). New entries in `METRICS` (`services/health.py`), e.g. `sleep_deep_apple`, `sleep_rem_apple`, `sleep_core_apple`, `sleep_awake_apple`, `sleep_in_bed_apple`.
-  - [ ] Overlaps between sources: `nights` merges asleep intervals so iPhone, Watch and a sleep app aren't counted twice, but stages from two sources can disagree for the same minutes. Take the stages from one source per night (the Watch where there is one), and leave stages out for a night whose only source is "asleep, unspecified" (`asleepUnspecified`, iPhone-only or older Watches).
-  - [ ] Show them on Recovery: a stacked bar per night in the Sleep chart, and deep/REM and sleep efficiency (asleep ÷ in bed) in the Daily Log. Give the AI coach's recovery block (`services/context.py`) the same.
-  - [ ] Garmin has stages too (`get_sleep_data` in `services/garmin.py` returns, in `dailySleepDTO`, `deepSleepSeconds`, `remSleepSeconds`, `lightSleepSeconds`, `awakeSleepSeconds`; `_parse_sleep` keeps only the total and score). Store them for Garmin nights as well, so the chart works for both.
-  - [ ] Tests: `HealthSync.nights` style unit tests for stage totals and the one-source-per-night rule; `save_days` accepts the new metrics and refuses a stage over 24 h.
-
 ### iPhone and Watch
 
 - [ ] **Test on devices.** Each new screen on an iPhone, an iPhone Duo, a Watch and an Ultra (the Action button). Then the Bluetooth sensors with real ones, which no simulator has: pairing, reconnecting when one drops mid-ride, readings with the screen locked, a timed indoor ride's samples and distance, and iOS handing the connections back if it ends the app mid-ride (`SensorManager`'s restore identifier).

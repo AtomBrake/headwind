@@ -210,16 +210,23 @@ def _parse_hrv(hrv_data):
         return (None, 0)
 
 
+SLEEP_STAGES = {'sleepDeep': 'deepSleepSeconds', 'sleepRem': 'remSleepSeconds', 'sleepLight': 'lightSleepSeconds', 'sleepAwake': 'awakeSleepSeconds'}
+
+
 def _parse_sleep(sleep_data):
+    """(hours asleep, sleep score, {stage column: hours}). A night without stages (an older watch, or sleep entered by hand) has none."""
     try:
         dto   = sleep_data.get('dailySleepDTO') or {}
         secs  = dto.get('sleepTimeSeconds') or 0
         hours = round(secs / 3600, 1) if secs else None
         score_obj = (dto.get('sleepScores') or {}).get('overall') or {}
         score = score_obj.get('value')
-        return (hours, int(score) if score is not None else None)
+        stages = {col: round(dto[key] / 3600, 2) for col, key in SLEEP_STAGES.items() if isinstance(dto.get(key), (int, float))}
+        if not any(stages.get(c) for c in ('sleepDeep', 'sleepRem', 'sleepLight')):
+            stages = {}
+        return (hours, int(score) if score is not None else None, stages)
     except Exception:
-        return (None, None)
+        return (None, None, {})
 
 
 def _parse_body_battery(bb_data):
@@ -409,7 +416,7 @@ def _fetch_day(call, api, d):
     stats = call(api.get_stats, d)
     total_cal, active_cal = _parse_calories(stats)
     hrv, balanced = _parse_hrv(call(api.get_hrv_data, d))
-    sleep_hrs, sleep_score = _parse_sleep(call(api.get_sleep_data, d))
+    sleep_hrs, sleep_score, stages = _parse_sleep(call(api.get_sleep_data, d))
 
     bb_data = call(api.get_body_battery, d, d)
     bb_stream = []
@@ -431,6 +438,7 @@ def _fetch_day(call, api, d):
     return {
         'restingHR': _parse_rhr(stats), 'hrv': hrv, 'hrvBalanced': balanced,
         'sleepHours': sleep_hrs, 'sleepScore': sleep_score,
+        **{col: stages.get(col) for col in SLEEP_STAGES},
         'bodyBattery': _parse_body_battery(bb_data),
         'steps': _parse_steps(call(api.get_steps_data, d)),
         'stressScore': _parse_stress(call(api.get_stress_data, d)),
@@ -451,8 +459,9 @@ def _save_day(db, d, m):
     total_adj = int(round(_kcal_apply(total_cal))) if total_cal is not None else None     # global burn adjustment (raw kept alongside)
     active_adj = int(round(_kcal_apply(active_cal))) if active_cal is not None else None
     db.execute('''
-        INSERT INTO GarminDaily (date, restingHR, hrv, hrvBalanced, sleepHours, sleepScore, bodyBattery, steps, stressScore, hrStream, bodyBatteryStream, totalCalories, activeCalories, totalCaloriesRaw, activeCaloriesRaw)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        INSERT INTO GarminDaily (date, restingHR, hrv, hrvBalanced, sleepHours, sleepScore, bodyBattery, steps, stressScore, hrStream, bodyBatteryStream, totalCalories, activeCalories, totalCaloriesRaw, activeCaloriesRaw,
+                                 sleepDeep, sleepRem, sleepLight, sleepAwake)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(date) DO UPDATE SET
             restingHR           = COALESCE(excluded.restingHR,          restingHR),
             hrv                 = COALESCE(excluded.hrv,                hrv),
@@ -467,9 +476,14 @@ def _save_day(db, d, m):
             totalCalories       = COALESCE(excluded.totalCalories,      totalCalories),
             activeCalories      = COALESCE(excluded.activeCalories,     activeCalories),
             totalCaloriesRaw    = COALESCE(excluded.totalCaloriesRaw,   totalCaloriesRaw),
-            activeCaloriesRaw   = COALESCE(excluded.activeCaloriesRaw,  activeCaloriesRaw)
+            activeCaloriesRaw   = COALESCE(excluded.activeCaloriesRaw,  activeCaloriesRaw),
+            sleepDeep           = COALESCE(excluded.sleepDeep,          sleepDeep),
+            sleepRem            = COALESCE(excluded.sleepRem,           sleepRem),
+            sleepLight          = COALESCE(excluded.sleepLight,         sleepLight),
+            sleepAwake          = COALESCE(excluded.sleepAwake,         sleepAwake)
     ''', [d, m['restingHR'], m['hrv'], m['hrvBalanced'], m['sleepHours'], m['sleepScore'], m['bodyBattery'], m['steps'], m['stressScore'],
-          m['hrStream'], m['bodyBatteryStream'], total_adj, active_adj, total_cal, active_cal])
+          m['hrStream'], m['bodyBatteryStream'], total_adj, active_adj, total_cal, active_cal,
+          *(m.get(col) for col in SLEEP_STAGES)])
 
 
 def _push_weights():

@@ -111,7 +111,7 @@
 
 {# A column with nothing in it for the whole range is left out, as the charts are: Apple Health has no sleep score, Body Battery or stress #}
 {% set has = {} %}
-{% for k in ['restingHR', 'hrv', 'sleepHours', 'sleepScore', 'bodyBattery', 'steps', 'stressScore'] %}{% set _ = has.update({k: table_rows | selectattr(k) | first is defined}) %}{% endfor %}
+{% for k in ['restingHR', 'hrv', 'sleepHours', 'sleepDeep', 'sleepEfficiency', 'sleepScore', 'bodyBattery', 'steps', 'stressScore'] %}{% set _ = has.update({k: table_rows | selectattr(k) | first is defined}) %}{% endfor %}
 <div class="card">
   <div class="card-title">Daily Log</div>
   <div style="overflow-x:auto;">
@@ -122,6 +122,8 @@
           {% if has.restingHR %}<th class="num">Resting HR</th>{% endif %}
           {% if has.hrv %}<th class="num">HRV</th>{% endif %}
           {% if has.sleepHours %}<th class="num">Sleep</th>{% endif %}
+          {% if has.sleepDeep %}<th class="num">Deep / REM</th>{% endif %}
+          {% if has.sleepEfficiency %}<th class="num" title="Time asleep as a share of time in bed">Efficiency</th>{% endif %}
           {% if has.sleepScore %}<th class="num">Sleep Score</th>{% endif %}
           {% if has.bodyBattery %}<th class="num">Body Battery</th>{% endif %}
           {% if has.steps %}<th class="num">Steps</th>{% endif %}
@@ -150,6 +152,16 @@
           {% if has.sleepHours %}
           <td class="num" style="color:var(--text);">
             {% if r.sleepHours %}{{ r.sleepHours }}h{% else %}—{% endif %}
+          </td>
+          {% endif %}
+          {% if has.sleepDeep %}
+          <td class="num" style="color:var(--text);">
+            {% if r.sleepDeep is not none %}{{ '%.1f' | format(r.sleepDeep) }}h / {{ '%.1f' | format(r.sleepRem) }}h{% else %}—{% endif %}
+          </td>
+          {% endif %}
+          {% if has.sleepEfficiency %}
+          <td class="num" style="color:var(--text);" {% if r.sleepInBed %}title="{{ r.sleepInBed }}h in bed, {{ r.sleepAwakeMin or 0 }} min awake"{% endif %}>
+            {% if r.sleepEfficiency %}{{ r.sleepEfficiency }}%{% else %}—{% endif %}
           </td>
           {% endif %}
           {% if has.sleepScore %}
@@ -283,6 +295,7 @@ const labels     = {{ labels | tojson }};
 const rhrData    = {{ rhr | tojson }};
 const batData    = {{ battery | tojson }};
 const sleepData  = {{ sleep | tojson }};
+const stageData  = {{ stages | tojson }};
 const stepsData  = {{ steps | tojson }};
 const stressData = {{ stress | tojson }};
 const rideData   = {{ has_ride | tojson }};
@@ -392,40 +405,47 @@ if (batEl && batData.some(v => v !== null)) {
   });
 }
 
-// Sleep
+// Sleep: stacked by stage on nights that have them (deep, light, REM, then time awake on top), one bar of the hours on nights that don't
 const sleepEl = document.getElementById('sleepChart');
 if (sleepEl && sleepData.some(v => v !== null)) {
+  const sleepColour = (v, alpha) => v === null ? 'transparent' :
+    v < 6 ? cssVar('--danger', alpha) : v < 7 ? cssVar('--warning', alpha) : cssVar('--c-purple', alpha);
+  const unstaged = stageData ? sleepData.map((v, i) => stageData.deep[i] === null ? v : null) : sleepData;
+  const stage = (label, key, colour, alpha = 0.7) => ({
+    label, data: stageData[key], backgroundColor: cssVar(colour, alpha), borderColor: cssVar(colour), borderWidth: 1, stack: 'night',
+  });
+  const datasets = [{
+    label: 'Asleep', data: unstaged, stack: 'night',
+    backgroundColor: unstaged.map(v => sleepColour(v, 0.6)), borderColor: unstaged.map(v => sleepColour(v)), borderWidth: 1, borderRadius: 3,
+  }];
+  if (stageData) {
+    datasets.push(stage('Deep', 'deep', '--c-indigo'), stage('Light', 'light', '--c-blue'), stage('REM', 'rem', '--c-sky'),
+                  stage('Awake', 'awake', '--c-orange', 0.35));
+  }
+  const fmtH = h => { const m = Math.round(h * 60); return m < 60 ? m + ' min' : Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0'); };
   new Chart(sleepEl, {
     type: 'bar',
-    data: {
-      labels: shortLabels,
-      datasets: [
-        {
-          data: sleepData,
-          backgroundColor: sleepData.map(v =>
-            v === null ? 'transparent' :
-            v < 6 ? cssVar('--danger', 0.6) :
-            v < 7 ? cssVar('--warning', 0.6) :
-            cssVar('--c-purple', 0.6)
-          ),
-          borderColor: sleepData.map(v =>
-            v === null ? 'transparent' :
-            v < 6 ? cssVar('--danger') : v < 7 ? cssVar('--warning') : cssVar('--c-purple')
-          ),
-          borderWidth: 1,
-          borderRadius: 3,
-        },
-      ],
-    },
+    data: { labels: shortLabels, datasets },
     options: {
       maintainAspectRatio: false,
+      interaction: stageData ? { mode: 'index', intersect: false } : undefined,     // the whole night in one tooltip
       plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: ctx => ctx.raw !== null ? ctx.raw + 'h' : 'no data' } },
+        legend: stageData ? { display: true, position: 'bottom', labels: { color: cssVar('--text-muted'), boxWidth: 10, font: { size: 10 },
+                                                                          filter: item => item.text !== 'Asleep' } }
+                          : { display: false },
+        tooltip: {
+          filter: ctx => ctx.raw !== null,
+          callbacks: {
+            label: ctx => stageData ? ctx.dataset.label + ': ' + fmtH(ctx.raw) : ctx.raw + 'h',
+            footer: items => stageData && items.length && stageData.deep[items[0].dataIndex] !== null
+              ? 'Asleep ' + fmtH(sleepData[items[0].dataIndex]) : '',
+          },
+        },
       },
       scales: {
-        x: { ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: 10 }, grid: { display: false } },
+        x: { stacked: true, ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: 10 }, grid: { display: false } },
         y: {
+          stacked: true,
           ticks: { color: cssVar('--text-muted'), font: { size: 11 }, callback: v => v + 'h' },
           grid: { color: cssVar('--border') },
           beginAtZero: true,
