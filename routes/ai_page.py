@@ -12,20 +12,20 @@ log = logging.getLogger(__name__)
 
 def _memory_viz_data():
     rows = query_db('''
-        SELECT rideDate, rideName, distanceMi, avgSpeedMph, elevationFt, aiSummary
-        FROM RideMemory WHERE rideDate IS NOT NULL
-        ORDER BY rideDate ASC
+        SELECT activityDate, activityName, distanceMi, avgSpeedMph, elevationFt, aiSummary
+        FROM ActivityMemory WHERE activityDate IS NOT NULL
+        ORDER BY activityDate ASC
     ''')
     if not rows:
         return [], [], []
 
     # Date range for timeline positioning
-    dates = [datetime.strptime(r['rideDate'], '%Y-%m-%d').date() for r in rows]
+    dates = [datetime.strptime(r['activityDate'], '%Y-%m-%d').date() for r in rows]
     min_d, max_d = dates[0], dates[-1]
     span = max((max_d - min_d).days, 1)
 
     from services import units
-    mi, mph = units.MI, units.MPH_PER_MPS                  # RideMemory is stored in miles and mph; shown in the rider's units
+    mi, mph = units.MI, units.MPH_PER_MPS                  # ActivityMemory is stored in miles and mph; shown in the rider's units
     speeds = [units.speed(float(r['avgSpeedMph'] or 0) / mph) for r in rows]
     dists  = [units.dist(float(r['distanceMi'] or 0) * mi) for r in rows]
     min_spd, max_spd = min(speeds), max(speeds)
@@ -41,20 +41,20 @@ def _memory_viz_data():
             'x': round(x_pct, 2),
             'size': round(size, 1),
             'spd_pct': round(spd_pct),
-            'name': r['rideName'] or '',
-            'date': r['rideDate'],
+            'name': r['activityName'] or '',
+            'date': r['activityDate'],
             'dist': round(dists[i], 1),
             'speed': round(speeds[i], 1),
         })
 
     # Monthly breakdown
     monthly_raw = query_db('''
-        SELECT strftime('%Y-%m', rideDate) as mo,
+        SELECT strftime('%Y-%m', activityDate) as mo,
                COUNT(*) as cnt,
                SUM(distanceMi) as total_dist,
                AVG(avgSpeedMph) as avg_spd,
                AVG(elevationFt) as avg_elev
-        FROM RideMemory WHERE rideDate IS NOT NULL
+        FROM ActivityMemory WHERE activityDate IS NOT NULL
         GROUP BY mo ORDER BY mo
     ''')
     max_dist_mo = max((r['total_dist'] or 0) for r in monthly_raw) if monthly_raw else 1
@@ -85,9 +85,9 @@ def _memory_viz_data():
 
     # Recent memories
     recent = query_db('''
-        SELECT rideDate, rideName, distanceMi, avgSpeedMph, elevationFt, aiSummary
-        FROM RideMemory WHERE rideDate IS NOT NULL
-        ORDER BY rideDate DESC LIMIT 6
+        SELECT activityDate, activityName, distanceMi, avgSpeedMph, elevationFt, aiSummary
+        FROM ActivityMemory WHERE activityDate IS NOT NULL
+        ORDER BY activityDate DESC LIMIT 6
     ''')
 
     return dots, monthly, recent
@@ -98,7 +98,7 @@ def index():
     settings = query_db('SELECT * FROM Settings WHERE id=1', one=True)
     total    = query_db('SELECT COUNT(*) FROM Ride', one=True)[0]
     analysed = query_db("SELECT COUNT(*) FROM Ride WHERE aiKudos IS NOT NULL AND aiKudos != ''", one=True)[0]
-    memories = query_db('SELECT COUNT(*) FROM RideMemory', one=True)[0]
+    memories = query_db('SELECT COUNT(*) FROM ActivityMemory', one=True)[0]
     dots, monthly, recent = _memory_viz_data()
     from services import ai, auto_analyse
     ai_ready = ai.get_chat() is not None

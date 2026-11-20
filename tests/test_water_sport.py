@@ -53,5 +53,5 @@ def test_a_kayak_trip_adds_no_climb_to_the_dashboard(client):
 
 
 def test_a_kayak_trip_can_be_any_sport(client):
-    html = client.get('/rides/k').get_data(as_text=True)
+    html = client.get('/activities/k').get_data(as_text=True)
     assert '<option value="Paddle"' in html and '<option value="Ski"' in html and 'Elevation Gain' not in html

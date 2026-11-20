@@ -72,6 +72,6 @@ def _analyse(db, activity):
         from services import external_url
         from services.notify import send_notification
         app_url = external_url.get()
-        send_notification(f'Ride analysed: {name}', text.strip().split('\n\n')[0][:400], f"{app_url}/rides/{activity['id']}" if app_url else None)
+        send_notification(f'Ride analysed: {name}', text.strip().split('\n\n')[0][:400], f"{app_url}/activities/{activity['id']}" if app_url else None)
     except Exception:
         log.warning('Notification of a ride analysis failed', exc_info=True)

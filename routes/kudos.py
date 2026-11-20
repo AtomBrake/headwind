@@ -10,7 +10,7 @@ log = logging.getLogger(__name__)
 bp = Blueprint('kudos', __name__)
 
 
-@bp.route('/rides/<rid>/kudos', methods=['POST'])
+@bp.route('/activities/<rid>/kudos', methods=['POST'])
 def kudos(rid):
     activity = query_db('SELECT id, sportType FROM Activity WHERE id=?', [rid], one=True)     # the whole row only once it'll be analysed
     if not activity:
@@ -40,7 +40,7 @@ def kudos(rid):
         return jsonify({'error': logs.failed('The AI analysis failed')}), 500
 
 
-@bp.route('/rides/<rid>/kudos/status')
+@bp.route('/activities/<rid>/kudos/status')
 def kudos_status(rid):
     """For a ride page showing 'Analysing…': whether the analysis of a new ride (services/auto_analyse.py) is still on its way, and the text once it's there."""
     from services import auto_analyse

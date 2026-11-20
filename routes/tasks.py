@@ -170,7 +170,7 @@ def _activity_links(db, texts):
         marks = ','.join('?' * len(part))
         for r in db.execute(f"SELECT id, primaryId, json_extract(rowJson, '$.name') AS name FROM ActivityDuplicate "
                             f"WHERE id IN ({marks}) AND status='parked'", part):
-            links[str(r['id'])] = {'url': url_for('rides.view_duplicate', rid=r['primaryId'], dup_id=r['id']), 'name': r['name'] or ''}
+            links[str(r['id'])] = {'url': url_for('activities.view_duplicate', rid=r['primaryId'], dup_id=r['id']), 'name': r['name'] or ''}
         for r in db.execute(f'SELECT id, name FROM Activity WHERE id IN ({marks})', part):     # live wins over a stale copy of the same id
-            links[str(r['id'])] = {'url': url_for('rides.detail', rid=r['id']), 'name': r['name'] or ''}
+            links[str(r['id'])] = {'url': url_for('activities.detail', rid=r['id']), 'name': r['name'] or ''}
     return links

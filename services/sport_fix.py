@@ -17,7 +17,7 @@ TASK = 'sport_check'        # its TaskLog rows (the check runs in the background
 
 def ensure_schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS SportFix (
-        rideId         TEXT PRIMARY KEY,
+        activityId         TEXT PRIMARY KEY,
         riderId        INTEGER NOT NULL,
         name           TEXT,
         startDateLocal TEXT,
@@ -69,7 +69,7 @@ def _propose(db, rider_id, rows, types, only_generic=()):
     Workout) and Garmin's type is a sport of its own that isn't a ride. Returns how many."""
     from services.sports import GENERIC, RIDES, is_ride
     from services.garmin import garmin_sport
-    kept = {r[0] for r in db.execute("SELECT rideId FROM SportFix WHERE status='kept'")}
+    kept = {r[0] for r in db.execute("SELECT activityId FROM SportFix WHERE status='kept'")}
     proposed = 0
     for aid, key in types.items():
         r, new = rows[aid], garmin_sport(key)
@@ -81,7 +81,7 @@ def _propose(db, rider_id, rows, types, only_generic=()):
             continue
         if aid in only_generic and (r['sportType'] not in GENERIC or is_ride(new)):
             continue
-        db.execute('INSERT OR REPLACE INTO SportFix (rideId, riderId, name, startDateLocal, distance, oldSport, newSport, typeKey) VALUES (?,?,?,?,?,?,?,?)',
+        db.execute('INSERT OR REPLACE INTO SportFix (activityId, riderId, name, startDateLocal, distance, oldSport, newSport, typeKey) VALUES (?,?,?,?,?,?,?,?)',
                    [aid, rider_id, r['name'], r['startDateLocal'], r['distance'], r['sportType'], new, key])
         proposed += 1
     return proposed
@@ -98,12 +98,12 @@ def from_seen(db):
     yoga and strength sessions as rides, and the type check of the day could only make them Other. A sport picked for one by hand stays."""
     from services import garmin_changes
     garmin_changes.ensure_schema(db)
-    db.execute("""DELETE FROM SportFix WHERE status='pending' AND NOT EXISTS (SELECT 1 FROM Activity a WHERE a.id = SportFix.rideId
+    db.execute("""DELETE FROM SportFix WHERE status='pending' AND NOT EXISTS (SELECT 1 FROM Activity a WHERE a.id = SportFix.activityId
                                                                               AND a.sportType IS NOT SportFix.newSport)""")
-    for r in db.execute("SELECT rideId, oldSport, newSport FROM SportFix WHERE status='pending'").fetchall():
+    for r in db.execute("SELECT activityId, oldSport, newSport FROM SportFix WHERE status='pending'").fetchall():
         if _same_sport(r['oldSport'], r['newSport']):       # proposed before _same_sport knew another name for one sport
-            db.execute('DELETE FROM SportFix WHERE rideId=?', [r['rideId']])
-    pending = {r[0] for r in db.execute("SELECT rideId FROM SportFix WHERE status='pending'")}
+            db.execute('DELETE FROM SportFix WHERE activityId=?', [r['activityId']])
+    pending = {r[0] for r in db.execute("SELECT activityId FROM SportFix WHERE status='pending'")}
     by_rider, converted = {}, set()
     cols = 'a.id, a.riderId, a.name, a.startDateLocal, a.distance, a.sportType, s.summary'
     not_friends = 'a.riderId IS NOT NULL AND a.riderId NOT IN (SELECT riderId FROM Friend WHERE riderId IS NOT NULL)'
@@ -145,7 +145,7 @@ def pending(db, rider_id):
     """The proposals still to review, each with `parked`: how many other recordings of it are set aside (they are thrown away when it is changed)."""
     from services import duplicates
     duplicates.ensure_schema(db)
-    return [dict(r) for r in db.execute('''SELECT f.*, (SELECT COUNT(*) FROM ActivityDuplicate d WHERE d.primaryId=f.rideId AND d.status='parked') AS parked
+    return [dict(r) for r in db.execute('''SELECT f.*, (SELECT COUNT(*) FROM ActivityDuplicate d WHERE d.primaryId=f.activityId AND d.status='parked') AS parked
                                            FROM SportFix f WHERE f.riderId=? AND f.status='pending' ORDER BY f.newSport, f.startDateLocal DESC''', [rider_id])]
 
 
@@ -158,16 +158,16 @@ def apply(db, rider_id, ride_ids):
     picked = set(ride_ids)
     changed = failed = kept = 0
     for p in pending(db, rider_id):
-        if p['rideId'] not in picked:
-            db.execute("UPDATE SportFix SET status='kept' WHERE rideId=?", [p['rideId']])
+        if p['activityId'] not in picked:
+            db.execute("UPDATE SportFix SET status='kept' WHERE activityId=?", [p['activityId']])
             kept += 1
             continue
         try:
-            convert.change_sport(db, None, p['rideId'], p['newSport'], discard_parked=True)     # a workout saved as Other, too
-            db.execute('DELETE FROM SportFix WHERE rideId=?', [p['rideId']])
+            convert.change_sport(db, None, p['activityId'], p['newSport'], discard_parked=True)     # a workout saved as Other, too
+            db.execute('DELETE FROM SportFix WHERE activityId=?', [p['activityId']])
             changed += 1
         except ValueError as e:                     # gone already
-            db.execute('UPDATE SportFix SET error=? WHERE rideId=?', [str(e), p['rideId']])
+            db.execute('UPDATE SportFix SET error=? WHERE activityId=?', [str(e), p['activityId']])
             failed += 1
     db.commit()
     return {'changed': changed, 'failed': failed, 'kept': kept}

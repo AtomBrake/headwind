@@ -69,7 +69,7 @@ def test_check_lists_the_wrong_sports_and_apply_moves_them(db):
 
     res = sport_fix.scan(db, api, 1)
     assert res == {'checked': 5, 'found': 5, 'proposed': 5}
-    assert {p['rideId']: p['newSport'] for p in sport_fix.pending(db, 1)} == {'garmin_1': 'Swim', 'garmin_2': 'MountainBikeRide', 'garmin_3': 'Run',
+    assert {p['activityId']: p['newSport'] for p in sport_fix.pending(db, 1)} == {'garmin_1': 'Swim', 'garmin_2': 'MountainBikeRide', 'garmin_3': 'Run',
                                                                             'garmin_4': 'VirtualRide', 'garmin_5': 'Surf'}   # a mountain bike ride gets its kind back
 
     res = sport_fix.apply(db, 1, ['garmin_1', 'garmin_3', 'garmin_4'])               # garmin_2 and garmin_5 left as they are

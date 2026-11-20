@@ -47,12 +47,12 @@ def client(tmp_path, monkeypatch):
 
 
 def test_ride_page_links_to_the_set_aside_recording(client):
-    html = client.get('/rides/garmin_1').get_data(as_text=True)
-    assert '/rides/garmin_1/duplicate/imp_2' in html and '/rides/garmin_1/duplicate/imp_2?compare=1' in html
+    html = client.get('/activities/garmin_1').get_data(as_text=True)
+    assert '/activities/garmin_1/duplicate/imp_2' in html and '/activities/garmin_1/duplicate/imp_2?compare=1' in html
 
 
 def test_view_shows_only_the_set_aside_recording(client):
-    r = client.get('/rides/garmin_1/duplicate/imp_2')
+    r = client.get('/activities/garmin_1/duplicate/imp_2')
     html = r.get_data(as_text=True)
     assert r.status_code == 200
     assert '103 bpm' in html and '140 bpm' not in html
@@ -60,14 +60,14 @@ def test_view_shows_only_the_set_aside_recording(client):
 
 
 def test_compare_shows_both_side_by_side(client):
-    html = client.get('/rides/garmin_1/duplicate?compare=1').get_data(as_text=True)      # no id: the first one set aside
+    html = client.get('/activities/garmin_1/duplicate?compare=1').get_data(as_text=True)      # no id: the first one set aside
     assert '140 bpm' in html and '103 bpm' in html
     assert 'dup-differs' in html                                                      # the heart rates differ, so that row is marked
 
 
 def test_unknown_or_unrelated_recording_is_not_found(client):
-    assert client.get('/rides/garmin_1/duplicate/nope').status_code == 404
-    assert client.get('/rides/imp_2/duplicate').status_code == 404
+    assert client.get('/activities/garmin_1/duplicate/nope').status_code == 404
+    assert client.get('/activities/imp_2/duplicate').status_code == 404
 
 
 def test_a_zwift_ride_is_drawn_over_its_world(client):
@@ -78,11 +78,11 @@ def test_a_zwift_ride_is_drawn_over_its_world(client):
         track = {'time': {'data': [0, 60]}, 'latlng': {'data': [[-11.65, 166.95], [-11.66, 166.96]]}}
         db.execute("UPDATE ActivityDuplicate SET streams=? WHERE id='imp_2'", [stream_store.pack(track)])
         db.commit()
-    for url in ('/rides/garmin_1/duplicate/imp_2', '/rides/garmin_1/duplicate/imp_2?compare=1'):
+    for url in ('/activities/garmin_1/duplicate/imp_2', '/activities/garmin_1/duplicate/imp_2?compare=1'):
         html = client.get(url).get_data(as_text=True)
         assert page_data(html, 'duplicateData')['zwiftWorld']['url'].startswith('/heatmap/zwift/watopia.png')    # its world's map, no map tiles
 
 
 def test_a_real_ride_keeps_the_satellite_map(client):
-    html = client.get('/rides/garmin_1/duplicate/imp_2?compare=1').get_data(as_text=True)
+    html = client.get('/activities/garmin_1/duplicate/imp_2?compare=1').get_data(as_text=True)
     assert page_data(html, 'duplicateData')['zwiftWorld'] is None                # the satellite map (static/js/ride_duplicate.js)

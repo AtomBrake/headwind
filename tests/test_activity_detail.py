@@ -1,4 +1,4 @@
-"""The activity page by sport (services/activity_detail.py, routes/rides.detail): splits and pace on foot, a pool swim's sets and SWOLF, a ski day's
+"""The activity page by sport (services/activity_detail.py, routes/activities.detail): splits and pace on foot, a pool swim's sets and SWOLF, a ski day's
 runs, the device's laps from a FIT file, and what's hidden where it doesn't fit. Throwaway DB, no network."""
 import json
 from datetime import datetime, timedelta
@@ -163,15 +163,37 @@ def client(tmp_path, monkeypatch):
 
 
 def test_each_sport_gets_its_own_page(client):
-    run = client.get('/rides/run').get_data(as_text=True)
+    run = client.get('/activities/run').get_data(as_text=True)
     assert 'Avg Pace' in run and '5:00 /km' in run and 'id="splitsCard"' in run and 'id="paceChart"' in run and '170 spm' in run
     assert 'id="speedChart"' not in run and 'Avg Speed' not in run
-    pool = client.get('/rides/pool').get_data(as_text=True)
+    pool = client.get('/activities/pool').get_data(as_text=True)
     assert 'id="poolCard"' in pool and 'Avg SWOLF' in pool and '3 &times; 25 m pool' in pool and 'Stroke Rate' in pool
     assert 'Elevation Gain' not in pool
-    sup = client.get('/rides/sup').get_data(as_text=True)
+    sup = client.get('/activities/sup').get_data(as_text=True)
     assert 'Avg Speed' in sup and 'Elevation Gain' not in sup and 'id="speedChart"' in sup     # speed worked out from distance and time
-    yoga = client.get('/rides/yoga').get_data(as_text=True)
+    yoga = client.get('/activities/yoga').get_data(as_text=True)
     assert '>Distance<' not in yoga and 'Avg Speed' not in yoga and 'Elevation Gain' not in yoga
-    ride = client.get('/rides/ride').get_data(as_text=True)
+    ride = client.get('/activities/ride').get_data(as_text=True)
     assert 'Avg Speed' in ride and '80 rpm' in ride and 'id="splitsCard"' not in ride and 'id="kitCard"' not in ride
+
+
+def test_the_old_ride_addresses_still_lead_to_the_activity(client):
+    """The pages were at /rides/<id>: old links, bookmarks and friends' links are sent on, a form's POST as a POST (308), with the query."""
+    r = client.get('/rides/run?map=1')
+    assert r.status_code == 308 and r.headers['Location'].endswith('/activities/run?map=1')
+    assert client.get('/rides/run', follow_redirects=True).status_code == 200
+    r = client.post('/rides/run/notes', data={'notes': 'x'})
+    assert r.status_code == 308 and r.headers['Location'].endswith('/activities/run/notes')
+
+
+def test_any_sport_with_a_track_downloads_as_gpx_named_by_its_sport(client):
+    import database
+    with client.application.app_context():
+        db = database.get_db()
+        db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime) "
+                   "VALUES ('trail', NULL, 'Trail Run', 1, '2026-10-06T08:00:00Z', '2026-10-06T09:00:00', 200, 60, 60)")
+        stream_store.save(db, 'trail', {'latlng': {'data': [[51.5, -0.1], [51.501, -0.1]]}, 'time': {'data': [0, 60]}})
+        db.commit()
+    assert 'Download GPX' in client.get('/activities/trail').get_data(as_text=True)
+    r = client.get('/activities/trail/gpx')
+    assert r.status_code == 200 and '<name>Trail Run</name>' in r.get_data(as_text=True)

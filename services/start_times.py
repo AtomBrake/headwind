@@ -81,7 +81,7 @@ _WEATHER = ('weatherTempC', 'weatherWindKph', 'weatherGustKph', 'weatherWindDir'
             'weatherWindRel')
 _DATED = (('BestEffort', 'activityId', 'activityDate'), ('BestEffortKm', 'activityId', 'activityDate'), ('SegmentEffort', 'activityId', 'activityDate'),
           ('SportEffort', 'activityId', 'activityDate'),
-          ('RideMemory', 'rideId', 'rideDate'))
+          ('ActivityMemory', 'activityId', 'activityDate'))
 
 
 def _utc_str(dt):

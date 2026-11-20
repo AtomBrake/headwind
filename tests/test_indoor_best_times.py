@@ -100,8 +100,8 @@ def test_data_page_has_indoor_tables_of_their_own(client):
     html = client.get('/data').get_data(as_text=True)
     t = _tables(html)
     assert set(t) == {'ride', 'vride', 'run', 'vrun'}
-    assert t['ride']['by_year']['2026']['5']['rideId'] == 'ride_out' and t['vride']['by_year']['2026']['5']['rideId'] == 'ride_zw'
-    assert t['run']['by_year']['2026']['5000']['rideId'] == 'run_out' and t['vrun']['by_year']['2026']['5000']['rideId'] == 'run_zw'
+    assert t['ride']['by_year']['2026']['5']['activityId'] == 'ride_out' and t['vride']['by_year']['2026']['5']['activityId'] == 'ride_zw'
+    assert t['run']['by_year']['2026']['5000']['activityId'] == 'run_out' and t['vrun']['by_year']['2026']['5000']['activityId'] == 'run_zw'
     assert 'Indoor ride best times' in html and 'Indoor run best times' in html
 
 
@@ -125,8 +125,8 @@ def test_profile_lists_indoor_best_times_under_their_own_headings(client):
     html = client.get('/riders/1').get_data(as_text=True)
     best = html[html.index('Best Efforts'):]
     i_ride, i_run = best.index('Indoor rides'), best.index('Indoor runs')
-    assert best.index('/rides/ride_out') < i_ride < best.index('/rides/ride_zw')
-    assert best.index('/rides/run_out') < i_run < best.index('/rides/run_zw')
+    assert best.index('/activities/ride_out') < i_ride < best.index('/activities/ride_zw')
+    assert best.index('/activities/run_out') < i_run < best.index('/activities/run_zw')
 
 
 def test_run_badges_count_runs_outside_only(app):

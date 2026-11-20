@@ -39,7 +39,7 @@ def _feed_token():
 def riders_list():
     """Token-authenticated rider list — lets a friend's instance discover who's here."""
     scope = _feed_token()
-    if not scope['shareRides']:
+    if not scope['shareActivities']:
         return jsonify([])
     riders = query_db(f'SELECT r.id, r.name, r.isDefault FROM Rider r JOIN FeedTokenRider t ON t.riderId = r.id '
                       f'WHERE t.tokenId=? AND r.{OWN_RIDERS_SQL} ORDER BY r.isDefault DESC, r.name ASC', [scope['id']])
@@ -85,7 +85,7 @@ def feed():
     A 'ride' is any of the rider's activities, of any sport (rides only before 0.7.6; the line keeps its name for older friends).
     A 'challenge' (0.7.20 on) is one the rider started and invited this token's friend to, or joined from a friend (services/goals.feed_lines);
     older friends ignore the line.
-    shareRides on the token: share the activities, and the challenges (a race needs the activities).
+    shareActivities on the token: share the activities, and the challenges (a race needs the activities).
     Accepts ?since=YYYY-MM-DD and ?rider=<name> to filter. The token decides whether segments and rides are sent at all, and
     its date window (inclusive) narrows the rides. A rider the token doesn't share is sent like one sharing no rides: no name, no
     rides or challenges, and an empty manifest.
@@ -111,7 +111,7 @@ def feed():
         shared = bool(rider) and feed_tokens.shares_rider(scope['id'], rider['id'])
         # No name for one not shared: the friend keeps calling them what they did, and learns nothing new
         yield json.dumps({'type': 'meta', 'name': rider['name'] if shared else None if rider else 'Unknown'}) + '\n'
-        share_rides = scope['shareRides'] and shared
+        share_rides = scope['shareActivities'] and shared
 
         if scope['shareSegments'] and ids is None:
             for s in db.execute('SELECT id, name, startLat, startLng, endLat, endLng, '
@@ -480,7 +480,7 @@ def delete(fid):
                    '(SELECT id FROM Activity WHERE riderId=?)', [friend['riderId']])
         from services import best_efforts
         best_efforts.delete_for(db, 'activityId IN (SELECT id FROM Activity WHERE riderId=?)', [friend['riderId']])
-        db.execute('DELETE FROM RideMemory WHERE rideId IN (SELECT id FROM Activity WHERE riderId=?)', [friend['riderId']])
+        db.execute('DELETE FROM ActivityMemory WHERE activityId IN (SELECT id FROM Activity WHERE riderId=?)', [friend['riderId']])
         db.execute('DELETE FROM Activity WHERE riderId=?', [friend['riderId']])
         db.execute('DELETE FROM Rider WHERE id=?', [friend['riderId']])
     from services import goals

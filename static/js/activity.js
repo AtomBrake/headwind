@@ -2,7 +2,7 @@ var PAGE = JSON.parse(document.getElementById('rideData').textContent);
 
 // ── Commute and sport ────────────────────────────────────────────
 function saveCommute(box) {
-  fetch('/rides/' + PAGE.id + '/commute', {
+  fetch('/activities/' + PAGE.id + '/commute', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: 'commute=' + (box.checked ? '1' : '0')
@@ -43,7 +43,7 @@ function captionKey(e, input) {                         // Enter saves (by leavi
 }
 function savePhotoCaption(input) {
   var fig = input.closest('figure');
-  fetch('/rides/' + PAGE.id + '/photos/' + fig.getAttribute('data-pid') + '/caption', {
+  fetch('/activities/' + PAGE.id + '/photos/' + fig.getAttribute('data-pid') + '/caption', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: 'caption=' + encodeURIComponent(input.value)
@@ -62,7 +62,7 @@ function photoOrder(grid) {
 function savePhotoOrder(grid) {
   var body = new URLSearchParams();
   photoOrder(grid).forEach(function(id) { body.append('id', id); });
-  fetch('/rides/' + PAGE.id + '/photos/order', { method: 'POST', body: body })
+  fetch('/activities/' + PAGE.id + '/photos/order', { method: 'POST', body: body })
     .then(function(r) { if (r.status !== 204) location.reload(); })       // added or deleted in another tab: show what's there now
     .catch(function() { location.reload(); });
 }
@@ -118,7 +118,7 @@ function movePhoto(btn, step) {
                            pointBackgroundColor: s.map(function (p) { return p.current ? cssVar('--accent') : cssVar('--text-muted'); }),
                            pointBorderWidth: 0 }] },
       options: { animation: false, maintainAspectRatio: false,
-        onClick: function (e, items) { if (items.length && !s[items[0].index].current) location.href = '/rides/' + s[items[0].index].id; },
+        onClick: function (e, items) { if (items.length && !s[items[0].index].current) location.href = '/activities/' + s[items[0].index].id; },
         plugins: { legend: { display: false }, tooltip: { callbacks: {
           title: function (c) { return s[c[0].dataIndex].name || c[0].label; },
           label: function (c) { return c.label + ': ' + UNITS.fmtMinSec(c.parsed.y); } } } },
@@ -266,27 +266,27 @@ function movePhoto(btn, step) {
 })();
 
 function useElapsedTime() {
-  fetch('/rides/' + PAGE.id + '/moving/elapsed', { method: 'POST' }).then(function(r) { if (r.ok) location.reload(); });
+  fetch('/activities/' + PAGE.id + '/moving/elapsed', { method: 'POST' }).then(function(r) { if (r.ok) location.reload(); });
 }
 
 function setStart(e) {
   e.preventDefault();
   var m = document.getElementById('startMsg');
-  fetch('/rides/' + PAGE.id + '/start', { method: 'POST', body: new URLSearchParams(new FormData(e.target)) })
+  fetch('/activities/' + PAGE.id + '/start', { method: 'POST', body: new URLSearchParams(new FormData(e.target)) })
     .then(function(r) { return r.json(); })
-    .then(function(d) { if (d.error) { m.textContent = d.error; return; } location.href = '/rides/' + encodeURIComponent(d.id); })
+    .then(function(d) { if (d.error) { m.textContent = d.error; return; } location.href = '/activities/' + encodeURIComponent(d.id); })
     .catch(function() { m.textContent = 'Could not save it.'; });
   return false;
 }
 
 function dismissFlag() {
-  fetch('/rides/' + PAGE.id + '/flag/dismiss', { method: 'POST' }).then(function(r) { if (r.ok) { var b = document.getElementById('flagBanner'); if (b) b.remove(); } });
+  fetch('/activities/' + PAGE.id + '/flag/dismiss', { method: 'POST' }).then(function(r) { if (r.ok) { var b = document.getElementById('flagBanner'); if (b) b.remove(); } });
 }
 
 function setWeather(v) {
   var m = document.getElementById('wxMsg');
   var body = new URLSearchParams({ condition: v });
-  fetch('/rides/' + PAGE.id + '/weather', { method: 'POST', body: body })
+  fetch('/activities/' + PAGE.id + '/weather', { method: 'POST', body: body })
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.error) { m.textContent = 'Could not save: ' + d.error; return; }
@@ -684,7 +684,7 @@ function makeElevHrChart(id, elevData, hrData) {
 }
 
 (function () {
-  var c = PAGE.charts;           // each a series or null (routes/rides.py)
+  var c = PAGE.charts;           // each a series or null (routes/activities.py)
   if (c.elevation && c.heartrate) makeElevHrChart('elevChart', c.elevation, c.heartrate);
   else if (c.elevation) makeChart('elevChart', c.elevation, '--success');
   if (c.speed) makeChart('speedChart', c.speed, '--c-sky');
@@ -737,7 +737,7 @@ function scanSegments(rid) {
   var res = document.getElementById('scanResult');
   btn.disabled = true;
   res.style.display = 'none';
-  fetch('/rides/' + rid + '/scan', { method: 'POST' })
+  fetch('/activities/' + rid + '/scan', { method: 'POST' })
     .then(function(r) { return r.json(); })
     .then(function(d) {
       res.textContent = d.matched + ' effort' + (d.matched === 1 ? '' : 's') + ' found';
@@ -750,7 +750,7 @@ function scanSegments(rid) {
 function saveNotes(rid) {
   var text = document.getElementById('rideNotes').value;
   var saved = document.getElementById('notesSaved');
-  fetch('/rides/' + rid + '/notes', {
+  fetch('/activities/' + rid + '/notes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: 'notes=' + encodeURIComponent(text)

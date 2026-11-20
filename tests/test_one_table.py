@@ -160,10 +160,10 @@ def test_the_history_shows_every_sport_and_can_leave_some_out(tmp_path, monkeypa
         s['logged_in'] = True
         s['av'] = av
     page = c.get('/dashboard').get_data(as_text=True)
-    assert '/rides/r1' in page and '/rides/w1' in page and 'Afternoon walk' in page                   # a walk with no name gets one
+    assert '/activities/r1' in page and '/activities/w1' in page and 'Afternoon walk' in page                   # a walk with no name gets one
     assert 'data-sport value="Walk" checked' in page and 'data-sport value="Ride" checked' in page      # every sport included to start with
     page = c.get('/dashboard?skip=Walk').get_data(as_text=True)
-    assert '/rides/r1' in page and '/rides/w1' not in page
+    assert '/activities/r1' in page and '/activities/w1' not in page
     assert re.search(r'data-sport value="Walk"\s+data-change', page) and 'data-sport value="Ride" checked' in page and 'Every sport' in page    # the left-out one is unticked
 
 
@@ -209,7 +209,7 @@ def test_the_phone_and_the_days_burn_read_every_sport_once(tmp_path, monkeypatch
     with full.app_context():
         assert [r[0] for r in database.get_db().execute(WORKOUTS)] == ['w1']
     page = web.get(web.get('/workouts').headers['Location']).get_data(as_text=True)           # the old Workouts page: Activities, rides left out
-    assert '/rides/w1' in page and '/rides/r1' not in page
-    assert web.get('/rides/w1').status_code == 200 and web.get('/rides/r1').status_code == 200
-    r = web.post('/rides/w1/sport', data={'sport': 'Ride'})                                              # a walk that was a ride goes to its ride page
-    assert r.status_code == 302 and r.headers['Location'].endswith('/rides/w1')
+    assert '/activities/w1' in page and '/activities/r1' not in page
+    assert web.get('/activities/w1').status_code == 200 and web.get('/activities/r1').status_code == 200
+    r = web.post('/activities/w1/sport', data={'sport': 'Ride'})                                              # a walk that was a ride goes to its ride page
+    assert r.status_code == 302 and r.headers['Location'].endswith('/activities/w1')

@@ -210,8 +210,8 @@ def test_the_logs_card_links_the_activities_a_line_names(app, client):
         db.commit()
     logging.getLogger('services.duplicates').warning('Duplicate ride: parked 13887314382, kept wk_cb79ae32fc2f2c01 after 1234567890 bytes')
     links = client.get('/tasks/logs').get_json()['links']
-    assert links['wk_cb79ae32fc2f2c01'] == {'url': '/rides/wk_cb79ae32fc2f2c01', 'name': 'Watch session'}
-    assert links['13887314382'] == {'url': '/rides/wk_cb79ae32fc2f2c01/duplicate/13887314382', 'name': 'Morning Ride'}
+    assert links['wk_cb79ae32fc2f2c01'] == {'url': '/activities/wk_cb79ae32fc2f2c01', 'name': 'Watch session'}
+    assert links['13887314382'] == {'url': '/activities/wk_cb79ae32fc2f2c01/duplicate/13887314382', 'name': 'Morning Ride'}
     assert '1234567890' not in links                    # a number that is no activity stays text
 
 

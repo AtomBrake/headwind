@@ -25,9 +25,9 @@ STREAM_NAMES = {'latlng': 'GPS', 'altitude': 'altitude', 'heartrate': 'heart rat
 
 def ensure_schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS ImportChange (
-        rideId    TEXT PRIMARY KEY,
+        activityId    TEXT PRIMARY KEY,
         riderId   INTEGER,
-        rideName  TEXT,
+        activityName  TEXT,
         source    TEXT,
         foundAt   TEXT DEFAULT (datetime('now')),
         diffs     TEXT NOT NULL,             -- [{label, old, new}] for the page
@@ -35,9 +35,9 @@ def ensure_schema(db):
         streams   BLOB                       -- its streams, compressed (services/streams.apart): database step 5 adds it
     )''')
     db.execute('''CREATE TABLE IF NOT EXISTS ImportProblem (
-        rideId    TEXT PRIMARY KEY,
+        activityId    TEXT PRIMARY KEY,
         riderId   INTEGER,
-        rideName  TEXT,
+        activityName  TEXT,
         file      TEXT,                      -- the file the import couldn't read
         problem   TEXT NOT NULL,             -- what was saved instead, for the page
         foundAt   TEXT DEFAULT (datetime('now'))
@@ -211,7 +211,7 @@ def propose(db, saved, act, source):
     if not diffs:
         return False
     keep = {k: act.get(k) for k in COLUMNS + ('calories', 'name', 'cropped') if act.get(k) is not None}
-    db.execute('INSERT OR REPLACE INTO ImportChange (rideId, riderId, rideName, source, diffs, act, streams) VALUES (?,?,?,?,?,?,?)',
+    db.execute('INSERT OR REPLACE INTO ImportChange (activityId, riderId, activityName, source, diffs, act, streams) VALUES (?,?,?,?,?,?,?)',
                [saved['id'], saved['riderId'], saved['name'], source, json.dumps(diffs), *stream_store.apart(keep)])
     return True
 
@@ -221,9 +221,9 @@ def pending(db):
     add (fill_adds). Only those still saved: one deleted, or set aside behind another recording, since its difference was found isn't listed
     (its link would go nowhere), and comes back if it does. Neither's streams are read, only whether there are any."""
     cols = ', '.join(f'a.{c}' for c in COLUMNS if c not in ('streams', 'rawData'))
-    rows = db.execute(f'''SELECT c.rideId, c.riderId, c.rideName, c.source, c.foundAt, c.diffs, c.act, c.streams IS NOT NULL AS importStreams,
+    rows = db.execute(f'''SELECT c.activityId, c.riderId, c.activityName, c.source, c.foundAt, c.diffs, c.act, c.streams IS NOT NULL AS importStreams,
                                  a.sportType, a.calories, {cols}, CASE WHEN {stream_store.has_sql('a')} THEN 1 END AS streams
-                          FROM ImportChange c JOIN Activity a ON a.id = c.rideId ORDER BY c.foundAt DESC, c.rideId''').fetchall()
+                          FROM ImportChange c JOIN Activity a ON a.id = c.activityId ORDER BY c.foundAt DESC, c.activityId''').fetchall()
     out = []
     for r in rows:
         diffs, act = json.loads(r['diffs']), json.loads(r['act'])
@@ -256,19 +256,19 @@ def fill_adds(saved, act, diffs):
 
 def note_problem(db, ride_id, rider_id, ride_name, file, problem):
     """Remember that an import couldn't read an activity's file, for the Import page (problems). Does not commit."""
-    db.execute('INSERT OR REPLACE INTO ImportProblem (rideId, riderId, rideName, file, problem) VALUES (?,?,?,?,?)',
+    db.execute('INSERT OR REPLACE INTO ImportProblem (activityId, riderId, activityName, file, problem) VALUES (?,?,?,?,?)',
                [ride_id, rider_id, ride_name, file, problem])
 
 
 def problem_solved(db, ride_id):
     """The file was read this time. Does not commit."""
-    db.execute('DELETE FROM ImportProblem WHERE rideId=?', [ride_id])
+    db.execute('DELETE FROM ImportProblem WHERE activityId=?', [ride_id])
 
 
 def problems(db):
     """Files the imports couldn't read, newest first, for activities that are still here."""
-    return [dict(r) for r in db.execute('''SELECT p.* FROM ImportProblem p JOIN Activity a ON a.id = p.rideId
-                                           ORDER BY p.foundAt DESC, p.rideId''').fetchall()]
+    return [dict(r) for r in db.execute('''SELECT p.* FROM ImportProblem p JOIN Activity a ON a.id = p.activityId
+                                           ORDER BY p.foundAt DESC, p.activityId''').fetchall()]
 
 
 def resolve(db, ride_id, choice):
@@ -277,10 +277,10 @@ def resolve(db, ride_id, choice):
     Raises ValueError for an unknown choice. Does not commit."""
     if choice not in ('keep', 'replace', 'fill'):
         raise ValueError('choose keep, replace or fill')
-    row = db.execute('SELECT * FROM ImportChange WHERE rideId=?', [ride_id]).fetchone()
+    row = db.execute('SELECT * FROM ImportChange WHERE activityId=?', [ride_id]).fetchone()
     if not row:
         return False
-    db.execute('DELETE FROM ImportChange WHERE rideId=?', [ride_id])
+    db.execute('DELETE FROM ImportChange WHERE activityId=?', [ride_id])
     saved = db.execute(f'SELECT *, {stream_store.sql()} FROM Activity WHERE id=?', [ride_id]).fetchone()
     if choice == 'keep' or not saved:
         return False

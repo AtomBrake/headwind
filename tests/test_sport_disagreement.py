@@ -146,7 +146,7 @@ def test_an_e_bike_ride_saved_as_a_ride_is_proposed_from_what_garmin_listed(db, 
     _seen(db, '3', 'e_bike_mountain')
     assert sport_fix.from_seen(db) == {1: 1}
     [p] = sport_fix.pending(db, 1)
-    assert (p['rideId'], p['oldSport'], p['newSport'], p['typeKey']) == ('garmin_1', 'Ride', 'EBikeRide', 'e_bike_fitness')
+    assert (p['activityId'], p['oldSport'], p['newSport'], p['typeKey']) == ('garmin_1', 'Ride', 'EBikeRide', 'e_bike_fitness')
     assert sport_fix.count(db, 1) == 1
     assert sport_fix.from_seen(db) == {}                 # proposed once, not again at every start
     assert sport_fix.apply(db, 1, ['garmin_1'])['changed'] == 1
@@ -165,7 +165,7 @@ def test_a_proposal_kept_or_made_stale_is_not_offered(db):
     sport_fix.from_seen(db)
     convert.change_sport(db, None, 'garmin_1', 'EBikeRide')      # changed some other way meanwhile
     sport_fix.from_seen(db)
-    assert [p['rideId'] for p in sport_fix.pending(db, 1)] == ['garmin_2']
+    assert [p['activityId'] for p in sport_fix.pending(db, 1)] == ['garmin_2']
 
 
 
@@ -176,10 +176,10 @@ def test_another_name_for_garmins_sport_is_not_offered_and_an_old_proposal_of_on
                             ('5', 'Stand Up Paddling', 'surfing')):            # a sport of its own: still offered
         _add(db, f'garmin_{gid}', sport, day=f'2026-02-1{gid}')
         _seen(db, gid, key)
-    db.execute("INSERT INTO SportFix (rideId, riderId, oldSport, newSport, typeKey) VALUES ('garmin_1', 1, 'Stand Up Paddling', 'Paddle', "
+    db.execute("INSERT INTO SportFix (activityId, riderId, oldSport, newSport, typeKey) VALUES ('garmin_1', 1, 'Stand Up Paddling', 'Paddle', "
                "'stand_up_paddleboarding_v2')")                                # listed by an older Headwind
     assert sport_fix.from_seen(db) == {1: 1}
-    assert [(p['rideId'], p['newSport']) for p in sport_fix.pending(db, 1)] == [('garmin_5', 'Surf')]
+    assert [(p['activityId'], p['newSport']) for p in sport_fix.pending(db, 1)] == [('garmin_5', 'Surf')]
 
 
 def test_a_workout_saved_as_other_takes_garmins_strength_hiit_or_yoga(db):
@@ -202,7 +202,7 @@ def test_a_ride_changed_to_a_workout_long_ago_is_matched_through_its_garmin_id(d
         db.execute("UPDATE Activity SET source='converted', originId=? WHERE id=?", [f'garmin_{gid}', wid])
         _seen(db, gid, key)
     assert sport_fix.from_seen(db) == {1: 3}
-    assert {p['rideId']: p['newSport'] for p in sport_fix.pending(db, 1)} == {'wk_a': 'HIIT', 'wk_b': 'Strength', 'wk_c': 'Kitesurf'}
+    assert {p['activityId']: p['newSport'] for p in sport_fix.pending(db, 1)} == {'wk_a': 'HIIT', 'wk_b': 'Strength', 'wk_c': 'Kitesurf'}
     assert sport_fix.apply(db, 1, ['wk_a', 'wk_b', 'wk_c'])['changed'] == 3
     assert [_sport(db, w) for w in ('wk_a', 'wk_b', 'wk_c', 'wk_d', 'wk_e')] == ['HIIT', 'Strength', 'Kitesurf', 'Kitesurf', 'Other']
     assert sport_fix.from_seen(db) == {}
@@ -301,11 +301,11 @@ def client(tmp_path, monkeypatch):
 
 
 def test_the_activity_page_says_so_and_takes_the_other_sport(client):
-    page = client.get('/rides/garmin_0').get_data(as_text=True)
+    page = client.get('/activities/garmin_0').get_data(as_text=True)
     assert 'Different sport:' in page and 'Strava says <strong>E-bike ride</strong>' in page and 'Garmin says <strong>Ride</strong>' in page
-    r = client.post('/import/sports/120/other', data={'back': '/rides/garmin_0'})
-    assert r.status_code == 302 and r.headers['Location'].endswith('/rides/garmin_0')
-    assert 'Different sport:' not in client.get('/rides/garmin_0').get_data(as_text=True)
+    r = client.post('/import/sports/120/other', data={'back': '/activities/garmin_0'})
+    assert r.status_code == 302 and r.headers['Location'].endswith('/activities/garmin_0')
+    assert 'Different sport:' not in client.get('/activities/garmin_0').get_data(as_text=True)
 
 
 def test_the_import_page_lists_them_and_settles_a_whole_kind_at_once(client):

@@ -1,4 +1,4 @@
-"""Picking many activities on a list and acting on them at once (services/bulk.py, /rides/bulk*), and the GPX export's times. Full app, throwaway DB."""
+"""Picking many activities on a list and acting on them at once (services/bulk.py, /activities/bulk*), and the GPX export's times. Full app, throwaway DB."""
 import io
 import json
 import zipfile
@@ -57,7 +57,7 @@ def q(client, sql, args=()):
 
 
 def bulk(client, action, ids, **form):
-    return client.post('/rides/bulk', data={'action': action, 'id': ids, 'back': '/dashboard', **form})
+    return client.post('/activities/bulk', data={'action': action, 'id': ids, 'back': '/dashboard', **form})
 
 
 def test_delete_mixes_rides_and_workouts_and_refreshes_once(client):
@@ -102,7 +102,7 @@ def test_bad_input_changes_nothing(client):
 
 
 def test_download_is_a_zip_of_gpx_files_in_utc(client):
-    r = client.post('/rides/bulk/download', data={'id': ['r1', 'r2', 'wk1']})
+    r = client.post('/activities/bulk/download', data={'id': ['r1', 'r2', 'wk1']})
     assert r.status_code == 200 and r.mimetype == 'application/zip'
     z = zipfile.ZipFile(io.BytesIO(r.data))
     assert sorted(z.namelist()) == ['2026-07-01_Ride.gpx', '2026-07-02_Ride.gpx']          # the walk has no track
@@ -111,7 +111,7 @@ def test_download_is_a_zip_of_gpx_files_in_utc(client):
 
 
 def test_options_and_the_lists_offer_select_mode(client):
-    d = client.get('/rides/bulk/options').get_json()
+    d = client.get('/activities/bulk/options').get_json()
     assert [r['name'] for r in d['riders']] == ['Tom', 'Sam'] and d['riders'][0]['bikes'] == [{'id': 1, 'name': 'Road bike'}]
     assert {'value': 'VirtualRide', 'label': 'Indoor ride'} in d['sports']
     for url, row in (('/dashboard', 'data-pick="r1"'), ('/activities', 'data-pick="wk1"'), ('/riders/1', 'data-pick="r1"')):

@@ -11,7 +11,7 @@ from services import demo
 
 def test_dangerous_writes_are_refused_by_default():
     for ep in ('settings.change_password', 'settings.backup_import', 'settings.index', 'friends.add', 'garmin.connect', 'import_rides.upload', 'setup.restore', 'phones.create',
-               'segments.scan', 'rides.delete', 'riders.edit', 'api_v1.post_activity', 'mqtt.do_publish', 'homeassistant.save', 'sync.sync', 'kudos.kudos', 'nutrition.import_screenshot',
+               'segments.scan', 'activities.delete', 'riders.edit', 'api_v1.post_activity', 'mqtt.do_publish', 'homeassistant.save', 'sync.sync', 'kudos.kudos', 'nutrition.import_screenshot',
                'nutrition.estimate_meal_photo', 'nutrition.set_food_image', 'nutrition.upload_food_image', 'route_builder.export_current', 'totally.new.endpoint'):
         assert demo.decide('POST', ep), ep
     for method in ('PUT', 'PATCH', 'DELETE'):
@@ -19,7 +19,7 @@ def test_dangerous_writes_are_refused_by_default():
 
 
 def test_the_harmless_fun_stuff_still_works():
-    for ep in ('login.login_page', 'nutrition.log_food', 'nutrition.add_water', 'nutrition.log_weight', 'gear.api_assign', 'gear.bike_save', 'gear.part_add', 'dashboard.activities_new', 'rides.save_notes'):
+    for ep in ('login.login_page', 'nutrition.log_food', 'nutrition.add_water', 'nutrition.log_weight', 'gear.api_assign', 'gear.bike_save', 'gear.part_add', 'dashboard.activities_new', 'activities.save_notes'):
         assert demo.decide('POST', ep) is None, ep
     assert demo.decide('GET', 'dashboard.dashboard') is None and demo.decide('GET', 'static') is None and demo.decide('GET', 'demo.counter') is None
 

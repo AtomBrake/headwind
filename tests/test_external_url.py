@@ -109,7 +109,7 @@ def test_friend_codes_and_the_feed_url_use_it(app):
     _save(c, 'https://bike.example.com')
     page = c.get('/friends').get_data(as_text=True)
     assert 'Codes connect to <code>https://bike.example.com</code>' in page and 'Feed URL: <code>https://bike.example.com/api/feed</code>' in page
-    made = c.post('/friends/tokens', data={'name': 'Sam', 'shareRides': '1'}).get_json()
+    made = c.post('/friends/tokens', data={'name': 'Sam', 'shareActivities': '1'}).get_json()
     assert feed_tokens.parse_share_code(made['code']) == ('https://bike.example.com', made['token'])
 
 

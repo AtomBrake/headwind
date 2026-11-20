@@ -130,7 +130,7 @@ def test_tile_proxy_passes_on_a_failure(client, monkeypatch):
 
 
 def test_chart_points_carry_their_place_in_the_streams(client):
-    html = client.get('/rides/gps').get_data(as_text=True)
+    html = client.get('/activities/gps').get_data(as_text=True)
     ride = page_data(html, 'rideData')
     assert ride['coordsFromStream'] is True
     elev = ride['charts']['elevation']
@@ -140,7 +140,7 @@ def test_chart_points_carry_their_place_in_the_streams(client):
 
 
 def test_a_polyline_track_is_matched_by_distance(client):
-    html = client.get('/rides/poly').get_data(as_text=True)
+    html = client.get('/activities/poly').get_data(as_text=True)
     ride = page_data(html, 'rideData')
     assert ride['coordsFromStream'] is False
-    assert ride['dist'] is None and ride['distance'] == 5000                # worked out from the points, stretched to the 5 km (static/js/ride.js)
+    assert ride['dist'] is None and ride['distance'] == 5000                # worked out from the points, stretched to the 5 km (static/js/activity.js)

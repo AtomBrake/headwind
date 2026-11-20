@@ -108,7 +108,7 @@ def test_a_new_upload_is_analysed_when_on(app, chat, tmp_path):
         assert not auto_analyse.is_pending(rid)
     assert _tasks(app) == [{'status': 'done', 'error': None}]
     with app.app_context():
-        assert database.get_db().execute('SELECT COUNT(*) FROM RideMemory WHERE rideId=?', [rid]).fetchone()[0] == 1
+        assert database.get_db().execute('SELECT COUNT(*) FROM ActivityMemory WHERE activityId=?', [rid]).fetchone()[0] == 1
 
 
 def test_nothing_is_analysed_when_off(app, chat, tmp_path):
@@ -181,11 +181,11 @@ def test_the_ride_page_says_analysing_until_it_is_done(app, chat, tmp_path):
     _import_file(app, gpx(NOW - timedelta(hours=2)), tmp_path)
     rid = _rides(app)[0]['id']
     c = _client(app)
-    assert 'Analysing…' in c.get(f'/rides/{rid}').get_data(as_text=True)
-    assert c.get(f'/rides/{rid}/kudos/status').get_json() == {'pending': True, 'kudos': None}
+    assert 'Analysing…' in c.get(f'/activities/{rid}').get_data(as_text=True)
+    assert c.get(f'/activities/{rid}/kudos/status').get_json() == {'pending': True, 'kudos': None}
     jobs.run_queued(app)
-    assert c.get(f'/rides/{rid}/kudos/status').get_json()['pending'] is False
-    page = c.get(f'/rides/{rid}').get_data(as_text=True)
+    assert c.get(f'/activities/{rid}/kudos/status').get_json()['pending'] is False
+    page = c.get(f'/activities/{rid}').get_data(as_text=True)
     assert 'Analysing…' not in page and 'Honest verdict' in page
 
 

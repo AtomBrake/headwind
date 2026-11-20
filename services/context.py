@@ -2,7 +2,7 @@ from database import query_db
 from routes.riders import _compute_badges
 from services import units
 
-# RideMemory and the best-effort brackets are stored in miles / mph / feet (as are the similarity searches below). Everything the coach reads goes
+# ActivityMemory and the best-effort brackets are stored in miles / mph / feet (as are the similarity searches below). Everything the coach reads goes
 # through these, so it gets the rider's own units and never has to convert.
 def _mi(v):
     return units.fmt_dist(float(v or 0) * units.MI)
@@ -43,11 +43,11 @@ def save_ride_memory(activity, ai_summary):
 
     db = get_db()
     db.execute('''
-        INSERT INTO RideMemory
-            (rideId, rideDate, rideName, distanceMi, movingTime, elevationFt,
+        INSERT INTO ActivityMemory
+            (activityId, activityDate, activityName, distanceMi, movingTime, elevationFt,
              avgSpeedMph, avgPower, normPower, avgHR, calories, aiSummary, tags, updatedAt)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))
-        ON CONFLICT(rideId) DO UPDATE SET
+        ON CONFLICT(activityId) DO UPDATE SET
             aiSummary=excluded.aiSummary,
             tags=excluded.tags,
             updatedAt=datetime('now')
@@ -405,19 +405,19 @@ def _build_comeback_progress(ride_id, ride_date, cur_spd_mph=None, cur_pwr_w=Non
     current_ym = datetime.now().strftime('%Y-%m')
 
     rows = query_db('''
-        SELECT strftime('%Y-%m', rideDate) as ym,
+        SELECT strftime('%Y-%m', activityDate) as ym,
                COUNT(*) as rides,
                AVG(distanceMi) as avg_dist,
                AVG(avgSpeedMph) as avg_spd,
                AVG(avgPower) as avg_pwr,
                MAX(avgSpeedMph) as best_spd,
                MAX(avgPower) as best_pwr
-        FROM RideMemory
-        WHERE rideId != ?
-          AND rideId IN (SELECT id FROM Activity WHERE riderId IS (SELECT riderId FROM Activity WHERE id=?))
-          AND rideDate >= '2026-01-01'
+        FROM ActivityMemory
+        WHERE activityId != ?
+          AND activityId IN (SELECT id FROM Activity WHERE riderId IS (SELECT riderId FROM Activity WHERE id=?))
+          AND activityDate >= '2026-01-01'
           AND distanceMi > 2
-          AND NOT (rideName = 'Ride Activity' AND avgPower IS NULL)
+          AND NOT (activityName = 'Ride Activity' AND avgPower IS NULL)
         GROUP BY ym
         ORDER BY ym
     ''', [ride_id, ride_id])
@@ -472,23 +472,23 @@ def build_context(activity):
 
     # Last 50 meaningful rides — exclude "Ride Activity" duplicates with no power
     recent = query_db('''
-        SELECT * FROM RideMemory
-        WHERE rideId != ?
-          AND rideId IN (SELECT id FROM Activity WHERE riderId IS ?)
+        SELECT * FROM ActivityMemory
+        WHERE activityId != ?
+          AND activityId IN (SELECT id FROM Activity WHERE riderId IS ?)
           AND distanceMi > 0
-          AND NOT (rideName = 'Ride Activity' AND avgPower IS NULL)
-        ORDER BY rideDate DESC LIMIT 20
+          AND NOT (activityName = 'Ride Activity' AND avgPower IS NULL)
+        ORDER BY activityDate DESC LIMIT 20
     ''', [ride_id, activity['riderId']])
 
     comparable = query_db('''
-        SELECT * FROM RideMemory
-        WHERE rideId != ?
-          AND rideId IN (SELECT id FROM Activity WHERE riderId IS ?)
+        SELECT * FROM ActivityMemory
+        WHERE activityId != ?
+          AND activityId IN (SELECT id FROM Activity WHERE riderId IS ?)
           AND distanceMi BETWEEN ? AND ?
           AND elevationFt BETWEEN ? AND ?
           AND distanceMi > 0
-          AND NOT (rideName = 'Ride Activity' AND avgPower IS NULL)
-        ORDER BY rideDate DESC LIMIT 5
+          AND NOT (activityName = 'Ride Activity' AND avgPower IS NULL)
+        ORDER BY activityDate DESC LIMIT 5
     ''', [
         ride_id, activity['riderId'],
         dist_mi * 0.7, dist_mi * 1.3,
@@ -496,12 +496,12 @@ def build_context(activity):
     ])
 
     month = query_db('''
-        SELECT * FROM RideMemory
-        WHERE rideId != ?
-          AND rideDate >= date('now', '-30 days')
+        SELECT * FROM ActivityMemory
+        WHERE activityId != ?
+          AND activityDate >= date('now', '-30 days')
           AND distanceMi > 0
-          AND NOT (rideName = 'Ride Activity' AND avgPower IS NULL)
-        ORDER BY rideDate DESC
+          AND NOT (activityName = 'Ride Activity' AND avgPower IS NULL)
+        ORDER BY activityDate DESC
     ''', [ride_id])
 
     lines = []
@@ -525,9 +525,9 @@ def build_context(activity):
             pwr = f"{r['avgPower']:.0f}W" if r['avgPower'] else '—'
             hr  = f"{r['avgHR']:.0f}"     if r['avgHR']    else '—'
             lines.append(
-                f"{r['rideDate']} | {_mi(r['distanceMi']):>8} | "
+                f"{r['activityDate']} | {_mi(r['distanceMi']):>8} | "
                 f"{_mph(r['avgSpeedMph']):>9} | {_ft(r['elevationFt']):>7} | "
-                f"{pwr:>5} | {hr:>4} | {r['rideName']}"
+                f"{pwr:>5} | {hr:>4} | {r['activityName']}"
             )
         lines.append('')
 
@@ -536,7 +536,7 @@ def build_context(activity):
         for r in comparable:
             pwr = f"{r['avgPower']:.0f}W" if r['avgPower'] else '—'
             lines.append(
-                f"  {r['rideDate']}: {_mi(r['distanceMi'])}, "
+                f"  {r['activityDate']}: {_mi(r['distanceMi'])}, "
                 f"{_mph(r['avgSpeedMph'])}, {_ft(r['elevationFt'])} climb, {pwr}"
             )
         lines.append('')
@@ -740,13 +740,13 @@ def build_comparison_receipts(activity):
 
     # --- Similar ride speed comparisons ---
     similar = query_db('''
-        SELECT rideId, rideDate, rideName, distanceMi, avgSpeedMph, elevationFt, avgPower
-        FROM RideMemory
-        WHERE rideId != ?
+        SELECT activityId, activityDate, activityName, distanceMi, avgSpeedMph, elevationFt, avgPower
+        FROM ActivityMemory
+        WHERE activityId != ?
           AND distanceMi BETWEEN ? AND ?
           AND elevationFt BETWEEN ? AND ?
           AND distanceMi > 0
-        ORDER BY rideDate DESC LIMIT 3
+        ORDER BY activityDate DESC LIMIT 3
     ''', [
         ride_id,
         dist_mi * 0.8, dist_mi * 1.2,
@@ -780,8 +780,8 @@ def build_comparison_receipts(activity):
         receipts.append({
             'type': 'similar_ride',
             'comparison_type': 'similar_ride',
-            'previous_name': sim['rideName'],
-            'previous_date': _fmt_date(str(sim['rideDate'])),
+            'previous_name': sim['activityName'],
+            'previous_date': _fmt_date(str(sim['activityDate'])),
             'current_speed': _mph(spd_mph),
             'previous_speed': _mph(sim_spd),
             'current_elev': _ft(elev_ft),

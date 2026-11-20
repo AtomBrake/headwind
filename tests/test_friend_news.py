@@ -187,9 +187,9 @@ def page(tmp_path, monkeypatch):
 
 def test_the_page_shows_latest_activities_and_whats_new(page):
     html = page.get('/friends').get_data(as_text=True)
-    assert '<b>Sam</b>: 1 new ride, <a href="/rides/f1_2">Hill reps</a>, 20 Oct' in html
+    assert '<b>Sam</b>: 1 new ride, <a href="/activities/f1_2">Hill reps</a>, 20 Oct' in html
     assert 'Jo</b>' not in html                                   # nothing new from Jo
-    assert '<a href="/rides/f2_1">Park run</a>' in html            # but Jo's latest is in the list
+    assert '<a href="/activities/f2_1">Park run</a>' in html            # but Jo's latest is in the list
     assert 'href="/activities?rider=3"' in html                   # and Jo's name goes to their activities
     page.post('/friends/1/seen')
     assert '<b>Sam</b>' not in page.get('/friends').get_data(as_text=True)

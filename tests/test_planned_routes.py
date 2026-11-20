@@ -237,8 +237,8 @@ def test_editing_a_track_gives_waypoints_and_saving_them_leaves_the_track(client
 
 
 def test_save_as_route_from_a_run_and_not_from_zwift(client):
-    page = client.get('/rides/run1').get_data(as_text=True)
-    assert 'Save as route' in page and 'Save as route' not in client.get('/rides/zw1').get_data(as_text=True)
+    page = client.get('/activities/run1').get_data(as_text=True)
+    assert 'Save as route' in page and 'Save as route' not in client.get('/activities/zw1').get_data(as_text=True)
     r = client.post('/planner/routes/from-activity/run1')
     assert r.status_code == 302 and '/planner/?route=' in r.headers['Location']
     route = client.get('/planner/routes/' + r.headers['Location'].split('=')[1]).get_json()

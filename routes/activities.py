@@ -10,7 +10,16 @@ from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
-bp = Blueprint('rides', __name__)
+bp = Blueprint('activities', __name__)
+old_rides = Blueprint('old_rides', __name__)
+
+
+@old_rides.route('/rides/<path:rest>', methods=['GET', 'POST'])
+def moved(rest):
+    """The pages were at /rides/<id> until they took every sport's name: old links, bookmarks and friends' links come here. 308 keeps a
+    form's POST a POST."""
+    qs = request.query_string.decode()
+    return redirect(f"/activities/{rest}{'?' + qs if qs else ''}", 308)
 
 
 @bp.before_request
@@ -143,7 +152,7 @@ def detail(rid):
         charts['speed'] = activity_detail.speed_series(streams)     # no speed stream (a GPX): from the distance and time
 
     memory_count = get_db().execute(
-        'SELECT COUNT(*) FROM RideMemory WHERE rideId != ?', [rid]
+        'SELECT COUNT(*) FROM ActivityMemory WHERE activityId != ?', [rid]
     ).fetchone()[0]
 
     # Other riders who rode on the same calendar day
@@ -301,7 +310,7 @@ def detail(rid):
     future_start = bool(activity['flagReason'] and _sanity.future_start(activity))
     from services import sport_guess as _sport_guess
     sport_guess = None if friend else _sport_guess.for_activity(get_db(), activity['id'])    # an upload whose file didn't say it was a run
-    return render_template('ride.html', friend=friend, kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), photo_caption_max=_photos.MAX_CAPTION, phone_sensors=phone_sensors, activity=activity, coords=coords, zwift_world=zwift_world, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
+    return render_template('activity.html', friend=friend, kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), photo_caption_max=_photos.MAX_CAPTION, phone_sensors=phone_sensors, activity=activity, coords=coords, zwift_world=zwift_world, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
                            file_climb=file_climb, file_moving=file_moving, elapsed_fix=elapsed_fix, future_start=future_start, sport_guess=sport_guess, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
                            charts=charts, has_memory=memory_count > 0, ai_pending=_auto_analyse.is_pending(activity['id']),
                            seg_efforts=seg_efforts, alt_raw=alt_raw, coords_from_stream=coords_from_stream, dist_raw=dist_raw, time_raw=time_raw,
@@ -478,7 +487,7 @@ def add_photos(rid):
         flash(f"Added {added} photo{'' if added == 1 else 's'}.", 'success')
     if failed:
         flash('Not added: ' + '; '.join(failed) + '.', 'error')
-    return redirect(url_for('rides.detail', rid=rid) + '#photosCard')
+    return redirect(url_for('activities.detail', rid=rid) + '#photosCard')
 
 
 @bp.route('/<rid>/photos/<int:pid>/delete', methods=['POST'])
@@ -487,7 +496,7 @@ def delete_photo(rid, pid):
     db = get_db()
     photos.delete(db, pid, rid, current_app.config['DATABASE'])
     db.commit()
-    return redirect(url_for('rides.detail', rid=rid) + '#photosCard')
+    return redirect(url_for('activities.detail', rid=rid) + '#photosCard')
 
 
 @bp.route('/<rid>/photos/<int:pid>/caption', methods=['POST'])
@@ -516,7 +525,7 @@ def order_photos(rid):
 
 
 def gpx_for(activity):
-    """(filename, GPX text) for a ride with a GPS track, or None. Point times are real UTC: the stored UTC start (startDate) when there is one,
+    """(filename, GPX text) for an activity of any sport with a GPS track, or None. Point times are real UTC: the stored UTC start (startDate) when there is one,
     else the local start converted (stamping the local time with a 'Z' put every summer ride an hour out, and a re-import beside its original)."""
     from datetime import timedelta, timezone
     from services.duplicates import instant
@@ -539,7 +548,7 @@ def gpx_for(activity):
         start_dt = datetime.now(timezone.utc)
     start_dt = start_dt.astimezone(timezone.utc).replace(tzinfo=None)
 
-    name_escaped = (activity['name'] or 'Ride').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+    name_escaped = (activity['name'] or (sports.label(activity['sportType']) if activity['sportType'] else 'Activity')).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -722,8 +731,8 @@ def change_sport(rid):
     except ValueError as e:
         db.rollback()
         from urllib.parse import quote
-        return redirect(url_for('rides.detail', rid=rid) + '?error=' + quote(str(e)))
-    return redirect(url_for('rides.detail', rid=res['id']))
+        return redirect(url_for('activities.detail', rid=rid) + '?error=' + quote(str(e)))
+    return redirect(url_for('activities.detail', rid=res['id']))
 
 
 @bp.route('/bulk-sport', methods=['POST'])
@@ -858,4 +867,4 @@ def resolve_duplicate(rid, dup_id, action):
     else:
         abort(400)
     db.commit()
-    return redirect(url_for('rides.detail', rid=new_main))
+    return redirect(url_for('activities.detail', rid=new_main))

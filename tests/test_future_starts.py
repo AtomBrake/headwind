@@ -54,10 +54,10 @@ def test_start_up_flags_what_was_saved_before_the_check(app):
 def test_the_page_asks_for_the_real_date_and_takes_it(app, client):
     with app.app_context():
         database.migrate_db()
-    html = client.get('/rides/imp_avinox').get_data(as_text=True)
+    html = client.get('/activities/imp_avinox').get_data(as_text=True)
     assert 'When did it really start?' in html and "It's right, keep it" not in html
-    assert client.post('/rides/imp_avinox/start', data={'start': '2107-01-01T10:00'}).status_code == 400
-    r = client.post('/rides/imp_avinox/start', data={'start': '2025-04-21T14:30'})
+    assert client.post('/activities/imp_avinox/start', data={'start': '2107-01-01T10:00'}).status_code == 400
+    r = client.post('/activities/imp_avinox/start', data={'start': '2025-04-21T14:30'})
     assert r.status_code == 200 and r.get_json()['id'] in ('imp_avinox', 'imp_twin')    # on the right day it meets its copy
     with app.app_context():
         db = database.get_db()

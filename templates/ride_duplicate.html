@@ -2,7 +2,7 @@
 
 {% block title %}{{ 'Compare recordings' if compare else 'Other recording' }}{% endblock %}
 {% block page_title %}{{ 'Compare recordings' if compare else 'Other recording' }}{% endblock %}
-{% block parent %}<a href="{{ url_for('rides.detail', rid=activity.id) }}">{{ activity.name }}</a>{% endblock %}
+{% block parent %}<a href="{{ url_for('activities.detail', rid=activity.id) }}">{{ activity.name }}</a>{% endblock %}
 
 {% block head %}
   <script src="{{ url_for('static', filename='vendor/chart.js-4.4.0/chart.umd.js') }}"></script>
@@ -27,18 +27,18 @@
       <div class="hint" style="margin-top:.2rem;">{{ dup.reason }} The other recording is saved, not deleted.</div>
     </div>
     <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
-      <a class="btn btn-secondary" href="{{ url_for('rides.detail', rid=activity.id) }}">Back to the ride</a>
+      <a class="btn btn-secondary" href="{{ url_for('activities.detail', rid=activity.id) }}">Back to the ride</a>
       {% if compare %}
-      <a class="btn btn-secondary" href="{{ url_for('rides.view_duplicate', rid=activity.id, dup_id=dup.id) }}">Only the other recording</a>
+      <a class="btn btn-secondary" href="{{ url_for('activities.view_duplicate', rid=activity.id, dup_id=dup.id) }}">Only the other recording</a>
       {% else %}
-      <a class="btn btn-secondary" href="{{ url_for('rides.view_duplicate', rid=activity.id, dup_id=dup.id, compare=1) }}">Compare side by side</a>
+      <a class="btn btn-secondary" href="{{ url_for('activities.view_duplicate', rid=activity.id, dup_id=dup.id, compare=1) }}">Compare side by side</a>
       {% endif %}
     </div>
   </div>
   {% if others | length > 1 %}
   <div class="hint" style="margin-top:.6rem;">
     {{ others | length }} recordings are set aside under this ride:
-    {% for o in others %}<a href="{{ url_for('rides.view_duplicate', rid=activity.id, dup_id=o, compare=1 if compare else None) }}"{% if o == dup.id %} style="font-weight:600;"{% endif %}>#{{ loop.index }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+    {% for o in others %}<a href="{{ url_for('activities.view_duplicate', rid=activity.id, dup_id=o, compare=1 if compare else None) }}"{% if o == dup.id %} style="font-weight:600;"{% endif %}>#{{ loop.index }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
   </div>
   {% endif %}
 </div>
@@ -99,9 +99,9 @@
 <div class="card">
   <div class="card-title">Which recording should stay?</div>
   <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
-    <form method="POST" action="{{ url_for('rides.resolve_duplicate', rid=activity.id, dup_id=dup.id, action='swap') }}"><button class="btn btn-secondary" type="submit">Use the set-aside recording instead</button></form>
-    <form method="POST" action="{{ url_for('rides.resolve_duplicate', rid=activity.id, dup_id=dup.id, action='keep') }}"><button class="btn btn-secondary" type="submit">They are different rides - keep both</button></form>
-    <form method="POST" action="{{ url_for('rides.resolve_duplicate', rid=activity.id, dup_id=dup.id, action='discard') }}" data-confirm="Delete the set-aside recording for good? The activity you kept stays as it is. This cannot be undone."><button class="btn btn-danger-quiet" type="submit">Delete the set-aside recording</button></form>
+    <form method="POST" action="{{ url_for('activities.resolve_duplicate', rid=activity.id, dup_id=dup.id, action='swap') }}"><button class="btn btn-secondary" type="submit">Use the set-aside recording instead</button></form>
+    <form method="POST" action="{{ url_for('activities.resolve_duplicate', rid=activity.id, dup_id=dup.id, action='keep') }}"><button class="btn btn-secondary" type="submit">They are different rides - keep both</button></form>
+    <form method="POST" action="{{ url_for('activities.resolve_duplicate', rid=activity.id, dup_id=dup.id, action='discard') }}" data-confirm="Delete the set-aside recording for good? The activity you kept stays as it is. This cannot be undone."><button class="btn btn-danger-quiet" type="submit">Delete the set-aside recording</button></form>
   </div>
 </div>
 {% endblock %}

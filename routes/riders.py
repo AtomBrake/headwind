@@ -743,7 +743,7 @@ def delete(rid):
     db.execute('DELETE FROM SegmentEffort WHERE activityId IN (SELECT id FROM Activity WHERE riderId=?)', [rid])
     from services import best_efforts
     best_efforts.delete_for(db, 'activityId IN (SELECT id FROM Activity WHERE riderId=?)', [rid])
-    db.execute('DELETE FROM RideMemory WHERE rideId IN '
+    db.execute('DELETE FROM ActivityMemory WHERE activityId IN '
                '(SELECT id FROM Activity WHERE riderId=?)', [rid])
     db.execute('DELETE FROM SportEffort WHERE activityId IN '
                '(SELECT id FROM Activity WHERE riderId=?)', [rid])          # their run and swim best times

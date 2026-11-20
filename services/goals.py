@@ -248,7 +248,7 @@ def _date(text):
 
 def invitable(db):
     """The feed tokens a challenge can go to: not revoked, and sharing activities (a race needs them). [{id, name}]"""
-    return [dict(r) for r in db.execute('SELECT id, name FROM FeedToken WHERE revokedAt IS NULL AND shareRides=1 ORDER BY name')]
+    return [dict(r) for r in db.execute('SELECT id, name FROM FeedToken WHERE revokedAt IS NULL AND shareActivities=1 ORDER BY name')]
 
 
 def start_challenge(db, rider_id, form):

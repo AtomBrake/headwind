@@ -132,31 +132,31 @@ def test_an_uploaded_run_is_asked_about_and_changed_on_yes(app, tmp_path):
     assert done['sport_guess'] == {'id': rid, 'guess': 'Run', 'saved': 'Ride', 'file': 'Biking'}
     assert _sport(app, rid) == 'Ride'                                               # nothing changes until the rider says
     c = _client(app)
-    page = c.get(f'/rides/{rid}').get_data(as_text=True)
+    page = c.get(f'/activities/{rid}').get_data(as_text=True)
     assert 'Was this a run?' in page and 'Strava writes whatever the sport' in page
     assert '1 upload looks like a run or a walk' in c.get('/import').get_data(as_text=True)
     assert 'Sports to check' in c.get('/dashboard').get_data(as_text=True)
-    r = c.post(f'/import/sport-guess/{rid}/use', data={'back': f'/rides/{rid}'})
-    assert r.status_code == 302 and r.headers['Location'].endswith(f'/rides/{rid}')
+    r = c.post(f'/import/sport-guess/{rid}/use', data={'back': f'/activities/{rid}'})
+    assert r.status_code == 302 and r.headers['Location'].endswith(f'/activities/{rid}')
     assert _sport(app, rid) == 'Run'
-    assert 'Was this a run?' not in c.get(f'/rides/{rid}').get_data(as_text=True)
+    assert 'Was this a run?' not in c.get(f'/activities/{rid}').get_data(as_text=True)
     assert 'id="sport-guess"' not in c.get('/import').get_data(as_text=True)
 
 
 def test_a_slow_ride_kept_as_a_ride_is_not_asked_again(app, tmp_path):
     rid = _upload(app, tmp_path, gpx(12), 'ride.gpx')['activity']['id']
     c = _client(app)
-    c.post(f'/import/sport-guess/{rid}/keep', data={'back': f'/rides/{rid}'})
+    c.post(f'/import/sport-guess/{rid}/keep', data={'back': f'/activities/{rid}'})
     assert _sport(app, rid) == 'Ride'
     with app.app_context():
         assert sport_guess.for_activity(database.get_db(), rid) is None
-    assert 'Was this a run?' not in c.get(f'/rides/{rid}').get_data(as_text=True)
+    assert 'Was this a run?' not in c.get(f'/activities/{rid}').get_data(as_text=True)
 
 
 def test_changing_the_sport_by_hand_answers_it(app, tmp_path):
     rid = _upload(app, tmp_path, gpx(5), 'walk.gpx')['activity']['id']
     c = _client(app)
-    c.post(f'/rides/{rid}/sport', data={'sport': 'Hike'})
+    c.post(f'/activities/{rid}/sport', data={'sport': 'Hike'})
     with app.app_context():
         assert sport_guess.pending(database.get_db()) == []
 

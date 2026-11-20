@@ -80,7 +80,7 @@ def test_services_refuse_with_a_clear_message(app, side):
 
 
 def test_activity_photo_upload(client):
-    r = client.post('/rides/r1/photos', data={'photos': [(io.BytesIO(_png(40)), 'big.png'), (io.BytesIO(_png(30)), 'small.png')]},
+    r = client.post('/activities/r1/photos', data={'photos': [(io.BytesIO(_png(40)), 'big.png'), (io.BytesIO(_png(30)), 'small.png')]},
                     content_type='multipart/form-data', follow_redirects=True)
     assert r.status_code == 200
     page = r.get_data(as_text=True)

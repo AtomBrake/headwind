@@ -158,7 +158,7 @@ def resolve_change(ride_id, choice):
     from flask import flash, redirect, url_for
     from services import reimport
     db = get_db()
-    ids = [c['rideId'] for c in reimport.pending(db) if choice != 'fill' or c['fills']] if ride_id == 'all' else [ride_id]
+    ids = [c['activityId'] for c in reimport.pending(db) if choice != 'fill' or c['fills']] if ride_id == 'all' else [ride_id]
     try:
         changed = sum(1 for i in ids if reimport.resolve(db, i, choice))
     except ValueError as e:
@@ -703,7 +703,7 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
         seen_fp = reimport.fingerprint(rider_id, row, reimport.zip_fingerprint(zf, filename) if filename in names else '')
         if reimport.unchanged(db, seen_key, seen_fp):                # the same file and row, read before by the same code: nothing new in it
             unchanged += 1
-            if db.execute('SELECT 1 FROM ImportChange WHERE rideId=?', [act_id]).fetchone():
+            if db.execute('SELECT 1 FROM ImportChange WHERE activityId=?', [act_id]).fetchone():
                 changed += 1                            # its differences from last time still wait on the Import page
             else:
                 skipped += 1

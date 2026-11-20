@@ -96,11 +96,11 @@ def test_no_zwift_switch_without_virtual_rides(client):
 
 
 def test_ride_page_draws_the_world(client):
-    html = client.get('/rides/watopia').get_data(as_text=True)
+    html = client.get('/activities/watopia').get_data(as_text=True)
     assert page_data(html, 'rideData')['zwiftWorld']['url'].startswith('/heatmap/zwift/watopia.png')
-    assert '/heatmap/zwift/london.png' in client.get('/rides/zlondon').get_data(as_text=True)
+    assert '/heatmap/zwift/london.png' in client.get('/activities/zlondon').get_data(as_text=True)
     for plain in ('road', 'nowhere'):                                    # a real ride in London, and a virtual one in no Zwift world
-        assert '/heatmap/zwift/' not in client.get(f'/rides/{plain}').get_data(as_text=True), plain
+        assert '/heatmap/zwift/' not in client.get(f'/activities/{plain}').get_data(as_text=True), plain
 
 
 def test_world_map_is_fetched_once(client, monkeypatch):

@@ -124,20 +124,20 @@ function handleEvent(d) {
       `<strong style="color:var(--success)">${d.imported}</strong> ${d.imported === 1 ? noun.replace(/ies$/, 'y').replace(/s$/, '') : noun} imported<br>` +
       (parked.length ? `<span>${parked.length} set aside as a second recording of one already here:</span>` +
         `<ul style="margin:0 0 0.25rem 1.25rem;padding:0;line-height:1.6;">` +
-        parked.map(p => `<li><a href="/rides/${encodeURIComponent(p.kept)}/duplicate/${encodeURIComponent(p.id)}" style="color:var(--accent)">${esc(p.name || p.id)}</a></li>`).join('') +
+        parked.map(p => `<li><a href="/activities/${encodeURIComponent(p.kept)}/duplicate/${encodeURIComponent(p.id)}" style="color:var(--accent)">${esc(p.name || p.id)}</a></li>`).join('') +
         `</ul>` : '') +
       `<span style="color:var(--text-muted)">${d.skipped} already existed / skipped</span>` +
       (d.unchanged ? `<br><span style="color:var(--text-muted)">${d.unchanged} unchanged since the last import, so not read again</span>` : '') +
       (unread.length ? `<br><span style="color:var(--danger)">${unread.length} file${unread.length === 1 ? '' : 's'} could not be read</span>` +
         (unread.some(u => u.id) ? `<span style="color:var(--text-muted)">: saved from activities.csv only, with no track</span>` : '') +
         `<ul style="margin:0 0 0.25rem 1.25rem;padding:0;line-height:1.6;">` +
-        unread.map(u => u.id ? `<li><a href="/rides/${encodeURIComponent(u.id)}" style="color:var(--accent)">${esc(u.name)}</a> <span style="color:var(--text-muted)">${esc(u.file)}</span></li>`
+        unread.map(u => u.id ? `<li><a href="/activities/${encodeURIComponent(u.id)}" style="color:var(--accent)">${esc(u.name)}</a> <span style="color:var(--text-muted)">${esc(u.file)}</span></li>`
                              : `<li style="color:var(--text-muted)">${esc(u.file)}</li>`).join('') +
         `</ul>` : '') +
       (d.errors ? `<br><span style="color:var(--danger)">${d.errors} could not be saved</span>` : '') +
       (d.kept ? `<br><span style="color:var(--text-muted)">The export is kept here: <a href="/import#kept" data-click="location.reload()" style="color:var(--accent)">import it again</a> any time without uploading it</span>` : '') +
       (d.changed ? `<br><a href="/import#changes" data-click="location.reload()" style="color:var(--accent)">${d.changed} differ from what's saved: review them</a>` : '') +
-      (d.sport_guess ? `<br><a href="/rides/${encodeURIComponent(d.sport_guess.id)}" style="color:var(--accent)">Saved as ${esc(an(d.sport_guess.saved))} because the file ` +
+      (d.sport_guess ? `<br><a href="/activities/${encodeURIComponent(d.sport_guess.id)}" style="color:var(--accent)">Saved as ${esc(an(d.sport_guess.saved))} because the file ` +
         (d.sport_guess.file ? `says "${esc(d.sport_guess.file)}"` : `doesn't say`) + `, but it looks like ${esc(an(d.sport_guess.guess))}: check it</a>` : '') +
       (d.sport_guessed ? `<br><a href="/import#sport-guess" data-click="location.reload()" style="color:var(--accent)">${d.sport_guessed} saved as rides look like runs or walks: check them</a>` : '') +
       (d.bikes_filled ? `<br><span style="color:var(--text-muted)">${d.bikes_filled} rides put on their Strava bike</span>` : '') +

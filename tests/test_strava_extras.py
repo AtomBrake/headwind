@@ -264,36 +264,36 @@ def commute_of(client, aid):
 
 def test_the_commute_box_on_rides_and_runs(client):
     for aid in ('r1', 'w1'):
-        page = client.get(f'/rides/{aid}').get_data(as_text=True)
+        page = client.get(f'/activities/{aid}').get_data(as_text=True)
         assert 'id="commuteBox"' in page and 'id="commuteBox" checked' not in page
-        assert client.post(f'/rides/{aid}/commute', data={'commute': '1'}).status_code == 204 and commute_of(client, aid) == 1
-        assert 'id="commuteBox" checked' in client.get(f'/rides/{aid}').get_data(as_text=True)
-        assert client.post(f'/rides/{aid}/commute', data={'commute': '0'}).status_code == 204 and commute_of(client, aid) == 0
-    assert client.post('/rides/nope/commute', data={'commute': '1'}).status_code == 404
+        assert client.post(f'/activities/{aid}/commute', data={'commute': '1'}).status_code == 204 and commute_of(client, aid) == 1
+        assert 'id="commuteBox" checked' in client.get(f'/activities/{aid}').get_data(as_text=True)
+        assert client.post(f'/activities/{aid}/commute', data={'commute': '0'}).status_code == 204 and commute_of(client, aid) == 0
+    assert client.post('/activities/nope/commute', data={'commute': '1'}).status_code == 404
 
 
 def test_the_photos_card_serves_and_removes_a_photo(client):
-    page = client.get('/rides/r1').get_data(as_text=True)
+    page = client.get('/activities/r1').get_data(as_text=True)
     assert 'id="photosCard"' in page and 'Café stop' in page and photos.thumb_name(client.photo) in page
-    assert 'No photos yet' in client.get('/rides/w1').get_data(as_text=True)          # a card with only "Add photos"
-    r = client.get(f'/rides/photo/{client.photo}')
+    assert 'No photos yet' in client.get('/activities/w1').get_data(as_text=True)          # a card with only "Add photos"
+    r = client.get(f'/activities/photo/{client.photo}')
     assert r.status_code == 200 and r.mimetype == 'image/jpeg'
-    assert client.get('/rides/photo/..%2Fapp.db').status_code == 404
-    assert client.post(f'/rides/w1/photos/{client.pid}/delete').status_code == 302      # not that activity's photo: nothing happens
-    assert client.get(f'/rides/photo/{client.photo}').status_code == 200
-    client.post(f'/rides/r1/photos/{client.pid}/delete')
-    assert client.get(f'/rides/photo/{client.photo}').status_code == 404
-    assert 'No photos yet' in client.get('/rides/r1').get_data(as_text=True)
+    assert client.get('/activities/photo/..%2Fapp.db').status_code == 404
+    assert client.post(f'/activities/w1/photos/{client.pid}/delete').status_code == 302      # not that activity's photo: nothing happens
+    assert client.get(f'/activities/photo/{client.photo}').status_code == 200
+    client.post(f'/activities/r1/photos/{client.pid}/delete')
+    assert client.get(f'/activities/photo/{client.photo}').status_code == 404
+    assert 'No photos yet' in client.get('/activities/r1').get_data(as_text=True)
 
 
 def test_adding_photos_on_the_activity_page(client):
-    assert 'rides/w1/photos"' in client.get('/rides/w1').get_data(as_text=True)    # the "Add photos" form
-    r = client.post('/rides/w1/photos', data={'photos': [(io.BytesIO(jpeg(3000, 1000, orientation=6)), 'a.jpg'),
+    assert 'activities/w1/photos"' in client.get('/activities/w1').get_data(as_text=True)    # the "Add photos" form
+    r = client.post('/activities/w1/photos', data={'photos': [(io.BytesIO(jpeg(3000, 1000, orientation=6)), 'a.jpg'),
                                                          (io.BytesIO(b'not a picture'), 'notes.txt'),
                                                          (io.BytesIO(b'heic bytes'), 'IMG_0001.HEIC'),
                                                          (io.BytesIO(jpeg()), 'b.jpg')]},
                     content_type='multipart/form-data')
-    assert r.status_code == 302 and r.location.endswith('/rides/w1#photosCard')
+    assert r.status_code == 302 and r.location.endswith('/activities/w1#photosCard')
     with client.session_transaction() as sess:
         flashes = dict(sess['_flashes'])
     assert flashes['success'] == 'Added 2 photos.'
@@ -302,12 +302,12 @@ def test_adding_photos_on_the_activity_page(client):
         rows = photos.for_activity(database.get_db(), 'w1')
         pos = [r[0] for r in database.get_db().execute("SELECT position FROM ActivityPhoto WHERE activityId='w1' ORDER BY id")]
     assert len(rows) == 2 and pos == [0, 1]
-    big = Image.open(io.BytesIO(client.get(f'/rides/photo/{rows[0]["filename"]}').data))
+    big = Image.open(io.BytesIO(client.get(f'/activities/photo/{rows[0]["filename"]}').data))
     assert big.size == (photos.FULL // 3, photos.FULL) and 0x010F not in big.getexif()     # upright, shrunk, no EXIF
-    client.post('/rides/w1/photos', data={'photos': [(io.BytesIO(jpeg()), 'c.jpg')]}, content_type='multipart/form-data')
+    client.post('/activities/w1/photos', data={'photos': [(io.BytesIO(jpeg()), 'c.jpg')]}, content_type='multipart/form-data')
     with client.app_.app_context():
         assert database.get_db().execute("SELECT MAX(position) FROM ActivityPhoto WHERE activityId='w1'").fetchone()[0] == 2     # after the others
-    assert client.post('/rides/nope/photos', data={'photos': [(io.BytesIO(jpeg()), 'd.jpg')]}, content_type='multipart/form-data').status_code == 404
+    assert client.post('/activities/nope/photos', data={'photos': [(io.BytesIO(jpeg()), 'd.jpg')]}, content_type='multipart/form-data').status_code == 404
 
 
 def test_commute_in_the_phone_api(client):

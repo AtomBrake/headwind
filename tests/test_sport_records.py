@@ -91,7 +91,7 @@ def test_data_page_best_times_per_sport_and_records_by_sport(client):
     assert 'Swim best times' in html and '3.8 km' in html and 'Half marathon' in html
     data = page_data(html, 'analyticsData')['achievements']
     ride = next(a for a in data if a['key'] == 'ride')
-    assert all(r['rideId'] == 'r1' for yr in ride['by_year'].values() for r in yr.values())      # the ski run is not a ride's best 5 miles
+    assert all(r['activityId'] == 'r1' for yr in ride['by_year'].values() for r in yr.values())      # the ski run is not a ride's best 5 miles
     run = next(a for a in data if a['key'] == 'run')
     assert run['by_year'][str(MONDAY.year)]['5000']['time'] == '27:47'
     swim = next(a for a in data if a['key'] == 'swim')
@@ -108,8 +108,8 @@ def test_data_page_best_times_per_sport_and_records_by_sport(client):
 
 def test_rider_page_best_efforts_per_sport(client):
     html = client.get('/riders/1').get_data(as_text=True)
-    assert '>Runs</td>' in html and '>Swims</td>' in html and '5 km' in html and '/rides/swim1' in html
-    assert '/rides/ski1' not in html.split('Best Efforts', 1)[1].split('Trophy Case', 1)[0]
+    assert '>Runs</td>' in html and '>Swims</td>' in html and '5 km' in html and '/activities/swim1' in html
+    assert '/activities/ski1' not in html.split('Best Efforts', 1)[1].split('Trophy Case', 1)[0]
 
 
 def test_badges_per_sport(app):

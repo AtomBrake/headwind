@@ -175,7 +175,7 @@ def test_a_change_to_an_activity_no_longer_saved_is_not_listed(db):
     cols = row.keys()
     db.execute(f"INSERT INTO Activity ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", list(row))
     [c] = reimport.pending(db)                                                      # back again (restored from the bin): offered again
-    assert c['rideId'] == 'garmin_7'
+    assert c['activityId'] == 'garmin_7'
 
 
 def _saved_track(db, ride_id):

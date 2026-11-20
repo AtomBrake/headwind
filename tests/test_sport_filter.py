@@ -74,7 +74,7 @@ def test_every_sport_shows_time_and_each_groups_own_distance_never_one_sum(clien
 def test_leaving_out_rides_and_swims_gives_distance_and_pace_on_foot(client):
     html = client.get('/dashboard?skip=Ride&skip=Swim').get_data(as_text=True)
     assert 'Total Distance' in html and '9.3 mi' in html                          # the run and the walk do add up
-    assert '/rides/run1' in html and '/rides/r1' not in html and '/rides/swim1' not in html
+    assert '/activities/run1' in html and '/activities/r1' not in html and '/activities/swim1' not in html
     assert _dash(html, 'rateStyle') == 'pace' and '>Pace</button>' in html
     assert {r['id'] for r in _dash(html, 'yearSpeed')} == {'run1', 'walk1'}   # a workout without a stored speed gets distance over time
     assert '· 8:03 /mi ·' in html                                                  # 5:00 /km is 8:03 /mi, as a pace in the run's row
@@ -87,9 +87,9 @@ def test_only_shortcuts_and_old_one_sport_links(client):
     hrefs = re.findall(r'<a class="sport-only[^"]*" href="([^"]+)"', html)
     assert len(hrefs) == 3 and '/dashboard?group=ride' in hrefs          # "only rides", by what it keeps: a kind of ride done later joins it
     html = client.get('/dashboard?group=foot').get_data(as_text=True)
-    assert '/rides/run1' in html and '/rides/walk1' in html and '/rides/r1' not in html and _dash(html, 'rateStyle') == 'pace'
+    assert '/activities/run1' in html and '/activities/walk1' in html and '/activities/r1' not in html and _dash(html, 'rateStyle') == 'pace'
     html = client.get('/dashboard?sport=swim').get_data(as_text=True)              # an old link: one sport, by part of its name
-    assert '/rides/swim1' in html and '/rides/r1' not in html and '· 2:00 /100 m</div>' in html
+    assert '/activities/swim1' in html and '/activities/r1' not in html and '· 2:00 /100 m</div>' in html
 
 
 def test_data_page_follows_the_filter(client):
@@ -125,20 +125,20 @@ def test_the_commute_filter_on_the_dashboard_and_the_data_page(client):
     html = client.get('/dashboard').get_data(as_text=True)
     assert 'aria-label="Commutes"' in html and re.search(r'<option value="only"\s*>Commutes', html)
     html = client.get('/dashboard?commute=only').get_data(as_text=True)
-    assert '/rides/r1' in html and '/rides/run1' not in html and '<option value="only" selected>' in html
+    assert '/activities/r1' in html and '/activities/run1' not in html and '<option value="only" selected>' in html
     assert 'commute=only' in html                                                  # the links keep it
     hrefs = re.findall(r'<a class="sport-only[^"]*" href="([^"]+)"', html)
     assert hrefs and all('commute=only' in h for h in hrefs)                       # so do "only rides" and the rest
     html = client.get('/dashboard?commute=no').get_data(as_text=True)
-    assert '/rides/r1' not in html and all(f'/rides/{a}' in html for a in ('run1', 'walk1', 'swim1'))   # unticked and never said alike
+    assert '/activities/r1' not in html and all(f'/activities/{a}' in html for a in ('run1', 'walk1', 'swim1'))   # unticked and never said alike
     html = client.get('/dashboard?commute=no&skip=Swim&skip=Ride').get_data(as_text=True)
     assert 'Total Distance' in html and '9.3 mi' in html                           # with the sport filter: the run and the walk
     html = client.get('/dashboard/history?commute=only&from=2000-01-01').get_data(as_text=True)
-    assert '/rides/r1' in html and '/rides/run1' not in html
+    assert '/activities/r1' in html and '/activities/run1' not in html
     html = client.get('/data?commute=only').get_data(as_text=True)
     assert 'Avg Speed Per Activity (mph)' in html and '<option value="only" selected>' in html      # only the ride is left
     html = client.get('/dashboard?commute=bogus').get_data(as_text=True)          # anything else: no filter
-    assert '/rides/r1' in html and '/rides/run1' in html and '<option value="" selected>Every activity' in html
+    assert '/activities/r1' in html and '/activities/run1' in html and '<option value="" selected>Every activity' in html
 
 
 def test_the_commute_filter_needs_no_second_sport(client):
@@ -158,6 +158,6 @@ def test_only_a_timed_sport_shows_its_time_not_a_distance(client):
                    "VALUES ('yoga1', 'Flow', 1, 'Yoga', ?, 0, 2700, 150)", [f'{date.today().isoformat()}T07:00:00'])
         db.commit()
     html = client.get('/dashboard?skip=Ride&skip=Run&skip=Walk&skip=Swim').get_data(as_text=True)
-    assert '/rides/yoga1' in html and 'Total Distance' not in html and 'Total Time' in html
+    assert '/activities/yoga1' in html and 'Total Distance' not in html and 'Total Time' in html
     assert _dash(html, 'rateStyle') is None and 'data-metric="distance"' not in html
     assert client.get('/data?skip=Ride&skip=Run&skip=Walk&skip=Swim').status_code == 200

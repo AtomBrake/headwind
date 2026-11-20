@@ -509,7 +509,7 @@ def ensure_weather(db, activity):
 
 def analyse_ride(db, activity, personality_key=None):
     """Everything 'analyse this ride' does, for the ride page's button, the AI page's batch and the analysis of new rides
-    (services/auto_analyse.py): weather if it has none, the analysis, stored on the ride and in its RideMemory. Returns the text;
+    (services/auto_analyse.py): weather if it has none, the analysis, stored on the ride and in its ActivityMemory. Returns the text;
     raises when there is no provider or it fails. Commits."""
     activity = ensure_weather(db, activity)
     text = generate_analysis(activity, personality_key=personality_key)

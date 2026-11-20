@@ -144,7 +144,7 @@
           {% if dist in best_by_dist %}
           {% set e = best_by_dist[dist] %}
           <tr>
-            <td style="font-weight:600;"><a href="/rides/{{ e.activityId }}">{{ label }}</a></td>
+            <td style="font-weight:600;"><a href="/activities/{{ e.activityId }}">{{ label }}</a></td>
             <td class="num" style="font-weight:600; color:var(--accent);">
               {{ e.elapsedSecs | fmt_duration }}
             </td>
@@ -159,7 +159,7 @@
         <tr><td colspan="3" style="{{ head }}">{{ heading }}</td></tr>
         {% for label, e, mps in rows %}
           <tr>
-            <td style="font-weight:600;"><a href="/rides/{{ e.activityId }}">{{ label }}</a></td>
+            <td style="font-weight:600;"><a href="/activities/{{ e.activityId }}">{{ label }}</a></td>
             <td class="num" style="font-weight:600; color:var(--accent);">
               {{ e.elapsedSecs | fmt_duration }}
             </td>
@@ -206,7 +206,7 @@
       {% for b in cat.badges %}
       {% set tag = 'a' if (b.earned and b.ride_id) else 'div' %}
       <{{ tag }}
-        {% if b.earned and b.ride_id %}href="/rides/{{ b.ride_id }}"{% endif %}
+        {% if b.earned and b.ride_id %}href="/activities/{{ b.ride_id }}"{% endif %}
         style="display:flex; flex-direction:column; align-items:center; gap:0.3rem; padding:0.75rem 0.4rem;
                border-radius:0.5rem; text-align:center; text-decoration:none;
                background:{% if b.earned %}var(--accent-soft){% else %}transparent{% endif %};

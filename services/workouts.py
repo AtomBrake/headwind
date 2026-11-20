@@ -183,7 +183,7 @@ def forget(db, wid):
     seg_ids = [r[0] for r in db.execute('SELECT DISTINCT segmentId FROM SegmentEffort WHERE activityId=?', [wid]).fetchall()]
     db.execute('DELETE FROM SegmentEffort WHERE activityId=?', [wid])
     db.execute('DELETE FROM SportEffort WHERE activityId=?', [wid])
-    db.execute('UPDATE RideSensor SET rideKind=NULL, rideId=NULL WHERE rideId=?', [wid])
+    db.execute('UPDATE ActivitySensor SET activityKind=NULL, activityId=NULL WHERE activityId=?', [wid])
     for sid in seg_ids:
         _refresh_prs(db, sid)
 

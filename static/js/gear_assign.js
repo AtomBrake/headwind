@@ -89,7 +89,7 @@
     const options = (ride) => (ride.bike && !nameOf[String(ride.bike)] ? `<option value="${ride.bike}" selected>${esc(ride.bike_name || 'another bike')}</option>` : '') +
       `<option value=""${ride.bike ? '' : ' selected'}>No bike</option>` +
       G.bikes.map((id) => `<option value="${id}"${ride.bike === id ? ' selected' : ''}>${esc(nameOf[String(id)])}</option>`).join('');
-    const rows = j.rides.map((ride) => `<div class="day-ride${ride.bike ? '' : ' need'}"><div class="t"><a href="/rides/${encodeURIComponent(ride.id)}">${esc(ride.name)}</a>` +
+    const rows = j.rides.map((ride) => `<div class="day-ride${ride.bike ? '' : ' need'}"><div class="t"><a href="/activities/${encodeURIComponent(ride.id)}">${esc(ride.name)}</a>` +
       `<div class="hint">${esc(ride.when)} · ${esc(ride.sport)} · ${UNITS.toDist(ride.distance).toFixed(1)} ${UNITS.dist}</div></div>` +
       `<select data-ride="${esc(ride.id)}" data-bike="${ride.bike || ''}" aria-label="Bike for ${esc(ride.name)}">${options(ride)}</select></div>`).join('');
     const more = j.total - j.rides.length;

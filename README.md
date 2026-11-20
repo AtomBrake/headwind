@@ -931,7 +931,7 @@ Like the Android app it **requires HTTPS**. Pair it from **Phones**: name the ph
 app.py              application factory, auth guard, the timed background loops
 config.py           environment + settings loading
 database.py         schema: numbered steps (STEPS, PRAGMA user_version), then the start-up checks and repairs
-routes/             one blueprint per area (rides, segments, nutrition, friends, settings, setup, api_v1 …)
+routes/             one blueprint per area (activities, segments, nutrition, friends, settings, setup, api_v1 …)
 services/           Garmin, parsing, segments, best efforts, AI, MQTT, backup, credentials, limits …;
                     worker.py + jobs.py: the background worker and its queue
 gunicorn.conf.py    starts the background worker beside Gunicorn

@@ -43,8 +43,8 @@ def test_a_chunked_body_stops_at_the_limit_as_its_read(client):
 
 
 def test_a_signed_in_page_is_checked_before_the_login_redirect(client):
-    assert client.post('/rides/1/photos', data=b'x' * 20_000, content_type='application/octet-stream').status_code == 413
-    assert client.post('/rides/1/photos', data=b'x' * 2000, content_type='application/octet-stream').status_code == 302
+    assert client.post('/activities/1/photos', data=b'x' * 20_000, content_type='application/octet-stream').status_code == 413
+    assert client.post('/activities/1/photos', data=b'x' * 2000, content_type='application/octet-stream').status_code == 302
 
 
 def test_the_phone_api_and_the_ride_upload_get_the_phone_limit(client):

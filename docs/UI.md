@@ -172,7 +172,7 @@ templates and in the markup the scripts build.
 
   ```jinja
   <script type="application/json" id="rideData">{{ {'id': activity.id, 'coords': coords} | tojson }}</script>
-  <script src="{{ url_for('static', filename='js/ride.js') }}" data-refresh></script>
+  <script src="{{ url_for('static', filename='js/activity.js') }}" data-refresh></script>
   ```
   ```js
   var PAGE = JSON.parse(document.getElementById('rideData').textContent);

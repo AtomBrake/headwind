@@ -161,7 +161,7 @@
   <p class="hint" style="margin:0.5rem 0 0;">Each activity was saved from what the export's
     activities.csv says about it, with no track. Importing the export again tries the file again; one read then comes off this list.</p>
   <ul style="margin:0.5rem 0 0 1.25rem; padding:0; font-size:0.875rem; line-height:1.7;">
-    {% for p in problems %}<li><a href="/rides/{{ p.rideId }}" style="color:var(--accent);">{{ p.rideName or p.rideId }}</a>
+    {% for p in problems %}<li><a href="/activities/{{ p.activityId }}" style="color:var(--accent);">{{ p.activityName or p.activityId }}</a>
       <span style="color:var(--text-muted);">{{ p.file }} &middot; {{ p.problem }}</span></li>{% endfor %}
   </ul>
 </div>
@@ -182,7 +182,7 @@
     {% if oos_files %}<li>{{ oos_files | length }} need{{ 's' if oos_files | length == 1 }} {{ 'their files' if oos_files | length != 1 else 'its file' }}
       imported again under Import Rides (a zip of them all will do):
       <ul style="margin:0.25rem 0 0 1rem; padding:0;">
-        {% for a in oos_files[:20] %}<li><a href="/rides/{{ a.id }}" style="color:var(--accent);">{{ a.name or a.id }}</a>
+        {% for a in oos_files[:20] %}<li><a href="/activities/{{ a.id }}" style="color:var(--accent);">{{ a.name or a.id }}</a>
           <span style="color:var(--text-muted);">{{ a.startDateLocal | fmt_date }}</span></li>{% endfor %}
         {% if oos_files | length > 20 %}<li style="color:var(--text-muted);">and {{ oos_files | length - 20 }} more</li>{% endif %}
       </ul></li>{% endif %}
@@ -229,7 +229,7 @@
   {% for c in changes %}
   <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;{% if loop.first %} margin-top:0.75rem;{% endif %}">
     <span style="flex:1; min-width:12rem;">
-      <a href="/rides/{{ c.rideId }}" style="color:var(--text);">{% if c.startDateLocal %}{{ c.startDateLocal | fmt_date }} · {% endif %}{{ c.rideName or 'Activity' }}</a>
+      <a href="/activities/{{ c.activityId }}" style="color:var(--text);">{% if c.startDateLocal %}{{ c.startDateLocal | fmt_date }} · {% endif %}{{ c.activityName or 'Activity' }}</a>
       <span style="color:var(--text-muted);">{% if c.sportType %} · {{ c.sportType | sport_label }}{% endif %} · from {{ c.source }}</span>
       {% for d in c.diffs %}<br><span style="color:var(--text-muted);">{{ d.label }}:</span>
         {{ d.old }} → <span style="color:var(--accent);">{{ d.new }}</span>{% endfor %}
@@ -237,7 +237,7 @@
     </span>
     <div style="display:flex; gap:0.4rem;">
       {% for choice, label in (('replace', "Use the file's"), ('fill', 'Fill in gaps'), ('keep', 'Keep saved')) if choice != 'fill' or c.fills %}
-      <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id=c.rideId, choice=choice) }}" style="margin:0;">
+      <form method="POST" action="{{ url_for('import_rides.resolve_change', ride_id=c.activityId, choice=choice) }}" style="margin:0;">
         <button class="btn btn-secondary btn-sm">{{ label }}</button></form>
       {% endfor %}
     </div>
@@ -282,14 +282,14 @@
   {% for c in deleted %}
   <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;">
     <span style="flex:1; min-width:12rem;">
-      <a href="/rides/{{ c.rideId }}" style="color:var(--text);">{{ c.startDateLocal | fmt_date }} · {{ c.rideName or 'Activity' }}</a>
+      <a href="/activities/{{ c.activityId }}" style="color:var(--text);">{{ c.startDateLocal | fmt_date }} · {{ c.activityName or 'Activity' }}</a>
       <span style="color:var(--text-muted);"> · {{ c.sportType | sport_label }}{% if c.distance %} · {{ c.distance | fmt_dist }}{% endif %}</span>
       {% if c.parked %}<br><span style="color:var(--text-muted);">Another recording of it is set aside behind it: open it to use that one instead.</span>{% endif %}
     </span>
-    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='delete') }}" style="margin:0;"
+    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.activityId, choice='delete') }}" style="margin:0;"
           data-confirm="Delete this activity here too? It goes to Recently deleted on this page for {{ bin_days }} days.">
       <button class="btn btn-danger-quiet btn-sm">Delete here</button></form>
-    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='keep') }}" style="margin:0;">
+    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.activityId, choice='keep') }}" style="margin:0;">
       <button class="btn btn-secondary btn-sm">Keep here</button></form>
   </div>
   {% endfor %}
@@ -310,14 +310,14 @@
   {% for c in edited %}
   <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;">
     <span style="flex:1; min-width:12rem;">
-      <a href="/rides/{{ c.rideId }}" style="color:var(--text);">{{ c.startDateLocal | fmt_date }} · {{ c.rideName or 'Activity' }}</a>
+      <a href="/activities/{{ c.activityId }}" style="color:var(--text);">{{ c.startDateLocal | fmt_date }} · {{ c.activityName or 'Activity' }}</a>
       {% for d in c.diffs %}<br><span style="color:var(--text-muted);">{{ 'Name' if d.field == 'name' else 'Sport' }}:</span>
         {{ d.old if d.field == 'name' else d.old | sport_label }} → <span style="color:var(--accent);">{{ d.new if d.field == 'name' else d.new | sport_label }}</span>{% endfor %}
       {% if c.parked and c.diffs | selectattr('field', 'equalto', 'sport') | list %}<br><span style="color:var(--text-muted);">Another recording of it is set aside behind it and is removed if its sport changes.</span>{% endif %}
     </span>
-    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='garmin') }}" style="margin:0;">
+    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.activityId, choice='garmin') }}" style="margin:0;">
       <button class="btn btn-secondary btn-sm">Use Garmin's</button></form>
-    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.rideId, choice='keep') }}" style="margin:0;">
+    <form method="POST" action="{{ url_for('garmin.changes_resolve', ride_id=c.activityId, choice='keep') }}" style="margin:0;">
       <button class="btn btn-secondary btn-sm">Keep as here</button></form>
   </div>
   {% endfor %}
@@ -400,7 +400,7 @@
   {% for g in sport_guesses %}
   <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;">
     <span style="flex:1; min-width:12rem;">
-      <a href="{{ url_for('rides.detail', rid=g.activityId) }}" style="color:var(--text);">{{ g.startDateLocal | fmt_date }} · {{ g.name or (g.savedSport | sport_label) }}</a>
+      <a href="{{ url_for('activities.detail', rid=g.activityId) }}" style="color:var(--text);">{{ g.startDateLocal | fmt_date }} · {{ g.name or (g.savedSport | sport_label) }}</a>
       <span style="color:var(--text-muted);">{% if g.distance %} · {{ g.distance | fmt_dist }}{% endif %} · the file says {{ '"' ~ g.fileSport ~ '"' if g.fileSport else 'nothing' }},
         the pace says {{ g.guess | sport_label }}</span>
     </span>
@@ -441,7 +441,7 @@
       {% for c in g.rows %}
       <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--divider); padding:0.5rem 0; font-size:0.875rem;">
         <span style="flex:1; min-width:12rem;">
-          <a href="{{ url_for('rides.detail', rid=c.id) }}" style="color:var(--text);">{{ c.startDateLocal | fmt_date }} · {{ c.name or (c.sportType | sport_label) }}</a>
+          <a href="{{ url_for('activities.detail', rid=c.id) }}" style="color:var(--text);">{{ c.startDateLocal | fmt_date }} · {{ c.name or (c.sportType | sport_label) }}</a>
           <span style="color:var(--text-muted);">{% if c.distance %} · {{ c.distance | fmt_dist }}{% endif %} · {{ c.keptBy | capitalize if c.keptBy.islower() else c.keptBy }} says {{ c.sportType | sport_label }},
             {{ c.otherBy }} says {{ c.other | sport_label }}</span>
         </span>

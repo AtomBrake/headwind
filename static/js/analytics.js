@@ -28,8 +28,8 @@ function sortCell(td, text, value) {
         sortCell(row.querySelector('.rec-time'), rec.time, rec.secs);
         sortCell(row.querySelector('.rec-speed'), rec.rate, rec.mps ? (ach.style === 'speed' ? rec.mps : 1 / rec.mps) : '');
         const a = document.createElement('a');
-        a.href = '/rides/' + encodeURIComponent(rec.rideId);
-        a.textContent = rec.ride;
+        a.href = '/activities/' + encodeURIComponent(rec.activityId);
+        a.textContent = rec.name;
         row.querySelector('.rec-ride').replaceChildren(a);
         sortCell(row.querySelector('.rec-date'), fmtDate(rec.date), rec.date);
       });
@@ -58,7 +58,7 @@ function sortCell(td, text, value) {
     v.style.cssText = 'font-weight:600; color:var(--accent); font-variant-numeric:tabular-nums; white-space:nowrap;';
     v.textContent = rec.v;
     const a = document.createElement('a');
-    a.href = '/rides/' + encodeURIComponent(rec.id);
+    a.href = '/activities/' + encodeURIComponent(rec.id);
     a.style.cssText = 'display:block; color:var(--text-muted); font-size:0.75rem; margin-top:0.15rem;';
     a.textContent = rec.name + ' · ' + fmtDate(rec.date);
     td.append(v, a);
@@ -110,8 +110,8 @@ function sortCell(td, text, value) {
         sortCell(row.querySelector('.climb-ft'), rec.ft.toLocaleString() + ' ' + UNITS.elev, rec.ft);      // rec.ft is in the rider's unit
         {
           const a = document.createElement('a');
-          a.href = '/rides/' + encodeURIComponent(rec.rideId);
-          a.textContent = rec.ride;
+          a.href = '/activities/' + encodeURIComponent(rec.activityId);
+          a.textContent = rec.name;
           row.querySelector('.climb-ride').replaceChildren(a);
         }
         sortCell(row.querySelector('.climb-date'), fmtDate(rec.date), rec.date);
@@ -500,7 +500,7 @@ if (PAGE.wxTempX.length) {
           if (elements.length) {
             const el = elements[0];
             const pt = this.data.datasets[el.datasetIndex].data[el.index];
-            if (pt.id) window.location = '/rides/' + pt.id;
+            if (pt.id) window.location = '/activities/' + pt.id;
           }
         },
         plugins: { legend: { labels: { color: cssVar('--text-soft'), boxWidth: 10, font: { size: 11 } } } },
@@ -546,7 +546,7 @@ if (PAGE.wxTempX.length) {
           if (elements.length) {
             const el = elements[0];
             const pt = this.data.datasets[el.datasetIndex].data[el.index];
-            if (pt.id) window.location = '/rides/' + pt.id;
+            if (pt.id) window.location = '/activities/' + pt.id;
           }
         },
         plugins: { legend: { labels: { color: cssVar('--text-soft'), boxWidth: 10, font: { size: 11 } } } },
@@ -616,7 +616,7 @@ if (PAGE.wxTempX.length) {
   })();
 }
 function stormPick(id, what) {
-  fetch('/rides/' + id + '/weather', { method: 'POST', body: new URLSearchParams({ condition: what }) })
+  fetch('/activities/' + id + '/weather', { method: 'POST', body: new URLSearchParams({ condition: what }) })
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.error) { alert('Could not save: ' + d.error); return; }
@@ -626,7 +626,7 @@ function stormPick(id, what) {
 }
 
 function fogPick(id, what) {
-  fetch('/rides/' + id + '/weather', { method: 'POST', body: new URLSearchParams({ condition: what }) })
+  fetch('/activities/' + id + '/weather', { method: 'POST', body: new URLSearchParams({ condition: what }) })
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.error) { alert('Could not save: ' + d.error); return; }

@@ -161,7 +161,7 @@ def test_the_garmin_type_check_proposes_e_bike_for_garmin_rides(db):
             return [{'activityId': 1, 'activityType': {'typeKey': 'e_bike_mountain'}, 'startTimeLocal': '2026-10-07 10:00:00'},
                     {'activityId': 2, 'activityType': {'typeKey': 'mountain_biking'}, 'startTimeLocal': '2026-10-07 10:00:00'}][start:start + limit]
     sport_fix.scan(db, Api(), 1)
-    assert [(p['rideId'], p['newSport']) for p in sport_fix.pending(db, 1)] == [('garmin_1', 'EBikeRide'), ('garmin_2', 'MountainBikeRide')]
+    assert [(p['activityId'], p['newSport']) for p in sport_fix.pending(db, 1)] == [('garmin_1', 'EBikeRide'), ('garmin_2', 'MountainBikeRide')]
     ride = add_seg(db, 'ride')
     sport_fix.apply(db, 1, ['garmin_1'])
     assert db.execute("SELECT sportType FROM Activity WHERE id='garmin_1'").fetchone()[0] == 'EBikeRide'
@@ -266,9 +266,9 @@ def test_a_segment_takes_its_family_from_the_activity_it_was_made_on(client):
     assert 'Lane' in client.get('/segments?sport=run').get_data(as_text=True)                                       # an old bookmark
     seg_page = client.get(f"/segments/{seg['id']}").get_data(as_text=True)
     assert 'Avg Pace' in seg_page and '/mi' in seg_page
-    ride_page = client.get('/rides/zwift').get_data(as_text=True)
+    ride_page = client.get('/activities/zwift').get_data(as_text=True)
     assert 'Create Segment' not in ride_page and 'Segments are only for outdoor' in ride_page
-    assert 'name="sport"      value="foot"' in client.get('/rides/walk').get_data(as_text=True)
+    assert 'name="sport"      value="foot"' in client.get('/activities/walk').get_data(as_text=True)
     rider = client.get('/riders/1').get_data(as_text=True)
     assert 'E-Bike Segments' in rider and 'Segments on Foot' in rider and 'First Steps' in rider
     assert client.get('/segments?sport=eride').status_code == 200                                                    # a bookmark from 0.7.3
@@ -293,4 +293,4 @@ def test_the_ride_leaderboards_show_every_bike_or_one_kind(client):
     lst = client.get('/segments?only=ebike').get_data(as_text=True)
     assert 'Climb' in lst and '1:40' in lst and f"/segments/{seg['id']}?only=ebike" in lst                         # the e-bike's best, and the link keeps the filter
     assert '2:30' in client.get('/segments?only=bike').get_data(as_text=True)
-    assert 'name="sport"      value="ride"' in client.get('/rides/turbo').get_data(as_text=True)
+    assert 'name="sport"      value="ride"' in client.get('/activities/turbo').get_data(as_text=True)

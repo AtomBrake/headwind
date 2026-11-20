@@ -70,7 +70,7 @@ def rows_with_position(rows):
 def cells(db, rider_id, since=None, include_pocket=False, min_samples=MIN_SAMPLES):
     """Aggregate every sidecar of the rider into cells: [{'lat', 'lng', 'r', 'n', 'rides'}]. `since` is 'YYYY-MM-DD'. Pocket-carried data is left out unless asked for
     (a phone in a pocket mostly measures the rider)."""
-    q = 'SELECT id, mount, data FROM RideSensor WHERE riderId=?'
+    q = 'SELECT id, mount, data FROM ActivitySensor WHERE riderId=?'
     args = [rider_id]
     if since:
         q += ' AND startUtc >= ?'

@@ -12,7 +12,7 @@ from services import credentials, units
 from services import streams as _streams
 from tests.page_data import page_data
 
-PAGES = ['/dashboard', '/rides/r1', '/rides/r2', '/data', '/riders/1', '/segments', '/segments/1', '/ai', '/planner/', '/roughness',
+PAGES = ['/dashboard', '/activities/r1', '/activities/r2', '/data', '/riders/1', '/segments', '/segments/1', '/ai', '/planner/', '/roughness',
          '/dashboard?min_dist=10&max_dist=100']
 IMPERIAL = re.compile(r'\bmph\b|\d\s?mi\b|\bmi\b(?=[<)\'",])|\d\s?ft\b|\bft\b(?=[<)\'",])|/mi\b|\bmiles\b|\(ft\)')
 
@@ -44,7 +44,7 @@ def client(tmp_path, monkeypatch):
         db.execute("INSERT INTO Segment (id, name, startLat, startLng, endLat, endLng, distanceM, elevationGainM, sourceActivityId) VALUES (1, 'Hill', 51.5, -2.6, 51.51, -2.6, 1200, 60, 'r1')")
         db.execute("INSERT INTO SegmentEffort (segmentId, activityId, activityDate, elapsedSecs, avgSpeedMps, isPR) VALUES (1, 'r1', ?, 200, 6.0, 1)", [today.isoformat()])
         db.execute("INSERT INTO BestEffort (activityId, activityDate, distanceMi, elapsedSecs, avgSpeedMps) VALUES ('r1', ?, 5, 1200, 6.7)", [today.isoformat()])
-        db.execute("INSERT INTO RideMemory (rideId, rideDate, rideName, distanceMi, movingTime, elevationFt, avgSpeedMph) VALUES ('r2', ?, 'Morning ride', 12.4, 2843, 984, 15.7)",
+        db.execute("INSERT INTO ActivityMemory (activityId, activityDate, activityName, distanceMi, movingTime, elevationFt, avgSpeedMph) VALUES ('r2', ?, 'Morning ride', 12.4, 2843, 984, 15.7)",
                    [today.isoformat()])
         db.execute("INSERT INTO Activity (id, riderId, sportType, startDateLocal, distance, movingTime, totalElevationGain, source) VALUES ('wk_1', 1, 'Run', ?, 5000, 1500, 40, 'android')",
                    [today.isoformat() + 'T07:00:00'])
@@ -99,9 +99,9 @@ def test_the_ai_coach_is_given_metric_numbers_not_asked_to_convert(client, monke
 
 
 def test_numbers_are_converted_not_just_relabelled(client):
-    html = client.get('/rides/r1').get_data(as_text=True)
+    html = client.get('/activities/r1').get_data(as_text=True)
     assert '19.9 km' in html and '25.2 km/h' in html and '300 m' in html
-    assert '5:00 /km' in client.get('/rides/wk_1').get_data(as_text=True)      # a run's page shows pace, a ride's speed
+    assert '5:00 /km' in client.get('/activities/wk_1').get_data(as_text=True)      # a run's page shows pace, a ride's speed
     html = client.get('/dashboard').get_data(as_text=True)
     assert page_data(html, 'unitsData')['dist'] == 'km'
     week = page_data(html, 'dashboardData')['weekly']
@@ -118,7 +118,7 @@ def test_distance_filter_is_in_the_riders_unit(client):
 def test_imperial_is_unchanged(client):
     with client.application.app_context():
         db = database.get_db(); db.execute("UPDATE Settings SET units='imperial' WHERE id=1"); db.commit()
-    html = client.get('/rides/r1').get_data(as_text=True)
+    html = client.get('/activities/r1').get_data(as_text=True)
     assert '12.4 mi' in html and '15.7 mph' in html and '984 ft' in html
 
 
@@ -137,17 +137,17 @@ def _set(client, **cols):
 
 
 def test_weather_wind_follows_the_units_and_temperature_its_own_choice(client):
-    html = client.get('/rides/r1').get_data(as_text=True)
+    html = client.get('/activities/r1').get_data(as_text=True)
     assert '12°C' in html and '20 km/h' in html                                 # stored as 12 °C and 20 km/h
     _set(client, units='imperial')
-    html = client.get('/rides/r1').get_data(as_text=True)
+    html = client.get('/activities/r1').get_data(as_text=True)
     assert '12°C' in html and '12 mph' in html and 'kph' not in html            # miles and mph, still °C: the default
     assert client.post('/settings/', data={'tempUnit': 'F', 'units': 'imperial'}).status_code == 302
-    html = client.get('/rides/r1').get_data(as_text=True)
+    html = client.get('/activities/r1').get_data(as_text=True)
     assert '54°F' in html and '°C' not in _what_a_reader_sees(html)
     assert 'Speed vs Temperature (mph / °F)' in client.get('/data').get_data(as_text=True)
     client.post('/settings/', data={'tempUnit': 'K', 'units': 'imperial'})        # nonsense keeps what's saved
-    assert '54°F' in client.get('/rides/r1').get_data(as_text=True)
+    assert '54°F' in client.get('/activities/r1').get_data(as_text=True)
 
 
 def test_weather_text_and_badge_wording():

@@ -14,7 +14,7 @@ def _rider():
 @bp.route('/roughness')
 def index():
     r = _rider()
-    n = query_db('SELECT COUNT(*) AS n FROM RideSensor WHERE riderId=?', [r['id']], one=True)['n'] if r else 0
+    n = query_db('SELECT COUNT(*) AS n FROM ActivitySensor WHERE riderId=?', [r['id']], one=True)['n'] if r else 0
     return render_template('roughness.html', recordings=n)
 
 

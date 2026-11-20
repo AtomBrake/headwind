@@ -43,7 +43,7 @@ ALLOWED_WRITES = {
     'gear.api_assign', 'gear.bike_archive', 'gear.bike_default', 'gear.bike_delete', 'gear.part_add', 'gear.bike_photo', 'gear.service_add', 'gear.bike_save',
     'gear.set_default', 'gear.log_delete', 'gear.part_edit', 'gear.ride_bike',
     # activities: label things, change type, add one by hand (deleting stays disabled)
-    'rides.save_notes', 'rides.set_commute', 'rides.scan_segments', 'rides.change_sport', 'rides.resolve_duplicate',
+    'activities.save_notes', 'activities.set_commute', 'activities.scan_segments', 'activities.change_sport', 'activities.resolve_duplicate',
     'dashboard.activities_new',
     'route_builder.save_route', 'route_builder.delete_route', 'route_builder.from_activity',
     # goals (challenges stay off: they go out on the friends feed)

@@ -420,7 +420,7 @@ def create_app():
 
     # ── Blueprints ───────────────────────────────────────────────
     from routes.dashboard    import bp as dashboard_bp
-    from routes.rides        import bp as rides_bp
+    from routes.activities   import bp as activities_bp, old_rides as old_rides_bp
     from routes.settings     import bp as settings_bp
     from routes.sync         import bp as sync_bp
     from routes.kudos        import bp as kudos_bp
@@ -636,7 +636,8 @@ def create_app():
     from routes.gear import bp as gear_bp
     app.register_blueprint(gear_bp, url_prefix='/gear')
     app.register_blueprint(dashboard_bp)
-    app.register_blueprint(rides_bp,    url_prefix='/rides')
+    app.register_blueprint(activities_bp, url_prefix='/activities')
+    app.register_blueprint(old_rides_bp)
     app.register_blueprint(settings_bp, url_prefix='/settings')
     app.register_blueprint(sync_bp)
     app.register_blueprint(kudos_bp)

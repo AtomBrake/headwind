@@ -666,7 +666,7 @@ def api_kit_assign():
 @bp.route('/activity/<rid>/kit', methods=['POST'])
 def activity_kit(rid):
     db = get_db()
-    back = _back(url_for('rides.detail', rid=rid))
+    back = _back(url_for('activities.detail', rid=rid))
     try:
         kit.set_activity_kit(db, rid, request.form.get('kit', type=int))
         db.commit()
@@ -681,7 +681,7 @@ def activity_kit(rid):
 def ride_bike(rid):
     db = get_db()
     bike_id = request.form.get('bike', type=int)
-    back = _back(url_for('rides.detail', rid=rid))
+    back = _back(url_for('activities.detail', rid=rid))
     try:
         _set_bike(db, rid, bike_id)
     except ValueError as e:

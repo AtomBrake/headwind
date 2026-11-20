@@ -54,7 +54,7 @@ function getKudos(rid) {
   var card        = document.getElementById('kudosCard');
   var personality = (document.getElementById('personalitySelect') || {}).value || 'default';
   if (spinner) spinner.style.display = '';
-  fetch('/rides/' + rid + '/kudos', {
+  fetch('/activities/' + rid + '/kudos', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({personality: personality})
@@ -89,7 +89,7 @@ function getKudos(rid) {
   if (!el) return;
   var rid = el.getAttribute('data-rid');
   var timer = setInterval(function () {
-    fetch('/rides/' + rid + '/kudos/status')
+    fetch('/activities/' + rid + '/kudos/status')
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (!data.pending) { clearInterval(timer); location.reload(); }

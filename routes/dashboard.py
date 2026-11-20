@@ -347,7 +347,7 @@ def _activity_list(args, list_path):
 
 
 def remember_list(label):
-    """Note this list page and its filters as the way back from an activity (the crumb on templates/ride.html), so going back from an activity
+    """Note this list page and its filters as the way back from an activity (the crumb on templates/activity.html), so going back from an activity
     (after any Prev and Next) lands on the list as it was left. One-off notices (typed=, error=) aren't kept."""
     args = [(k, v) for k, v in request.args.items(multi=True) if k not in ('typed', 'error')]
     session['list_back'] = {'label': label, 'url': request.path + ('?' + urlencode(args) if args else '')}

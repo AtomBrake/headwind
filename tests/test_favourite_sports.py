@@ -46,7 +46,7 @@ def _sidebar(html):
 
 
 def _listed(html):
-    return set(re.findall(r'href="/rides/(\w+)"', html))
+    return set(re.findall(r'href="/activities/(\w+)"', html))
 
 
 def _saved(client):

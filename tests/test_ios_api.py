@@ -518,7 +518,7 @@ def test_the_app_makes_a_friend_code_for_its_own_address(phone):
     assert feed_tokens.parse_share_code(made['code']) == ('https://h.example', made['token'])
     with phone.app_.app_context():
         row = feed_tokens.lookup(made['token'])
-        assert (row['name'], row['shareRides'], row['shareFoods'], row['sinceDate']) == ('Sam', 1, 0, '2026-01-01')
+        assert (row['name'], row['shareActivities'], row['shareFoods'], row['sinceDate']) == ('Sam', 1, 0, '2026-01-01')
     assert phone.post('/api/v1/friends/tokens', headers=phone.H, json={'name': ' '}).status_code == 400
     assert phone.post('/api/v1/friends/tokens', json={'name': 'Sam'}).status_code == 401
 

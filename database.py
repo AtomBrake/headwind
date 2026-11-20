@@ -922,8 +922,7 @@ def _views_and_triggers(db):
     views = {
         'Ride': f'CREATE VIEW Ride AS SELECT * FROM Activity WHERE {RIDE_SQL}',
         # segment leaderboards: no streams (heavy), only what they need (bikeId: pedal or e-bike, services/sports.segment_class)
-        'SegActivity': f'''CREATE VIEW SegActivity AS SELECT id, name, riderId, startDateLocal, sportType, bikeId,
-            CASE WHEN {RIDE_SQL} THEN 'activity' ELSE 'workout' END AS kind FROM Activity''',
+        'SegActivity': '''CREATE VIEW SegActivity AS SELECT id, name, riderId, startDateLocal, sportType, bikeId FROM Activity''',
     }
     for name, sql in views.items():
         cur = db.execute("SELECT sql FROM sqlite_master WHERE type='view' AND name=?", [name]).fetchone()
@@ -1463,6 +1462,40 @@ def _step_9(db):
     db.execute('CREATE INDEX IF NOT EXISTS idx_signinfail_at ON SignInFail(at)')
 
 
+# Step 10's renames: (table, [(old column, new column)]), for tables that hold every sport but kept names from when rides and workouts were
+# apart. The tables a service makes (ImportChange and the rest) are made with the new names since; one not made yet is left to it.
+_STEP_10_COLUMNS = (
+    ('ActivityMemory', [('rideId', 'activityId'), ('rideDate', 'activityDate'), ('rideName', 'activityName')]),
+    ('ActivitySensor', [('rideId', 'activityId'), ('rideKind', 'activityKind')]),
+    ('ImportChange',   [('rideId', 'activityId'), ('rideName', 'activityName')]),
+    ('ImportProblem',  [('rideId', 'activityId'), ('rideName', 'activityName')]),
+    ('GarminChange',   [('rideId', 'activityId'), ('rideName', 'activityName')]),
+    ('SportFix',       [('rideId', 'activityId')]),
+    ('FeedToken',      [('shareRides', 'shareActivities')]),
+)
+
+
+def _step_10(db):
+    """Names that say ride for what holds every sport: RideMemory (the AI coach's notes) and RideSensor (the phone's sensor recordings)
+    become ActivityMemory and ActivitySensor, and rideId, rideName, rideDate and rideKind become activity... in them and in ImportChange,
+    ImportProblem, GarminChange and SportFix; FeedToken.shareRides becomes shareActivities. A rename keeps every row, and the indexes follow."""
+    tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    for old, new in (('RideMemory', 'ActivityMemory'), ('RideSensor', 'ActivitySensor')):
+        if old in tables and new not in tables:
+            db.execute(f'ALTER TABLE {old} RENAME TO {new}')
+            tables = (tables - {old}) | {new}
+    for table, pairs in _STEP_10_COLUMNS:
+        if table not in tables:
+            continue
+        have = {r[1] for r in db.execute(f'PRAGMA table_info({table})').fetchall()}
+        for old, new in pairs:
+            if old in have and new not in have:
+                db.execute(f'ALTER TABLE {table} RENAME COLUMN {old} TO {new}')
+    db.execute('DROP INDEX IF EXISTS idx_ridesensor_ride')
+    if 'ActivitySensor' in tables:
+        db.execute('CREATE INDEX IF NOT EXISTS idx_activitysensor_activity ON ActivitySensor(activityId)')
+
+
 def _compact(db):
     """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
     a temporary file and once through the WAL. Logged either way. Commits."""
@@ -1514,6 +1547,7 @@ STEPS = (
     (_step_7, False),
     (_step_8, False),
     (_step_9, False),
+    (_step_10, True),        # an older Headwind reads RideMemory, RideSensor and the rideId columns
 )
 LATEST = len(STEPS)
 

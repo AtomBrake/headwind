@@ -368,7 +368,7 @@ def _after_upload(res, rider):
     try:
         if res['via'] == 'track':
             from services.mqtt import push_workout, push_update_nutrition
-            push_workout(res['workout'], rider['name'], f"{external_url.get()}/rides/{res['id']}")
+            push_workout(res['workout'], rider['name'], f"{external_url.get()}/activities/{res['id']}")
             push_update_nutrition()                      # the day's burn changed
         elif res['via'] == 'session':
             _refresh_after_change(res['kind'])
@@ -574,9 +574,9 @@ def ride_detail(kind, rid):
 
 
 def _zwift_world(sport, coords):
-    """The Zwift world a virtual ride's track is in, as the ride page draws it (routes/rides._zwift_world) but with its map at /api/v1/zwift,
+    """The Zwift world a virtual ride's track is in, as the ride page draws it (routes/activities._zwift_world) but with its map at /api/v1/zwift,
     which takes the device token; None for a real ride."""
-    from routes.rides import _zwift_world as world
+    from routes.activities import _zwift_world as world
     w = world(sport, coords)
     return w and dict(w, url=f"/api/v1/zwift/{w['slug']}.png")
 
@@ -681,7 +681,7 @@ def caption_photo(kind, rid, pid):
 
 @bp.route('/photos/<name>')
 def photo_file(name):
-    """A photo or its thumbnail, as the web's /rides/photo/<name> serves it, for the app (which has a token, not a login)."""
+    """A photo or its thumbnail, as the web's /activities/photo/<name> serves it, for the app (which has a token, not a login)."""
     from flask import send_from_directory
     from services import photos
     if not photos.valid_name(name):
@@ -894,7 +894,7 @@ def friend_token():
     url = (d.get('server_url') or '').strip().rstrip('/')
     if not url.startswith(('https://', 'http://')):
         url = share_url()
-    scope = {'shareRides': d.get('rides', True), 'shareSegments': d.get('segments', True), 'shareFoods': d.get('foods', True),
+    scope = {'shareActivities': d.get('rides', True), 'shareSegments': d.get('segments', True), 'shareFoods': d.get('foods', True),
              'sinceDate': d.get('since'), 'untilDate': d.get('until'), 'riders': d.get('riders')}
     return jsonify(new_token(name, scope, url)), 201
 
@@ -987,7 +987,7 @@ def set_bike(kind, rid):
 
 @bp.route('/rides/<kind>/<rid>/commute', methods=['POST'])
 def set_commute(kind, rid):
-    """Tick or untick 'Commute' on a ride or a workout: JSON {commute: true|false}. Unticked is stored as 0, as on the web (routes/rides.set_commute)."""
+    """Tick or untick 'Commute' on a ride or a workout: JSON {commute: true|false}. Unticked is stored as 0, as on the web (routes/activities.set_commute)."""
     rider = _rider()
     db = get_db()
     row = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone() if kind in ('ride', 'workout') else None
@@ -1042,7 +1042,7 @@ def delete_ride(kind, rid):
         row = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone()
         n = 1 if (row and rider and row['riderId'] == rider['id'] and duplicates.delete_activity(db, rid)) else 0
         if n:
-            db.execute('DELETE FROM RideMemory WHERE rideId=?', [rid])
+            db.execute('DELETE FROM ActivityMemory WHERE activityId=?', [rid])
     db.commit()
     if n:
         _refresh_after_change(kind)

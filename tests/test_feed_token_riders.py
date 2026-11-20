@@ -27,7 +27,7 @@ def app(tmp_path):
 
 
 def _make(app, riders=None, **form):
-    data = {'name': 'Sam', 'shareRides': '1', 'shareSegments': '1', 'shareFoods': '1', **form}
+    data = {'name': 'Sam', 'shareActivities': '1', 'shareSegments': '1', 'shareFoods': '1', **form}
     if riders is not None:
         data.update(ridersChosen='1', rider=[str(r) for r in riders])
     return app.test_client().post('/friends/tokens', data=data).get_json()
@@ -67,7 +67,7 @@ def test_the_default_rider_can_be_left_out(app):
 
 
 def test_none_ticked_shares_no_rider(app):
-    t = _make(app, riders=[], shareRides='1')['token']
+    t = _make(app, riders=[], shareActivities='1')['token']
     assert _names(app, t) == []
     assert _feed(app, t)['ride'] == []
     assert _lines(_get(app, '/api/feed', t), 'segment')                      # segments are still shared
@@ -83,9 +83,9 @@ def test_a_friends_rider_is_never_shared_even_if_asked_for(app):
 
 def test_editing_the_riders(app):
     made = _make(app, riders=[1])
-    app.test_client().post(f"/friends/tokens/{made['id']}", data={'shareRides': '1', 'ridersChosen': '1', 'rider': ['2']})
+    app.test_client().post(f"/friends/tokens/{made['id']}", data={'shareActivities': '1', 'ridersChosen': '1', 'rider': ['2']})
     assert _names(app, made['token']) == ['Kim']
-    app.test_client().post(f"/friends/tokens/{made['id']}", data={'shareRides': '1', 'ridersChosen': '1'})
+    app.test_client().post(f"/friends/tokens/{made['id']}", data={'shareActivities': '1', 'ridersChosen': '1'})
     assert _names(app, made['token']) == []
 
 

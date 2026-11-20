@@ -40,7 +40,7 @@ def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None, c
             if action == 'delete':
                 if kind == 'ride':
                     duplicates.delete_activity(db, act_id)
-                    db.execute('DELETE FROM RideMemory WHERE rideId=?', [act_id])
+                    db.execute('DELETE FROM ActivityMemory WHERE activityId=?', [act_id])
                 else:
                     owner = db.execute('SELECT riderId FROM Activity WHERE id=?', [act_id]).fetchone()['riderId']
                     workouts.delete(db, act_id, owner)
@@ -64,7 +64,7 @@ def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None, c
                 _move_to_rider(db, kind, act_id, rider_id)
             elif action == 'rename':
                 db.execute('UPDATE Activity SET name=? WHERE id=?', [name.strip()[:200], act_id])
-            elif action == 'commute':                       # 0, not NULL, for "not a commute": a Strava import then leaves it alone (routes/rides.set_commute)
+            elif action == 'commute':                       # 0, not NULL, for "not a commute": a Strava import then leaves it alone (routes/activities.set_commute)
                 db.execute('UPDATE Activity SET commute=? WHERE id=?', [int(commute), act_id])
                 gear.regear(db, act_id)                      # a bike or shoes given automatically follow the tick (the commute default)
             elif action == 'dismiss':

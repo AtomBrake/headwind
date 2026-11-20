@@ -219,7 +219,7 @@ def test_a_deleted_ride_goes_with_its_efforts(db, tom):
 def test_rides_no_longer_shared_go(db, tom):
     on_tom(tom, lambda d: add_ride(d, 'r1'))
     sync(db)
-    on_tom(tom, lambda d: d.execute('UPDATE FeedToken SET shareRides=0'))
+    on_tom(tom, lambda d: d.execute('UPDATE FeedToken SET shareActivities=0'))
     sync(db)
     assert friend_rides(db) == {}
 

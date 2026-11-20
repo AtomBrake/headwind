@@ -1,6 +1,6 @@
 {# The selection bar for activity lists. Include once on a page whose rows carry data-pick="<activity id>" (a ride or a workout) inside an element
-   with data-pick-list; a button with data-pick-toggle turns select mode on. static/js/bulk.js does the rest; routes/rides.py bulk* does the work. #}
-<form method="POST" action="{{ url_for('rides.bulk') }}" id="bulkBar" class="bulk-bar" hidden>
+   with data-pick-list; a button with data-pick-toggle turns select mode on. static/js/bulk.js does the rest; routes/activities.py bulk* does the work. #}
+<form method="POST" action="{{ url_for('activities.bulk') }}" id="bulkBar" class="bulk-bar" hidden>
   <input type="hidden" name="back" value="{{ request.full_path if request.query_string else request.path }}">
   <input type="hidden" name="action" value="">
   <div class="bulk-ids"></div>

@@ -32,7 +32,7 @@
     <tbody>
     {% for r in rows %}
     <tr>
-      <td><a href="{{ url_for('rides.detail', rid=r.id) }}">{{ r.name or (r.sportType | sport_label) }}</a>
+      <td><a href="{{ url_for('activities.detail', rid=r.id) }}">{{ r.name or (r.sportType | sport_label) }}</a>
         <div class="hint">{{ r.startDateLocal | fmt_date }} · {{ r.sportType | sport_label }}</div></td>
       <td>{{ gear_name(r.kept) }}</td>
       <td>{{ gear_name(r.other) }}<div class="hint">{{ 'its Strava export says' if r.fromStrava else r.source }}</div></td>

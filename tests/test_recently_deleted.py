@@ -98,7 +98,7 @@ def test_a_ride_comes_back_as_it_was(db):
     assert row(db, 'garmin_1') == before                        # every column: notes, bike, commute, the AI's analysis
     assert efforts(db, 'garmin_1') == eff
     assert [p['caption'] for p in photos.for_activity(db, 'garmin_1')] == ['Top of the hill'] and len(files(db)) == 2
-    assert db.execute("SELECT aiSummary FROM RideMemory WHERE rideId='garmin_1'").fetchone()[0] == 'Strong ride.'
+    assert db.execute("SELECT aiSummary FROM ActivityMemory WHERE activityId='garmin_1'").fetchone()[0] == 'Strong ride.'
     assert binned(db) == [] and not duplicates.is_deleted(db, 'garmin_1')
     assert not db.execute("SELECT 1 FROM ActivityDuplicate WHERE id='garmin_1'").fetchone()
 
@@ -278,7 +278,7 @@ def test_the_import_page_lists_it_and_restores_it(app_client):
     a, c = app_client
     with a.app_context():
         add(database.get_db(), 'garmin_1')
-    assert c.post('/rides/garmin_1/delete').status_code == 302
+    assert c.post('/activities/garmin_1/delete').status_code == 302
     page = c.get('/import').get_data(as_text=True)
     assert 'Recently deleted (1)' in page and 'garmin_1 name' in page
     assert c.post('/import/deleted/garmin_1/restore').status_code == 302

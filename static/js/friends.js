@@ -65,7 +65,7 @@ document.getElementById('token-form').addEventListener('submit', function(e) {
 // What a token form shares, in words: "Rob's activities, segments and foods", or "nothing"
 function sharesText(form) {
   var parts = [], el = form.elements;
-  if (el.shareRides.checked) {
+  if (el.shareActivities.checked) {
     var whose = Array.prototype.filter.call(form.querySelectorAll('input[name=rider]'), function(c) { return c.checked; })
       .map(function(c) { return c.parentNode.textContent.trim() + "'s"; });
     parts.push(whose.length ? whose.join(', ') + ' activities' : 'no one\'s activities');

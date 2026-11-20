@@ -133,5 +133,5 @@ def test_activity_type_page_shows_a_running_check(client):
 
 
 def test_ride_page_links_to_where_it_came_from(client):
-    html = client.get('/rides/555').get_data(as_text=True)                          # the fixture's ride has a Strava id
+    html = client.get('/activities/555').get_data(as_text=True)                          # the fixture's ride has a Strava id
     assert 'href="https://www.strava.com/activities/555"' in html and 'Strava ↗' in html

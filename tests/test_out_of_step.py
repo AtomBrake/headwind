@@ -101,5 +101,5 @@ def test_the_import_page_says_which_and_how(tmp_path, monkeypatch):
         s['logged_in'] = True
         s['av'] = av
     html = c.get('/import').get_data(as_text=True)
-    assert '2 activities left out of segments' in html and 'href="/rides/imp_1"' in html
-    assert 'href="/rides/garmin_1"' in html and 'Full re-sync' not in html.split('id="out-of-step"')[1].split('</div>')[0]   # no Garmin set up
+    assert '2 activities left out of segments' in html and 'href="/activities/imp_1"' in html
+    assert 'href="/activities/garmin_1"' in html and 'Full re-sync' not in html.split('id="out-of-step"')[1].split('</div>')[0]   # no Garmin set up

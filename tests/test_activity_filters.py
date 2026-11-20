@@ -49,7 +49,7 @@ def client(tmp_path, monkeypatch):
 
 def _ids(client, query):
     html = client.get('/activities?' + query).get_data(as_text=True)
-    return re.findall(r'<a href="/rides/(\w+)">', html)
+    return re.findall(r'<a href="/activities/(\w+)">', html)
 
 
 @pytest.mark.parametrize('query, ids', [
@@ -77,18 +77,18 @@ def test_each_filter(client, query, ids):
 def test_the_list_in_another_order_is_flat(client, sort, first):
     html = client.get(f'/activities?sort={sort}').get_data(as_text=True)
     assert 'tree-year' not in html and '6 results' in html
-    assert re.findall(r'<a href="/rides/(\w+)">', html)[:3] == first
-    assert 'action="/rides/bulk-sport"' not in html                 # nothing narrowed: no "change the type of all 6"
+    assert re.findall(r'<a href="/activities/(\w+)">', html)[:3] == first
+    assert 'action="/activities/bulk-sport"' not in html                 # nothing narrowed: no "change the type of all 6"
 
 
 def test_paging_through_a_flat_list_keeps_the_filters(client, monkeypatch):
     monkeypatch.setattr(activity_filters, 'PAGE', 2)
     html = client.get('/activities?sort=distance&hr=1').get_data(as_text=True)
-    assert '3 results · page 1 of 2' in html and re.findall(r'<a href="/rides/(\w+)">', html) == ['garmin_1', '12345']
+    assert '3 results · page 1 of 2' in html and re.findall(r'<a href="/activities/(\w+)">', html) == ['garmin_1', '12345']
     nxt = re.search(r'href="([^"]+)">Next ›', html).group(1).replace('&amp;', '&')
     assert 'hr=1' in nxt and 'sort=distance' in nxt and 'page=2' in nxt
     page2 = client.get(nxt).get_data(as_text=True)
-    assert re.findall(r'<a href="/rides/(\w+)">', page2) == ['wk_conv'] and '‹ Previous' in page2
+    assert re.findall(r'<a href="/activities/(\w+)">', page2) == ['wk_conv'] and '‹ Previous' in page2
     assert set(re.search(r'name="ids" value="([^"]+)"', page2).group(1).split(',')) == {'garmin_1', '12345', 'wk_conv'}   # every page's, not this one's
 
 
@@ -104,5 +104,5 @@ def test_links_keep_the_filters_and_clear_drops_them(client):
 
 def test_the_dashboard_list_and_totals_follow_them(client):
     html = client.get('/dashboard?power=1').get_data(as_text=True)
-    assert set(re.findall(r'<a href="/rides/(\w+)">', html)) == {'garmin_1', 'imp_zw'}
+    assert set(re.findall(r'<a href="/activities/(\w+)">', html)) == {'garmin_1', 'imp_zw'}
     assert re.search(r'>2h 30m</div>\s*<div class="m-label">Total Time', html)      # 1:30 + 1:00 with power, not every activity's time

@@ -1,4 +1,4 @@
-"""What an activity's page shows for its sport (routes/rides.detail, templates/ride.html), worked out from what's stored: the streams, and the
+"""What an activity's page shows for its sport (routes/activities.detail, templates/activity.html), worked out from what's stored: the streams, and the
 device's laps and a pool swim's lengths (Activity.laps, services/parser.fit_laps).
 
 - view(sport): which page an activity gets. 'ride'; 'foot' (walk, run, hike): pace, splits per mile or km, cadence in steps a minute;

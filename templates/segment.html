@@ -191,7 +191,7 @@
         </td>
         <td data-sort="{{ e.activityDate }}" style="color:var(--text-muted);">{{ e.activityDate | fmt_date }}</td>
         <td data-sort="{{ e.ride_name }}">
-          <a href="{{ url_for('rides.detail', rid=e.ride_id) }}" style="font-size:0.9375rem;">
+          <a href="{{ url_for('activities.detail', rid=e.ride_id) }}" style="font-size:0.9375rem;">
             {% if on_foot %}<span title="{{ e.sportType | sport_label }}">{{ e.sportType | sport_icon }}</span> {% elif e.cls == 'ebike' %}<span title="E-bike">⚡</span> {% endif %}{{ e.ride_name }}
           </a>
           {% if laps.get(e.id) %}<span style="margin-left:0.3rem; font-size:0.75rem; color:var(--text-muted);">lap {{ laps[e.id] }}</span>{% endif %}

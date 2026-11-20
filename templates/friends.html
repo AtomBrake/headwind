@@ -91,7 +91,7 @@
   <div class="card-title">Your Friends</div>
   {% for f in friends if f.new %}
   <div class="flash flash-success fr-news">
-    <span><b>{{ f.name }}</b>: {{ f.new.text }}, {% if f.new.n > 1 %}the latest {% endif %}<a href="{{ url_for('rides.detail', rid=f.new.newest.id) }}">{{ f.new.newest.name or (f.new.newest.sportType | sport_label) }}</a>, {{ f.new.newest.when }}{% if f.new.n > 1 %}
+    <span><b>{{ f.name }}</b>: {{ f.new.text }}, {% if f.new.n > 1 %}the latest {% endif %}<a href="{{ url_for('activities.detail', rid=f.new.newest.id) }}">{{ f.new.newest.name or (f.new.newest.sportType | sport_label) }}</a>, {{ f.new.newest.when }}{% if f.new.n > 1 %}
       · <a href="{{ url_for('dashboard.activities_page', rider=f.riderId) }}">all {{ f.name }}'s activities</a>{% endif %}</span>
     <form method="POST" action="{{ url_for('friends.seen', fid=f.id) }}">
       <button type="submit" class="fr-x" title="Dismiss" aria-label="Dismiss">×</button>
@@ -121,7 +121,7 @@
         </td>
         <td data-label="Latest" data-sort="{{ f.latest.startDateLocal if f.latest else '' }}">
           {% if f.latest %}
-          {{ f.latest.sportType | sport_icon }} <a href="{{ url_for('rides.detail', rid=f.latest.id) }}">{{ f.latest.name or (f.latest.sportType | sport_label) }}</a>
+          {{ f.latest.sportType | sport_icon }} <a href="{{ url_for('activities.detail', rid=f.latest.id) }}">{{ f.latest.name or (f.latest.sportType | sport_label) }}</a>
           <span class="muted">· {{ f.latest.when }}{% if f.latest.distance %} · {{ f.latest.distance | fmt_dist }}{% endif %}</span>
           {% else %}<span class="muted">None yet</span>{% endif %}
         </td>
@@ -167,7 +167,7 @@
     </label>
     <div class="fr-field">Shares
       <div class="checks fr-checks">
-        <label class="check"><input type="checkbox" name="shareRides" value="1" checked> Activities</label>
+        <label class="check"><input type="checkbox" name="shareActivities" value="1" checked> Activities</label>
         <label class="check"><input type="checkbox" name="shareSegments" value="1" checked> Segments</label>
         <label class="check"><input type="checkbox" name="shareFoods" value="1" checked> Foods</label>
       </div>
@@ -231,7 +231,7 @@
       {% for t in feed_tokens %}
       {% set shared = [] %}
       {% set whose = own_riders | selectattr('id', 'in', t.riders) | map(attribute='name') | join(', ') %}
-      {% if t.shareRides %}{% set _ = shared.append('Activities (' ~ (whose or 'no one') ~ ')') %}{% endif %}
+      {% if t.shareActivities %}{% set _ = shared.append('Activities (' ~ (whose or 'no one') ~ ')') %}{% endif %}
       {% if t.shareSegments %}{% set _ = shared.append('Segments') %}{% endif %}
       {% if t.shareFoods %}{% set _ = shared.append('Foods') %}{% endif %}
       <tr{% if t.revokedAt %} class="revoked"{% endif %}>
@@ -255,7 +255,7 @@
           <form method="POST" action="{{ url_for('friends.update_token', tid=t.id) }}" class="fr-grid fr-edit">
             <div class="fr-field">Shares
               <div class="checks fr-checks">
-                <label class="check"><input type="checkbox" name="shareRides" value="1" {% if t.shareRides %}checked{% endif %}> Activities</label>
+                <label class="check"><input type="checkbox" name="shareActivities" value="1" {% if t.shareActivities %}checked{% endif %}> Activities</label>
                 <label class="check"><input type="checkbox" name="shareSegments" value="1" {% if t.shareSegments %}checked{% endif %}> Segments</label>
                 <label class="check"><input type="checkbox" name="shareFoods" value="1" {% if t.shareFoods %}checked{% endif %}> Foods</label>
               </div>

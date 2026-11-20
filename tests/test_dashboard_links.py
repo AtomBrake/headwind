@@ -51,13 +51,13 @@ def test_deleting_a_ride_updates_every_dashboard_number_at_once(client, monkeypa
     html, weekly, _ = _page(client)
     assert max(w['dist_m'] for w in weekly) > 18000 * 1609 and 'huge' in html
 
-    assert client.post('/rides/huge/delete').status_code == 302
+    assert client.post('/activities/huge/delete').status_code == 302
     html, weekly, speed = _page(client)
     assert max(w['dist_m'] for w in weekly) < 20 * 1609 and 'huge' not in html
     assert all(r['id'] != 'huge' for r in speed)
     assert pushed, 'the Home Assistant sensors are re-published after a web delete'
 
-    client.post('/rides/old/delete')                    # a year old: in the lifetime totals, never in the 12-week bars
+    client.post('/activities/old/delete')                    # a year old: in the lifetime totals, never in the 12-week bars
     html, _, _ = _page(client)
     assert '28,0' not in html and '18.6 mi' in html     # the total is only the one good ride now
 
@@ -115,7 +115,7 @@ def test_blips_go_in_one_click_and_the_rest_stay_flagged(client):
         db.commit()
     html, _, _ = _page(client)
     assert 'Delete all 2 blips (under 160 m, or nothing recorded)' in html
-    assert client.post('/rides/flagged/delete-blips').status_code == 302
+    assert client.post('/activities/flagged/delete-blips').status_code == 302
     with client.application.app_context():
         left = {f['id'] for f in sanity.flagged(database.get_db(), 1)}
     assert left == {'spiky'}
@@ -131,17 +131,17 @@ def test_a_run_whose_file_made_its_moving_time_seconds_takes_the_elapsed_time(cl
         db.commit()
     html, _, _ = _page(client)
     assert "fixFlagged('gpx', 'moving/elapsed')" in html and 'Use the elapsed time (1:10:00)' in html and 'gives 9:34 /mi' in html
-    assert 'Use the elapsed time (1:10:00)' in client.get('/rides/gpx').get_data(as_text=True)
-    assert client.post('/rides/gpx/moving/elapsed').get_json() == {'ok': True, 'flagged': False}
-    page = client.get('/rides/gpx').get_data(as_text=True)
+    assert 'Use the elapsed time (1:10:00)' in client.get('/activities/gpx').get_data(as_text=True)
+    assert client.post('/activities/gpx/moving/elapsed').get_json() == {'ok': True, 'flagged': False}
+    page = client.get('/activities/gpx').get_data(as_text=True)
     assert 'looks wrong' not in page and 'Elapsed time: the file said 0:09' in page
-    assert client.post('/rides/gpx/moving/elapsed').status_code == 404 and client.post('/rides/nope/moving/elapsed').status_code == 404
+    assert client.post('/activities/gpx/moving/elapsed').status_code == 404 and client.post('/activities/nope/moving/elapsed').status_code == 404
 
 
 def test_activity_type_review_page_lists_pending_changes(client):
     with client.application.app_context():
         db = database.get_db()
-        db.execute("INSERT INTO SportFix (rideId, riderId, name, startDateLocal, distance, oldSport, newSport, typeKey) "
+        db.execute("INSERT INTO SportFix (activityId, riderId, name, startDateLocal, distance, oldSport, newSport, typeKey) "
                    "VALUES ('good', 1, 'Pool Swimming', '2021-07-19T08:00:00', 140, 'Ride', 'Swim', 'lap_swimming')")
         db.commit()
     html = client.get('/garmin/sports').get_data(as_text=True)
@@ -190,7 +190,7 @@ def test_a_list_with_nothing_this_month_opens_on_the_newest_month(client):
 
 
 def test_an_activity_goes_back_to_the_list_with_its_filters(client):
-    crumb = lambda: re.search(r'<span class="crumb"><a href="([^"]*)">(\w+)</a>', client.get('/rides/good').get_data(as_text=True)).groups()
+    crumb = lambda: re.search(r'<span class="crumb"><a href="([^"]*)">(\w+)</a>', client.get('/activities/good').get_data(as_text=True)).groups()
     assert crumb() == ('/activities', 'Activities'), 'no list seen yet: the plain list'
 
     client.get('/activities?q=goo&skip=Run&typed=1|0|Ride')

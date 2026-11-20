@@ -44,7 +44,7 @@ const METRICS = {
 if (rateStyle) {
   const pace = rateStyle !== 'speed', unit = pace ? UNITS.paceLabel(rateStyle) : UNITS.speed;
   METRICS.speed = { type: 'line', label: unit, sub: 'This year, per activity' + (pace ? ' (faster is higher)' : ''), labels: yearSpeedData.map(r => fmtDate(r.d)),
-                    names: yearSpeedData.map(r => r.name), links: yearSpeedData.map(r => '/rides/' + encodeURIComponent(r.id)), hint: 'Click to open this activity',
+                    names: yearSpeedData.map(r => r.name), links: yearSpeedData.map(r => '/activities/' + encodeURIComponent(r.id)), hint: 'Click to open this activity',
                     reverse: pace, fmt: v => (pace ? UNITS.fmtMinSec(v) : v.toFixed(1)) + ' ' + unit, tick: pace ? (v => UNITS.fmtMinSec(v)) : null,
                     datasets: [{ label: unit, color: chartGroups[0] ? chartGroups[0].color : '--accent',
                                  data: yearSpeedData.map(r => pace ? Math.round(UNITS.toPace(r.mps, rateStyle)) : onePlace(UNITS.toSpeed(r.mps))) }] };

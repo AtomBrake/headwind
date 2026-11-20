@@ -227,3 +227,37 @@ def test_one_process_migrates_at_a_time(tmp_path):
         fcntl.flock(f, fcntl.LOCK_UN)
     t.join(30)
     assert done.is_set()
+
+
+def test_step_10_renames_ride_tables_and_columns_and_keeps_every_row(tmp_path):
+    """RideMemory, RideSensor and the rideId columns of the tables that hold every sport take activity names, with their rows."""
+    old = tmp_path / 'rides.db'
+    _from_sql(old, 'schema_step_1.sql', 1)
+    conn = sqlite3.connect(old)
+    conn.executescript("""
+        INSERT INTO RideMemory (rideId, rideDate, rideName, aiSummary) VALUES ('a1', '2026-11-01', 'Box Hill', 'Strong.');
+        INSERT INTO RideSensor (riderId, clientId, startUtc, endUtc, data, rideKind, rideId) VALUES (1, 'c1', 's', 'e', '[]', 'activity', 'a1');
+        INSERT INTO FeedToken (name, tokenHash, shareRides) VALUES ('Sam', 'h', 0);
+        INSERT INTO ImportChange (rideId, riderId, rideName, diffs, act) VALUES ('a1', 1, 'Box Hill', '[]', '{}');
+        INSERT INTO ImportProblem (rideId, riderId, rideName, problem) VALUES ('a2', 1, 'Run', 'no track');
+        INSERT INTO SportFix (rideId, riderId, newSport, status) VALUES ('a3', 1, 'EBikeRide', 'kept');   -- pending ones for no activity are tidied away
+        INSERT INTO GarminChange (rideId, garminId, riderId, rideName, kind) VALUES ('a4', '4', 1, 'Swim', 'deleted');
+    """)
+    conn.commit()
+    conn.close()
+    _migrate(old)
+    conn = sqlite3.connect(old)
+    try:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert not {'RideMemory', 'RideSensor'} & tables
+        assert conn.execute('SELECT activityId, activityDate, activityName, aiSummary FROM ActivityMemory').fetchall() == [('a1', '2026-11-01', 'Box Hill', 'Strong.')]
+        assert conn.execute('SELECT activityKind, activityId FROM ActivitySensor').fetchall() == [('activity', 'a1')]
+        assert conn.execute('SELECT shareActivities FROM FeedToken').fetchall() == [(0,)]
+        assert conn.execute('SELECT activityId, activityName FROM ImportChange').fetchall() == [('a1', 'Box Hill')]
+        assert conn.execute('SELECT activityId, activityName FROM ImportProblem').fetchall() == [('a2', 'Run')]
+        assert conn.execute('SELECT activityId FROM SportFix').fetchall() == [('a3',)]
+        assert conn.execute('SELECT activityId, activityName FROM GarminChange').fetchall() == [('a4', 'Swim')]
+        assert conn.execute("SELECT 1 FROM sqlite_master WHERE name='idx_activitysensor_activity'").fetchone()
+        assert not conn.execute("SELECT 1 FROM sqlite_master WHERE name='idx_ridesensor_ride'").fetchone()
+    finally:
+        conn.close()

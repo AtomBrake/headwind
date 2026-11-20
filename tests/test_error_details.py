@@ -64,10 +64,10 @@ def _quotes_id(msg, r):
 def test_kudos_hides_the_exception_but_keeps_our_own_words(client, monkeypatch):
     import routes.kudos
     monkeypatch.setattr(routes.kudos, 'analyse_ride', _raise(RuntimeError(LEAK)))
-    r = client.post('/rides/r1/kudos', json={})
+    r = client.post('/activities/r1/kudos', json={})
     assert r.status_code == 500 and _quotes_id(r.get_json()['error'], r)
     monkeypatch.setattr(routes.kudos, 'analyse_ride', _raise(ai.AIUnavailable('Add an AI key in Settings to enable AI coaching')))
-    assert client.post('/rides/r1/kudos', json={}).get_json()['error'] == 'Add an AI key in Settings to enable AI coaching'
+    assert client.post('/activities/r1/kudos', json={}).get_json()['error'] == 'Add an AI key in Settings to enable AI coaching'
 
 
 def test_bulk_analyse_sends_no_traceback(client, monkeypatch):

@@ -43,13 +43,13 @@
   <div style="margin-top:0.75rem; font-size:0.8125rem; font-weight:600; color:var(--text-muted);">{{ sport | sport_icon }} {{ sport | sport_label }} ({{ group | length }})</div>
   {% for f in group %}
   <label class="check" style="margin:0; padding:0.4rem 0; border-top:1px solid var(--divider);">
-    <input type="checkbox" name="ride" value="{{ f.rideId }}"{% if f.parked %} data-parked{% endif %} checked>
+    <input type="checkbox" name="ride" value="{{ f.activityId }}"{% if f.parked %} data-parked{% endif %} checked>
     <span style="flex:1; min-width:0;">
-      <a href="/rides/{{ f.rideId }}" style="color:var(--text);">{{ f.startDateLocal | fmt_date }} · {{ f.name or 'Activity' }}</a>
+      <a href="/activities/{{ f.activityId }}" style="color:var(--text);">{{ f.startDateLocal | fmt_date }} · {{ f.name or 'Activity' }}</a>
       <span style="color:var(--text-muted);"> · {{ f.distance | fmt_dist }} · saved as {{ f.oldSport }}, Garmin says {{ f.typeKey | replace('_', ' ') }}</span>
       {% if f.parked %}<br><span style="color:var(--text-muted);">Another recording of this session is set aside under it and will be removed too ·
-        <a href="{{ url_for('rides.view_duplicate', rid=f.rideId) }}">view</a> ·
-        <a href="{{ url_for('rides.view_duplicate', rid=f.rideId, compare=1) }}">compare</a></span>
+        <a href="{{ url_for('activities.view_duplicate', rid=f.activityId) }}">view</a> ·
+        <a href="{{ url_for('activities.view_duplicate', rid=f.activityId, compare=1) }}">compare</a></span>
       {% elif f.error %}<br><span style="color:var(--warning);">{{ f.error }}</span>{% endif %}
     </span>
   </label>

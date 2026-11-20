@@ -43,10 +43,10 @@ def ensure_schema(db):
     if 'cropChecked' not in {r[1] for r in db.execute('PRAGMA table_info(GarminSeen)').fetchall()}:
         db.execute('ALTER TABLE GarminSeen ADD COLUMN cropChecked INTEGER NOT NULL DEFAULT 0')
     db.execute('''CREATE TABLE IF NOT EXISTS GarminChange (
-        rideId    TEXT PRIMARY KEY,
+        activityId    TEXT PRIMARY KEY,
         garminId  TEXT NOT NULL,
         riderId   INTEGER,
-        rideName  TEXT,
+        activityName  TEXT,
         kind      TEXT NOT NULL,             -- deleted | edited
         diffs     TEXT NOT NULL DEFAULT '[]',     -- edited: [{field: name | sport, old, new}]
         garmin    TEXT,                      -- edited: Garmin's summary now, the baseline once it's settled
@@ -254,7 +254,7 @@ def check(db, api, rider_id, start, end, whole=False):
             continue
         flag = flags.get(gid)
         if flag and flag['kind'] == 'deleted':                 # back in Garmin's list: it wasn't deleted after all
-            db.execute('DELETE FROM GarminChange WHERE rideId=?', [flag['rideId']])
+            db.execute('DELETE FROM GarminChange WHERE activityId=?', [flag['activityId']])
             res['back'] += 1
             flag = None
         if row['id'] in stepped and _put_in_step(db, api, a, row['id']):
@@ -275,11 +275,11 @@ def check(db, api, rider_id, start, end, whole=False):
             continue
         diffs = _edits(row, old, new)
         if diffs and not (flag and json.loads(flag['diffs']) == diffs):
-            db.execute('INSERT OR REPLACE INTO GarminChange (rideId, garminId, riderId, rideName, kind, diffs, garmin) VALUES (?,?,?,?,?,?,?)',
+            db.execute('INSERT OR REPLACE INTO GarminChange (activityId, garminId, riderId, activityName, kind, diffs, garmin) VALUES (?,?,?,?,?,?,?)',
                        [row['id'], gid, rider_id, row['name'], 'edited', json.dumps(diffs), json.dumps(new)])
             res['edited'] += 1
         elif not diffs and flag:                                # put back in Garmin before it was reviewed
-            db.execute('DELETE FROM GarminChange WHERE rideId=?', [flag['rideId']])
+            db.execute('DELETE FROM GarminChange WHERE activityId=?', [flag['activityId']])
         if _moved(old, new):
             if _recording_changed(db, api, a, row['id']) is not None:
                 _accept(db, gid, {**old, 'distance': new['distance'], 'duration': new['duration'], 'start': new['start']})
@@ -302,7 +302,7 @@ def check(db, api, rider_id, start, end, whole=False):
         flag = flags.get(gid)
         if flag and flag['kind'] == 'deleted':
             continue                                            # flagged already, or kept here
-        db.execute("INSERT OR REPLACE INTO GarminChange (rideId, garminId, riderId, rideName, kind) VALUES (?,?,?,?,'deleted')",
+        db.execute("INSERT OR REPLACE INTO GarminChange (activityId, garminId, riderId, activityName, kind) VALUES (?,?,?,?,'deleted')",
                    [r['id'], gid, rider_id, r['name']])
         res['deleted'] += 1
     db.commit()
@@ -481,8 +481,8 @@ def pending(db, rider_id=None):
     from services import duplicates
     duplicates.ensure_schema(db)
     rows = db.execute(f"""SELECT c.*, a.startDateLocal, a.distance, a.sportType,
-                                 (SELECT COUNT(*) FROM ActivityDuplicate d WHERE d.primaryId=c.rideId AND d.status='parked') AS parked
-                          FROM GarminChange c JOIN Activity a ON a.id = c.rideId
+                                 (SELECT COUNT(*) FROM ActivityDuplicate d WHERE d.primaryId=c.activityId AND d.status='parked') AS parked
+                          FROM GarminChange c JOIN Activity a ON a.id = c.activityId
                           WHERE c.status='pending' {'AND c.riderId=?' if rider_id else ''}
                           ORDER BY c.kind, a.startDateLocal DESC""", [rider_id] if rider_id else []).fetchall()
     return [dict(r, diffs=json.loads(r['diffs'] or '[]')) for r in rows]
@@ -491,7 +491,7 @@ def pending(db, rider_id=None):
 def for_ride(db, ride_id):
     """The pending change for one activity (its page shows it), or None."""
     ensure_schema(db)
-    r = db.execute("SELECT * FROM GarminChange WHERE rideId=? AND status='pending'", [ride_id]).fetchone()
+    r = db.execute("SELECT * FROM GarminChange WHERE activityId=? AND status='pending'", [ride_id]).fetchone()
     return dict(r, diffs=json.loads(r['diffs'] or '[]')) if r else None
 
 
@@ -499,19 +499,19 @@ def resolve(db, ride_id, choice):
     """Settle one flag. Deleted in Garmin: 'keep' (never flagged again) or 'delete' (the usual delete). Renamed or new sport: 'garmin' (take Garmin's)
     or 'keep'; either way Garmin's values become the baseline, so the same change isn't flagged again. Returns 'deleted', 'changed' or None.
     Raises ValueError for a choice that doesn't fit the flag or a sport change that can't be made. Does not commit."""
-    r = db.execute("SELECT * FROM GarminChange WHERE rideId=? AND status='pending'", [ride_id]).fetchone()
+    r = db.execute("SELECT * FROM GarminChange WHERE activityId=? AND status='pending'", [ride_id]).fetchone()
     if not r:
         return None
     if r['kind'] == 'deleted':
         if choice == 'keep':
-            db.execute("UPDATE GarminChange SET status='kept' WHERE rideId=?", [ride_id])
+            db.execute("UPDATE GarminChange SET status='kept' WHERE activityId=?", [ride_id])
             return None
         if choice != 'delete':
             raise ValueError('choose keep or delete')
         from services import duplicates
-        db.execute('DELETE FROM GarminChange WHERE rideId=?', [ride_id])
+        db.execute('DELETE FROM GarminChange WHERE activityId=?', [ride_id])
         duplicates.delete_activity(db, ride_id, by_garmin=True)       # only Garmin's record went: a copy set aside behind it stays
-        db.execute('DELETE FROM RideMemory WHERE rideId=?', [ride_id])
+        db.execute('DELETE FROM ActivityMemory WHERE activityId=?', [ride_id])
         return 'deleted'
     if choice not in ('garmin', 'keep'):
         raise ValueError("choose garmin or keep")
@@ -527,5 +527,5 @@ def resolve(db, ride_id, choice):
     seen = _seen(db, r['garminId']) or {}
     now = json.loads(r['garmin'] or '{}')
     _accept(db, r['garminId'], {**seen, 'name': now.get('name', seen.get('name')), 'typeKey': now.get('typeKey', seen.get('typeKey'))})
-    db.execute('DELETE FROM GarminChange WHERE rideId=?', [ride_id])
+    db.execute('DELETE FROM GarminChange WHERE activityId=?', [ride_id])
     return changed

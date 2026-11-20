@@ -229,7 +229,7 @@ def test_a_file_still_unreadable_is_listed_and_kept_on_the_import_page(app, clie
         assert done['imported'] == 2 and done['unread'] == [{'id': '9', 'name': 'Tour', 'file': 'activities/9.fit'}]
         assert done['noun'] == 'rides'
     page = client.get('/import').get_data(as_text=True)
-    assert "1 file couldn't be read" in page and 'activities/9.fit' in page and '/rides/9' in page
+    assert "1 file couldn't be read" in page and 'activities/9.fit' in page and '/activities/9' in page
     files['activities/9.fit'] = fit_file(track())                    # a later Headwind reads it, or a better export: off the list
     with app.app_context():
         run(export(rows, files))
@@ -341,7 +341,7 @@ def test_an_impossible_climb_takes_stravas_and_drops_the_altitude(app, client):
         raw = json.loads(r['rawData'])
         assert raw['stravaClimb'] == 195 and raw['fileClimb'] > 9000 and raw['altitudeDropped']
         assert 'altitude' not in _streams('5')
-    page = client.get('/rides/5').get_data(as_text=True)
+    page = client.get('/activities/5').get_data(as_text=True)
     assert "Strava's figure: the file said" in page
 
 
@@ -369,8 +369,8 @@ def test_use_stravas_climb_on_a_flagged_ride(app, client):
         db.commit()
         assert sanity.flagged(db, 1)[0]['stravaClimb'] == 2714
     assert "Use Strava's climb (8,904 ft)" in client.get('/dashboard').get_data(as_text=True)
-    assert client.post('/rides/w/climb/strava').get_json() == {'ok': True, 'flagged': False}
+    assert client.post('/activities/w/climb/strava').get_json() == {'ok': True, 'flagged': False}
     with app.app_context():
         r = database.get_db().execute(f"SELECT totalElevationGain, {stream_store.sql()}, rawData FROM Activity WHERE id='w'").fetchone()
         assert r['totalElevationGain'] == 2714 and 'altitude' not in json.loads(r['streams']) and json.loads(r['rawData'])['fileClimb'] == 41539
-    assert client.post('/rides/nope/climb/strava').status_code == 404
+    assert client.post('/activities/nope/climb/strava').status_code == 404

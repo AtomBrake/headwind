@@ -169,20 +169,20 @@ def store(db, rider_id, payload):
     summary['roughest'] = roughest(clean['rows'])
     start_iso = datetime.fromtimestamp(clean['start_ms'] / 1000, timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
     end_iso = datetime.fromtimestamp(clean['end_ms'] / 1000, timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
-    row = db.execute('SELECT id FROM RideSensor WHERE clientId=?', [clean['client_id']]).fetchone()
+    row = db.execute('SELECT id FROM ActivitySensor WHERE clientId=?', [clean['client_id']]).fetchone()
     vals = [json.dumps(clean['rows'], separators=(',', ':')), json.dumps(summary, separators=(',', ':')), clean['device'], clean['mount'], clean['sensors_only']]
     if row:
         sid = row[0]
-        db.execute('UPDATE RideSensor SET data=?, summary=?, device=?, mount=?, sensorsOnly=?, startUtc=?, endUtc=? WHERE id=?', vals + [start_iso, end_iso, sid])
+        db.execute('UPDATE ActivitySensor SET data=?, summary=?, device=?, mount=?, sensorsOnly=?, startUtc=?, endUtc=? WHERE id=?', vals + [start_iso, end_iso, sid])
     else:
-        db.execute('INSERT INTO RideSensor (riderId, clientId, startUtc, endUtc, data, summary, device, mount, sensorsOnly) VALUES (?,?,?,?,?,?,?,?,?)',
+        db.execute('INSERT INTO ActivitySensor (riderId, clientId, startUtc, endUtc, data, summary, device, mount, sensorsOnly) VALUES (?,?,?,?,?,?,?,?,?)',
                    [rider_id, clean['client_id'], start_iso, end_iso] + vals)
         sid = db.execute('SELECT last_insert_rowid()').fetchone()[0]
     return {'id': sid, 'attached': attach(db, sid)}, None
 
 
 def _candidates(db, rider_id):
-    """(kind, id, start_ms, end_ms) for the rider's rides and workouts; kind is 'activity' for a ride, as RideSensor.rideKind has always had it."""
+    """(kind, id, start_ms, end_ms) for the rider's rides and workouts; kind is 'activity' for a ride, as ActivitySensor.activityKind has always had it."""
     out = []
     for r in db.execute('SELECT id, startDate, sportType, COALESCE(elapsedTime, movingTime, 0) AS d FROM Activity WHERE riderId=? AND startDate IS NOT NULL',
                         [rider_id]).fetchall():
@@ -212,15 +212,15 @@ def _best_overlap(sensor_span, cands):
 
 def attach(db, sensor_id):
     """Link a sidecar to the ride/workout that overlaps it most (at least half of the shorter span). Returns {'kind', 'id'} or None. Does not commit."""
-    s = db.execute('SELECT riderId, startUtc, endUtc FROM RideSensor WHERE id=?', [sensor_id]).fetchone()
+    s = db.execute('SELECT riderId, startUtc, endUtc FROM ActivitySensor WHERE id=?', [sensor_id]).fetchone()
     if not s:
         return None
     span = (_utc_ms(s['startUtc']), _utc_ms(s['endUtc']))
     best = _best_overlap(span, _candidates(db, s['riderId']))
     if not best:
-        db.execute('UPDATE RideSensor SET rideKind=NULL, rideId=NULL WHERE id=?', [sensor_id])
+        db.execute('UPDATE ActivitySensor SET activityKind=NULL, activityId=NULL WHERE id=?', [sensor_id])
         return None
-    db.execute('UPDATE RideSensor SET rideKind=?, rideId=? WHERE id=?', [best[1], best[2], sensor_id])
+    db.execute('UPDATE ActivitySensor SET activityKind=?, activityId=? WHERE id=?', [best[1], best[2], sensor_id])
     return {'kind': best[1], 'id': best[2]}
 
 
@@ -234,17 +234,17 @@ def attach_for_ride(db, ride_id):
         if s0 is None or not r['d']:
             return
         kind, span = _kind(r['sportType']), (s0, s0 + int(r['d']) * 1000)
-        for s in db.execute('SELECT id, startUtc, endUtc FROM RideSensor WHERE riderId=? AND (rideId IS NULL OR rideId=?)', [r['riderId'], ride_id]).fetchall():
+        for s in db.execute('SELECT id, startUtc, endUtc FROM ActivitySensor WHERE riderId=? AND (activityId IS NULL OR activityId=?)', [r['riderId'], ride_id]).fetchall():
             best = _best_overlap((_utc_ms(s['startUtc']), _utc_ms(s['endUtc'])), [(kind, ride_id, span[0], span[1])])
             if best:
-                db.execute('UPDATE RideSensor SET rideKind=?, rideId=? WHERE id=?', [kind, ride_id, s['id']])
+                db.execute('UPDATE ActivitySensor SET activityKind=?, activityId=? WHERE id=?', [kind, ride_id, s['id']])
     except Exception as e:
         log.warning('sensor attach for %s failed (non-fatal): %s', ride_id, e)
 
 
 def for_ride(db, ride_id, max_points=500):
     """The sidecar attached to a ride, shaped for display: summary plus thinned series against minutes since the ride started. None if there is none."""
-    s = db.execute('SELECT id, startUtc, endUtc, data, summary, device, mount, sensorsOnly, rideKind FROM RideSensor WHERE rideId=? ORDER BY id DESC LIMIT 1', [ride_id]).fetchone()
+    s = db.execute('SELECT id, startUtc, endUtc, data, summary, device, mount, sensorsOnly, activityKind FROM ActivitySensor WHERE activityId=? ORDER BY id DESC LIMIT 1', [ride_id]).fetchone()
     if not s:
         return None
     rows = json.loads(s['data'])
@@ -288,7 +288,7 @@ def rebuild_activity(rider_id, sensor_id, sport='Walk', name=None):
     Returns (workout dict, created) like workouts.save_from_gpx; the sidecar then attaches to it by time. ValueError if there is no usable track."""
     from database import get_db
     from services import workouts
-    row = get_db().execute('SELECT clientId, data FROM RideSensor WHERE id=? AND riderId=?', [sensor_id, rider_id]).fetchone()
+    row = get_db().execute('SELECT clientId, data FROM ActivitySensor WHERE id=? AND riderId=?', [sensor_id, rider_id]).fetchone()
     if not row:
         raise ValueError('no such sensor recording')
     gpx = to_gpx(json.loads(row['data']))

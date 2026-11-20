@@ -311,7 +311,7 @@ def changes_resolve(ride_id, choice):
     from services.ingest import after_ride_removed
     db = get_db()
     pending = garmin_changes.pending(db)
-    ids = [c['rideId'] for c in pending if c['kind'] == ride_id] if ride_id in ('deleted', 'edited') else [ride_id]
+    ids = [c['activityId'] for c in pending if c['kind'] == ride_id] if ride_id in ('deleted', 'edited') else [ride_id]
     try:
         done = [garmin_changes.resolve(db, i, choice) for i in ids]
     except ValueError as e:
@@ -327,5 +327,5 @@ def changes_resolve(ride_id, choice):
           f"Took Garmin's name or sport for {changed} activit{'ies' if changed != 1 else 'y'}." if choice == 'garmin' else
           f"Kept {n} activit{'ies' if n != 1 else 'y'} as {'they are' if n != 1 else 'it is'} here.", 'success')
     if request.form.get('back') == 'ride' and not deleted:
-        return redirect(url_for('rides.detail', rid=ride_id))
+        return redirect(url_for('activities.detail', rid=ride_id))
     return redirect(url_for('import_rides.index') + '#garmin-changes')

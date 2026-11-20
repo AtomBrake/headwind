@@ -8,7 +8,7 @@
 <div class="act-row" data-pick="{{ a.id }}">
   <span class="act-icon" title="{{ sport | sport_label }}">{{ sport | sport_icon }}</span>
   <div class="act-main">
-    <div class="act-name"><a href="/rides/{{ a.id }}">{{ a.name or sport | sport_label }}</a>
+    <div class="act-name"><a href="/activities/{{ a.id }}">{{ a.name or sport | sport_label }}</a>
       {%- if a.aiKudos %}<span class="act-tag ai" title="The AI coach has looked at this one">AI</span>{% endif %}
       {%- if a.source == 'sensor-recovery' %}<span class="act-tag recovered">RECOVERED</span>
       {%- elif a.id.startswith('garmin_') %}<span class="act-tag garmin">GARMIN</span>

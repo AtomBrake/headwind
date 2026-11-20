@@ -299,7 +299,7 @@ function showTrack(route) {
   var src = document.getElementById('trackSource');
   src.innerHTML = (route.sportType ? escapeHtml(route.sportType.replace(/([a-z])([A-Z])/g, '$1 $2')) + ', ' : '') +
     (route.source === 'activity' && route.sourceId
-      ? '<a href="/rides/' + encodeURIComponent(route.sourceId) + '" style="color:var(--accent)">' + SOURCES.activity + '</a>'
+      ? '<a href="/activities/' + encodeURIComponent(route.sourceId) + '" style="color:var(--accent)">' + SOURCES.activity + '</a>'
       : escapeHtml(SOURCES[route.source] || route.source)) + ' &middot; ' + route.track.length + ' points';
   document.getElementById('trackDist').textContent = UNITS.toDist(route.distM).toFixed(1) + ' ' + UNITS.dist;
   document.getElementById('trackGain').textContent = route.gainM != null ? Math.round(UNITS.toElev(route.gainM)) + ' ' + UNITS.elev : '—';

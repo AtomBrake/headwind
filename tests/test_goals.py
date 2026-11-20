@@ -165,7 +165,7 @@ def test_a_deleted_challenge_takes_its_invitation_with_it(pair):
 
 def test_a_challenge_isnt_offered_to_a_token_that_doesnt_share_rides(pair):
     tom, alex = pair
-    on(tom, lambda d: d.execute('UPDATE FeedToken SET shareRides=0'))
+    on(tom, lambda d: d.execute('UPDATE FeedToken SET shareActivities=0'))
     start(tom)
     sync(alex)
     assert board(alex) == []

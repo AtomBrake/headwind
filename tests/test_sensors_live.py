@@ -51,7 +51,7 @@ def add_ride(db, rid='garmin_1', start_ms=T0 - 30_000, secs=150, kind='ride'):
 def test_a_sidecar_is_validated_and_summarised(db):
     res, err = sensors.store(db, 1, payload())
     assert err is None and res['id']
-    row = db.execute('SELECT summary, mount, sensorsOnly FROM RideSensor').fetchone()
+    row = db.execute('SELECT summary, mount, sensorsOnly FROM ActivitySensor').fetchone()
     s = json.loads(row['summary'])
     assert s['samples'] == 120 and s['duration_s'] == 119 and s['rough_max'] > s['rough_mean'] > 0
     assert row['mount'] == 'bars' and row['sensorsOnly'] == 1
@@ -67,7 +67,7 @@ def test_junk_is_rejected(db):
 def test_upload_is_idempotent_per_client_id(db):
     sensors.store(db, 1, payload('same'))
     sensors.store(db, 1, payload('same'))
-    assert db.execute('SELECT COUNT(*) FROM RideSensor').fetchone()[0] == 1
+    assert db.execute('SELECT COUNT(*) FROM ActivitySensor').fetchone()[0] == 1
 
 
 def test_sidecar_attaches_to_a_ride_that_is_already_there(db):
@@ -81,7 +81,7 @@ def test_sidecar_waits_for_a_ride_that_arrives_later(db):
     assert res['attached'] is None
     add_ride(db, 'garmin_late')
     sensors.attach_for_ride(db, 'garmin_late')
-    assert db.execute('SELECT rideId FROM RideSensor').fetchone()[0] == 'garmin_late'
+    assert db.execute('SELECT activityId FROM ActivitySensor').fetchone()[0] == 'garmin_late'
 
 
 def test_a_ride_that_does_not_overlap_gets_nothing(db):
@@ -111,8 +111,8 @@ def test_deleting_the_ride_keeps_the_sidecar(db):
     add_ride(db)
     sensors.store(db, 1, payload())
     duplicates.delete_activity(db, 'garmin_1')
-    r = db.execute('SELECT rideId FROM RideSensor').fetchone()
-    assert r['rideId'] is None
+    r = db.execute('SELECT activityId FROM ActivitySensor').fetchone()
+    assert r['activityId'] is None
 
 
 def test_hard_braking_is_counted(db):
@@ -213,10 +213,10 @@ def test_a_sensors_only_recording_can_be_rebuilt_as_a_walk(db):
     from flask import current_app
     sensors.store(db, 1, payload('walk1', n=300, speed=1.4))
     db.commit()
-    sid = db.execute("SELECT id FROM RideSensor WHERE clientId='walk1'").fetchone()['id']
+    sid = db.execute("SELECT id FROM ActivitySensor WHERE clientId='walk1'").fetchone()['id']
     w, created = sensors.rebuild_activity(1, sid, 'Walk')
     assert created and w['sport'] == 'Walk' and w['distance'] > 100 and w['source'] == 'sensor-recovery'
-    assert db.execute('SELECT rideId FROM RideSensor WHERE id=?', [sid]).fetchone()['rideId'] == w['id']      # the sidecar is now attached to it
+    assert db.execute('SELECT activityId FROM ActivitySensor WHERE id=?', [sid]).fetchone()['activityId'] == w['id']      # the sidecar is now attached to it
     assert sensors.rebuild_activity(1, sid, 'Walk')[1] is False                                              # idempotent
     with pytest.raises(ValueError):
         sensors.rebuild_activity(1, 9999)

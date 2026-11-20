@@ -199,15 +199,15 @@ def index():
                 if climbing_by_year[yr][b] is None:
                     climbing_by_year[yr][b] = {
                         'ft':     round(ft),
-                        'ride':   r['name'],
-                        'rideId': r['id'],
+                        'name':       r['name'],
+                        'activityId': r['id'],
                         'date':   str(r['startDateLocal'])[:10],
                     }
                 if climbing_by_month[ym][b] is None:
                     climbing_by_month[ym][b] = {
                         'ft':     round(ft),
-                        'ride':   r['name'],
-                        'rideId': r['id'],
+                        'name':       r['name'],
+                        'activityId': r['id'],
                         'date':   str(r['startDateLocal'])[:10],
                     }
 
@@ -338,7 +338,7 @@ def _hms(secs):
 
 def _achievements(key, title, noun, rate_label, style, distances, rows, scan=False):
     """One best-times table for the Data page: {key, title, noun, rate_label, distances [(key, label)], by_year, by_month, rows, scan}. by_year and
-    by_month hold the quickest effort at each distance in that year or month: {period: {distance key: {secs, time, rate, ride, rideId, date}}}.
+    by_month hold the quickest effort at each distance in that year or month: {period: {distance key: {secs, time, rate, name, activityId, date}}}.
     `rate` is worded; `mps` is the number behind it.
     `rows` are sorted quickest first within each distance."""
     from services import units
@@ -346,7 +346,7 @@ def _achievements(key, title, noun, rate_label, style, distances, rows, scan=Fal
     for e in rows:
         day = str(e['activityDate'])
         rec = {'secs': e['elapsedSecs'], 'time': _hms(e['elapsedSecs']), 'rate': units.fmt_rate(e['avgSpeedMps'], style) if e['avgSpeedMps'] else '—',
-               'mps': e['avgSpeedMps'], 'ride': e['name'] or noun, 'rideId': e['activityId'], 'date': day[:10]}
+               'mps': e['avgSpeedMps'], 'name': e['name'] or noun, 'activityId': e['activityId'], 'date': day[:10]}
         by_year[day[:4]].setdefault(e['key'], rec)
         by_month[day[:7]].setdefault(e['key'], rec)
     return {'key': key, 'title': title, 'noun': noun, 'rate_label': rate_label, 'style': style, 'distances': distances, 'by_year': dict(by_year),

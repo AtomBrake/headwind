@@ -1,5 +1,5 @@
 // Select mode for activity lists (templates/_bulk_bar.html). In select mode a click on a row picks it instead of opening it; shift-click picks
-// everything between the last pick and this one. The bar at the bottom of the screen acts on the picked activities through POST /rides/bulk.
+// everything between the last pick and this one. The bar at the bottom of the screen acts on the picked activities through POST /activities/bulk.
 (function () {
   var bar = document.getElementById('bulkBar');
   if (!bar) return;
@@ -31,7 +31,7 @@
 
   function loadOptions() {
     optionsLoaded = true;
-    fetch('/rides/bulk/options').then(function (r) { return r.json(); }).then(function (d) {
+    fetch('/activities/bulk/options').then(function (r) { return r.json(); }).then(function (d) {
       var sport = bar.querySelector('[name=sport]'), bike = bar.querySelector('[name=bike]'), rider = bar.querySelector('[name=rider]'), kit = bar.querySelector('[name=kit]');
       d.sports.forEach(function (s) { sport.add(new Option(s.label, s.value)); });
       d.riders.forEach(function (r) {
@@ -90,7 +90,7 @@
       ids.appendChild(i);
     });
     bar.querySelector('[name=action]').value = action;
-    bar.action = action === 'download' ? '/rides/bulk/download' : '/rides/bulk';
+    bar.action = action === 'download' ? '/activities/bulk/download' : '/activities/bulk';
     if (extra) extra();
     bar.submit();
   }

@@ -1031,7 +1031,7 @@ def push_update(activity=None, background=False):
                     ha_device  = rider['haDevice']
 
             from services import external_url
-            url     = f"{external_url.get()}/rides/{act.get('id', '')}"
+            url     = f"{external_url.get()}/activities/{act.get('id', '')}"
             prs = query_db('SELECT COUNT(*) AS n FROM SegmentEffort WHERE activityId=? AND isPR=1', [act.get('id')], one=True)
             ytd = None
             if act.get('riderId') and act.get('startDateLocal'):

@@ -141,7 +141,7 @@ def client(tmp_path, monkeypatch):
 
 
 def test_the_ride_page_dashboard_and_gear_page_point_at_the_difference(client):
-    ride = client.get('/rides/garmin_1').get_data(as_text=True)
+    ride = client.get('/activities/garmin_1').get_data(as_text=True)
     assert 'Different bike:' in ride and 'Use Charles' in ride and 'Amflow is right' in ride
     assert 'Gear to check' in client.get('/dashboard').get_data(as_text=True)
     assert '/gear/merged' in client.get('/gear/').get_data(as_text=True)
@@ -150,11 +150,11 @@ def test_the_ride_page_dashboard_and_gear_page_point_at_the_difference(client):
 
 
 def test_using_the_other_bike_from_the_ride_page_goes_back_to_it(client):
-    r = client.post('/gear/merged/imp_2/other', data={'back': '/rides/garmin_1'})
-    assert r.status_code == 302 and r.headers['Location'].endswith('/rides/garmin_1')
+    r = client.post('/gear/merged/imp_2/other', data={'back': '/activities/garmin_1'})
+    assert r.status_code == 302 and r.headers['Location'].endswith('/activities/garmin_1')
     with client.app.app_context():
         assert database.get_db().execute("SELECT bikeId FROM Activity WHERE id='garmin_1'").fetchone()[0] == client.bikes[1]
-    assert 'Different bike:' not in client.get('/rides/garmin_1').get_data(as_text=True)
+    assert 'Different bike:' not in client.get('/activities/garmin_1').get_data(as_text=True)
 
 
 def test_leaving_them_all_as_they_are(client):

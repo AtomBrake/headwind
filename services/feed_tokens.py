@@ -39,7 +39,7 @@ def ensure_schema(db):
             id            INTEGER PRIMARY KEY AUTOINCREMENT,
             name          TEXT NOT NULL,
             tokenHash     TEXT NOT NULL UNIQUE,
-            shareRides    INTEGER DEFAULT 1,
+            shareActivities    INTEGER DEFAULT 1,
             shareSegments INTEGER DEFAULT 1,
             shareFoods    INTEGER DEFAULT 1,
             sinceDate     TEXT,
@@ -88,7 +88,7 @@ def _scope(form):
     since, until = _date(form.get('sinceDate')), _date(form.get('untilDate'))
     if since and until and since > until:
         since, until = until, since
-    return [1 if form.get(k) else 0 for k in ('shareRides', 'shareSegments', 'shareFoods')] + [since, until]
+    return [1 if form.get(k) else 0 for k in ('shareActivities', 'shareSegments', 'shareFoods')] + [since, until]
 
 
 def own_riders():
@@ -122,7 +122,7 @@ def _set_riders(db, token_id, ids):
 def create(name, form):
     token = PREFIX + secrets.token_urlsafe(32)
     db = get_db()
-    cur = db.execute('INSERT INTO FeedToken (name, tokenHash, shareRides, shareSegments, shareFoods, sinceDate, untilDate) '
+    cur = db.execute('INSERT INTO FeedToken (name, tokenHash, shareActivities, shareSegments, shareFoods, sinceDate, untilDate) '
                      'VALUES (?,?,?,?,?,?,?)', [(name or 'Friend').strip()[:60] or 'Friend', _hash(token)] + _scope(form))
     _set_riders(db, cur.lastrowid, _riders(form))
     db.commit()
@@ -131,7 +131,7 @@ def create(name, form):
 
 def update(token_id, form):
     db = get_db()
-    db.execute('UPDATE FeedToken SET shareRides=?, shareSegments=?, shareFoods=?, sinceDate=?, untilDate=? WHERE id=?',
+    db.execute('UPDATE FeedToken SET shareActivities=?, shareSegments=?, shareFoods=?, sinceDate=?, untilDate=? WHERE id=?',
                _scope(form) + [token_id])
     if form.get('ridersChosen') or form.get('riders') is not None:
         _set_riders(db, token_id, _riders(form))
@@ -158,7 +158,7 @@ def revoke(token_id):
 def tokens():
     """Every token, with `riders`: the ids of the riders here it shares."""
     rows = [dict(r) for r in query_db(
-        'SELECT id, name, shareRides, shareSegments, shareFoods, sinceDate, untilDate, createdAt, lastUsedAt, revokedAt, '
+        'SELECT id, name, shareActivities, shareSegments, shareFoods, sinceDate, untilDate, createdAt, lastUsedAt, revokedAt, '
         '(SELECT group_concat(t.riderId) FROM FeedTokenRider t WHERE t.tokenId = FeedToken.id AND t.riderId NOT IN '
         '(SELECT riderId FROM Friend WHERE riderId IS NOT NULL)) AS riders FROM FeedToken ORDER BY revokedAt IS NOT NULL, id DESC')]
     for row in rows:

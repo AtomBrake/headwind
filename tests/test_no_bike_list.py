@@ -110,9 +110,9 @@ def test_a_gear_filter_with_nothing_left_says_so(client):
 
 def test_the_ride_page_picker_still_returns_to_the_ride_and_ignores_another_site(client):
     r = client.post('/gear/ride/road_am/bike', data={'bike': client.ids['road']})
-    assert r.headers['Location'].endswith('/rides/road_am')
+    assert r.headers['Location'].endswith('/activities/road_am')
     r = client.post('/gear/ride/road_am/bike', data={'bike': client.ids['road'], 'back': '//evil.example/x'})
-    assert r.headers['Location'].endswith('/rides/road_am')
+    assert r.headers['Location'].endswith('/activities/road_am')
 
 
 def test_the_gear_filter_finds_a_bikes_rides_and_the_other_sports_with_no_gear(client):
@@ -169,12 +169,12 @@ def test_retired_gear_can_still_be_picked_for_an_old_activity(client):
         db.commit()
     html = _listed(client, 'gear=none')[1]
     assert 'Roadie (retired)</option>' in html and 'Worn out (retired)</option>' in html, 'the no-gear list offers it, marked retired'
-    assert 'Roadie (retired)</option>' in client.get('/rides/old_ride').get_data(as_text=True), 'so does the ride page'
-    assert 'Worn out (retired)</option>' in client.get('/rides/run').get_data(as_text=True)
+    assert 'Roadie (retired)</option>' in client.get('/activities/old_ride').get_data(as_text=True), 'so does the ride page'
+    assert 'Worn out (retired)</option>' in client.get('/activities/run').get_data(as_text=True)
     page = client.get('/gear/assign').get_data(as_text=True)
     assert 'Roadie (retired)</option>' in page and '"Roadie (retired)"' in page, 'and the calendar, for a day of old rides'
-    opts = client.get('/rides/bulk/options').get_json()['riders'][0]
+    opts = client.get('/activities/bulk/options').get_json()['riders'][0]
     assert {'id': client.ids['road'], 'name': 'Roadie (retired)'} in opts['bikes'] and opts['kit'][-1]['name'] == 'Worn out (retired)'
 
     client.post('/gear/ride/old_ride/bike', data={'bike': client.ids['road']})
-    assert 'selected>Roadie (retired)</option>' in client.get('/rides/old_ride').get_data(as_text=True), 'the ride page shows it, not "No bike chosen"'
+    assert 'selected>Roadie (retired)</option>' in client.get('/activities/old_ride').get_data(as_text=True), 'the ride page shows it, not "No bike chosen"'

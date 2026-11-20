@@ -182,8 +182,8 @@ def test_gear_pages_and_the_activity_picker(tmp_path, monkeypatch):
     with c.session_transaction() as s:
         s['logged_in'] = True
         s['av'] = av
-    assert 'Add shoes or other gear' in c.get('/rides/run1').get_data(as_text=True)
-    assert 'id="kitCard"' not in c.get('/rides/ride1').get_data(as_text=True)
+    assert 'Add shoes or other gear' in c.get('/activities/run1').get_data(as_text=True)
+    assert 'id="kitCard"' not in c.get('/activities/ride1').get_data(as_text=True)
     r = c.post('/gear/kit/save', data={'rider': '1', 'name': 'Trail shoes', 'kind': 'shoes', 'replace': '600', 'sport': ['Run']})
     assert r.status_code == 302
     kid = int(r.headers['Location'].rstrip('/').split('/')[-1])
@@ -195,9 +195,9 @@ def test_gear_pages_and_the_activity_picker(tmp_path, monkeypatch):
     assert 'Trail shoes' in page and '10.0 km' in page and 'Default for</span><span class="chip default">Run</span>' in page
     gear_page = c.get('/gear/').get_data(as_text=True)
     assert 'Shoes and other gear' in gear_page and 'Trail shoes' in gear_page
-    assert 'selected>Trail shoes' in c.get('/rides/run1').get_data(as_text=True)
+    assert 'selected>Trail shoes' in c.get('/activities/run1').get_data(as_text=True)
     assert c.post('/gear/activity/ride1/kit', data={'kit': str(kid)}).status_code == 302          # refused, with the reason on the page
     with app.app_context():
         assert kit_of(database.get_db(), 'ride1') is None
-    opts = c.get('/rides/bulk/options').get_json()
+    opts = c.get('/activities/bulk/options').get_json()
     assert opts['riders'][0]['kit'] == [{'id': kid, 'name': 'Trail shoes'}]

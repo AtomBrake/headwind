@@ -122,13 +122,13 @@ def _client(app):
 
 def test_the_card_shows_the_comparison_and_is_empty_without_one(app):
     c = _client(app)
-    html = c.get('/rides/today/matched').get_data(as_text=True)
+    html = c.get('/activities/today/matched').get_data(as_text=True)
     assert 'Same route' in html and '2nd' in html and 'quickest of 5' in html
-    assert 'href="/rides/c3"' in html
-    assert c.get('/rides/home/matched').get_data(as_text=True).strip() == ''
-    assert c.get('/rides/nope/matched').status_code == 404
-    page = c.get('/rides/today').get_data(as_text=True)
-    assert '/rides/today/matched' in page
+    assert 'href="/activities/c3"' in html
+    assert c.get('/activities/home/matched').get_data(as_text=True).strip() == ''
+    assert c.get('/activities/nope/matched').status_code == 404
+    page = c.get('/activities/today').get_data(as_text=True)
+    assert '/activities/today/matched' in page
 
 
 def test_the_coach_hears_about_the_same_route(app):

@@ -73,7 +73,7 @@ def test_deleted_in_garmin_brings_a_copy_back_as_its_own_with_the_photos(db):
     _add(db, 'garmin_1', 'Box Hill loop')
     _set_aside(db, '222', 'garmin_1', 'Phone copy')
     db.execute("INSERT INTO ActivityPhoto (activityId, filename, sourceKey) VALUES ('garmin_1', 'act_1.jpg', 'strava:media/1.jpg')")
-    db.execute("INSERT INTO GarminChange (rideId, garminId, riderId, rideName, kind) VALUES ('garmin_1', '1', 1, 'Box Hill loop', 'deleted')")
+    db.execute("INSERT INTO GarminChange (activityId, garminId, riderId, activityName, kind) VALUES ('garmin_1', '1', 1, 'Box Hill loop', 'deleted')")
     db.commit()
     assert garmin_changes.resolve(db, 'garmin_1', 'delete') == 'deleted'
     assert _live(db) == ['222'] and _dups(db) == {}

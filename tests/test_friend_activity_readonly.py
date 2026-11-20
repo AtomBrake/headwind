@@ -56,37 +56,37 @@ def row(client, aid):
 
 
 def test_a_friends_ride_page_says_whose_it_is_and_offers_no_changes(client):
-    page = client.get('/rides/f1_r1').get_data(as_text=True)
+    page = client.get('/activities/f1_r1').get_data(as_text=True)
     assert "Sam's ride" in page and 'their instance' in page
     assert [c for c in CONTROLS if c in page] == []
     assert 'This ride looks wrong' not in page          # the flag's buttons dismiss or delete it
-    assert 'id="map"' in page and '/rides/f1_r1/gpx' in page      # what's read-only stays
+    assert 'id="map"' in page and '/activities/f1_r1/gpx' in page      # what's read-only stays
 
 
 def test_a_friends_run_page_offers_no_gear(client):
-    page = client.get('/rides/f1_w1').get_data(as_text=True)
+    page = client.get('/activities/f1_w1').get_data(as_text=True)
     assert "Sam's activity" in page
-    assert 'id="kitCard"' not in page and '/rides/f1_w1/delete' not in page
+    assert 'id="kitCard"' not in page and '/activities/f1_w1/delete' not in page
 
 
 def test_your_own_ride_page_still_has_every_control(client):
-    page = client.get('/rides/r1').get_data(as_text=True)
+    page = client.get('/activities/r1').get_data(as_text=True)
     assert [c for c in CONTROLS if c not in page] == []
     assert 'id="friendCard"' not in page
 
 
 @pytest.mark.parametrize('path, data', [
-    ('/rides/f1_r1/delete', {}),
-    ('/rides/f1_r1/sport', {'sport': 'EBikeRide'}),
-    ('/rides/f1_r1/commute', {'commute': '1'}),
-    ('/rides/f1_r1/notes', {'notes': 'mine now'}),
-    ('/rides/f1_r1/weather', {'condition': 'Rain'}),
-    ('/rides/f1_r1/flag/dismiss', {}),
-    ('/rides/f1_r1/scan', {}),
-    ('/rides/f1_r1/photos', {}),
-    ('/rides/f1_r1/photos/order', {'id': ['1']}),
-    ('/rides/f1_r1/photos/1/caption', {'caption': 'Mine'}),
-    ('/rides/f1_r1/kudos', {}),
+    ('/activities/f1_r1/delete', {}),
+    ('/activities/f1_r1/sport', {'sport': 'EBikeRide'}),
+    ('/activities/f1_r1/commute', {'commute': '1'}),
+    ('/activities/f1_r1/notes', {'notes': 'mine now'}),
+    ('/activities/f1_r1/weather', {'condition': 'Rain'}),
+    ('/activities/f1_r1/flag/dismiss', {}),
+    ('/activities/f1_r1/scan', {}),
+    ('/activities/f1_r1/photos', {}),
+    ('/activities/f1_r1/photos/order', {'id': ['1']}),
+    ('/activities/f1_r1/photos/1/caption', {'caption': 'Mine'}),
+    ('/activities/f1_r1/kudos', {}),
 ])
 def test_changing_a_friends_ride_is_refused(client, path, data):
     before = row(client, 'f1_r1')
@@ -108,16 +108,16 @@ def test_a_segment_from_a_friends_ride_is_refused(client):
 
 
 def test_a_bulk_action_skips_a_friends_activities_and_says_so(client):
-    r = client.post('/rides/bulk', data={'action': 'rename', 'id': ['r1', 'f1_r1', 'f1_w1'], 'name': 'Renamed', 'back': '/dashboard'},
+    r = client.post('/activities/bulk', data={'action': 'rename', 'id': ['r1', 'f1_r1', 'f1_w1'], 'name': 'Renamed', 'back': '/dashboard'},
                     follow_redirects=True)
     assert row(client, 'r1')['name'] == 'Renamed'
     assert row(client, 'f1_r1')['name'] == row(client, 'f1_w1')['name'] == 'Morning'
     assert "2 are friends&#39; activities, changed only on their instance." in r.get_data(as_text=True)
-    client.post('/rides/bulk', data={'action': 'delete', 'id': ['f1_r1'], 'back': '/dashboard'})
+    client.post('/activities/bulk', data={'action': 'delete', 'id': ['f1_r1'], 'back': '/dashboard'})
     assert row(client, 'f1_r1')
 
 
 def test_the_bulk_type_change_skips_a_friends_activities(client):
-    client.post('/rides/bulk-sport', data={'sport': 'EBikeRide', 'ids': 'r1,f1_r1', 'back': '/dashboard'})
+    client.post('/activities/bulk-sport', data={'sport': 'EBikeRide', 'ids': 'r1,f1_r1', 'back': '/dashboard'})
     assert row(client, 'r1')['sportType'] == 'EBikeRide'
     assert row(client, 'f1_r1')['sportType'] == 'Ride'

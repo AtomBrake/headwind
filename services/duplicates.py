@@ -546,7 +546,7 @@ def _drop_derived(db, act_id):
     db.execute('DELETE FROM SegmentEffort WHERE activityId=?', [act_id])
     from services import best_efforts
     best_efforts.delete_for(db, 'activityId=?', [act_id])
-    db.execute('DELETE FROM RideMemory WHERE rideId=?', [act_id])
+    db.execute('DELETE FROM ActivityMemory WHERE activityId=?', [act_id])
     db.execute('DELETE FROM SportEffort WHERE activityId=?', [act_id])
     return seg_ids
 
@@ -722,7 +722,7 @@ def delete_activity(db, act_id, by_garmin=False):
     if by_garmin and stands:
         from services import photos
         photos.move(db, act_id, stands)                 # most came from the copy set aside behind it, when it was merged
-    db.execute('UPDATE RideSensor SET rideKind=NULL, rideId=NULL WHERE rideId=?', [act_id])      # the phone's sensor recording stays, waiting for another ride
+    db.execute('UPDATE ActivitySensor SET activityKind=NULL, activityId=NULL WHERE activityId=?', [act_id])      # the phone's sensor recording stays, waiting for another ride
     for sid in seg_ids:
         _refresh_prs(db, sid)
     recently_deleted.put(db, row)

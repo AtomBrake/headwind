@@ -99,7 +99,7 @@
   {% if is_filtered %}
   {% if search_results %}
   {% if narrowed %}
-  <form method="POST" action="/rides/bulk-sport" style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; margin:0.2rem 0 0.8rem; padding:0.55rem 0.8rem; border:1px solid var(--border); border-radius:8px;"
+  <form method="POST" action="/activities/bulk-sport" style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; margin:0.2rem 0 0.8rem; padding:0.55rem 0.8rem; border:1px solid var(--border); border-radius:8px;"
         data-submit="confirmBulkSport(this, {{ result_total }})">
     <input type="hidden" name="ids" value="{{ result_ids | join(',') }}">
     <input type="hidden" name="back" value="{{ back_url }}">

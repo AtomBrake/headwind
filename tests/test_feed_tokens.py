@@ -42,7 +42,7 @@ def app(tmp_path):
 
 
 def _make(app, name='Sam', **scope):
-    form = {'shareRides': '1', 'shareSegments': '1', 'shareFoods': '1'}
+    form = {'shareActivities': '1', 'shareSegments': '1', 'shareFoods': '1'}
     form.update({k: v for k, v in scope.items() if v is not None})
     for k in [k for k, v in scope.items() if v is None]:
         form.pop(k, None)
@@ -90,7 +90,7 @@ def test_reversed_dates_are_swapped(app):
 
 
 def test_segments_only(app):
-    t = _make(app, shareRides=None, shareFoods=None)['token']
+    t = _make(app, shareActivities=None, shareFoods=None)['token']
     resp = _get(app, '/api/feed', t)
     assert _lines(resp, 'meta') and _lines(resp, 'segment') and not _lines(resp, 'ride')
     assert _get(app, '/api/riders', t).get_json() == []
@@ -161,7 +161,7 @@ def test_friends_page_after_upgrade(tmp_path, monkeypatch):
     with c.session_transaction() as s:
         s['logged_in'] = True
         s['av'] = av
-    made = c.post('/friends/tokens', data={'name': 'Sam', 'shareRides': '1', 'sinceDate': '2026-01-01'}).get_json()
+    made = c.post('/friends/tokens', data={'name': 'Sam', 'shareActivities': '1', 'sinceDate': '2026-01-01'}).get_json()
     html = c.get('/friends').get_data(as_text=True)
     assert feed_tokens.LEGACY_NAME in html and 'Sam' in html and '2026-01-01 – now' in html
     assert 'old-shared-token' not in html and made['token'] not in html

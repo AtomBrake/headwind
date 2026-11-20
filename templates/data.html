@@ -312,7 +312,7 @@
     <div style="max-height:24rem; overflow:auto; font-size:0.8125rem;">
       {% for r in claimed + other %}
       <div id="storm_{{ r.id }}" style="display:flex; align-items:center; gap:0.6rem; padding:0.35rem 0; border-top:1px solid var(--border); flex-wrap:wrap;">
-        <a href="/rides/{{ r.id }}" style="flex:1 1 13rem;">{{ r.date_txt }} · {{ r.name or 'Ride' }}<br><span style="color:var(--text-muted);">Storm {{ r.storm }} · {{ r.distance | fmt_dist }} · {% if r.gust_kph is not none %}gusts {{ r.gust_kph | fmt_wind }}{% else %}no wind data{% endif %}{% if r.condition and r.condition != 'Storm' %} · {{ r.condition }}{% endif %}</span></a>
+        <a href="/activities/{{ r.id }}" style="flex:1 1 13rem;">{{ r.date_txt }} · {{ r.name or 'Ride' }}<br><span style="color:var(--text-muted);">Storm {{ r.storm }} · {{ r.distance | fmt_dist }} · {% if r.gust_kph is not none %}gusts {{ r.gust_kph | fmt_wind }}{% else %}no wind data{% endif %}{% if r.condition and r.condition != 'Storm' %} · {{ r.condition }}{% endif %}</span></a>
         {% if r.condition == 'Storm' %}
         <button class="btn btn-secondary btn-sm" data-click="stormPick('{{ r.id }}','notstorm')">Not a storm</button>
         {% else %}
@@ -331,7 +331,7 @@
     <div id="fogList" style="max-height:22rem; overflow:auto; font-size:0.8125rem;">
       {% for f in wx_fog %}
       <div class="fogRow" id="fog_{{ f.id }}" style="display:flex; align-items:center; gap:0.6rem; padding:0.35rem 0; border-top:1px solid var(--border); flex-wrap:wrap;">
-        <a href="/rides/{{ f.id }}" style="flex:1 1 11rem;">{{ f.date }} · {{ f.name or 'Ride' }}</a>
+        <a href="/activities/{{ f.id }}" style="flex:1 1 11rem;">{{ f.date }} · {{ f.name or 'Ride' }}</a>
         <span style="color:var(--text-muted);">{{ f.weatherHumidity }}% humidity · {{ f.weatherWindKph | fmt_wind }}{% if f.weatherTempC is not none %} · {{ f.weatherTempC | fmt_temp }}{% endif %}</span>
         <button class="btn btn-secondary btn-sm" data-click="fogPick('{{ f.id }}','Fog')">Fog</button>
         <button class="btn btn-secondary btn-sm" data-click="fogPick('{{ f.id }}','keep')">Not fog</button>

@@ -134,8 +134,8 @@ def test_the_commute_tick_on_the_web_and_in_bulk_picks_again(tmp_path, monkeypat
     with c.session_transaction() as s:
         s['logged_in'] = True
         s['av'] = av
-    assert c.post('/rides/a/commute', data={'commute': '1'}).status_code == 204
-    c.post('/rides/bulk', data={'action': 'commute', 'commute': '1', 'ids': 'b'})
+    assert c.post('/activities/a/commute', data={'commute': '1'}).status_code == 204
+    c.post('/activities/bulk', data={'action': 'commute', 'commute': '1', 'ids': 'b'})
     with app.app_context():
         d = database.get_db()
         assert got(d, 'a') == hybrid and got(d, 'b') == hybrid and road

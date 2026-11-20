@@ -36,7 +36,7 @@ _OWNER = re.compile(r'(?i)^owner|displayname|fullname|userprofile')
 _LISTINGS = {'GarminMissing': ('activity',), 'GarminChange': ('garmin',)}
 # JSON columns that copy an activity, or Garmin's listing of one (ActivityDuplicate.rowJson is done apart: it's big).
 _JSON = {'GarminMissing': ('activity',), 'GarminChange': ('garmin', 'diffs'), 'GarminSeen': ('summary',), 'ImportChange': ('act', 'diffs'),
-         'RideSensor': ('data', 'summary')}
+         'ActivitySensor': ('data', 'summary')}
 
 LEFT = ('your activities (names, dates and times, notes, distances, heart rate, power and the other figures), riders\' names, bikes and '
         'kit, weigh-ins, the food log, Garmin and Apple Health days (sleep, HRV, resting heart rate, steps), the body details in Settings '
@@ -107,9 +107,8 @@ def _without_friends(db, tables):
         cols = _cols(db, t)
         if 'riderId' in cols and t != 'Friend':
             db.execute(f'DELETE FROM "{t}" WHERE riderId IN (SELECT id FROM _theirs)')
-        for c in ('activityId', 'rideId'):
-            if c in cols:
-                db.execute(f'DELETE FROM "{t}" WHERE "{c}" IN (SELECT id FROM _gone)')
+        if 'activityId' in cols:
+            db.execute(f'DELETE FROM "{t}" WHERE activityId IN (SELECT id FROM _gone)')
     db.execute('DELETE FROM Rider WHERE id IN (SELECT id FROM _theirs)')
     if 'Bike' in tables:        # their bikes went with their riderId: and the parts on them
         for t, c in (('Part', 'bikeId'), ('ServiceLog', 'bikeId')):
@@ -182,8 +181,8 @@ def _without_streams(db, tables):
             if isinstance(row, dict) and row.get('streams') is not None:
                 row['streams'] = None
                 db.execute('UPDATE ActivityDuplicate SET rowJson=? WHERE rowid=?', [json.dumps(row), rowid])
-    if 'RideSensor' in tables:
-        _blank(db, 'RideSensor', ('data',))
+    if 'ActivitySensor' in tables:
+        _blank(db, 'ActivitySensor', ('data',))
 
 
 def strip(db, no_gps=False, no_streams=False):

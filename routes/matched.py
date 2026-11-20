@@ -7,7 +7,7 @@ from services import matched
 bp = Blueprint('matched', __name__)
 
 
-@bp.route('/rides/<rid>/matched')
+@bp.route('/activities/<rid>/matched')
 def card(rid):
     db = get_db()
     if not db.execute('SELECT 1 FROM Activity WHERE id=?', [rid]).fetchone():

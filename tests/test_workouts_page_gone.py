@@ -58,17 +58,17 @@ def test_workouts_lands_on_activities_with_the_rides_left_out(client):
 
 
 def test_a_walk_links_back_to_activities_and_uses_the_ride_routes(client):
-    page = client.get('/rides/walk1').get_data(as_text=True)
+    page = client.get('/activities/walk1').get_data(as_text=True)
     assert '<a href="/activities">Activities</a>' in page
-    assert 'action="/rides/walk1/delete"' in page and 'action="/rides/walk1/sport"' in page
+    assert 'action="/activities/walk1/delete"' in page and 'action="/activities/walk1/sport"' in page
 
-    r = client.post('/rides/walk1/sport', data={'sport': 'Run'})
-    assert r.headers['Location'].endswith('/rides/walk1') and _sports(client)['walk1'] == 'Run'
-    r = client.post('/rides/run1/sport', data={'sport': 'Ride'})                 # and on to a ride
-    assert r.headers['Location'].endswith('/rides/run1') and _sports(client)['run1'] == 'Ride'
+    r = client.post('/activities/walk1/sport', data={'sport': 'Run'})
+    assert r.headers['Location'].endswith('/activities/walk1') and _sports(client)['walk1'] == 'Run'
+    r = client.post('/activities/run1/sport', data={'sport': 'Ride'})                 # and on to a ride
+    assert r.headers['Location'].endswith('/activities/run1') and _sports(client)['run1'] == 'Ride'
 
     client.get('/activities?q=walk')
-    r = client.post('/rides/walk1/delete')
+    r = client.post('/activities/walk1/delete')
     assert r.headers['Location'] == '/activities?q=walk', 'back to the list it was opened from'
     assert 'walk1' not in _sports(client)
     with client.application.app_context():

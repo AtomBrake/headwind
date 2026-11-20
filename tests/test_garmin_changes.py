@@ -69,7 +69,7 @@ def imported(db, *acts):
 
 
 def flags(db):
-    return {c['rideId']: (c['kind'], c['diffs']) for c in gc.pending(db)}
+    return {c['activityId']: (c['kind'], c['diffs']) for c in gc.pending(db)}
 
 
 def test_sync_keeps_garmin_summary(db):
@@ -316,7 +316,7 @@ def test_crop_reads_the_file_again_and_offers_it_once(db):
     api = FakeAPI([act(1, '2026-09-01', dist=15000, dur=2700)])                              # cropped in Garmin
     assert gc.check(db, api, 1, '2026-08-01', '2026-10-01')['recordings'] == 1
     [c] = reimport.pending(db)
-    assert c['rideId'] == 'garmin_1' and c['source'] == 'Garmin' and {d['label'] for d in c['diffs']} >= {'Distance'}
+    assert c['activityId'] == 'garmin_1' and c['source'] == 'Garmin' and {d['label'] for d in c['diffs']} >= {'Distance'}
     assert db.execute("SELECT distance FROM Activity WHERE id='garmin_1'").fetchone()[0] == 20000      # untouched until chosen
     db.execute('DELETE FROM ImportChange')                                                   # "keep saved"
     db.commit()
@@ -516,12 +516,12 @@ def test_pages_show_the_flags_and_the_buttons_settle_them(tmp_path, monkeypatch)
         s['av'] = av
     page = c.get('/import').get_data(as_text=True)
     assert 'Deleted in Garmin (1)' in page and 'Gone ride' in page and 'New name' in page and 'Check now' in page
-    ride = c.get('/rides/garmin_2').get_data(as_text=True)
+    ride = c.get('/activities/garmin_2').get_data(as_text=True)
     assert 'This activity was changed in Garmin Connect' in ride and 'New name' in ride
     r = c.post('/garmin/changes/garmin_2/garmin', data={'back': 'ride'})
-    assert r.status_code == 302 and r.headers['Location'].endswith('/rides/garmin_2')
-    assert 'changed in Garmin Connect' not in c.get('/rides/garmin_2').get_data(as_text=True)
-    assert 'This activity was deleted in Garmin Connect' in c.get('/rides/garmin_1').get_data(as_text=True)
+    assert r.status_code == 302 and r.headers['Location'].endswith('/activities/garmin_2')
+    assert 'changed in Garmin Connect' not in c.get('/activities/garmin_2').get_data(as_text=True)
+    assert 'This activity was deleted in Garmin Connect' in c.get('/activities/garmin_1').get_data(as_text=True)
     c.post('/garmin/changes/deleted/delete')
     with app.app_context():
         d = database.get_db()

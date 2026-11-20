@@ -68,7 +68,7 @@ def test_strava_elapsed_time_brings_back_the_ride_a_device_left_running_had_swal
         assert duplicates.same_ride(rows['evening'], rows['other'])        # inside the file's 3 h 24 min: taken for a piece of it
         duplicates.park(db, 'evening', 'other', 'Kept the whole ride: the other recording is only a 52-minute piece of it.')
         duplicates.park(db, 'chosen', 'other', duplicates.CHOSEN)
-        db.execute("INSERT INTO ImportChange (rideId, riderId, rideName, source, diffs, act) VALUES ('other', 1, 'OTHER', 'Strava export', '[]', ?)",
+        db.execute("INSERT INTO ImportChange (activityId, riderId, activityName, source, diffs, act) VALUES ('other', 1, 'OTHER', 'Strava export', '[]', ?)",
                    [json.dumps({'elapsedTime': 7152, 'movingTime': 4473})])
         db.commit()
         assert reimport.resolve(db, 'other', 'replace')                     # "use the import" on the Import page
@@ -84,7 +84,7 @@ def test_a_copy_that_is_still_the_same_ride_stays_set_aside(app):
         _add(db, 'whole', '2022-08-04T10:48:51', 45970, 21054, 10554)
         _add(db, 'piece', '2022-08-04T10:49:48', 11519, 9152, 9152)
         duplicates.park(db, 'piece', 'whole', 'Kept the whole ride.')
-        db.execute("INSERT INTO ImportChange (rideId, riderId, rideName, source, diffs, act) VALUES ('whole', 1, 'whole', 'Strava export', '[]', ?)",
+        db.execute("INSERT INTO ImportChange (activityId, riderId, activityName, source, diffs, act) VALUES ('whole', 1, 'whole', 'Strava export', '[]', ?)",
                    [json.dumps({'elapsedTime': 21051})])
         db.commit()
         assert reimport.resolve(db, 'whole', 'replace')
