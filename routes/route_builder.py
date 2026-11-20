@@ -1,33 +1,17 @@
 import html as _html
 import json
-import math
+import logging
 
 import requests
-from flask import Blueprint, Response, abort, jsonify, render_template, request
+from flask import Blueprint, Response, abort, jsonify, redirect, render_template, request, url_for
 from database import get_db, query_db
+from services import planned_routes
+from services.rider_mode import multi_rider, owner_rider_id
 
+log = logging.getLogger(__name__)
 bp = Blueprint('route_builder', __name__, url_prefix='/planner')
 
 _ELEV_BATCH = 100
-
-
-def _haversine_mi(lat1, lng1, lat2, lng2):
-    R = 3958.8
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlam = math.radians(lng2 - lng1)
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
-    return R * 2 * math.asin(math.sqrt(a))
-
-
-def _total_mi(waypoints):
-    d = 0.0
-    for i in range(1, len(waypoints)):
-        d += _haversine_mi(
-            waypoints[i - 1]['lat'], waypoints[i - 1]['lng'],
-            waypoints[i]['lat'],     waypoints[i]['lng'],
-        )
-    return d
 
 
 def _fetch_elevation_m(waypoints):
@@ -69,6 +53,27 @@ def _build_gpx(name, waypoints, elevations):
     return '\n'.join(lines)
 
 
+def _track_gpx(name, track):
+    """A route that follows a line as a GPX <trk>, with the heights it came with: nothing to look up."""
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<gpx version="1.1" creator="Headwind" xmlns="http://www.topografix.com/GPX/1/1">',
+        f'  <metadata><name>{_html.escape(name)}</name></metadata>',
+        '  <trk>',
+        f'    <name>{_html.escape(name)}</name>',
+        '    <trkseg>',
+    ]
+    for lat, lng, ele in track:
+        lines.append(f'      <trkpt lat="{lat}" lon="{lng}">' + (f'<ele>{ele:.1f}</ele>' if ele is not None else '') + '</trkpt>')
+    lines += ['    </trkseg>', '  </trk>', '</gpx>']
+    return '\n'.join(lines)
+
+
+def _gpx_response(name, gpx):
+    safe = name.replace(' ', '_').replace('"', '')
+    return Response(gpx, mimetype='application/gpx+xml', headers={'Content-Disposition': f'attachment; filename="{safe}.gpx"'})
+
+
 @bp.route('/')
 def index():
     center = query_db(
@@ -78,68 +83,125 @@ def index():
     )
     default_lat = center['lat'] if center and center['lat'] else 54.0
     default_lng = center['lng'] if center and center['lng'] else -2.0
-    return render_template('route_builder.html', default_lat=default_lat, default_lng=default_lng)
+    return render_template('route_builder.html', default_lat=default_lat, default_lng=default_lng,
+                           open_route=request.args.get('route', type=int))      # ?route=N: shown on opening (Save as route on an activity)
+
+
+def _points(col):
+    return f'CASE WHEN json_valid({col}) THEN json_array_length({col}) END'
 
 
 @bp.route('/routes', methods=['GET'])
 def list_routes():
-    rows = query_db(
-        'SELECT id, name, waypoints, createdAt FROM PlannedRoute ORDER BY createdAt DESC'
-    )
-    result = []
-    for row in rows:
-        try:
-            wps = json.loads(row['waypoints'] or '[]')
-            dist_mi = round(_total_mi(wps), 1)
-        except (ValueError, TypeError, KeyError):
-            continue            # a malformed saved route must not take the whole list (and the page) down
-        result.append({
-            'id':        row['id'],
-            'name':      row['name'],
-            'createdAt': row['createdAt'],
-            'count':     len(wps),
-            'distMi':    dist_mi,
-        })
-    return jsonify(result)
+    rows = query_db(f'''
+        SELECT p.id, p.name, p.createdAt, p.source, p.sportType, p.distance, p.elevationGain, p.track IS NOT NULL AS hasTrack,
+               COALESCE({_points('p.track')}, {_points('p.waypoints')}, 0) AS count, r.name AS riderName
+        FROM PlannedRoute p LEFT JOIN Rider r ON r.id = p.riderId
+        ORDER BY p.createdAt DESC, p.id DESC''')
+    multi = multi_rider()
+    return jsonify([{
+        'id':        row['id'],
+        'name':      row['name'],
+        'createdAt': row['createdAt'],
+        'source':    row['source'] or 'planner',
+        'sportType': row['sportType'],
+        'hasTrack':  bool(row['hasTrack']),
+        'count':     row['count'],
+        'distM':     row['distance'] or 0,
+        'gainM':     row['elevationGain'],
+        'rider':     row['riderName'] if multi else None,
+    } for row in rows])
 
 
 @bp.route('/routes/<int:route_id>', methods=['GET'])
 def get_route(route_id):
-    row = query_db(
-        'SELECT id, name, waypoints, createdAt FROM PlannedRoute WHERE id=?',
-        [route_id], one=True,
-    )
+    row = query_db('SELECT * FROM PlannedRoute WHERE id=?', [route_id], one=True)
     if not row:
         abort(404)
-    wps = json.loads(row['waypoints'] or '[]')
     return jsonify({
         'id':        row['id'],
         'name':      row['name'],
         'createdAt': row['createdAt'],
-        'waypoints': wps,
-        'distMi':    round(_total_mi(wps), 1),
+        'source':    row['source'] or 'planner',
+        'sourceId':  row['sourceId'],
+        'sportType': row['sportType'],
+        'waypoints': json.loads(row['waypoints'] or '[]'),
+        'track':     json.loads(row['track']) if row['track'] else None,
+        'distM':     row['distance'] or 0,
+        'gainM':     row['elevationGain'],
     })
+
+
+@bp.route('/routes/<int:route_id>/waypoints', methods=['GET'])
+def route_waypoints(route_id):
+    """A route that follows a line as waypoints to edit (services/planned_routes.as_waypoints). Saving them makes a new route."""
+    row = query_db('SELECT name, waypoints, track FROM PlannedRoute WHERE id=?', [route_id], one=True)
+    if not row:
+        abort(404)
+    wps = planned_routes.as_waypoints(json.loads(row['track'])) if row['track'] else json.loads(row['waypoints'] or '[]')
+    return jsonify({'name': row['name'], 'waypoints': wps})
 
 
 @bp.route('/routes', methods=['POST'])
 def save_route():
     data = request.get_json(force=True)
-    name = (data.get('name') or 'Unnamed Route').strip()[:100]
     waypoints = data.get('waypoints') or []
     if len(waypoints) < 2:
         return jsonify({'error': 'Need at least 2 waypoints'}), 400
+    try:
+        waypoints = [{'lat': float(w['lat']), 'lng': float(w['lng'])} for w in waypoints]
+    except (TypeError, ValueError, KeyError):
+        return jsonify({'error': 'Waypoints need a lat and lng'}), 400
     db = get_db()
-    cur = db.execute(
-        'INSERT INTO PlannedRoute (name, waypoints) VALUES (?, ?)',
-        [name, json.dumps(waypoints)],
-    )
+    route_id, _ = planned_routes.save(db, owner_rider_id(), data.get('name'), waypoints=waypoints)
     db.commit()
-    return jsonify({
-        'id':     cur.lastrowid,
-        'name':   name,
-        'distMi': round(_total_mi(waypoints), 1),
-        'count':  len(waypoints),
-    }), 201
+    row = query_db('SELECT name, distance FROM PlannedRoute WHERE id=?', [route_id], one=True)
+    return jsonify({'id': route_id, 'name': row['name'], 'distM': row['distance'], 'count': len(waypoints)}), 201
+
+
+@bp.route('/routes/import', methods=['POST'])
+def import_gpx():
+    """GPX files (one route each) saved as routes, source 'gpx'. [{file, status, id, name}], status: saved, exists (the same name and points
+    are here already), empty (no points) or unreadable."""
+    db = get_db()
+    rider_id = owner_rider_id()
+    out = []
+    for f in request.files.getlist('files'):
+        res = {'file': f.filename}
+        try:
+            got = planned_routes.from_gpx(f.read(), f.filename)
+        except Exception as e:
+            log.info('Route import: %s could not be read (%s)', f.filename, e)
+            out.append({**res, 'status': 'unreadable'})
+            continue
+        if not got:
+            out.append({**res, 'status': 'empty'})
+            continue
+        route_id, new = planned_routes.save(db, rider_id, got['name'], track=got['track'], source='gpx', sport=got['sportType'])
+        out.append({**res, 'status': 'saved' if new else 'exists', 'id': route_id, 'name': got['name']})
+    db.commit()
+    return jsonify(out)
+
+
+@bp.route('/routes/from-activity/<rid>', methods=['POST'])
+def from_activity(rid):
+    """Save as route on an activity's page: a route from its own points, the activity's rider's (the owner's, for a friend's activity),
+    then the planner showing it."""
+    db = get_db()
+    act = db.execute('SELECT riderId, sportType FROM Activity WHERE id=?', [rid]).fetchone()
+    if not act:
+        abort(404)
+    from services import sports
+    if sports.is_virtual(act['sportType']):
+        abort(400)                                      # a game world, not a place
+    rider_id = act['riderId']
+    if rider_id is None or db.execute('SELECT 1 FROM Friend WHERE riderId=?', [rider_id]).fetchone():
+        rider_id = owner_rider_id()
+    got = planned_routes.from_activity(db, rid, rider_id)
+    if not got:
+        abort(400)                                      # no GPS track
+    db.commit()
+    return redirect(url_for('route_builder.index', route=got[0]))
 
 
 @bp.route('/routes/<int:route_id>', methods=['DELETE'])
@@ -158,28 +220,16 @@ def export_current():
     if len(waypoints) < 2:
         return jsonify({'error': 'Need at least 2 waypoints'}), 400
     elevations = _fetch_elevation_m(waypoints)
-    gpx = _build_gpx(name, waypoints, elevations)
-    safe = name.replace(' ', '_')
-    return Response(
-        gpx,
-        mimetype='application/gpx+xml',
-        headers={'Content-Disposition': f'attachment; filename="{safe}.gpx"'},
-    )
+    return _gpx_response(name, _build_gpx(name, waypoints, elevations))
 
 
 @bp.route('/routes/<int:route_id>/export.gpx')
 def export_saved(route_id):
-    row = query_db(
-        'SELECT name, waypoints FROM PlannedRoute WHERE id=?', [route_id], one=True
-    )
+    row = query_db('SELECT name, waypoints, track FROM PlannedRoute WHERE id=?', [route_id], one=True)
     if not row:
         abort(404)
+    if row['track']:
+        return _gpx_response(row['name'], _track_gpx(row['name'], json.loads(row['track'])))
     waypoints = json.loads(row['waypoints'] or '[]')
     elevations = _fetch_elevation_m(waypoints)
-    gpx = _build_gpx(row['name'], waypoints, elevations)
-    safe = row['name'].replace(' ', '_')
-    return Response(
-        gpx,
-        mimetype='application/gpx+xml',
-        headers={'Content-Disposition': f'attachment; filename="{safe}.gpx"'},
-    )
+    return _gpx_response(row['name'], _build_gpx(row['name'], waypoints, elevations))

@@ -210,6 +210,7 @@ def upload():
     tmp.close()
     return _queue({'upload': tmp.name, 'filename': f.filename, 'single': is_single, 'rider': rider_id,
                    'segments': request.form.get('importSegments') == '1',       # a Strava export's segments.csv: off unless asked for
+                   'routes': request.form.get('importRoutes') == '1',           # its routes/*.gpx, into the planner: off unless asked for
                    'photos': request.form.get('importPhotos', '1') == '1',      # its photos: on unless turned off
                    'keep': request.form.get('keepExport', '1') == '1'})         # a Strava export kept for Import again: on unless turned off
 
@@ -223,7 +224,7 @@ def import_again(rider_id):
     path = strava_export.path_for(current_app.config['DATABASE'], rider_id)
     if not os.path.isfile(path) or not get_db().execute('SELECT 1 FROM StravaExport WHERE riderId=?', [rider_id]).fetchone():
         return jsonify(error='That export is no longer kept')
-    return _queue({'again': rider_id, 'segments': request.form.get('importSegments') == '1',
+    return _queue({'again': rider_id, 'segments': request.form.get('importSegments') == '1', 'routes': request.form.get('importRoutes') == '1',
                    'photos': request.form.get('importPhotos', '1') == '1'})
 
 
@@ -285,13 +286,14 @@ class _Log:
 
 @jobs.handler('import')
 def _import_job(job):
-    """An upload (args: upload, filename, single, rider, segments, photos, keep) or a kept Strava export read again (args: again, the rider)."""
+    """An upload (args: upload, filename, single, rider, segments, routes, photos, keep) or a kept Strava export read again (args: again, the
+    rider)."""
     a = job['args']
     with jobs.Events(job, state=True) as ev:
         out = _Log(ev)
         try:
             if a.get('again'):
-                _read_again(out, a['again'], a['segments'], a['photos'])
+                _read_again(out, a['again'], a['segments'], a['photos'], a.get('routes'))
             else:
                 _read_upload(out, a)
         except zipfile.BadZipFile:
@@ -324,7 +326,7 @@ def _read_upload(out, a):
         log.info('Import started — %d files in zip, has_csv=%s', len(names), 'activities.csv' in names)
         strava = 'activities.csv' in names
         if strava:
-            gen = _process_strava_export(zf, names, rider_id, segments=a['segments'], photos=a['photos'])
+            gen = _process_strava_export(zf, names, rider_id, segments=a['segments'], photos=a['photos'], routes=a.get('routes'))
         else:
             gen = _process_generic_zip(zf, names, rider_id)
         for item in gen:
@@ -344,13 +346,13 @@ def _read_upload(out, a):
         out.put(_event(done))
 
 
-def _read_again(out, rider_id, segments, photos):
+def _read_again(out, rider_id, segments, photos, routes=False):
     from services import strava_export
     with zipfile.ZipFile(strava_export.path_for(current_app.config['DATABASE'], rider_id)) as zf:
         check_zip(zf)
         names = set(zf.namelist())
         log.info('Import again of the kept Strava export for rider %s — %d files in zip', rider_id, len(names))
-        for item in _process_strava_export(zf, names, rider_id, segments=segments, photos=photos):
+        for item in _process_strava_export(zf, names, rider_id, segments=segments, photos=photos, routes=routes):
             out.put(item)
     strava_export.read_again(get_db(), rider_id, out.state.get('total'), segments, photos)
     strava_export.note_read(get_db(), rider_id)
@@ -635,7 +637,7 @@ def _strava_segments(zf, names, db):
     return {'segments_created': len(res['created']), 'segments_existing': res['existing'], 'segments_unridden': res['unridden']}
 
 
-def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True):
+def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True, routes=False):
     with zf.open('activities.csv') as f:
         rows = _strava_csv_rows(io.TextIOWrapper(f, 'utf-8', errors='replace'))
 
@@ -856,6 +858,18 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
             log.error('Strava import: segments failed: %s\n%s', e, traceback.format_exc())
             db.rollback()
 
+    planned = {}
+    if routes and 'routes.csv' in names:                # into the route planner (services/planned_routes.import_strava)
+        try:
+            from services import planned_routes
+            planned = planned_routes.import_strava(db, zf, names, rider_id)
+            db.commit()
+            log.warning('Strava import: routes created=%d already here=%d not read=%d',
+                        planned['routes_created'], planned['routes_existing'], planned['routes_unread'])
+        except Exception as e:
+            log.error('Strava import: routes failed: %s\n%s', e, traceback.format_exc())
+            db.rollback()
+
     bikes = {}
     if ride_gear and rider_id:
         try:                                            # shoes: an item for each, and their walks, runs and hikes put on it (services/strava_gear.apply_kit)
@@ -876,7 +890,7 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
              'errors=%d files not read=%d photos=%d (not in the zip: %d) commutes=%d bikes=%s',
              imported, len(parked), skipped, unchanged, changed, errors, len(unread), n_photos, photos_missing, n_commutes, bikes)
     yield _event({'complete': True, 'imported': imported, 'skipped': skipped, 'unchanged': unchanged, 'changed': changed, 'errors': errors, **bikes,
-                  'photos': n_photos, 'commutes': n_commutes, **segs, 'parked': parked, 'unread': unread, 'photos_missing': photos_missing,
+                  'photos': n_photos, 'commutes': n_commutes, **segs, **planned, 'parked': parked, 'unread': unread, 'photos_missing': photos_missing,
                   'noun': _noun(kinds)})
 
 

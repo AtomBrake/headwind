@@ -34,11 +34,17 @@
   {% else %}
     <span class="btn btn-secondary" style="opacity:0.3;cursor:default;"><span class="wide-only">Next </span>›</span>
   {% endif %}
-  {% if (not is_workout and coords_from_stream) or source_links or not friend %}
+  {% set can_route = coords_from_stream and not is_virtual %}{# a route from its own points, any sport; not a game world's #}
+  {% if (not is_workout and coords_from_stream) or can_route or source_links or not friend %}
   <details class="more-menu">
     <summary class="btn btn-secondary" title="More" aria-label="More actions">⋯</summary>
     <div class="more-menu-list">
       {% if not is_workout and coords_from_stream %}<a href="{{ url_for('rides.export_gpx', rid=activity.id) }}">Download GPX</a>{% endif %}{# a GPX is the track: none without one (typed in) #}
+      {% if can_route %}
+      <form method="POST" action="{{ url_for('route_builder.from_activity', rid=activity.id) }}">
+        <button type="submit">Save as route</button>
+      </form>
+      {% endif %}
       {% for l in source_links %}<a href="{{ l.url }}" target="_blank" rel="noopener">Open on {{ l.name }} ↗</a>{% endfor %}
       {% if not friend %}
       <form method="POST" action="{{ url_for('rides.delete', rid=activity.id) }}" onsubmit="return confirm('Delete this activity? It goes to Recently deleted on the Import page for 30 days, to restore from there, and no sync brings it back.')">

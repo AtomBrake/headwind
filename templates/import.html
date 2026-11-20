@@ -89,10 +89,14 @@
       <span>Segments you created on Strava <span class="hint">(<code>segments.csv</code>; each one's shape comes from a ride of yours that went along it)</span></span>
     </label>
     <label class="check">
+      <input type="checkbox" id="optRoutes">
+      <span>Routes you made on Strava, into the route planner <span class="hint">(<code>routes/</code>; routes you starred from other people aren't in the export)</span></span>
+    </label>
+    <label class="check">
       <input type="checkbox" id="optKeep" checked>
       <span>Keep the export here, so it can be imported again without uploading it <span class="hint">(it takes as much disk space as the zip; only the latest is kept)</span></span>
     </label>
-    <div class="hint" style="margin-top:0.4rem;">Already imported this export? Import it again: rides already here are skipped, and the photos, segments and commute ticks are added to them.</div>
+    <div class="hint" style="margin-top:0.4rem;">Already imported this export? Import it again: rides already here are skipped, and the photos, segments and commute ticks are added to them. Routes already here aren't copied.</div>
   </fieldset>
 
   <button id="uploadBtn" class="btn btn-primary" style="margin-top:1rem;display:none;" onclick="startUpload()">
@@ -515,6 +519,7 @@ async function startUpload() {
   if (riderSel) fd.append('riderId', riderSel.value);
   fd.append('importPhotos', document.getElementById('optPhotos').checked ? '1' : '0');
   fd.append('importSegments', document.getElementById('optSegments').checked ? '1' : '0');
+  fd.append('importRoutes', document.getElementById('optRoutes').checked ? '1' : '0');
   fd.append('keepExport', document.getElementById('optKeep').checked ? '1' : '0');
 
   document.getElementById('progressCard').style.display = 'block';
@@ -530,6 +535,7 @@ async function importAgain(riderId, btn) {
   const fd = new FormData();
   fd.append('importPhotos', document.getElementById('optPhotos').checked ? '1' : '0');
   fd.append('importSegments', document.getElementById('optSegments').checked ? '1' : '0');
+  fd.append('importRoutes', document.getElementById('optRoutes').checked ? '1' : '0');
   document.getElementById('progressCard').style.display = 'block';
   document.getElementById('doneCard').style.display = 'none';
   document.getElementById('progressCard').scrollIntoView({ behavior: 'smooth' });
@@ -626,7 +632,10 @@ function handleEvent(d) {
       (d.commutes ? `<br><span style="color:var(--text-muted)">${d.commutes} activit${d.commutes === 1 ? 'y' : 'ies'} ticked as a commute</span>` : '') +
       (d.segments_created !== undefined ? `<br><a href="/segments" style="color:var(--accent)">${d.segments_created} segment${d.segments_created === 1 ? '' : 's'} created</a>` +
         (d.segments_existing ? `<span style="color:var(--text-muted)">, ${d.segments_existing} already here</span>` : '') +
-        (d.segments_unridden ? `<span style="color:var(--text-muted)">, ${d.segments_unridden} skipped (no ride here goes along them)</span>` : '') : '');
+        (d.segments_unridden ? `<span style="color:var(--text-muted)">, ${d.segments_unridden} skipped (no ride here goes along them)</span>` : '') : '') +
+      (d.routes_created !== undefined ? `<br><a href="/planner" style="color:var(--accent)">${d.routes_created} route${d.routes_created === 1 ? '' : 's'} added to the planner</a>` +
+        (d.routes_existing ? `<span style="color:var(--text-muted)">, ${d.routes_existing} already there</span>` : '') +
+        (d.routes_unread ? `<span style="color:var(--danger)">, ${d.routes_unread} could not be read</span>` : '') : '');
   }
 }
 

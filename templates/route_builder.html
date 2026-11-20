@@ -5,6 +5,7 @@
 
 {% block head %}
   {% include '_maps.html' %}
+  <script src="{{ url_for('static', filename='vendor/chart.js-4.4.0/chart.umd.js') }}"></script>
   <style>
     #plannerWrap { position: relative; }
     #plannerMap  { height: calc(100vh - 130px); width: 100%; border-radius: 10px; cursor: crosshair; }
@@ -121,6 +122,24 @@
 
     #exportSpinner { display: none; font-size: 0.78rem; color: var(--text-muted); text-align: center; }
 
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; }
+    #importResult { font-size: 0.75rem; color: var(--text-muted); line-height: 1.4; }
+    #importResult .bad { color: var(--danger); }
+    #trackName { font-size: 0.95rem; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+
+    /* A route that follows a line: its elevation profile along the bottom of the map */
+    #elevBox {
+      display: none; position: absolute; z-index: 999;
+      left: calc(264px + 2.5rem); right: 1rem; bottom: 1.5rem; height: 140px;
+      background: color-mix(in srgb, var(--main-bg) 92%, transparent); border: 1px solid var(--border-strong);
+      border-radius: 8px; padding: 0.4rem 0.6rem;
+      backdrop-filter: blur(6px);
+    }
+    @media (max-width: 700px) {
+      #routePanel { max-height: 45vh; }                 /* the map and the profile below it stay in sight */
+      #elevBox { left: 1rem; height: 110px; }
+    }
+
   </style>
 {% endblock %}
 
@@ -128,6 +147,26 @@
 <div id="plannerWrap">
   <div id="routePanel">
 
+    <!-- A saved route that follows a line (from a GPX file, an activity or Strava): shown whole, not as waypoints -->
+    <div id="trackPanel" style="display:none;" class="btn-row col">
+      <div id="trackName"></div>
+      <div class="panel-hint" id="trackSource"></div>
+      <div class="stat-row">
+        <div class="stat">
+          <span class="stat-val" id="trackDist">&mdash;</span>
+          <span class="stat-lbl">distance</span>
+        </div>
+        <div class="stat">
+          <span class="stat-val" id="trackGain">&mdash;</span>
+          <span class="stat-lbl">climb</span>
+        </div>
+      </div>
+      <a class="panel-btn secondary" id="trackExport" href="#" style="text-align:center;text-decoration:none;">&#x2193; Export GPX</a>
+      <button class="panel-btn secondary" onclick="editTrack()" title="Turn the line into waypoints to drag, as a new route: this one stays as it is">&#x270E; Edit as a copy</button>
+      <button class="panel-btn secondary" onclick="closeTrack()">&#x2715; Close</button>
+    </div>
+
+    <div id="drawPanel" class="btn-row col" style="gap:0.55rem;">
     <div class="panel-hint">Click the map to add waypoints &middot; drag to adjust</div>
 
     <div class="panel-divider"></div>
@@ -164,15 +203,22 @@
     </div>
 
     <div id="exportSpinner">Fetching elevation&hellip;</div>
+    </div>
 
     <div class="panel-divider"></div>
 
-    <div class="section-title">Saved Routes</div>
+    <div class="section-head">
+      <div class="section-title">Saved Routes</div>
+      <button class="icon-btn" onclick="document.getElementById('gpxFiles').click()" title="Make routes from GPX files">Import GPX</button>
+      <input type="file" id="gpxFiles" accept=".gpx,application/gpx+xml" multiple style="display:none;" onchange="importGPX(this)">
+    </div>
+    <div id="importResult"></div>
     <div id="routeList"><div class="empty-hint">No saved routes yet.</div></div>
 
   </div>
 
   <div id="plannerMap"></div>
+  <div id="elevBox"><canvas id="elevChart"></canvas></div>
 </div>
 {% endblock %}
 
@@ -192,6 +238,11 @@ var markers    = [];   // L.Marker[]
 var polyline   = null;
 var savedRoutes = [];
 var clickTimer  = null;
+var shown       = null;   // a saved route that follows a line, while it's on the map: {id, name, track, ...}
+var trackLine   = null;
+var elevChart   = null;
+var elevDot     = null;
+var copyName    = '';     // the name the save form offers for an edited copy
 
 // ── Icons ─────────────────────────────────────────────────────────
 function makeIcon(type) {
@@ -213,6 +264,7 @@ function refreshIcons() {
 
 // ── Click to add waypoint (dblclick guard) ────────────────────────
 map.on('click', function(e) {
+  if (shown) return;                                  // a line, not waypoints: Edit as a copy first
   clickTimer = setTimeout(function() { addWaypoint(e.latlng); }, 200);
 });
 map.on('dblclick', function() { clearTimeout(clickTimer); });
@@ -303,7 +355,7 @@ function refreshStats() {
 function showSaveForm() {
   document.getElementById('saveActions').style.display = 'none';
   document.getElementById('saveForm').style.display    = 'flex';
-  document.getElementById('saveInput').value = '';
+  document.getElementById('saveInput').value = copyName;
   document.getElementById('saveInput').focus();
 }
 
@@ -327,6 +379,7 @@ function confirmSave() {
   .then(function(r) { return r.json(); })
   .then(function() {
     hideSaveForm();
+    copyName = '';
     loadSavedRoutes();
   });
 }
@@ -390,10 +443,14 @@ function renderSavedRoutes() {
     return;
   }
   el.innerHTML = savedRoutes.map(function(r) {
+    var meta = [UNITS.toDist(r.distM).toFixed(1) + ' ' + UNITS.dist];
+    if (r.gainM != null) meta.push(Math.round(UNITS.toElev(r.gainM)) + ' ' + UNITS.elev + ' climb');
+    meta.push(r.hasTrack ? SOURCES[r.source] || r.source : r.count + ' wpts');
+    if (r.rider) meta.push(escapeHtml(r.rider));
     return '<div class="route-row" data-id="' + r.id + '">' +
       '<div class="route-info" onclick="loadSaved(' + r.id + ')" title="Load onto map">' +
         '<div class="route-name">' + escapeHtml(r.name) + '</div>' +
-        '<div class="route-meta">' + UNITS.toDist(r.distMi * 1609.344).toFixed(1) + ' ' + UNITS.dist + ' &middot; ' + r.count + ' wpts</div>' +
+        '<div class="route-meta">' + meta.join(' &middot; ') + '</div>' +
       '</div>' +
       '<div class="route-actions">' +
         '<a href="/planner/routes/' + r.id + '/export.gpx" class="icon-btn" title="Download GPX">&#x2193;</a>' +
@@ -403,20 +460,30 @@ function renderSavedRoutes() {
   }).join('');
 }
 
+var SOURCES = { gpx: 'from a GPX file', activity: 'from an activity', strava: 'from Strava', planner: 'drawn here' };
+
 function loadSaved(id) {
-  fetch('/planner/routes/' + id)
-    .then(function(r) { return r.json(); })
+  return fetch('/planner/routes/' + id)
+    .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
     .then(function(route) {
       if (waypoints.length && !confirm('Replace current route with "' + route.name + '"?')) return;
+      closeTrack();
+      if (route.track) { showTrack(route); return; }
+      copyName = '';
+      placeWaypoints(route.waypoints);
+    });
+}
 
-      // Clear current
-      waypoints = [];
-      markers.forEach(function(m) { map.removeLayer(m); });
-      markers = [];
-      if (polyline) { map.removeLayer(polyline); polyline = null; }
+function clearWaypoints() {
+  waypoints = [];
+  markers.forEach(function(m) { map.removeLayer(m); });
+  markers = [];
+  if (polyline) { map.removeLayer(polyline); polyline = null; }
+}
 
-      // Place saved waypoints
-      route.waypoints.forEach(function(wp) {
+function placeWaypoints(wps) {
+      clearWaypoints();
+      wps.forEach(function(wp) {
         var idx = waypoints.length;
         waypoints.push(wp);
         var m = L.marker(L.latLng(wp.lat, wp.lng), { draggable: true, icon: makeIcon('') }).addTo(map);
@@ -433,13 +500,127 @@ function loadSaved(id) {
       refreshPolyline();
       refreshStats();
 
-      if (route.waypoints.length) {
+      if (wps.length) {
         map.fitBounds(
-          L.latLngBounds(route.waypoints.map(function(w) { return [w.lat, w.lng]; })),
+          L.latLngBounds(wps.map(function(w) { return [w.lat, w.lng]; })),
           { padding: [40, 40] }
         );
       }
+}
+
+// ── A route that follows a line ───────────────────────────────────
+// Drawn as one line with its elevation profile; hovering the profile marks the place on the map.
+function showTrack(route) {
+  clearWaypoints();
+  refreshStats();
+  shown = route;
+  var pts = route.track.map(function(p) { return [p[0], p[1]]; });
+  trackLine = L.polyline(pts, { color: cssVar('--accent'), weight: 4, opacity: 0.9 }).addTo(map);
+  map.fitBounds(trackLine.getBounds(), { padding: [40, 40] });
+
+  document.getElementById('drawPanel').style.display  = 'none';
+  document.getElementById('trackPanel').style.display = 'flex';
+  document.getElementById('trackName').textContent = route.name;
+  var src = document.getElementById('trackSource');
+  src.innerHTML = (route.sportType ? escapeHtml(route.sportType.replace(/([a-z])([A-Z])/g, '$1 $2')) + ', ' : '') +
+    (route.source === 'activity' && route.sourceId
+      ? '<a href="/rides/' + encodeURIComponent(route.sourceId) + '" style="color:var(--accent)">' + SOURCES.activity + '</a>'
+      : escapeHtml(SOURCES[route.source] || route.source)) + ' &middot; ' + route.track.length + ' points';
+  document.getElementById('trackDist').textContent = UNITS.toDist(route.distM).toFixed(1) + ' ' + UNITS.dist;
+  document.getElementById('trackGain').textContent = route.gainM != null ? Math.round(UNITS.toElev(route.gainM)) + ' ' + UNITS.elev : '—';
+  document.getElementById('trackExport').href = '/planner/routes/' + route.id + '/export.gpx';
+  drawProfile(route.track);
+}
+
+function closeTrack() {
+  if (trackLine) { map.removeLayer(trackLine); trackLine = null; }
+  if (elevDot)   { map.removeLayer(elevDot); elevDot = null; }
+  if (elevChart) { elevChart.destroy(); elevChart = null; }
+  document.getElementById('elevBox').style.display    = 'none';
+  document.getElementById('trackPanel').style.display = 'none';
+  document.getElementById('drawPanel').style.display  = 'flex';
+  shown = null;
+}
+
+// Waypoints a few metres off the line at most (services/planned_routes.as_waypoints), to drag and save as a new route
+function editTrack() {
+  if (!shown) return;
+  var name = shown.name;
+  fetch('/planner/routes/' + shown.id + '/waypoints')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      closeTrack();
+      copyName = (name + ' (edited)').slice(0, 100);
+      placeWaypoints(d.waypoints);
     });
+}
+
+function drawProfile(track) {
+  var box = document.getElementById('elevBox');
+  if (!window.Chart || !track.some(function(p) { return p[2] != null; })) { box.style.display = 'none'; return; }
+  var along = [0];
+  for (var i = 1; i < track.length; i++) {
+    along.push(along[i - 1] + haversineMi(track[i-1][0], track[i-1][1], track[i][0], track[i][1]) * 1609.344);
+  }
+  var step = Math.max(1, Math.floor(track.length / 600));
+  var idx = [];
+  for (var j = 0; j < track.length; j += step) idx.push(j);
+  if (idx[idx.length - 1] !== track.length - 1) idx.push(track.length - 1);
+  box.style.display = 'block';
+  elevChart = new Chart(document.getElementById('elevChart'), {
+    type: 'line',
+    data: {
+      labels: idx.map(function(k) { return UNITS.toDist(along[k]).toFixed(1); }),
+      datasets: [{ data: idx.map(function(k) { return track[k][2] != null ? UNITS.toElev(track[k][2]) : null; }),
+                   borderColor: cssVar('--accent'), backgroundColor: cssVar('--accent', 0.18), fill: true,
+                   borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: true }],
+    },
+    options: {
+      animation: false, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      onHover: function(e, items) {
+        if (!items.length) return;
+        var p = track[idx[items[0].index]];
+        if (!elevDot) elevDot = L.circleMarker([p[0], p[1]], { radius: 7, color: cssVar('--card-bg'), weight: 2,       // as the activity page's
+                                                               fillColor: cssVar('--c-yellow'), fillOpacity: 1, interactive: false }).addTo(map);
+        else elevDot.setLatLng([p[0], p[1]]);
+      },
+      plugins: { legend: { display: false }, tooltip: { displayColors: false, callbacks: {
+        title: function(c) { return c[0].label + ' ' + UNITS.dist; },
+        label: function(c) { return Math.round(c.parsed.y) + ' ' + UNITS.elev; } } } },
+      scales: { x: { ticks: { maxTicksLimit: 8, font: { size: 10 } }, grid: { display: false } },
+                y: { ticks: { maxTicksLimit: 4, font: { size: 10 } } } },
+    },
+  });
+  document.getElementById('elevChart').addEventListener('mouseleave', function() {
+    if (elevDot) { map.removeLayer(elevDot); elevDot = null; }
+  });
+}
+
+// ── Import GPX ────────────────────────────────────────────────────
+function importGPX(input) {
+  if (!input.files.length) return;
+  var fd = new FormData();
+  Array.prototype.forEach.call(input.files, function(f) { fd.append('files', f); });
+  var out = document.getElementById('importResult');
+  out.textContent = 'Reading ' + input.files.length + ' file' + (input.files.length === 1 ? '' : 's') + '…';
+  fetch('/planner/routes/import', { method: 'POST', body: fd })
+    .then(function(r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function(res) {
+      var saved = res.filter(function(x) { return x.status === 'saved'; });
+      var lines = [];
+      if (saved.length) lines.push(saved.length + ' route' + (saved.length === 1 ? '' : 's') + ' saved');
+      res.forEach(function(x) {
+        if (x.status === 'exists') lines.push(escapeHtml(x.file) + ': already saved');
+        if (x.status === 'empty') lines.push('<span class="bad">' + escapeHtml(x.file) + ': no points in it</span>');
+        if (x.status === 'unreadable') lines.push('<span class="bad">' + escapeHtml(x.file) + ': not a GPX file Headwind can read</span>');
+      });
+      out.innerHTML = lines.join('<br>');
+      loadSavedRoutes();
+      var first = saved[0] || res.find(function(x) { return x.id; });
+      if (first && !waypoints.length) loadSaved(first.id);
+    })
+    .catch(function() { out.innerHTML = '<span class="bad">The import failed.</span>'; })
+    .finally(function() { input.value = ''; });
 }
 
 function deleteRoute(id) {
@@ -447,11 +628,15 @@ function deleteRoute(id) {
   var name  = route ? route.name : 'this route';
   if (!confirm('Delete "' + name + '"? This cannot be undone.')) return;
   fetch('/planner/routes/' + id, { method: 'DELETE' })
-    .then(function() { loadSavedRoutes(); });
+    .then(function() {
+      if (shown && shown.id === id) closeTrack();
+      loadSavedRoutes();
+    });
 }
 
 // ── Init ──────────────────────────────────────────────────────────
 refreshStats();
 loadSavedRoutes();
+{% if open_route %}loadSaved({{ open_route }}).catch(function() {});{% endif %}
 </script>
 {% endblock %}

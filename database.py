@@ -1366,6 +1366,32 @@ def _step_3(db):
         db.execute('UPDATE Settings SET bestEffortsKmDone=1')
 
 
+def _step_4(db):
+    """Routes that follow a line (services/planned_routes.py): PlannedRoute gets a track, where it came from, its rider, sport, distance and
+    climb. A route made before this is the owner's, from the planner, with its distance measured now."""
+    have = {r[1] for r in db.execute('PRAGMA table_info(PlannedRoute)').fetchall()}
+    for col, defn in [
+        ('riderId',       'INTEGER REFERENCES Rider(id)'),
+        ('source',        "TEXT DEFAULT 'planner'"),     # planner, gpx, activity, strava
+        ('sourceId',      'TEXT'),                       # the activity's id, for source 'activity'
+        ('sportType',     'TEXT'),                       # from the file's <type> or the activity; NULL from the planner
+        ('track',         'TEXT'),                       # JSON [[lat, lng, ele], ...], or NULL for a route of waypoints
+        ('distance',      'REAL'),                       # metres
+        ('elevationGain', 'REAL'),                       # metres, from the track's heights
+    ]:
+        if col not in have:
+            db.execute(f'ALTER TABLE PlannedRoute ADD COLUMN {col} {defn}')
+    db.execute('UPDATE PlannedRoute SET riderId=(SELECT id FROM Rider WHERE isDefault=1 ORDER BY id LIMIT 1) WHERE riderId IS NULL')
+    import json
+    from services.planned_routes import distance_m
+    for rid, wps in db.execute('SELECT id, waypoints FROM PlannedRoute WHERE distance IS NULL').fetchall():
+        try:
+            d = round(distance_m(json.loads(wps or '[]')), 1)
+        except (ValueError, TypeError, KeyError, IndexError):
+            d = 0
+        db.execute('UPDATE PlannedRoute SET distance=? WHERE id=?', [d, rid])
+
+
 def _compact(db):
     """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
     a temporary file and once through the WAL. Logged either way. Commits."""
@@ -1411,6 +1437,7 @@ STEPS = (
     (_step_1, False),
     (_step_2, True),         # an older Headwind reads Activity.streams
     (_step_3, False),
+    (_step_4, False),
 )
 LATEST = len(STEPS)
 

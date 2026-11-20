@@ -45,7 +45,7 @@ ALLOWED_WRITES = {
     # activities: label things, change type, add one by hand (deleting stays disabled)
     'rides.save_notes', 'rides.set_commute', 'rides.scan_segments', 'rides.change_sport', 'rides.resolve_duplicate',
     'dashboard.activities_new',
-    'route_builder.save_route', 'route_builder.delete_route',
+    'route_builder.save_route', 'route_builder.delete_route', 'route_builder.from_activity',
     # goals (challenges stay off: they go out on the friends feed)
     'goals.add_goal', 'goals.delete_goal',
 }

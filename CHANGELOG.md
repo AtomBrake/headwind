@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Routes from GPX files, activities and your Strava export.** Before this, the route planner (`/planner`, still out of the sidebar until it's finished) could only make a route from waypoints clicked on the map. **Import GPX** in its Saved routes panel makes a route from each file you choose, several at once. It reads a file's track, or failing that its route points, which is what the planner's own export writes. A file with no points, or one that isn't GPX, is listed with the reason. **Save as route** in an activity's **⋯** menu makes a route from the activity's own GPS points, for any sport with a GPS track except Zwift. Tick **Routes** on the Import page with a Strava export to bring in the routes you made on Strava, each with its sport (routes you starred from other people aren't in the export). A route made like this keeps the line it follows, with its heights. The planner draws it as one line with its distance, climb and elevation profile, and hovering the profile marks the spot on the map. **Export GPX** writes the route's own heights instead of looking them up, and **Edit as a copy** turns the line into waypoints at most a few metres off it, to drag and save as a new route, so the original stays. A route with the same name and points isn't saved twice, so importing a Strava export again, or choosing a GPX file again, adds no copies (Strava's export often lists a route more than once). Routes now belong to a rider: a route saved from an activity goes to that activity's rider, and every other route to you. Routes made before this update are yours too, and deleting a rider deletes their routes.
+
 ## [0.7.45-beta] - 2026-11-20
 
 ### Fixed

@@ -272,7 +272,8 @@ def runkeeper_shift(creator, track_name, start, lat, lng):
     return timedelta(hours=hours)
 
 
-def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
+def read_gpx(data: bytes):
+    """(gpxpy's GPX, the text it was read from), with the fixes broken files need. Also for routes (services/planned_routes.py)."""
     import gpxpy
 
     text = data.decode('utf-8', errors='replace')
@@ -283,7 +284,11 @@ def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
     text = re.sub(r'<number>(?!\s*\d+\s*</number>)[^<]*</number>', '', text)
     text = _wrap_bare_trkpts(text)
     text = _declare_missing_prefixes(text)
-    gpx = gpxpy.parse(io.StringIO(text))
+    return gpxpy.parse(io.StringIO(text)), text
+
+
+def parse_gpx(data: bytes, stopped_speed=None, smooth_gain=False):
+    gpx, text = read_gpx(data)
 
     points = []
     for track in gpx.tracks:
