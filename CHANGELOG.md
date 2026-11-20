@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **The map and charts are linked when comparing two recordings.** On an activity's **Compare side by side** page, hovering a chart puts a dot on the map where each recording was at that minute, in its own colour, and the cursor on either track shows that minute on every chart, as on the activity page.
+- **The phone sensor charts are linked to the map too.** On an activity with a phone's sensor recording, hovering the roughness, barometric altitude or cadence chart marks the spot on the map, and the cursor on the track shows on those charts as it does on the others.
+
+### Fixed
+- **Times under the segment sliders.** Making a segment from an activity now shows how far into it each end is ("12m in"), as it was always meant to.
+
 ## [0.7.43-beta] - 2026-11-20
 
 ### Added

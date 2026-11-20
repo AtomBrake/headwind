@@ -1126,6 +1126,7 @@ function movePhoto(btn, step) {
   var coords = {{ coords | tojson }};
   window._rideCoords = coords;
   window._rideAlt    = {{ alt_raw | tojson }};
+  window._rideTime   = {{ time_raw | tojson }};
   var map = L.map('map');
   window._rideMap = map;
   {% if zwift_world %}
@@ -1503,45 +1504,21 @@ function segSnapIdx(latlng, which) {
 })();
 {% endif %}
 
-{% if phone_sensors %}
-(function() {
-  var s = {{ phone_sensors.series | tojson }};
-  function line(id, vals, color, label, unit) {
-    var el = document.getElementById(id); if (!el) return;
-    new Chart(el, { type: 'line',
-      data: { labels: s.min, datasets: [{ data: vals, borderColor: color, borderWidth: 1.3, pointRadius: 0, fill: false, tension: 0.25 }] },
-      options: { animation: false, maintainAspectRatio: false, spanGaps: true,
-        plugins: { legend: { display: false }, title: { display: true, text: label, color: cssVar('--text-soft'), font: { size: 11 } },
-          tooltip: { mode: 'index', intersect: false, callbacks: { title: c => Math.round(c[0].label) + ' min', label: c => c.parsed.y + ' ' + unit } } },
-        scales: { x: { ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: 8, callback: function(v) { return Math.round(this.getLabelForValue(v)) + 'm'; } }, grid: { display: false } },
-                  y: { ticks: { color: cssVar('--text-muted'), font: { size: 10 } }, grid: { color: cssVar('--border') } } } } });
-  }
-  line('roughChart', s.rough, cssVar('--c-amber'), 'Roughness', 'm/s²');
-  // the route itself, coloured by how rough it was (this ride's own smooth-to-rough scale)
-  var tr = {{ (phone_sensors.track or []) | tojson }}, m = window._rideMap;
-  if (m && tr.length > 5 && {{ 'false' if phone_sensors.mount == 'pocket' else 'true' }}) {        // a pocket mostly measures the rider, so no road colouring
-    var vals = tr.map(function(p) { return p[2]; }).sort(function(a, b) { return a - b; });
-    var q = function(f) { return vals[Math.floor(f * (vals.length - 1))]; }, br = [q(0.25), q(0.5), q(0.8), q(0.95)];
-    var cols = [cssVar('--c-green'), cssVar('--c-lime'), cssVar('--c-amber'), cssVar('--c-orange'), cssVar('--danger')];
-    for (var i = 1; i < tr.length; i++) {
-      var r = tr[i][2], c = cols[cols.length - 1];
-      for (var k = 0; k < br.length; k++) { if (r < br[k]) { c = cols[k]; break; } }
-      L.polyline([[tr[i - 1][0], tr[i - 1][1]], [tr[i][0], tr[i][1]]], { color: c, weight: 6, opacity: 0.9 }).addTo(m);
-    }
-  }
-  if (document.getElementById('cadChart')) line('cadChart', s.cad, cssVar('--c-violet'), 'Cadence (estimated rpm)', 'rpm');
-  line('baroChart', s.alt, cssVar('--c-sky'), 'Barometric altitude (m, relative)', 'm');
-})();
-{% endif %}
-
 // ── Charts and the map ───────────────────────────────────────────
 // Hovering a chart puts a dot on the map where that point is, and the map's cursor on the track shows on every chart. A chart point's idx is
 // its place in the streams, the same as the map's points when they're the latlng stream; on a track drawn from the summary polyline the
-// spot is matched by how far along it is instead.
+// spot is matched by how far along it is instead. A chart against minutes (the phone sensors: data.mins) is matched by the time at each point,
+// and isn't linked when there are no times; a minute outside the chart, or the track, has no spot.
 var _linkedCharts = [], _hoverDot = null, COORDS_FROM_STREAM = {{ coords_from_stream | default(false) | tojson }};
 
 function chartToCoord(data, j) {
-  var coords = window._rideCoords, dist = window._rideDist;
+  var coords = window._rideCoords, dist = window._rideDist, time = window._rideTime;
+  if (data.mins) {
+    var s = data.mins[j] * 60, lo = 0, hi = time.length - 1;
+    if (s < time[0] || s > time[hi]) return null;
+    while (lo < hi) { var mid = (lo + hi) >> 1; if (time[mid] < s) lo = mid + 1; else hi = mid; }
+    return lo;
+  }
   if (COORDS_FROM_STREAM && data.idx) return Math.min(data.idx[j], coords.length - 1);
   var last = data.labels[data.labels.length - 1], m = last > 0 ? data.labels[j] / last * dist[dist.length - 1] : 0, lo = 0, hi = dist.length - 1;
   while (lo < hi) { var mid = (lo + hi) >> 1; if (dist[mid] < m) lo = mid + 1; else hi = mid; }
@@ -1549,6 +1526,12 @@ function chartToCoord(data, j) {
 }
 
 function coordToChart(data, ci) {
+  if (data.mins) {
+    var mins = data.mins, at = window._rideTime[ci] / 60, best = -1, gap = Infinity;
+    if (at < mins[0] || at > mins[mins.length - 1]) return -1;
+    for (var k = 0; k < mins.length; k++) if (Math.abs(mins[k] - at) < gap) { gap = Math.abs(mins[k] - at); best = k; }
+    return best;
+  }
   var dist = window._rideDist, last = data.labels[data.labels.length - 1], best = 0, gap = Infinity;
   var byIdx = COORDS_FROM_STREAM && data.idx, at = byIdx ? ci : dist[ci] / (dist[dist.length - 1] || 1) * last;
   for (var j = 0; j < data.labels.length; j++) {
@@ -1568,7 +1551,7 @@ function showOnMap(ci) {                  // a point of the track, or null to ta
 }
 
 function linkChart(chart, data) {
-  if (!window._rideMap || !window._rideCoords || !window._rideCoords.length) return;
+  if (!window._rideMap || !window._rideCoords || !window._rideCoords.length || (data.mins && !window._rideTime)) return;
   _linkedCharts.push({ chart: chart, data: data });
   chart.options.interaction = { mode: 'index', intersect: false };
   chart.options.onHover = function (e, active) { showOnMap(active.length ? chartToCoord(data, active[0].index) : null); };
@@ -1605,6 +1588,7 @@ function linkChart(chart, data) {
     showOnMap(ci);
     _linkedCharts.forEach(function (l) {
       var j = coordToChart(l.data, ci), pt = l.chart.getDatasetMeta(0).data[j];
+      if (j < 0) { l.chart.setActiveElements([]); l.chart.tooltip.setActiveElements([], { x: 0, y: 0 }); l.chart.update('none'); return; }
       var active = l.chart.data.datasets.map(function (d, k) { return { datasetIndex: k, index: j }; });
       l.chart.setActiveElements(active);
       l.chart.tooltip.setActiveElements(active, { x: pt ? pt.x : 0, y: pt && isFinite(pt.y) ? pt.y : l.chart.chartArea.top });
@@ -1706,6 +1690,37 @@ makeChart('elevChart', {{ charts.elevation | tojson }}, '--success');
 {% if charts.heartrate and not charts.elevation %}makeChart('hrChart', {{ charts.heartrate | tojson }}, '--danger');{% endif %}
 {% if charts.power %}makeChart('powerChart', {{ charts.power | tojson }},       '--accent');{% endif %}
 {% if charts.cadence %}makeChart('cadenceChart', {{ charts.cadence | tojson }}, '--c-purple');{% endif %}
+
+{% if phone_sensors %}
+(function() {
+  var s = {{ phone_sensors.series | tojson }};
+  function line(id, vals, color, label, unit) {
+    var el = document.getElementById(id); if (!el) return;
+    linkChart(new Chart(el, { type: 'line',
+      data: { labels: s.min, datasets: [{ data: vals, borderColor: color, borderWidth: 1.3, pointRadius: 0, fill: false, tension: 0.25 }] },
+      options: { animation: false, maintainAspectRatio: false, spanGaps: true,
+        plugins: { legend: { display: false }, title: { display: true, text: label, color: cssVar('--text-soft'), font: { size: 11 } },
+          tooltip: { mode: 'index', intersect: false, callbacks: { title: c => Math.round(c[0].label) + ' min', label: c => c.parsed.y + ' ' + unit } } },
+        scales: { x: { ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: 8, callback: function(v) { return Math.round(this.getLabelForValue(v)) + 'm'; } }, grid: { display: false } },
+                  y: { ticks: { color: cssVar('--text-muted'), font: { size: 10 } }, grid: { color: cssVar('--border') } } } } }), { mins: s.min });
+  }
+  line('roughChart', s.rough, cssVar('--c-amber'), 'Roughness', 'm/s²');
+  // the route itself, coloured by how rough it was (this ride's own smooth-to-rough scale)
+  var tr = {{ (phone_sensors.track or []) | tojson }}, m = window._rideMap;
+  if (m && tr.length > 5 && {{ 'false' if phone_sensors.mount == 'pocket' else 'true' }}) {        // a pocket mostly measures the rider, so no road colouring
+    var vals = tr.map(function(p) { return p[2]; }).sort(function(a, b) { return a - b; });
+    var q = function(f) { return vals[Math.floor(f * (vals.length - 1))]; }, br = [q(0.25), q(0.5), q(0.8), q(0.95)];
+    var cols = [cssVar('--c-green'), cssVar('--c-lime'), cssVar('--c-amber'), cssVar('--c-orange'), cssVar('--danger')];
+    for (var i = 1; i < tr.length; i++) {
+      var r = tr[i][2], c = cols[cols.length - 1];
+      for (var k = 0; k < br.length; k++) { if (r < br[k]) { c = cols[k]; break; } }
+      L.polyline([[tr[i - 1][0], tr[i - 1][1]], [tr[i][0], tr[i][1]]], { color: c, weight: 6, opacity: 0.9 }).addTo(m);
+    }
+  }
+  if (document.getElementById('cadChart')) line('cadChart', s.cad, cssVar('--c-violet'), 'Cadence (estimated rpm)', 'rpm');
+  line('baroChart', s.alt, cssVar('--c-sky'), 'Barometric altitude (m, relative)', 'm');
+})();
+{% endif %}
 
 {% if activity.weatherWindDir is not none %}
 (function() {

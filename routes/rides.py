@@ -123,6 +123,9 @@ def detail(rid):
     # works it out from the points otherwise
     dist_raw = (streams.get('distance') or {}).get('data') or []
     dist_raw = [round(d, 1) if d is not None else None for d in dist_raw] if coords_from_stream and len(dist_raw) == len(coords) else None
+    # Seconds since the start at each point, when the time stream matches them: the phone sensor charts (against minutes) find their spot by it
+    time_raw = (streams.get('time') or {}).get('data') or []
+    time_raw = time_raw if coords_from_stream and len(time_raw) == len(coords) else None
 
     from services import units, activity_detail
     detail = activity_detail.for_activity(activity, streams)      # splits, pool lengths, ski runs, laps: what fits the sport
@@ -301,7 +304,7 @@ def detail(rid):
     return render_template('ride.html', friend=friend, kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), photo_caption_max=_photos.MAX_CAPTION, phone_sensors=phone_sensors, activity=activity, coords=coords, zwift_world=zwift_world, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
                            file_climb=file_climb, file_moving=file_moving, elapsed_fix=elapsed_fix, future_start=future_start, sport_guess=sport_guess, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
                            charts=charts, has_memory=memory_count > 0, ai_pending=_auto_analyse.is_pending(activity['id']),
-                           seg_efforts=seg_efforts, alt_raw=alt_raw, coords_from_stream=coords_from_stream, dist_raw=dist_raw,
+                           seg_efforts=seg_efforts, alt_raw=alt_raw, coords_from_stream=coords_from_stream, dist_raw=dist_raw, time_raw=time_raw,
                            co_riders=co_riders, seg_rivals=seg_rivals,
                            seg_trends=seg_trends, rival_trends=rival_trends, seg_laps=seg_laps,
                            elev_loss_m=elev_loss_m,
@@ -778,6 +781,7 @@ def _recording(row, label, t0):
     except (ValueError, TypeError):
         streams = {}
     coords = (streams.get('latlng') or {}).get('data') or []
+    from_stream = bool(coords)
     if not coords and row.get('summaryPolyline'):
         try:
             import polyline as pl
@@ -796,8 +800,17 @@ def _recording(row, label, t0):
         step = max(1, len(raw) // _SAMPLE)
         series[key] = [{'x': round(((times[i] if i < len(times) else i) + offset) / 60, 2),
                         'y': round(conv[key](raw[i]), 1) if key in conv and raw[i] is not None else raw[i]} for i in range(0, len(raw), step)]
+    # the minute of each map point, on the charts' clock, so hovering one shows the other. A track from the summary polyline has no times:
+    # its points are spread evenly over the recording.
+    track = _sample(coords, 1500)
+    step = max(1, len(coords) // 1500)
+    if from_stream:
+        track_t = [round(((times[i] if i < len(times) else i) + offset) / 60, 2) for i in range(0, len(coords), step)]
+    else:
+        span = times[-1] if times else row.get('elapsedTime') or 0
+        track_t = [round((offset + span * k / max(1, len(track) - 1)) / 60, 2) for k in range(len(track))]
     return {'label': label, 'source': source_label(row), 'row': row, 'start': start, 'offset': offset, 'gps_points': len(coords),
-            'coords': _sample(coords, 1500), 'series': series, 'streams': sorted(k for k in streams if k not in ('latlng',))}
+            'coords': track, 'coord_t': track_t, 'series': series, 'streams': sorted(k for k in streams if k not in ('latlng',))}
 
 
 @bp.route('/<rid>/duplicate')
