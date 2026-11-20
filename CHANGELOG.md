@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.47-beta] - 2026-11-20
 
 ### Added
 - **Apple Health sends only the workouts your server doesn't have.** Before this, the iPhone read every other app's workout again on a full look (the first sync, choosing to go further back, Health's permission granted again), with its route and heart rate, and uploaded it for the server to recognise. Over three years that took minutes. Now the phone asks the server which it has before reading their routes, and sends only the rest. Workouts already sent before this update are recognised too. Settings → Apple Health counts them as "already on the server". Needs the updated iPhone app.
