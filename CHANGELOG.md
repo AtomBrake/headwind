@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.50-beta] - 2026-11-21
 
 ### Fixed
 - **Activity types you changed in Garmin stay off Settings → Activity types after a restart.** 0.7.49-beta covered a re-sync, but not **Check with Garmin**. That check read each activity's current type from Garmin and found nothing wrong, so the list emptied, but it didn't keep that type. The check Headwind runs at each start went by the type from the last sync, which for older activities was still the type from when they came in (walking for a walk you made hiking in Garmin), and listed them all again. **Check with Garmin** now keeps the types it reads. Press it once after updating and the list stays clear.
