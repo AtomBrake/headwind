@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- **Activity types you changed in Garmin stay off Settings → Activity types after a restart.** 0.7.49-beta covered a re-sync, but not **Check with Garmin**. That check read each activity's current type from Garmin and found nothing wrong, so the list emptied, but it didn't keep that type. The check Headwind runs at each start went by the type from the last sync, which for older activities was still the type from when they came in (walking for a walk you made hiking in Garmin), and listed them all again. **Check with Garmin** now keeps the types it reads. Press it once after updating and the list stays clear.
 - **Workouts from Apple Health no longer arrive empty.** Some apps save one stale location with a workout, repeated at a single moment, and the iPhone sent it as the workout's route. The server read it as an activity with no distance and no time, listed under "Activities that look wrong" as "nothing was recorded". The iPhone now sends a workout whose route covers under a minute or 100 m as a timed session, with Apple Health's own duration, distance, calories and average heart rate. A workout sent with no route now carries Apple Health's average heart rate too. Needs the updated iPhone app. Activities already sent this way stay as they are; they're often copies of a workout that Strava or Garmin Connect saved to Apple Health, so check for the original before deleting them.
 
 ## [0.7.49-beta] - 2026-11-20

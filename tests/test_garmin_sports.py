@@ -87,6 +87,21 @@ def test_check_lists_the_wrong_sports_and_apply_moves_them(db):
     assert sport_fix.pending(db, 1) == []                                          # the one left alone isn't suggested again
 
 
+def test_a_type_check_keeps_what_garmin_says_so_the_next_start_does_not_propose_the_old_one(db):
+    """Walking in Garmin when it came in, a Hike here, then made hiking in Garmin. Check with Garmin finds nothing wrong; the start-up check
+    (from_seen) reads the type kept from the sync, so that must be Garmin's new one too, or every restart lists it again."""
+    from services import garmin_changes
+    add_ride(db, 'garmin_1', sport='Hike', name='Haytor Walk')
+    garmin_changes.remember(db, {'activityId': 1, 'activityName': 'Teignbridge Walking', 'activityType': {'typeKey': 'walking'},
+                                 'distance': 6417, 'duration': 7939, 'startTimeGMT': '2021-07-05 09:00:00'})
+    assert sport_fix.from_seen(db) == {1: 1}
+    api = FakeGarmin([{'activityId': 1, 'activityName': 'Teignbridge Walking', 'activityType': {'typeKey': 'hiking'}, 'startTimeLocal': '2021-07-05 10:00:00'}])
+    assert sport_fix.scan(db, api, 1)['proposed'] == 0 and sport_fix.pending(db, 1) == []
+    seen = json.loads(db.execute("SELECT summary FROM GarminSeen WHERE garminId='1'").fetchone()[0])
+    assert (seen['typeKey'], seen['name'], seen['distance']) == ('hiking', 'Teignbridge Walking', 6417)     # only the type taken
+    assert sport_fix.from_seen(db) == {} and sport_fix.pending(db, 1) == []
+
+
 def test_check_stops_paging_once_past_the_oldest_garmin_ride(db):
     add_ride(db, 'garmin_7', day='2026-10-01')
     from datetime import date, timedelta

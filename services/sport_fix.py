@@ -49,10 +49,27 @@ def scan(db, api, rider_id):
             break
         offset += 100
     db.execute("DELETE FROM SportFix WHERE riderId=? AND status='pending'", [rider_id])
+    _remember_types(db, types)
     proposed = _propose(db, rider_id, rows, types)
     db.commit()
     log.warning('Sport check: %d Garmin rides checked, %d found on Garmin, %d with the wrong sport', len(rows), len(types), proposed)
     return {'checked': len(rows), 'found': len(types), 'proposed': proposed}
+
+
+def _remember_types(db, types):
+    """Keep the type just read from Garmin (`types`: {activity id: typeKey}) in what the sync last saw of each (GarminSeen), which from_seen
+    proposes from at every start. Without it, a type changed in Garmin to the sport saved here (walking made hiking) is right in this check
+    and wrong again at the next start, until a re-sync reaches that day. Only the type: the rest is garmin_changes.check's to compare."""
+    from services import garmin_changes
+    garmin_changes.ensure_schema(db)
+    for aid, key in types.items():
+        r = db.execute('SELECT summary FROM GarminSeen WHERE garminId=?', [aid[7:]]).fetchone()
+        try:
+            seen = json.loads(r['summary']) if r else None
+        except ValueError:
+            continue
+        if key and isinstance(seen, dict) and (seen.get('typeKey') or '').lower() != key:
+            db.execute('UPDATE GarminSeen SET summary=? WHERE garminId=?', [json.dumps({**seen, 'typeKey': key}), aid[7:]])
 
 
 def _same_sport(saved, new):
