@@ -84,6 +84,19 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
   - [ ] Decide on the two that are calendar by nature: the Nutrition week page (`routes/nutrition.week_log`, `templates/nutrition_week.html`'s **This Week**) is a Mon–Sun diary, and the badge for most sport groups in a week (`routes/riders.py` ~524). Likely leave both as calendar weeks.
   - [ ] Tests: on a Monday the 7-day totals include last Tuesday to today, and on the 1st the 28-day totals include last month's days; dashboard, API and sensors give the same numbers.
 
+### Nutrition
+
+- [ ] **Log anything you eat or drink from a photo and a description** (asked 2026-11-22). Half of it is built: **Add food → photo** on the Nutrition page (`static/js/nutrition.js`, `openPhotoMeal`) sends one photo and an optional note to `POST /nutrition/api/estimate-meal` (`routes/nutrition.estimate_meal_photo`), which asks the AI provider for a name, items with portions, calories, protein, carbs, fat and fibre, a confidence, its assumptions and a calorie range (`services/food_vision.estimate_meal`, `MEAL_PROMPT`). The review lets you scale the portion and edit the numbers, then logs one `FoodLog` row with `source='photo_ai'` and the photo kept in `foodimg/`. What's missing to make it the quick way to log everything:
+  - [ ] **A description with no photo.** "A pint of Guinness and a bag of salt and vinegar crisps", or a meal eaten before you thought to take a picture. `estimate_meal` needs an image; let the photo be optional (a text-only prompt beside `MEAL_PROMPT`), and add a "Describe it" box beside the photo button.
+  - [ ] **Drinks.** `MEAL_PROMPT` is about a plate of food. Make it cover drinks: the volume, and for alcohol the ABV and UK units, so it counts towards the week's units (`alcohol_units` on `/log`, `routes/nutrition._alcohol_summary`); for water, tea, coffee and soft drinks, the ml towards hydration (`HydrationLog`), if the rider wants drinks counted there.
+  - [ ] **Sugar, and more nutrients.** The review has a sugar box, but the prompt never asks for sugar, so it always logs 0 (`pmBase.sugar || 0`): ask for it, and log null rather than 0 when it isn't given. Consider salt and saturated fat too, if `FoodLog` gets columns for them.
+  - [ ] **Each item as its own entry,** as a choice in the review: "Curry", "Rice" and "Naan" as three rows (through `/log-batch`), so one can be deleted or changed later, instead of one "Chicken tikka masala with pilau rice" row. Let items be removed or renamed in the review before logging.
+  - [ ] **More than one photo:** the plate and the packaging, the menu or the receipt (the label gives exact figures). Up to about 4, sent in one request, as the screenshot import does (`MAX_SCREENSHOTS`).
+  - [ ] **Save it for next time:** a "Save as a food" (`CustomFood`) or Go-To from the review, so the same breakfast doesn't go to the AI every day.
+  - [ ] **On the phones.** The iPhone app can't log food yet (**Food logging in the iPhone app**, under P3): when it can, a camera button that takes a photo, adds a note by typing or dictation, and shows the same review. `/nutrition/api/estimate-meal` already accepts the device token (`_BEARER_PATHS`). Android the same.
+  - [ ] **Try it on the real Claude API** with real meal photos, food-diary and recipe screenshots, and compare estimates with labelled foods: the image and JSON handling is only tested with a faked client (`tests/test_ai_providers.py`). Check what a local Ollama vision model (e.g. `llama3.2-vision`) does, for anyone who doesn't want their photos sent to a cloud provider, and say in the README which providers can read photos.
+  - [ ] Tests: a description with no photo; a drink logs its units and its water; sugar is null when not given; items logged one by one; several photos in one request.
+
 ### iPhone and Watch
 
 - [ ] **A map page on the Watch while recording** (asked 2026-11-22). The Watch's recording screen (`RecordingView` in `ios/HeadwindWatch/HeadwindWatchApp.swift`) has two pages, the controls and the figures, and no map. Add a third page, after the figures, for every sport that uses GPS (`Sport.usesGPS`), whether following a route or not; timed-only sessions (strength, an indoor ride, a pool swim) keep two pages.
@@ -173,8 +186,6 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
 
 - [ ] **AI coach for other sports.** `services/ai.py` and `services/context.py` coach rides only. Give runs and other sports their own context and history, and let ride analysis take the rest of the training week into account. It already sees "Other training (last 30 days)".
   - [ ] Analyse new runs and other sports automatically too (`services/auto_analyse.py` takes rides only, `sports.is_ride`).
-
-- [ ] **Try the food-screenshot, recipe and meal-photo readers on the real Claude API,** with real screenshots. The image and JSON handling is covered by `tests/test_ai_providers.py` with a faked client only.
 
 ### Data and import
 
