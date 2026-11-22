@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.52-beta] - 2026-11-22
 
 ### Added
 - **Share a live tracking link from the iPhone.** Switch on **Share live location** on the Record screen, or make it the default in Settings → Live tracking link. When you start a recording with GPS (or switch it on mid-recording), the phone asks your server for a link and opens the share sheet to send it by Messages, WhatsApp or mail. The link opens in any browser, with no account, and shows where you are, your track so far, distance, time, speed or pace and the phone's battery, but nothing within 300 m of where you started. Anyone with the link can see where you are. While it's shared the phone sends where you are every 5 s instead of 15, with the screen locked too. The link ends an hour after you finish, or at once with **Stop sharing**, and until then it stays on the Record screen to send again or copy. Your server needs an https **Outside address**: without one the app shows the reason and a button to Settings on the server, and the recording carries on without the link. Needs the updated iPhone app.
