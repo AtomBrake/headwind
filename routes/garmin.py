@@ -190,8 +190,13 @@ def sports_page():
     from flask import render_template
     from services import sport_fix, tasks
     rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
-    return render_template('garmin_sports.html', fixes=sport_fix.pending(get_db(), rider['id']) if rider else [], msg=request.args.get('msg', ''),
-                           check=tasks.last(get_db(), sport_fix.TASK))
+    fixes = sport_fix.pending(get_db(), rider['id']) if rider else []
+    check = tasks.last(get_db(), sport_fix.TASK)
+    # The start-up pass (sport_fix.from_seen) adds proposals after the check, from the type each had at its last sync, so the list can hold
+    # more than the check's own "0 have the wrong sport" said: say so under it.
+    listed = tasks.last(get_db(), 'startup:garmin_sports')
+    listed_since = bool(fixes and check and listed and str(listed['finishedAt'] or '') > str(check['finishedAt'] or ''))
+    return render_template('garmin_sports.html', fixes=fixes, msg=request.args.get('msg', ''), check=check, listed_since=listed_since)
 
 
 @bp.route('/garmin/sports/check', methods=['POST'])

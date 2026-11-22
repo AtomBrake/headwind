@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **Settings → Activity types no longer says "0 have the wrong sport" above a list of them without explaining why.** That count is from the last time you pressed **Check with Garmin**. Each time Headwind starts, it can add more to the list, going by the type each activity had at its last sync. When it has done that since your last check, the page now says so under the count and suggests checking with Garmin again.
+
 ## [0.7.50-beta] - 2026-11-21
 
 ### Fixed

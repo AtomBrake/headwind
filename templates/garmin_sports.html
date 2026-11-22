@@ -25,6 +25,8 @@
   {% elif check and not msg %}
   <div style="margin-top:0.75rem; padding:0.5rem 0.8rem; border:1px solid var(--border); border-radius:8px; font-size:0.875rem;">
     {{ check.error or check.result }} <span style="color:var(--text-muted);">· last checked <span data-when="{{ check.finishedAt }}">{{ check.finishedAt }}</span></span>
+    {% if listed_since %}<br><span style="color:var(--text-muted);">Since then, Headwind has listed more when it started. It went by the type
+      each activity had at its last sync, which may not be what Garmin says now. Press <strong>Check with Garmin</strong> to check them against Garmin.</span>{% endif %}
   </div>
   {% endif %}
   {% if msg %}<div style="margin-top:0.75rem; padding:0.5rem 0.8rem; border:1px solid var(--border); border-radius:8px; font-size:0.875rem;">{{ msg }}</div>{% endif %}

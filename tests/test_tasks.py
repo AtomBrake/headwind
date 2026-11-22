@@ -117,6 +117,16 @@ def test_activity_type_check_runs_as_a_background_job(client, monkeypatch):
     html = client.get('/tasks').get_data(as_text=True)
     assert 'Activity type check' in html and 'href="/garmin/sports"' in html
 
+    assert 'Since then, Headwind has listed more' not in html
+
+    # A later start lists more from the types kept at the last sync (sport_fix.from_seen): the check's own count no longer covers the list
+    with client.application.app_context():
+        db = database.get_db()
+        db.execute("INSERT INTO TaskLog (task, label, startedAt, finishedAt, status, result) VALUES ('startup:garmin_sports', 'Garmin activities "
+                   "with another sport', '2999-01-01T00:00:00+00:00', '2999-01-01T00:00:00+00:00', 'done', '1 Garmin activity…')")
+        db.commit()
+    assert 'Since then, Headwind has listed more' in client.get('/garmin/sports').get_data(as_text=True)
+
     monkeypatch.setattr(garmin, '_client', lambda *a: (_ for _ in ()).throw(ConnectionError('timed out')))
     client.post('/garmin/sports/check')
     assert jobs.run_queued(client.application) == 1
