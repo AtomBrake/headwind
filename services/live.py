@@ -68,6 +68,9 @@ def clean(payload):
         'elevation_ft': None if alt is None else round(alt * 3.28084),
         'roughness': _f(sens.get('rough'), 2), 'lean': _f(sens.get('tilt'), 1), 'pressure': _f(sens.get('press'), 1),
         'battery': _f(p.get('battery_pct'), 0),
+        # as the phone sent them, for the live tracking link (services/live_share.py), which shows them in the rider's units
+        'recording': str(p.get('recording') or '').strip()[:64], 'speed_mps': spd, 'distance_m': dist,
+        'elapsed_s': _f(p.get('elapsed_s'), 0), 'alt_m': alt,
     }
 
 
@@ -157,19 +160,22 @@ def announce(sender=None, conn=None):
     return _publish(clean({'state': 'idle'}), sender, conn)
 
 
-def update(payload, sender=None, conn=None):
-    """Handle one POST from the phone, for the default rider (as /api/v1 is). Returns the cleaned reading. Publishes at most every
-    MIN_PUBLISH_GAP_S, but always publishes idle and a change of state."""
+def update(payload, sender=None, conn=None, rider_id=None):
+    """Handle one POST from the phone, for the default rider (as /api/v1 is) unless told whose. Returns the cleaned reading. Publishes at
+    most every MIN_PUBLISH_GAP_S, but always publishes idle and a change of state. The rider's live tracking link of this recording, if
+    there is one, takes it too (services/live_share.py)."""
     from database import get_db
+    from services import live_share
     c = clean(payload)
     db = get_db()
-    rider_id = _rider_id(db)
+    rider_id = _rider_id(db) if rider_id is None else rider_id
     prev = db.execute('SELECT state, publishedAt FROM LiveReading WHERE riderId=?', [rider_id]).fetchone()
     published_at = prev['publishedAt'] if prev else 0.0
     if c['state'] == 'idle' or prev is None or prev['state'] != c['state'] or time.time() - published_at >= MIN_PUBLISH_GAP_S:
         if _publish(c, sender, conn):         # before the write, so no write lock is held while the broker answers
             published_at = time.time()
-    _save(db, rider_id, c, published_at)
+    live_share.record(db, rider_id, c)
+    _save(db, rider_id, c, published_at)          # commits both
     return c
 
 

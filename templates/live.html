@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+{# The live tracking link (routes/live_share.py), for anyone the rider sent it to: no sidebar, no sign-in, nothing but this share. #}
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% if ended or busy %}Live tracking — Headwind{% else %}{{ v.name or 'Live' }} · {{ v.sport }} — Headwind{% endif %}</title>
+  {% set appearance = 'auto' %}
+  {% include '_scheme.html' %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {% if not ended and not busy %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/leaflet-1.9.4/leaflet.css') }}">
+  <script src="{{ url_for('static', filename='vendor/leaflet-1.9.4/leaflet.js') }}"></script>
+  {% endif %}
+  <style>
+    body { background:var(--main-bg); margin:0; }
+    .live-wrap { max-width:900px; margin:0 auto; padding:1rem; }
+    .live-head { display:flex; align-items:center; gap:0.6rem; margin-bottom:0.75rem; }
+    .live-head img { width:32px; height:32px; border-radius:8px; }
+    .live-title { font-size:1.2rem; font-weight:700; color:var(--text-strong); }
+    .live-status { font-size:0.875rem; color:var(--text-muted); }
+    .live-status.live::before { content:''; display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--success); margin-right:0.4rem; }
+    .live-status.nosignal { color:var(--warning-text); }
+    #liveMap { height:60vh; min-height:300px; border-radius:12px; margin:0.75rem 0; }
+    .live-note { font-size:0.8rem; color:var(--text-muted); }
+    .live-ended { max-width:420px; margin:15vh auto; padding:2rem; text-align:center; }
+  </style>
+</head>
+<body>
+{% if ended or busy %}
+  <div class="card live-ended">
+    <img src="{{ url_for('static', filename='logo.png') }}" alt="" style="width:40px; height:40px; border-radius:10px;">
+    {% if busy %}
+    <div class="live-title" style="margin-top:0.75rem;">Too many requests</div>
+    <p class="live-note">Wait a minute, then open the link again.</p>
+    {% else %}
+    <div class="live-title" style="margin-top:0.75rem;">This link has ended</div>
+    <p class="live-note">Live tracking links stop working when they're turned off, or {{ 'an hour' if after_end_min == 60 else after_end_min ~ ' minutes' }} after the activity ends.</p>
+    {% endif %}
+  </div>
+{% else %}
+  <div class="live-wrap">
+    <div class="live-head">
+      <img src="{{ url_for('static', filename='logo.png') }}" alt="">
+      <div>
+        <div class="live-title"><span id="liveIcon">{{ v.icon }}</span> <span id="liveHeadline"></span></div>
+        <div class="live-status" id="liveStatus"></div>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">Distance</div><div class="stat-value" id="liveDistance">—</div></div>
+      <div class="stat-card"><div class="stat-label">Time</div><div class="stat-value" id="liveTime">—</div></div>
+      <div class="stat-card"><div class="stat-label" id="liveRateLabel">{{ v.rateLabel }}</div><div class="stat-value" id="liveRateNow">—</div>
+        <div class="stat-sub" id="liveRateAvg"></div></div>
+      <div class="stat-card"><div class="stat-label">Phone battery</div><div class="stat-value" id="liveBattery">—</div></div>
+    </div>
+
+    <div id="liveMap"></div>
+    <p class="live-note" id="liveHidden" hidden>The position isn't shown near where the activity started.</p>
+    <p class="live-note">Anyone with this link can see this page: where {{ v.name or 'the rider' }} is, the way they've come and these figures, until
+      {{ 'an hour' if after_end_min == 60 else after_end_min ~ ' minutes' }} after the activity ends. Nothing else is shared.</p>
+  </div>
+  <script type="application/json" id="liveData">{{ {'view': v, 'pollS': poll_s} | tojson }}</script>
+  <script src="{{ url_for('static', filename='js/live.js') }}"></script>
+{% endif %}
+</body>
+</html>

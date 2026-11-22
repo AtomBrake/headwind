@@ -202,7 +202,7 @@ def strip(db, no_gps=False, no_streams=False):
     for t, label in (('FeedToken', 'Token'), ('DeviceToken', 'Phone')):      # hashes only, but a name says whose
         if t in tables:
             db.execute(f"UPDATE {t} SET name='{label} ' || id, tokenHash='removed-' || id")
-    for t in ('SignInFail', 'LiveReading'):     # the addresses of failed sign-ins, and where a rider was a moment ago
+    for t in ('SignInFail', 'LiveReading', 'LivePoint', 'LiveShare'):     # the addresses of failed sign-ins, and where a rider was a moment ago
         if t in tables:
             db.execute(f'DELETE FROM {t}')
     _without_friends(db, tables)

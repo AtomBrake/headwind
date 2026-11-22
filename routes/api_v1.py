@@ -24,6 +24,9 @@
   POST /api/v1/friends/tokens  a feed token for a friend, with its share code (services/feed_tokens.py), for the app to show as a QR code;
                             POST /api/v1/friends/probe {code} who a friend's code connects to, POST /api/v1/friends {code, rider, name} adds them;
                             GET /api/v1/friends lists them, for GET /api/v1/activities?rider=<their rider id>|all (a friend's activities, read-only)
+  POST /api/v1/live        the phone's live reading while it records (services/live.py), with `recording`, the recording's id;
+                            POST /api/v1/live/share {recording, sport, track} starts a live tracking link for it (or gives the running one),
+                            DELETE /api/v1/live/share {recording} stops it (services/live_share.py)
 The nutrition endpoints the app also uses (/nutrition/api/log, /water, /search, /lookup/<barcode> ...) accept the same token.
 """
 import logging
@@ -491,13 +494,48 @@ def post_sensors():
 
 @bp.route('/live', methods=['POST', 'GET'])
 def live():
-    """POST: the phone's live position/speed/sensors while it records ({state: riding|idle, lat, lng, speed_mps, distance_m, elapsed_s, alt_m, accuracy_m, sport, battery_pct, sensors: {rough, tilt, press}}).
-    Published to Home Assistant by services/live.py. GET: the last reading (for debugging)."""
+    """POST: the phone's live position/speed/sensors while it records ({state: riding|idle, recording, lat, lng, speed_mps, distance_m, elapsed_s,
+    alt_m, accuracy_m, sport, battery_pct, sensors: {rough, tilt, press}}). Published to Home Assistant by services/live.py, and kept for the
+    recording's live tracking link if it has one. GET: the last reading (for debugging)."""
     from services import live as live_svc
     if request.method == 'GET':
         return jsonify(live_svc.snapshot() or {})
     c = live_svc.update(request.get_json(silent=True))
     return jsonify({'ok': True, 'state': c['state']})
+
+
+def _share_json(row, url):
+    return {'id': row['id'], 'url': url, 'recording': row['recording'], 'expires_at': row['expiresAt'], 'ended': bool(row['endedAt']),
+            'send_every_s': 5}
+
+
+@bp.route('/live/share', methods=['POST', 'DELETE'])
+def live_share():
+    """POST {recording, sport, track: [[lat, lng, epoch s], ...]}: a live tracking link for the recording in progress, or the one it already
+    has: {id, url, expires_at, created}. `track` is what was recorded before sharing began, so the page has the track so far. 409 with
+    {error, settings_url} when there's no outside address anyone could open it on. DELETE {recording} (or ?recording=): stop sharing it, the
+    link ending at once. The rider is the default rider, as for the rest of /api/v1."""
+    from flask import g
+    from services import live_share as share_svc
+    rider = _rider()
+    if not rider:
+        return jsonify({'error': 'no rider'}), 409
+    body = request.get_json(silent=True)
+    body = body if isinstance(body, dict) else {}
+    recording = body.get('recording', request.args.get('recording'))
+    db = get_db()
+    if request.method == 'DELETE':
+        return jsonify({'stopped': share_svc.stop(db, rider['id'], recording)})
+    base, why = share_svc.link_base()
+    if not base:
+        return jsonify({'error': why, 'settings_url': share_svc.SETTINGS_PATH}), 409
+    row, token, created = share_svc.start(db, rider['id'], recording, sport=body.get('sport'), device_id=getattr(g, 'device_id', None),
+                                          track=body.get('track'))
+    if token is None:               # one already running whose token this server can't open: end it and start again
+        share_svc.stop(db, rider['id'], share_id=row['id'])
+        row, token, created = share_svc.start(db, rider['id'], recording, sport=body.get('sport'), device_id=getattr(g, 'device_id', None),
+                                              track=body.get('track'))
+    return jsonify(dict(_share_json(row, share_svc.link(base, token)), created=created)), 201 if created else 200
 
 
 @bp.route('/activities/<rid>')

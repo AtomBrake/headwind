@@ -90,15 +90,17 @@ def _ensure_default_avatar(app):
 
 
 def _live_idle(app):
-    """A live ride whose phone has gone quiet is marked idle in Home Assistant (services/live.go_idle). Here, not in the process that took the
-    phone's last reading, which may be any of the web processes."""
-    from services import live
+    """A live ride whose phone has gone quiet is marked idle in Home Assistant (services/live.go_idle), and the track of a live tracking link
+    that has ended is deleted (services/live_share.sweep). Here, not in the process that took the phone's last reading, which may be any of the
+    web processes."""
+    from services import live, live_share
     while True:
         time.sleep(live.IDLE_CHECK_S)
         try:
             with app.app_context():
                 from database import get_db
                 live.go_idle(get_db())
+                live_share.sweep(get_db())
         except Exception:
             log.warning('Checking for a live ride gone quiet failed', exc_info=True)
 
@@ -446,7 +448,8 @@ def create_app():
     # ── Auth guard ───────────────────────────────────────────────
     _PUBLIC = {'login.login_page', 'login.logout', 'static', 'demo.counter', 'demo.health',
                'friends.feed', 'friends.riders_list', 'import_rides.api_upload_ride',
-               'friends.foods_feed', 'friends.food_image', 'telemetry_forward.ping', 'avatar_files'}
+               'friends.foods_feed', 'friends.food_image', 'telemetry_forward.ping', 'avatar_files',
+               'live_share.page', 'live_share.data'}       # a live tracking link, for whoever the rider sent it to
 
     # The phone app authenticates with a per-device Bearer token (services/device_auth.py) instead of a login session — accepted
     # only on the app's own API paths, never on the web pages.
@@ -672,6 +675,8 @@ def create_app():
     app.register_blueprint(goals_bp)
     from routes.matched import bp as matched_bp
     app.register_blueprint(matched_bp)
+    from routes.live_share import bp as live_share_bp
+    app.register_blueprint(live_share_bp)
 
     if DEMO:
         from routes.demo import bp as demo_bp
