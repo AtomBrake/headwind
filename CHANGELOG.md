@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Share a live tracking link from the iPhone.** Switch on **Share live location** on the Record screen, or make it the default in Settings → Live tracking link. When you start a recording with GPS (or switch it on mid-recording), the phone asks your server for a link and opens the share sheet to send it by Messages, WhatsApp or mail. The link opens in any browser, with no account, and shows where you are, your track so far, distance, time, speed or pace and the phone's battery, but nothing within 300 m of where you started. Anyone with the link can see where you are. While it's shared the phone sends where you are every 5 s instead of 15, with the screen locked too. The link ends an hour after you finish, or at once with **Stop sharing**, and until then it stays on the Record screen to send again or copy. Your server needs an https **Outside address**: without one the app shows the reason and a button to Settings on the server, and the recording carries on without the link. Needs the updated iPhone app.
+- **Share a live tracking link from the Watch.** Switch on **Share live location** on the Watch's start screen (it starts from the phone's setting). A recording with GPS sends where you are every 30 s, through the phone when it's near and over Wi-Fi or cellular when it isn't, and the Watch makes the link itself. The Watch can't send it, so your iPhone shows a notification, "Your live link is ready", and tapping it opens the share sheet. The link also waits on the iPhone's Record screen, with **Send**, **Copy** and **Stop sharing**, and shows as finished when the Watch recording ends. The iPhone asks to show notifications when you switch sharing on in Settings. Needs the updated Watch app, and the Watch's own token (made by the iPhone app).
+
+### Changed
+- **Each recording from the iPhone or the Watch has its id from the start.** The id goes with every live reading and, as before, with the upload, so a live link takes only its own recording's readings. A recording recovered after a crash keeps its id, and saving or discarding it ends any link it had.
+
 ## [0.7.51-beta] - 2026-11-22
 
 ### Added

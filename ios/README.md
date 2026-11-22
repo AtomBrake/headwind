@@ -6,10 +6,10 @@ A native SwiftUI companion for a Headwind server. It uses the same phone API and
 | Tab | Shows | Endpoint |
 |---|---|---|
 | Today | Calories ring (eaten / goal / burned), macros, water, steps, weight trend, food diary by meal, today's other activities with their own icons | `GET /api/v1/today` |
-| Record | Map (or a clock for a timed sport), live stats, start / pause / finish any sport the phone records, on a chosen bike; list of recordings, their upload status, bike and waiting photos (add, remove, reorder) | `POST /api/v1/activities` (older servers: `/rides`, `/workouts`), `/activities/<id>/bike`, `/activities/<id>/photos`, `/live` |
+| Record | Map (or a clock for a timed sport), live stats, start / pause / finish any sport the phone records, on a chosen bike; share a live tracking link; list of recordings, their upload status, bike and waiting photos (add, remove, reorder) | `POST /api/v1/activities` (older servers: `/rides`, `/workouts`), `/activities/<id>/bike`, `/activities/<id>/photos`, `/live`, `/live/share` |
 | Activities | Every activity of every sport, paged, searchable and filtered by sport, and by whose (Me, a friend, Everyone); each with its map (a Zwift ride's over its Zwift world), stats, charts and photos (add, delete, reorder, caption), and delete. A friend's is read-only | `GET /api/v1/activities` (`?rider=`), `/friends`, `/activities/<id>`, `/photos/<name>`, `/zwift/<slug>.png`, `/activities/<id>/photos…` (older servers, whose `/ping` says `api` below 3: `/rides`, `/rides/<kind>/<id>…`) |
 | Overview | A card per sport group for week / month / year / all time, a 12-week chart of one sport by distance or every sport by time, latest recovery (Garmin's or Apple Health's) | `GET /api/v1/overview` |
-| Settings | Paired server, rider, units, Bluetooth sensors (pair, forget, battery, wheel size), Apple Health (what to send, how far back), friends (make a QR code for a friend with what they may see; add a friend by scanning or pasting their code), unpair | `GET /api/v1/ping`, `POST /api/v1/health/days`, `GET`/`DELETE /api/v1/health`, `POST /api/v1/friends/tokens`, `/friends/probe`, `/friends` |
+| Settings | Paired server, rider, units, Bluetooth sensors (pair, forget, battery, wheel size), whether recordings share a live tracking link, Apple Health (what to send, how far back), friends (make a QR code for a friend with what they may see; add a friend by scanning or pasting their code), unpair | `GET /api/v1/ping`, `POST /api/v1/health/days`, `GET`/`DELETE /api/v1/health`, `POST /api/v1/friends/tokens`, `/friends/probe`, `/friends` |
 
 **Apple Watch:** recording only. Start, pause and end any sport on the wrist with heart rate, calories and, where it has them, GPS,
 speed or pace, distance, climbing, power and cadence. On Apple Watch Ultra the Action button starts and pauses it.
@@ -38,7 +38,23 @@ minute to be kept.
   stats show pace, and the Watch records the matching Apple Health workout. A ride's bike can be changed later from its
   menu under Recordings, before or after upload.
 - **iPhone:** GPS keeps recording with the screen locked. While recording, the phone reports its position to
-  `/api/v1/live` every 15 s for Home Assistant, as the Android app does.
+  `/api/v1/live` every 15 s for Home Assistant, as the Android app does. Every post carries the recording's id
+  (`recording`), given at Start and kept in the journal; the upload sends the same id as its `client_id`.
+- **Live tracking link (iPhone):** "Share live location" on the Record screen (its default is in Settings) asks the server
+  for a link at Start (`POST /api/v1/live/share`), or mid-recording with the track so far thinned as the server thins it
+  (a point every 10 s or 25 m, at most 5,000), and opens the share sheet with it. While the link runs the phone posts every
+  `send_every_s` (5 s) instead of 15, in the background too. The idle post at Finish or Discard ends it; it then works for an
+  hour, and stays on the Record screen until then to send again, copy or stop (**Stop sharing**: `DELETE /api/v1/live/share`).
+  A 409 (no outside https address) shows the server's reason with a button to its Settings page, and the recording goes on
+  without the link. `Headwind/Record/LiveShareController.swift`, `Shared/LiveShare.swift`.
+- **Live posts from the Watch:** with "Share live location" on at Start (its default comes from the phone's Settings) and a
+  token of its own, a Watch recording with GPS posts `/api/v1/live` itself every 30 s with its recording's id, and idle when
+  it ends: through the phone's connection when it's near, over Wi-Fi or cellular when not. With its first post it asks for
+  the link (`POST /api/v1/live/share`, tried again with each post while there's no signal) and, having no share sheet, hands
+  it to the phone (`transferUserInfo`, `LiveLinkMessage`), which shows a notification ("Your live link is ready"; permission is
+  asked when sharing is switched on in Settings) whose tap opens the share sheet, and keeps the link on the Record screen. At
+  the end it tells the phone, which shows the link as finished. The phone posts nothing itself for a recording the Watch
+  makes. `HeadwindWatch/WorkoutManager.swift`, `Headwind/Record/LiveLinkNotifier.swift`.
 - **Watch:** runs as a HealthKit workout of the chosen sport, which keeps the app running with the wrist down and supplies heart
   rate. The finished ride is saved to Apple Health with its route, and sent to the iPhone as GPX with heart rate
   on every point. The phone uploads it with its own pairing, so the Watch never needs pairing. Riding without the
@@ -203,7 +219,9 @@ server in `HeadwindTests/Fixtures/`. If an endpoint's shape changes, refresh tho
 the app no longer understands.
 
 The UI tests run against a live server and skip themselves otherwise. `RecordRideUITests` simulates GPS, records a
-ride and waits for the server to accept it. Grant location first:
+ride and waits for the server to accept it. `LiveShareUITests` starts a run with "Share live location" on: a server with an
+https outside address gives the share sheet and then **Stop sharing**; a local one refuses, and the test checks the reason
+is shown and the recording goes on. Grant location first:
 
 ```sh
 xcrun simctl privacy <device> grant location io.github.atombrake.headwind

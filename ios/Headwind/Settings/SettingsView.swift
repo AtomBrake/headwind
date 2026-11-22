@@ -4,6 +4,7 @@ struct SettingsView: View {
     @Environment(Session.self) private var session
     @Environment(HealthSync.self) private var health
     @Environment(SensorManager.self) private var sensors
+    @Environment(LiveShareController.self) private var live
     @State private var confirmUnpair = false
     @State private var confirmRemoveHealth = false
     @State private var healthError: AppError?
@@ -32,6 +33,15 @@ struct SettingsView: View {
                     Text("Sensors")
                 } footer: {
                     Text("Heart rate straps, power meters, speed and cadence sensors and smart trainers, for recording on the phone without the Watch.")
+                }
+
+                Section {
+                    Toggle("Share live location", isOn: Binding(get: { live.shareByDefault }, set: { live.shareByDefault = $0 }))
+                        .accessibilityIdentifier("settings-share-live")
+                } header: {
+                    Text("Live tracking link")
+                } footer: {
+                    Text("Each recording with GPS starts with a link to send by Messages, WhatsApp or mail. It opens in any browser, with no account, and shows where you are, your track and your figures, but not the first 300 m. Anyone with the link can see where you are, until an hour after you finish. Switch it on or off for one recording on the Record screen. Your server needs an https outside address (Settings → Outside address on the web).")
                 }
 
                 Section {

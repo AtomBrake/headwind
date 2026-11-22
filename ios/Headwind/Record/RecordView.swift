@@ -25,8 +25,10 @@ private struct RecordScreen: View {
     @Environment(PhoneRideRecorder.self) private var recorder
     @Environment(RideStore.self) private var store
     @Environment(WatchBridge.self) private var watch
+    @Environment(LiveShareController.self) private var live
     @Environment(Router.self) private var router
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.openURL) private var openURL
     @State private var confirmFinish = false
     @State private var justSaved: SavedRide.ID?
     @State private var error: AppError?
@@ -81,6 +83,15 @@ private struct RecordScreen: View {
             RideSavedSheet(rideID: ride.id)
                 .presentationDetents([.medium, .large])
         }
+        .alert("Live link", isPresented: Binding(get: { live.problem != nil }, set: { if !$0 { live.problem = nil } }),
+               presenting: live.problem) { problem in
+            if let settings = problem.settings {
+                Button("Open Settings on the server") { openURL(settings) }
+            }
+            Button("OK", role: .cancel) {}
+        } message: { problem in
+            Text(problem.message + (recorder.isRecording ? "\n\nThe recording goes on without the link." : ""))
+        }
         .onAppear { recorder.warmUp() }
         .onDisappear { recorder.coolDown() }
     }
@@ -114,7 +125,22 @@ private struct RecordScreen: View {
             if recorder.isRecording {
                 RideStatsPanel(recorder: recorder, units: session.units)
             }
+            liveShare
             RecordControls(recorder: recorder, bikes: session.bikes, onStart: startRide) { confirmFinish = true }
+        }
+    }
+
+    /// The running link (or one for a finished recording, until it expires), else the switch to start one.
+    private var liveShare: some View {
+        TimelineView(.everyMinute) { context in
+            VStack(spacing: 12) {
+                if let link = live.current(at: context.date), !recorder.isRecording || link.recording == recorder.recordingID?.uuidString {
+                    LiveLinkCard(link: link, recorder: recorder)
+                }
+                if !live.isSharing(recorder.recordingID), recorder.recovered == nil || recorder.isRecording {
+                    LiveShareSwitch(recorder: recorder)
+                }
+            }
         }
     }
 
@@ -136,15 +162,18 @@ private struct RecordScreen: View {
     private func startRide() {
         if recorder.recovered != nil, !save(recovered: true, announce: false) { return }
         recorder.start(bike: Bike.pick(recorder.chosenBike, from: session.bikes))
+        if live.wanted, recorder.isRecording, recorder.sport.usesGPS {
+            Task { await live.start(recorder: recorder, pairing: session.pairing) }
+        }
     }
 
     /// Store the finished (or recovered) ride, then upload it. The recorder lets go of the ride only once it's
     /// on disk, so a failure is shown and nothing is thrown away. Returns whether it was stored.
     @discardableResult
     private func save(recovered: Bool, announce: Bool = true) -> Bool {
-        let keep = { (gpx: Data?, summary: RideSummary) throws(AppError) -> SavedRide in
-            if let gpx { return try store.add(gpx: gpx, summary: summary, source: .phone) }
-            return try store.addSession(summary: summary, source: .phone)
+        let keep = { (gpx: Data?, summary: RideSummary, id: UUID) throws(AppError) -> SavedRide in
+            if let gpx { return try store.add(gpx: gpx, summary: summary, source: .phone, id: id) }
+            return try store.addSession(summary: summary, source: .phone, id: id)
         }
         do throws(AppError) {
             let ride = recovered ? try recorder.saveRecovered(into: keep) : try recorder.finish(into: keep)

@@ -82,9 +82,12 @@ final class RideStore {
         rides.filter { ($0.status == .pending || $0.status == .failed) && $0.belongs(to: server) }.count
     }
 
+    /// `id` is the recording's own, given at Start, so its upload's client_id is the id its live link knew it by. One already here under
+    /// that id (saved twice) is kept as it is.
     @discardableResult
-    func add(gpx: Data, summary: RideSummary, source: SavedRide.Source) throws(AppError) -> SavedRide {
-        let ride = SavedRide(id: UUID(), summary: summary, source: source, status: .pending, server: serverForNewRides())
+    func add(gpx: Data, summary: RideSummary, source: SavedRide.Source, id: UUID = UUID()) throws(AppError) -> SavedRide {
+        if let existing = rides.first(where: { $0.id == id }) { return existing }
+        let ride = SavedRide(id: id, summary: summary, source: source, status: .pending, server: serverForNewRides())
         do {
             try gpx.write(to: fileURL(ride), options: .atomic)
         } catch {

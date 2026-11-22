@@ -102,6 +102,19 @@ struct StartView: View {
                     .disabled(workout.state == .starting)
                 }
 
+                if workout.sport.usesGPS {
+                    Toggle("Share live location", isOn: Binding(get: { workout.sharesLive && phone.pairing != nil },
+                                                                set: { workout.shareLive = $0 }))
+                        .disabled(workout.state == .starting || phone.pairing == nil)
+                        .accessibilityIdentifier("watch-share-live")
+                    if workout.sharesLive, phone.pairing != nil {
+                        Text("Your iPhone gets a link to send. Anyone with the link can see where you are.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+
                 if !phone.phonePaired {
                     Text("Pair the Headwind iPhone app with your server so rides can upload.")
                         .font(.footnote)
@@ -183,6 +196,32 @@ private struct ControlsPage: View {
     @Environment(WorkoutManager.self) private var workout
 
     var body: some View {
+        VStack(spacing: 8) {
+            buttons
+            if workout.postingLive {
+                liveLink
+                    .font(.footnote)
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("watch-live-link")
+            }
+        }
+    }
+
+    /// Where the live tracking link has got to: it goes to the iPhone to send, as the Watch has no share sheet.
+    @ViewBuilder private var liveLink: some View {
+        switch workout.liveLink {
+        case .none, .starting:
+            Text("Making the live link…").foregroundStyle(.secondary)
+        case .sent:
+            Text("Live link sent to your iPhone to share").foregroundStyle(.green)
+        case .refused:
+            Text("No live link: Headwind needs an https outside address").foregroundStyle(.orange)
+        case .failed:
+            Text("No signal for the live link yet: trying again").foregroundStyle(.secondary)
+        }
+    }
+
+    private var buttons: some View {
         HStack(spacing: 12) {
             VStack {
                 Button { workout.end() } label: {

@@ -5,7 +5,8 @@ import UIKit
 
 /// Records a ride, walk, run or hike with the iPhone's GPS. Keeps running with the screen locked (UIBackgroundModes: location,
 /// started from the foreground with When-In-Use permission), journals every fix so a crash loses nothing,
-/// and reports live position to the server's /api/v1/live for Home Assistant, as the Android app does.
+/// and reports live position to the server's /api/v1/live for Home Assistant, as the Android app does, and for the recording's live
+/// tracking link while one is shared (LiveShareController), more often then.
 ///
 /// A sport without GPS (an indoor ride, a treadmill, strength, HIIT, yoga) is a timer: no location at all, and a note in the journal every
 /// `sessionNoteInterval` so a crash keeps all but the last few seconds.
@@ -34,6 +35,12 @@ final class PhoneRideRecorder {
     private(set) var bikeId: Int?
     /// A timed session's sensor samples (empty without sensors).
     private(set) var session = SessionTrack()
+    /// The recording's id, given at Start: the client_id its upload sends, and the `recording` of its live posts and link. Nil when idle.
+    private(set) var recordingID: UUID?
+    /// While a live tracking link is shared, how often the server wants a reading (`send_every_s`); nil when not sharing.
+    var sharingEvery: Double? {
+        didSet { if sharingEvery != nil, oldValue == nil { sendLive(force: true) } }    // the page has a position at once
+    }
 
     private let feed = LocationFeed()
     private let journal: RideJournal
@@ -50,8 +57,10 @@ final class PhoneRideRecorder {
     private var tickTask: Task<Void, Never>?
     /// Set by the app: posts JSON to /api/v1/live. Nil (e.g. in previews) skips live updates.
     var postLive: ((LiveUpdate) async -> Void)?
+    /// Set by the app: a recording (or a recovered one) has been saved or discarded, and its idle reading sent.
+    var onRecordingEnded: ((UUID) -> Void)?
 
-    static let livePostInterval: TimeInterval = 15
+    static let livePostInterval: TimeInterval = LiveCadence.phone
     static let sessionNoteInterval: TimeInterval = 30
     static let sampleInterval: TimeInterval = 1
 
@@ -124,11 +133,13 @@ final class PhoneRideRecorder {
         session = SessionTrack()
         sensorDistance = DistanceFollower()
         bikeId = sport.isRide ? bike : nil
+        let id = UUID()
+        recordingID = id
         let now = Date()
         clock.start(at: now)
         lastSample = .distantPast
         lastNote = now
-        journal.begin(start: now, sport: sport, bikeId: bikeId)
+        journal.begin(start: now, sport: sport, bikeId: bikeId, id: id)
         state = .recording
         sensors?.use(.recording)
         if sport.usesGPS {
@@ -188,21 +199,22 @@ final class PhoneRideRecorder {
         if sport.usesGPS { journal.newSegment() }
     }
 
-    /// Hands the ride, as GPX plus its summary (the summary alone for a timed-only session), to `keep` (which stores it), and only once that
-    /// succeeds stops recording and clears the journal. Throws, and keeps recording, if there's no usable track yet (or under a minute of a
-    /// session) or `keep` fails, so the user can retry or discard rather than lose the ride.
-    func finish<T>(into keep: (Data?, RideSummary) throws(AppError) -> T) throws(AppError) -> T {
+    /// Hands the ride, as GPX plus its summary (the summary alone for a timed-only session) and its id, to `keep` (which stores it), and
+    /// only once that succeeds stops recording and clears the journal. Throws, and keeps recording, if there's no usable track yet (or under
+    /// a minute of a session) or `keep` fails, so the user can retry or discard rather than lose the ride.
+    func finish<T>(into keep: (Data?, RideSummary, UUID) throws(AppError) -> T) throws(AppError) -> T {
         guard state != .idle, let start = clock.startedAt else { throw .rideTooShort }
+        let id = recordingID ?? UUID()
         guard sport.usesGPS else {
             let elapsed = clock.elapsed()
             guard elapsed >= RideSummary.minimumSession else { throw .sessionTooShort }
-            let kept = try keep(nil, .session(start: start, elapsed: elapsed, sport: sport, track: session, bikeId: bikeId))
+            let kept = try keep(nil, .session(start: start, elapsed: elapsed, sport: sport, track: session, bikeId: bikeId), id)
             endRecording()
             return kept
         }
         guard tracker.pointCount >= 2 else { throw .rideTooShort }
         let summary = RideSummary(start: start, tracker: tracker, elapsed: clock.elapsed(), sport: sport, bikeId: bikeId)
-        let kept = try keep(GPXWriter.gpx(segments: tracker.segments, summary: summary), summary)
+        let kept = try keep(GPXWriter.gpx(segments: tracker.segments, summary: summary), summary, id)
         endRecording()
         return kept
     }
@@ -213,7 +225,7 @@ final class PhoneRideRecorder {
 
     /// Like `finish(into:)` for the recovered ride: it stays recovered, journal and all, unless `keep` succeeds.
     /// One with too little track to save, as `finish` would refuse, is discarded.
-    func saveRecovered<T>(into keep: (Data?, RideSummary) throws(AppError) -> T) throws(AppError) -> T {
+    func saveRecovered<T>(into keep: (Data?, RideSummary, UUID) throws(AppError) -> T) throws(AppError) -> T {
         guard let r = recovered else { throw .rideTooShort }
         let summary = RideJournal.summary(of: r)
         if r.session == nil {
@@ -222,15 +234,26 @@ final class PhoneRideRecorder {
                 throw .rideTooShort
             }
         }
-        let kept = try keep(r.session == nil ? GPXWriter.gpx(segments: r.segments, summary: summary) : nil, summary)
-        recovered = nil
-        journal.clear()
+        let kept = try keep(r.session == nil ? GPXWriter.gpx(segments: r.segments, summary: summary) : nil, summary, r.id ?? UUID())
+        endRecovered(r, summary: summary)
         return kept
     }
 
     func discardRecovered() {
+        guard let r = recovered else { return }
+        endRecovered(r, summary: RideJournal.summary(of: r))
+    }
+
+    /// The recovered recording is settled: its journal goes, and an idle reading ends any link it was shared on (the app stopped before
+    /// it could send one), which then works for the usual hour.
+    private func endRecovered(_ r: RideJournal.Recovered, summary: RideSummary) {
         recovered = nil
         journal.clear()
+        guard let id = r.id else { return }
+        onRecordingEnded?(id)
+        guard let postLive else { return }
+        let idle = LiveUpdate.idle(recording: id, sport: r.sport, distance: summary.distance, elapsed: summary.elapsedTime, battery: Self.battery)
+        liveTask = Task { await postLive(idle) }
     }
 
     /// Back to the foreground feed if the Record screen is still showing, so the map keeps following; off otherwise.
@@ -241,7 +264,10 @@ final class PhoneRideRecorder {
         sensors?.stopUsing(.recording)
         journal.clear()
         if onScreen { feed.start(background: false) } else { feed.stop() }
-        sendLive(force: true)
+        sendLive(force: true)                   // idle, with the recording's id: ends its link
+        if let recordingID { onRecordingEnded?(recordingID) }
+        recordingID = nil
+        sharingEvery = nil
     }
 
     private func received(_ locations: [CLLocation]) {
@@ -256,39 +282,33 @@ final class PhoneRideRecorder {
         sendLive()
     }
 
-    private func sendLive(force: Bool = false) {
-        guard let postLive, force || Date().timeIntervalSince(lastLivePost) >= Self.livePostInterval else { return }
-        lastLivePost = Date()
+    /// How long between live posts now: more often while a link is shared.
+    var liveInterval: TimeInterval { LiveCadence.phone(sharing: sharingEvery != nil, sendEvery: sharingEvery) }
+
+    private static var battery: Int? {
         UIDevice.current.isBatteryMonitoringEnabled = true
-        let battery = UIDevice.current.batteryLevel
+        let level = UIDevice.current.batteryLevel
+        return level >= 0 ? Int(level * 100) : nil
+    }
+
+    private func sendLive(force: Bool = false) {
+        guard let postLive, LiveCadence.due(last: lastLivePost, interval: liveInterval, force: force) else { return }
+        lastLivePost = Date()
         let l = lastLocation
         let update = LiveUpdate(
             state: state == .idle ? "idle" : "riding",   // services/live.py's state, whatever the sport
+            recording: recordingID?.uuidString,
             lat: l?.coordinate.latitude, lng: l?.coordinate.longitude,
             speed_mps: state == .recording ? (sport.usesGPS ? tracker.currentSpeed : session.latest?.speed ?? 0) : 0,
             distance_m: sport.usesGPS ? tracker.distance : session.distance, elapsed_s: Int(clock.elapsed()),
             alt_m: l.flatMap { $0.verticalAccuracy >= 0 ? $0.altitude : nil },
             accuracy_m: l?.horizontalAccuracy,
             sport: sport.rawValue,
-            battery_pct: battery >= 0 ? Int(battery * 100) : nil
+            battery_pct: Self.battery
         )
-        // Fire and forget: Home Assistant missing one update doesn't matter, the ride itself is journalled.
+        // Fire and forget: Home Assistant or the link missing one update doesn't matter, the ride itself is journalled.
         liveTask = Task { await postLive(update) }
     }
-}
-
-/// Body of POST /api/v1/live (see services/live.py clean()).
-struct LiveUpdate: Encodable, Sendable {
-    var state: String
-    var lat: Double?
-    var lng: Double?
-    var speed_mps: Double
-    var distance_m: Double
-    var elapsed_s: Int
-    var alt_m: Double?
-    var accuracy_m: Double?
-    var sport: String
-    var battery_pct: Int?
 }
 
 /// CLLocationManager wrapper; delegate callbacks arrive on the main thread because the manager is made there.

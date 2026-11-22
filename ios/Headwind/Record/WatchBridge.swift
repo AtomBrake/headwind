@@ -13,10 +13,12 @@ final class WatchBridge: NSObject {
     @ObservationIgnored private let store: RideStore
     /// Called after a Watch ride is stored, to start its upload.
     @ObservationIgnored var onRideReceived: (() -> Void)?
+    /// Called with a live tracking link the Watch started (or its recording's end), for LiveShareController.
+    @ObservationIgnored var onLiveLink: ((LiveLinkMessage) -> Void)?
     /// The last Watch ride that couldn't be stored on the phone, for the Record tab to show.
     private(set) var lastError: AppError?
-    /// The latest units/paired/bikes/api context for the Watch, kept until the session can take it.
-    @ObservationIgnored private var context: (units: String, paired: Bool, bikes: [Bike], api: Int)?
+    /// The latest units/paired/bikes/api/live-share context for the Watch, kept until the session can take it.
+    @ObservationIgnored private var context: (units: String, paired: Bool, bikes: [Bike], api: Int, shareLive: Bool)?
     /// Where arriving rides are held (GPX plus a summary .json) until the RideStore takes them. Once a transfer
     /// is received the Watch deletes its copy, so this is in Application Support, not a purgeable temp directory.
     nonisolated let inbox: URL
@@ -38,8 +40,9 @@ final class WatchBridge: NSObject {
         WCSession.default.activate()
     }
 
-    func updateWatch(units: String?, paired: Bool, bikes: [Bike], api: Int?) {
-        context = (units ?? "metric", paired, bikes, api ?? 1)
+    /// `shareLive`: Settings' default for the live tracking link, which the Watch's start screen switch starts from.
+    func updateWatch(units: String?, paired: Bool, bikes: [Bike], api: Int?, shareLive: Bool) {
+        context = (units ?? "metric", paired, bikes, api ?? 1, shareLive)
         sendContext()
     }
 
@@ -84,7 +87,8 @@ final class WatchBridge: NSObject {
         guard let context, WCSession.isSupported(), WCSession.default.activationState == .activated,
               WCSession.default.isPaired, WCSession.default.isWatchAppInstalled else { return }
         try? WCSession.default.updateApplicationContext([WatchLink.unitsKey: context.units, WatchLink.pairedKey: context.paired,
-                                                         WatchLink.bikesKey: context.bikes.map(\.dictionary), WatchLink.apiKey: context.api])
+                                                         WatchLink.bikesKey: context.bikes.map(\.dictionary), WatchLink.apiKey: context.api,
+                                                         WatchLink.shareLiveKey: context.shareLive])
     }
 
     /// Move every held ride and session into the RideStore. One that can't be stored stays in the inbox for the next try.
@@ -155,6 +159,12 @@ extension WatchBridge: WCSessionDelegate {
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
     nonisolated func sessionDidDeactivate(_ session: WCSession) {
         session.activate()   // the user switched to another Watch
+    }
+
+    /// A live tracking link the Watch started, which it can't share itself, or word that its recording ended.
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        guard let d = userInfo[WatchLink.liveLinkKey] as? [String: Any], let message = LiveLinkMessage(dictionary: d) else { return }
+        Task { @MainActor in self.onLiveLink?(message) }
     }
 
     nonisolated func session(_ session: WCSession, didReceive file: WCSessionFile) {

@@ -140,7 +140,7 @@ struct SportStorageTests {
         journal.begin(start: points[0].time, sport: .hike)
         for p in points { journal.append(p) }
         let recorder = PhoneRideRecorder(journal: journal, choices: RecordChoices(defaults: tempDefaults()))
-        let (file, summary) = try recorder.saveRecovered { (gpx: Data?, s: RideSummary) throws(AppError) -> (Data?, RideSummary) in (gpx, s) }
+        let (file, summary) = try recorder.saveRecovered { (gpx: Data?, s: RideSummary, _: UUID) throws(AppError) -> (Data?, RideSummary) in (gpx, s) }
         let gpx = try #require(file)
         #expect(summary.sport == .hike)
         #expect(String(decoding: gpx, as: UTF8.self).contains("<type>hiking</type>"))
@@ -237,7 +237,7 @@ struct TimedSessionTests {
         recorder.start()
         #expect(recorder.isRecording)
         #expect(throws: AppError.self) {
-            try recorder.finish { (_: Data?, _: RideSummary) throws(AppError) -> Void in }
+            try recorder.finish { (_: Data?, _: RideSummary, _: UUID) throws(AppError) -> Void in }
         }
         #expect(recorder.isRecording)     // too short: still going, nothing lost
         recorder.discard()

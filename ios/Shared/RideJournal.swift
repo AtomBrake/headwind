@@ -6,7 +6,7 @@ import Foundation
 /// A timed-only session (strength, a pool swim) has no fixes, so its journal notes the time now and then instead, and what the Watch measured.
 /// On the phone with Bluetooth sensors, a timed session also journals a sample of their readings every second.
 ///
-/// Format: JSON Lines, one event per line: {"start":…,"sport":"Run","bike":3}, {"p":{point}}, {"seg":true} (a resume after pause),
+/// Format: JSON Lines, one event per line: {"start":…,"sport":"Run","bike":3,"id":"<uuid>"}, {"p":{point}}, {"seg":true} (a resume after pause),
 /// {"tick":…,"active":…,"dist":…,"kcal":…,"hr":…} (a timed session's progress: the time, the active seconds so far, and the Watch's figures),
 /// {"s":{"t":…,"hr":…,"w":…,"cad":…,"v":…,"d":…}} (a timed session's sensor sample).
 struct RideJournal {
@@ -16,6 +16,8 @@ struct RideJournal {
         var sport: Sport = .ride
         var bikeId: Int?
         var segments: [[RidePoint]]
+        /// The recording's id, given at Start: its upload's client_id and its live link's `recording`. Nil from a journal before ids.
+        var id: UUID?
         /// A timed-only session's last progress note.
         var session: SessionProgress?
         /// A timed session's sensor samples, from the phone.
@@ -43,6 +45,7 @@ struct RideJournal {
         var start: Date?
         var sport: String?
         var bike: Int?
+        var id: String?
         var p: RidePoint?
         var seg: Bool?
         var tick: SessionProgress?
@@ -63,10 +66,10 @@ struct RideJournal {
 
     var exists: Bool { FileManager.default.fileExists(atPath: url.path()) }
 
-    func begin(start: Date, sport: Sport = .ride, bikeId: Int? = nil) {
+    func begin(start: Date, sport: Sport = .ride, bikeId: Int? = nil, id: UUID? = nil) {
         try? FileManager.default.removeItem(at: url)
         FileManager.default.createFile(atPath: url.path(), contents: nil)
-        write(Event(start: start, sport: sport.rawValue, bike: bikeId))
+        write(Event(start: start, sport: sport.rawValue, bike: bikeId, id: id?.uuidString))
     }
 
     func append(_ point: RidePoint) { write(Event(p: point)) }
@@ -100,10 +103,12 @@ struct RideJournal {
         let sport = Sport(stored: head.sport)
         if !sport.usesGPS {
             guard let start = head.start, let progress, progress.active >= RideSummary.minimumSession else { return nil }
-            return Recovered(start: start, sport: sport, bikeId: head.bike, segments: [], session: progress, samples: samples)
+            return Recovered(start: start, sport: sport, bikeId: head.bike, segments: [], id: head.id.flatMap(UUID.init(uuidString:)),
+                             session: progress, samples: samples)
         }
         guard let first = segments.first?.first, segments.joined().count >= 2 else { return nil }
-        return Recovered(start: head.start ?? first.time, sport: sport, bikeId: head.bike, segments: segments)
+        return Recovered(start: head.start ?? first.time, sport: sport, bikeId: head.bike, segments: segments,
+                         id: head.id.flatMap(UUID.init(uuidString:)))
     }
 
     /// The summary of a recovered ride or session, ready to save.

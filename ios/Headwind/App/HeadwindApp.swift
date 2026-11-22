@@ -11,6 +11,8 @@ struct HeadwindApp: App {
     @State private var watch: WatchBridge
     /// Made at launch too: HealthKit's background delivery only keeps waking the app if its observer queries are set up every launch.
     @State private var health: HealthSync
+    /// The recording's live tracking link, if it's shared.
+    @State private var liveShare: LiveShareController
     @State private var recordRouter = Router()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -21,6 +23,11 @@ struct HeadwindApp: App {
         let recorder = PhoneRideRecorder(sensors: sensors)
         let watch = WatchBridge(store: store)
         let health = HealthSync()
+        let liveShare = LiveShareController()
+        let notifier = LiveLinkNotifier()
+        liveShare.notifier = notifier
+        notifier.onOpen = { liveShare.offer(recording: $0) }
+        watch.onLiveLink = { liveShare.adopt(fromWatch: $0) }
         health.observe(using: session)
         watch.onRideReceived = { Task { await store.uploadPending(using: session) } }
         store.serverForNewRides = { session.pairing?.server ?? session.lastServer }
@@ -30,12 +37,14 @@ struct HeadwindApp: App {
             guard let pairing = session.pairing else { return }
             _ = try? await APIClient(pairing: pairing).post("live", json: update, as: Ignored.self)
         }
+        recorder.onRecordingEnded = { liveShare.recordingEnded($0) }
         _session = State(initialValue: session)
         _store = State(initialValue: store)
         _recorder = State(initialValue: recorder)
         _sensors = State(initialValue: sensors)
         _watch = State(initialValue: watch)
         _health = State(initialValue: health)
+        _liveShare = State(initialValue: liveShare)
     }
 
     var body: some Scene {
@@ -47,10 +56,12 @@ struct HeadwindApp: App {
                 .environment(sensors)
                 .environment(watch)
                 .environment(health)
+                .environment(liveShare)
                 .environment(recordRouter)
                 .onOpenURL { session.handle(url: $0) }
                 .onChange(of: session.info, initial: true) { syncWatch() }
                 .onChange(of: session.pairing) { syncWatch() }
+                .onChange(of: liveShare.shareByDefault) { syncWatch() }
         }
         .onChange(of: scenePhase) { _, phase in
             // Retry anything that failed to upload while offline, and send what Apple Health has new.
@@ -62,7 +73,8 @@ struct HeadwindApp: App {
     }
 
     private func syncWatch() {
-        watch.updateWatch(units: session.info?.units, paired: session.pairing != nil, bikes: session.bikes, api: session.info?.api)
+        watch.updateWatch(units: session.info?.units, paired: session.pairing != nil, bikes: session.bikes, api: session.info?.api,
+                          shareLive: liveShare.shareByDefault)
         Task { await watch.provisionWatch(using: session) }
     }
 }
@@ -71,6 +83,7 @@ struct RootView: View {
     @Environment(Session.self) private var session
     @Environment(PhoneRideRecorder.self) private var recorder
     @Environment(RideStore.self) private var store
+    @Environment(LiveShareController.self) private var live
     /// Set while a new server is being checked before it replaces the current pairing.
     @State private var switching = false
     @State private var switchError: AppError?
@@ -122,6 +135,11 @@ struct RootView: View {
             Button("OK", role: .cancel) {}
         } message: { error in
             Text("\(error.localizedDescription)\n\nThis phone is still paired with \(session.pairing?.server.host() ?? "its server").")
+        }
+        // Here rather than on the Record screen, so a link from the Watch (its notification tapped) opens on any tab.
+        .sheet(item: Binding(get: { live.outgoing }, set: { live.outgoing = $0 })) { outgoing in
+            LiveLinkShareSheet(outgoing: outgoing)
+                .presentationDetents([.medium, .large])
         }
         .overlay {
             if switching {

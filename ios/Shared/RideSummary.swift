@@ -104,6 +104,8 @@ enum WatchLink {
     static let bikesKey = "bikes"
     /// iPhone → Watch application context: the server's /ping `api`, for where the Watch's own uploads go (Uploader.destination).
     static let apiKey = "api"
+    /// iPhone → Watch application context: whether a recording shares a live tracking link unless switched off (the phone's Settings).
+    static let shareLiveKey = "share-live"
     /// iPhone → Watch user info: the Watch's own pairing (server and token, from POST /api/v1/devices/watch), or `forgetKey` to drop it.
     static let watchServerKey = "watch-server"
     static let watchTokenKey = "watch-token"
@@ -114,4 +116,6 @@ enum WatchLink {
     static let sessionKind = "session"
     /// Watch → iPhone file metadata: the recording's own id, so the phone's upload and the Watch's direct one are the same client_id.
     static let idKey = "id"
+    /// Watch → iPhone user info: a live tracking link the Watch started, or its recording's end (LiveLinkMessage.dictionary).
+    static let liveLinkKey = "live-link"
 }

@@ -10,6 +10,12 @@ import WatchKit
 /// timed-only session (strength, an indoor ride, a pool swim) as its summary: time, HealthKit's distance, calories and average heart rate.
 ///
 /// One instance, `shared`, so the Action button's intents (WorkoutIntents.swift) drive the same recording the screens show.
+///
+/// With "Share live location" on and a token of its own, a GPS recording posts /api/v1/live itself every `LiveCadence.watch` (30 s), with
+/// the recording's id, and once more, idle, when it ends. It posts whether the phone is with it or not: near the phone the request goes
+/// through the phone's connection, away from it over Wi-Fi or cellular. With the first post it asks the server for a link
+/// (POST /api/v1/live/share, again with each post until it has one or a refusal), and hands the link to the phone, which offers it in a
+/// notification to tap and send: the Watch has no share sheet. At the end it tells the phone the link is finishing.
 @MainActor
 @Observable
 final class WorkoutManager: NSObject {
@@ -45,6 +51,18 @@ final class WorkoutManager: NSObject {
     private(set) var bikeId: Int?
     /// The pool's length for a pool swim, in metres.
     private(set) var poolLength: Double
+    /// The start screen's "Share live location": the phone's default until changed, and back to it after each recording.
+    var shareLive: Bool?
+    /// The recording's id, given at Start: its upload's client_id and its live posts' `recording`.
+    private(set) var recordingID: UUID?
+    /// Whether this recording posts its live readings (the switch was on at Start).
+    private(set) var postingLive = false
+    /// Where the recording's live tracking link has got to.
+    enum LiveLink: Equatable { case none, starting, sent, refused, failed }
+    private(set) var liveLink = LiveLink.none
+    @ObservationIgnored private var lastLinkTry = Date.distantPast
+    @ObservationIgnored private var lastLivePost = Date.distantPast
+    @ObservationIgnored private var lastLocation: CLLocation?
 
     private let healthStore = HKHealthStore()
     private var session: HKWorkoutSession?
@@ -70,6 +88,9 @@ final class WorkoutManager: NSObject {
     }
 
     var isActive: Bool { [.starting, .recording, .paused].contains(state) }
+
+    /// The switch as it stands: the choice made on the start screen, else the phone's default.
+    var sharesLive: Bool { shareLive ?? phone.shareLiveDefault }
 
     /// Power averaged over the last 3 s, as head units show it: a single reading jumps about with every pedal stroke. Nil once the
     /// readings have stopped.
@@ -135,8 +156,15 @@ final class WorkoutManager: NSObject {
             routeBuilder = sport.usesGPS ? HKWorkoutRouteBuilder(healthStore: healthStore, device: nil) : nil
 
             let now = Date()
+            let id = UUID()
+            recordingID = id
             tracker = RideTracker()
             bikeId = sport.isRide ? bike : nil
+            postingLive = sharesLive && sport.usesGPS && phone.pairing != nil
+            liveLink = .none
+            lastLinkTry = .distantPast
+            lastLivePost = .distantPast
+            lastLocation = nil
             clock.start(at: now)
             heartRate = nil
             averageHeartRate = nil
@@ -146,7 +174,7 @@ final class WorkoutManager: NSObject {
             lastPowerAt = nil
             activeEnergy = 0
             healthDistance = 0
-            journal.begin(start: now, sport: sport, bikeId: bikeId)
+            journal.begin(start: now, sport: sport, bikeId: bikeId, id: id)
             session.startActivity(with: now)
             try await builder.beginCollection(at: now)
             // The session can fail or end while collection starts, and has then already been cleaned up or finished.
@@ -219,11 +247,12 @@ final class WorkoutManager: NSObject {
             return
         }
         let summary = RideJournal.summary(of: r)
+        let id = r.id ?? UUID()
         do throws(AppError) {
             if r.session == nil {
-                try send(segments: r.segments, summary: summary)
+                try send(segments: r.segments, summary: summary, id: id)
             } else {
-                try phone.send(session: summary)
+                try phone.send(session: summary, id: id)
             }
             recovered = nil
             journal.clear()
@@ -265,13 +294,15 @@ final class WorkoutManager: NSObject {
             // Health couldn't save it; the ride still goes to Headwind. A session failure's error is kept.
             self.error = self.error ?? .health(underlying: error)
         }
+        endLive(summary: summary)
+        let id = recordingID ?? UUID()
         let keep = sport.usesGPS ? tracker.pointCount >= 2 : elapsed >= RideSummary.minimumSession
         if keep {
             do throws(AppError) {
                 if sport.usesGPS {
-                    try send(segments: tracker.segments, summary: summary)
+                    try send(segments: tracker.segments, summary: summary, id: id)
                 } else {
-                    try phone.send(session: summary)
+                    try phone.send(session: summary, id: id)
                 }
                 lastSent = true
                 journal.clear()
@@ -287,16 +318,84 @@ final class WorkoutManager: NSObject {
         lastSummary = summary
         session = nil
         self.routeBuilder = nil
+        recordingID = nil
+        shareLive = nil
         state = .finished
     }
 
-    private func send(segments: [[RidePoint]], summary: RideSummary) throws(AppError) {
+    private func send(segments: [[RidePoint]], summary: RideSummary, id: UUID) throws(AppError) {
         let gpx = GPXWriter.gpx(segments: segments, summary: summary, creator: "Headwind watchOS")
-        try phone.send(gpx: gpx, summary: summary)
+        try phone.send(gpx: gpx, summary: summary, id: id)
+    }
+
+    // MARK: - Live
+
+    private static var battery: Int? {
+        WKInterfaceDevice.current().isBatteryMonitoringEnabled = true
+        let level = WKInterfaceDevice.current().batteryLevel
+        return level >= 0 ? Int(level * 100) : nil
+    }
+
+    /// Every 30 s while recording with the switch on: where the Watch is, with its own token. Fire and forget, as the phone's are.
+    private func postLive(force: Bool = false) {
+        guard postingLive, let pairing = phone.pairing, let id = recordingID,
+              LiveCadence.due(last: lastLivePost, interval: LiveCadence.watch, force: force) else { return }
+        lastLivePost = .now
+        let l = lastLocation
+        let update = LiveUpdate(state: "riding", recording: id.uuidString, lat: l?.coordinate.latitude, lng: l?.coordinate.longitude,
+                                speed_mps: state == .recording ? tracker.currentSpeed : 0, distance_m: tracker.distance,
+                                elapsed_s: Int(clock.elapsed()), alt_m: l.flatMap { $0.verticalAccuracy >= 0 ? $0.altitude : nil },
+                                accuracy_m: l?.horizontalAccuracy, sport: sport.rawValue, battery_pct: Self.battery)
+        Task { _ = try? await APIClient(pairing: pairing).post("live", json: update, as: Ignored.self) }
+        startLink(pairing: pairing, recording: id)
+    }
+
+    /// Ask for the recording's link, with the track so far, unless there is one, it's on its way, or the server has refused: then hand it to
+    /// the phone. A failure (no signal) tries again with a later post.
+    private func startLink(pairing: Pairing, recording id: UUID) {
+        guard liveLink == .none || liveLink == .failed, LiveCadence.due(last: lastLinkTry, interval: LiveCadence.watch) else { return }
+        lastLinkTry = .now
+        liveLink = .starting
+        let sport = sport
+        let body = LiveShareStart.make(recording: id, sport: sport, track: tracker.points)
+        let client = APIClient(pairing: pairing)
+        Task {
+            let outcome: LiveShareOutcome
+            do throws(AppError) {
+                outcome = try await client.startLiveShare(body)
+            } catch {
+                if recordingID == id { liveLink = .failed }
+                return
+            }
+            switch outcome {
+            case .refused:
+                if recordingID == id { liveLink = .refused }
+            case .shared(let reply):
+                guard recordingID == id, postingLive else {
+                    // Ended while the server answered: its idle post may have come first, so end the link rather than leave it running.
+                    _ = try? await client.stopLiveShare(recording: id.uuidString)
+                    return
+                }
+                liveLink = .sent
+                phone.send(liveLink: .started(recording: id, reply: reply, sport: sport))
+            }
+        }
+    }
+
+    /// The idle reading that ends the recording's link (it then works for an hour more).
+    private func endLive(summary: RideSummary) {
+        guard postingLive, let pairing = phone.pairing else { return }
+        postingLive = false
+        if liveLink == .sent, let id = recordingID { phone.send(liveLink: .ended(recording: id)) }
+        let idle = LiveUpdate.idle(recording: recordingID, sport: sport, distance: summary.distance, elapsed: summary.elapsedTime,
+                                   battery: Self.battery)
+        Task { _ = try? await APIClient(pairing: pairing).post("live", json: idle, as: Ignored.self) }
     }
 
     private func reset() {
         location.stopUpdatingLocation()
+        recordingID = nil
+        postingLive = false
         noteTask?.cancel()
         noteTask = nil
         session = nil
@@ -374,6 +473,10 @@ final class WorkoutManager: NSObject {
         if !kept.isEmpty, let routeBuilder {
             // Best effort: the GPX for Headwind already has these points; only the Health map would miss them.
             Task { try? await routeBuilder.insertRouteData(kept) }
+        }
+        if let last = kept.last {
+            lastLocation = last
+            postLive()
         }
     }
 

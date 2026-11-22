@@ -18,6 +18,8 @@ final class PhoneLink: NSObject {
     private(set) var units = Units(system: "metric")
     private(set) var phonePaired = true
     private(set) var bikes: [Bike] = []
+    /// The phone's Settings default for the live tracking link, which the start screen's switch starts from.
+    private(set) var shareLiveDefault = false
     /// The server's /ping `api`, from the phone: where this Watch's own uploads go (Uploader.destination). 1 until an iPhone app says.
     @ObservationIgnored private var api = 1
     /// Rides in the outbox: not yet confirmed delivered to the phone or the server.
@@ -80,9 +82,9 @@ final class PhoneLink: NSObject {
         WCSession.default.activate()
     }
 
-    /// Queue a ride's GPX for the phone (and, after the grace period, the server). The file is named by the recording's id.
-    func send(gpx: Data, summary: RideSummary) throws(AppError) {
-        let id = UUID()
+    /// Queue a ride's GPX for the phone (and, after the grace period, the server). The file is named by the recording's id, given at Start,
+    /// so its upload's client_id is the id its live posts carried.
+    func send(gpx: Data, summary: RideSummary, id: UUID = UUID()) throws(AppError) {
         let file = outbox.appending(path: "\(id.uuidString).gpx")
         do {
             try gpx.write(to: file, options: .atomic)
@@ -96,8 +98,8 @@ final class PhoneLink: NSObject {
     }
 
     /// Queue a timed-only session: its file is its summary.
-    func send(session summary: RideSummary) throws(AppError) {
-        let file = outbox.appending(path: "\(UUID().uuidString).\(WatchLink.sessionKind)")
+    func send(session summary: RideSummary, id: UUID = UUID()) throws(AppError) {
+        let file = outbox.appending(path: "\(id.uuidString).\(WatchLink.sessionKind)")
         do {
             try JSONEncoder().encode(summary).write(to: file, options: .atomic)
         } catch {
@@ -105,6 +107,13 @@ final class PhoneLink: NSObject {
         }
         transfer(file, summary: summary)
         scheduleDirect(file)
+    }
+
+    /// A live tracking link this Watch started, or its recording's end, for the phone to offer (or show as finished). Queued and delivered
+    /// once, even if the phone app isn't running, whenever the two are next in reach.
+    func send(liveLink message: LiveLinkMessage) {
+        guard WCSession.isSupported(), WCSession.default.activationState == .activated else { return }
+        WCSession.default.transferUserInfo([WatchLink.liveLinkKey: message.dictionary])
     }
 
     private func transfer(_ file: URL, summary: RideSummary?) {
@@ -318,7 +327,8 @@ final class PhoneLink: NSObject {
         }
     }
 
-    private func apply(units system: String?, paired: Bool?, bikes: [Bike]?, api: Int?) {
+    private func apply(units system: String?, paired: Bool?, bikes: [Bike]?, api: Int?, shareLive: Bool?) {
+        if let shareLive { shareLiveDefault = shareLive }
         if let system { units = Units(system: system) }
         if let paired { phonePaired = paired }
         if let bikes { self.bikes = bikes }
@@ -335,10 +345,10 @@ extension PhoneLink: WCSessionDelegate {
     nonisolated func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
         let context = session.receivedApplicationContext
         let units = context[WatchLink.unitsKey] as? String, paired = context[WatchLink.pairedKey] as? Bool
-        let bikes = Self.bikes(in: context), api = context[WatchLink.apiKey] as? Int
+        let bikes = Self.bikes(in: context), api = context[WatchLink.apiKey] as? Int, share = context[WatchLink.shareLiveKey] as? Bool
         let activated = state == .activated
         Task { @MainActor in
-            self.apply(units: units, paired: paired, bikes: bikes, api: api)
+            self.apply(units: units, paired: paired, bikes: bikes, api: api, shareLive: share)
             if activated { self.resendOutbox() }
             self.refreshCount()
         }
@@ -346,8 +356,8 @@ extension PhoneLink: WCSessionDelegate {
 
     nonisolated func session(_ session: WCSession, didReceiveApplicationContext context: [String: Any]) {
         let units = context[WatchLink.unitsKey] as? String, paired = context[WatchLink.pairedKey] as? Bool
-        let bikes = Self.bikes(in: context), api = context[WatchLink.apiKey] as? Int
-        Task { @MainActor in self.apply(units: units, paired: paired, bikes: bikes, api: api) }
+        let bikes = Self.bikes(in: context), api = context[WatchLink.apiKey] as? Int, share = context[WatchLink.shareLiveKey] as? Bool
+        Task { @MainActor in self.apply(units: units, paired: paired, bikes: bikes, api: api, shareLive: share) }
     }
 
     /// The Watch's own pairing (or word to forget it), sent once by the phone with transferUserInfo.

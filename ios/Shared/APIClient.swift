@@ -19,7 +19,12 @@ struct APIClient: Sendable {
 
     /// The request `post` sends, body and all.
     func postRequest(_ path: String, json body: some Encodable) throws(AppError) -> URLRequest {
-        var req = request(path, method: "POST")
+        try jsonRequest(path, method: "POST", json: body)
+    }
+
+    /// A request with a JSON body, for any method (DELETE /live/share takes one).
+    func jsonRequest(_ path: String, method: String, json body: some Encodable) throws(AppError) -> URLRequest {
+        var req = request(path, method: method)
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         do {
             req.httpBody = try JSONEncoder().encode(body)
@@ -94,7 +99,8 @@ struct APIClient: Sendable {
         return request
     }
 
-    private func perform(_ request: URLRequest) async throws(AppError) -> (Data, HTTPURLResponse) {
+    /// Send a request and hand back the reply whatever its status, for a caller that reads an error reply itself (LiveShare's 409).
+    func perform(_ request: URLRequest) async throws(AppError) -> (Data, HTTPURLResponse) {
         let data: Data
         let response: URLResponse
         do {
