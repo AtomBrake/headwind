@@ -2,7 +2,7 @@
 so derived data stays right: deletes leave tombstones and re-pick segment PRs, a type change between a ride and a workout drops or rebuilds what only a ride has, and so on.
 Nothing here commits; the caller commits once."""
 MAX_IDS = 5000
-ACTIONS = ('delete', 'sport', 'bike', 'kit', 'rider', 'rename', 'dismiss', 'commute')
+ACTIONS = ('delete', 'sport', 'bike', 'kit', 'rider', 'rename', 'dismiss', 'commute', 'climb', 'elapsed')
 
 
 def own_riders(db):
@@ -67,11 +67,13 @@ def apply(db, action, ids, sport=None, bike_id=None, rider_id=None, name=None, c
             elif action == 'commute':                       # 0, not NULL, for "not a commute": a Strava import then leaves it alone (routes/activities.set_commute)
                 db.execute('UPDATE Activity SET commute=? WHERE id=?', [int(commute), act_id])
                 gear.regear(db, act_id)                      # a bike or shoes given automatically follow the tick (the commute default)
-            elif action == 'dismiss':
-                if kind != 'ride':
+            elif action == 'dismiss':                       # "It's right", for any sport: sanity flags runs, walks and swims too
+                sanity.dismiss(db, act_id)
+            elif action in ('climb', 'elapsed'):            # the dashboard's fixes for a flagged activity, where they fit
+                fix = sanity.use_strava_climb if action == 'climb' else sanity.use_elapsed_time
+                if not fix(db, act_id):
                     skipped += 1
                     continue
-                sanity.dismiss(db, act_id)
         except ValueError:                                   # e.g. a bike that belongs to another rider, a ride with a duplicate parked under it
             skipped += 1
             continue

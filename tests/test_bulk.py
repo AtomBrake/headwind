@@ -133,3 +133,64 @@ def test_bulk_commute(client):
     bulk(client, 'commute', ['r2'])
     assert q(client, "SELECT commute FROM Activity WHERE id='r2'")[0][0] is None       # no choice made: nothing changes
     assert 'aria-label="Commutes"' in client.get('/dashboard').get_data(as_text=True)
+
+
+def flag_some(client):
+    """r4 (only 45 m long) and two more flagged, of other sports: a run whose file made its moving time seconds, and an empty walk."""
+    from services import sanity
+    with client.application.app_context():
+        db = database.get_db()
+        db.execute("UPDATE Activity SET distance=45 WHERE id='r4'")
+        db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime, averageSpeed) "
+                   "VALUES ('run1', 'Run', 'Run', 1, '2026-07-07T09:00:00', 11779.9, 9, 4200, 1308.8778)")
+        db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, elapsedTime) "
+                   "VALUES ('wk2', 'Walk', 'Walk', 1, '2026-07-08T09:00:00', 0, 0, 0)")
+        for a in ('r4', 'run1', 'wk2'):
+            sanity.flag(db, a)
+        db.commit()
+
+
+def flashes(client):
+    with client.session_transaction() as s:
+        return [m for _, m in s.pop('_flashes', [])]
+
+
+def test_its_right_clears_a_flag_on_any_sport(client):
+    flag_some(client)
+    bulk(client, 'dismiss', ['r4', 'run1', 'wk2'])
+    assert q(client, "SELECT COUNT(*) FROM Activity WHERE flagReason IS NOT NULL")[0][0] == 0
+    assert q(client, "SELECT COUNT(*) FROM Activity WHERE flagDismissed=1")[0][0] == 3
+    assert flashes(client) == ['Cleared the flag on 3 activities.']
+
+
+def test_the_fixes_go_on_those_they_fit_and_count_the_rest(client):
+    flag_some(client)
+    bulk(client, 'elapsed', ['run1', 'r4', 'wk2'])
+    assert tuple(q(client, "SELECT movingTime, flagReason FROM Activity WHERE id='run1'")[0]) == (4200, None)
+    assert flashes(client) == ['Used the elapsed time on 1 activity. 2 could not be changed (the elapsed time does not put them right).']
+    bulk(client, 'climb', ['r4'])
+    assert flashes(client) == ["Used Strava's climb on 0 activities. 1 could not be changed (no climb from Strava to use)."]
+
+
+def test_the_flagged_card_is_a_list_of_its_own_to_pick_from(client):
+    """Its rows are picked apart from the activity list's, which can show the same activity (static/js/bulk.js keeps a selection to the list
+    whose Select was pressed): the card is a [data-pick-list] of its own, with its own Select, and says which fix each row can take."""
+    from services import sanity
+    flag_some(client)
+    html = client.get('/dashboard').get_data(as_text=True)
+    card = html[html.index('id="flaggedCard"'):html.index('id="ride-history"')]
+    assert 'data-pick-list' in card and 'data-pick-toggle' in card
+    assert 'data-pick="run1" data-groups="speed moving" data-fixes="elapsed"' in card
+    assert 'data-pick="wk2" data-groups="nothing" data-fixes=""' in card
+    assert 'data-pick-group="nothing">No distance and no time (1)</button>' in card
+    assert 'data-bulk="elapsed" data-fix hidden' in html and html.count('id="bulkBar"') == 1
+    with client.application.app_context():
+        assert sorted(sanity.blip_ids(database.get_db(), 1)) == ['r4', 'wk2']
+
+
+def test_delete_all_blips_takes_an_empty_walk_into_recently_deleted(client):
+    flag_some(client)
+    assert client.post('/activities/flagged/delete-blips').status_code == 302
+    assert {x[0] for x in q(client, "SELECT id FROM Activity WHERE flagReason IS NOT NULL")} == {'run1'}
+    assert {x[0] for x in q(client, "SELECT id FROM ActivityDuplicate WHERE status='deleted'")} == {'r4', 'wk2'}
+    assert 'workout' in client.pushed                                            # the walk's calories leave the day's burn

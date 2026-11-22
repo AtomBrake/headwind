@@ -2,7 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- **Deal with many "Activities that look wrong" at once.** The dashboard's card has its own **Select** button. Pick rows on it, or pick every row with the same reason in one click (**Pick by reason**: "No distance and no time (34)", "Under 160 m (2)"), then use the bar at the bottom: **It's right**, **Delete**, and **Use Strava's climb** or **Use the elapsed time** when a picked row can take that fix. A fix goes on the rows it fits; the message after says how many it couldn't change. Picking on the card doesn't pick anything in the activity list below it, even when the same activity is in both. **Delete all blips** now also takes activities with no distance and no time, such as the empty uploads from Apple Health, along with rides under 160 m and recordings with nothing in them.
+
 ### Fixed
+- **It's right on the Select bar clears the flag on a run, walk or swim too.** It used to skip anything but a ride and say "only rides have a flag", though runs, walks and swims get flagged as well.
 - **Settings → Activity types no longer says "0 have the wrong sport" above a list of them without explaining why.** That count is from the last time you pressed **Check with Garmin**. Each time Headwind starts, it can add more to the list, going by the type each activity had at its last sync. When it has done that since your last check, the page now says so under the count and suggests checking with Garmin again.
 - **The server refuses a phone upload whose track has no distance and no time.** Older iPhone apps and the Android app can still send Apple Health's stale-location route (see 0.7.50-beta): one location repeated at a single moment. It became an empty activity under "Activities that look wrong". Now the server stores nothing and answers that nothing was recorded. The iPhone counts it under "refused by the server" in Settings → Apple Health. Once the app is updated, it can send the same workout again as a timed session. Files you import on the web and Strava exports are unchanged.
 

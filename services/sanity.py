@@ -44,6 +44,24 @@ SANE_SQL = "(flagReason IS NULL OR flagDismissed = 1)"      # for charts: activi
 COLS = ('id, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, averageSpeed, maxSpeed, totalElevationGain, calories, '
         'averageHeartrate, maxHeartrate, averageWatts, startLat, flagDismissed')
 EMPTY = 'no distance, speed, heart rate, power or GPS track: nothing was recorded'
+NOTHING = 'no distance and no time: nothing was recorded'
+# What each reason is, for picking every flagged activity with the same one on the dashboard (reason_groups): its key, the words that
+# mark it (the start of the reason, or, starting with a space, words after its figure) and the label it's picked by. In reasons() order.
+GROUPS = (
+    ('speed', 'average speed of ', 'Impossible average speed'),
+    ('top', 'top speed of ', 'Impossible top speed'),
+    ('short', 'only ', 'Under 160 m'),
+    ('barely', 'barely moved', 'Barely moved'),
+    ('future', 'starts on ', 'Starts in the future'),
+    ('nothing', NOTHING, 'No distance and no time'),
+    ('empty', EMPTY, 'Nothing recorded'),
+    ('moving', 'moving time of ', 'Moving time of seconds'),
+    ('far', ' is beyond ', 'Too far'),
+    ('climb', 'climb of ', "Climb doesn't fit"),
+    ('long', 'lasts ', 'Lasts days'),
+    ('kcal', ' kcal is too many', 'Too many calories'),
+    ('hr', ' bpm is a sensor fault', 'Heart rate sensor fault'),
+)
 FUTURE_SQL = "substr(COALESCE(startDate, startDateLocal), 1, 10) > date('now')"     # a cheap pre-filter for future_start
 
 
@@ -126,7 +144,7 @@ def reasons(r, system=None):
         d = str(_get(r, 'startDateLocal') or _get(r, 'startDate'))[:10]
         out.append('starts on %s, which hasn\'t happened yet: the device\'s clock was wrong' % _day(d))
     if fam and dist <= 0 and moving <= 0 and elapsed <= 0:
-        out.append('no distance and no time: nothing was recorded')
+        out.append(NOTHING)
     elif empty(r):
         out.append(EMPTY)
     if dist >= 1000 and 0 < moving < 60:
@@ -252,6 +270,28 @@ def set_start(db, act_id, local):
     return None
 
 
+def reason_groups(flag_reason):
+    """The GROUPS keys of a stored flagReason, one per reason it gives, in its order; a reason no group knows (worded by an older version) is left
+    out. Words that start with a space come after a figure, so are looked for anywhere; the rest begin the reason."""
+    out = []
+    for part in (flag_reason or '').split('; '):
+        for key, words, _ in GROUPS:
+            if words in part if words.startswith(' ') else part.startswith(words):
+                if key not in out:
+                    out.append(key)
+                break
+    return out
+
+
+def group_counts(rows):
+    """[(key, label, n)] for the reasons among the dashboard's flagged rows (flagged), in GROUPS order."""
+    n = {}
+    for r in rows:
+        for k in r['groups']:
+            n[k] = n.get(k, 0) + 1
+    return [(k, label, n[k]) for k, _, label in GROUPS if k in n]
+
+
 def strava_climb(row):
     """Strava's climb for an activity from a Strava export (kept in rawData at import), or None."""
     import json
@@ -264,7 +304,8 @@ def strava_climb(row):
 
 def flagged(db, rider_id):
     """The rider's flagged activities of every sport, newest first. `isBlip`: a ride shorter than MIN_DIST_M, a start-stop by mistake, or a recording
-    of any sport with nothing in it (EMPTY): the dashboard offers to delete them all. `stravaClimb`: Strava's climb, when the activity came from a Strava export and Strava's differs from the one saved
+    of any sport with nothing in it (EMPTY, or NOTHING: no distance and no time): the dashboard offers to delete them all. `groups`: what its reasons
+    are (reason_groups), to pick every one with the same reason. `stravaClimb`: Strava's climb, when the activity came from a Strava export and Strava's differs from the one saved
     (offered in its place). `elapsedFix`: the elapsed time, when it can stand in for a broken moving time (elapsed_fix)."""
     from services.sports import is_ride, label
     out = []
@@ -274,7 +315,9 @@ def flagged(db, rider_id):
         d = {k: r[k] for k in r.keys() if k != 'rawData'}
         d['isRide'] = is_ride(r['sportType'])
         d['sportLabel'] = label(r['sportType'])
-        d['isBlip'] = bool(d['isRide'] and r['distance'] is not None and 0 < r['distance'] < MIN_DIST_M) or EMPTY in (r['flagReason'] or '')
+        d['isBlip'] = (bool(d['isRide'] and r['distance'] is not None and 0 < r['distance'] < MIN_DIST_M)
+                       or EMPTY in (r['flagReason'] or '') or NOTHING in (r['flagReason'] or ''))
+        d['groups'] = reason_groups(r['flagReason'])
         d['stravaClimb'] = sc if sc is not None and abs(sc - float(r['totalElevationGain'] or 0)) > 1 else None
         d['elapsedFix'] = elapsed_fix(r)
         out.append(d)

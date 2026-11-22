@@ -204,3 +204,16 @@ def test_a_slow_walk_with_repeating_gps_fixes_still_counts_as_moving():
     on_foot = parse_gpx(gpx(pts), stopped_speed=0.5)
     assert on_foot['movingTime'] > 550
     assert on_foot['movingTime'] > asphalt['movingTime']
+
+
+def test_no_distance_and_no_time_is_a_blip_and_each_reason_has_a_group(db):
+    ride(db, 'empty', sport='Walk', dist=0, moving=0, elapsed=0, avg=0, top=0)       # Apple Health's route of one stale location
+    ride(db, 'fast', avg=30.0, top=40.0, hr_max=260)
+    for a in ('empty', 'fast'):
+        sanity.flag(db, a)
+    listed = {f['id']: f for f in sanity.flagged(db, 1)}
+    assert listed['empty']['isBlip'] and listed['empty']['groups'] == ['nothing'] and not listed['fast']['isBlip']
+    assert listed['fast']['groups'] == ['speed', 'top', 'hr']                 # "top heart rate of ..." isn't taken for a top speed
+    assert sanity.group_counts(listed.values()) == [('speed', 'Impossible average speed', 1), ('top', 'Impossible top speed', 1),
+                                                    ('nothing', 'No distance and no time', 1), ('hr', 'Heart rate sensor fault', 1)]
+    assert sanity.reason_groups('lasts 80 hours; a reason an older version gave') == ['long']

@@ -1,30 +1,40 @@
 // Select mode for activity lists (templates/_bulk_bar.html). In select mode a click on a row picks it instead of opening it; shift-click picks
 // everything between the last pick and this one. The bar at the bottom of the screen acts on the picked activities through POST /activities/bulk.
+// Select mode is for one list at a time, the one whose Select was pressed (the dashboard has two: its flagged card and its activity list, which
+// can show the same activity): its rows are the ones picked, and All picks only those.
 (function () {
   var bar = document.getElementById('bulkBar');
   if (!bar) return;
-  var picked = new Set(), last = null, on = false, optionsLoaded = false;
-  var rows = function () { return Array.prototype.slice.call(document.querySelectorAll('[data-pick-list] [data-pick]')); };
+  var picked = new Set(), last = null, on = false, list = null, optionsLoaded = false;
+  var slice = function (q) { return Array.prototype.slice.call(q); };
+  var rows = function () { return list ? slice(list.querySelectorAll('[data-pick]')) : []; };
   var visible = function () { return rows().filter(function (r) { return r.offsetParent !== null; }); };
+  var has = function (r, attr, word) { return (r.dataset[attr] || '').split(' ').indexOf(word) >= 0; };
+  var pickedWith = function (fix) { return rows().filter(function (r) { return picked.has(r.dataset.pick) && has(r, 'fixes', fix); }).length; };
 
   function render() {
-    rows().forEach(function (r) {
-      var sel = picked.has(r.dataset.pick);
+    slice(document.querySelectorAll('[data-pick-list] [data-pick]')).forEach(function (r) {
+      var mine = on && list.contains(r), sel = mine && picked.has(r.dataset.pick);
       r.classList.toggle('picked', sel);
-      r.setAttribute('aria-pressed', on ? String(sel) : null);
-      if (!on) r.removeAttribute('aria-pressed');
+      if (mine) r.setAttribute('aria-pressed', String(sel));
+      else r.removeAttribute('aria-pressed');
     });
     var n = picked.size;
     bar.querySelector('.bulk-count').textContent = n + ' picked';
     bar.querySelectorAll('select, .btn').forEach(function (el) { el.disabled = n === 0; });
+    bar.querySelectorAll('[data-fix]').forEach(function (b) { b.hidden = !pickedWith(b.dataset.bulk); });   // a fix only some flagged rows have
   }
 
-  function setMode(v) {
+  function setMode(v, l) {
+    if (list) list.classList.remove('picking');
     on = v;
+    list = v ? l : null;
+    if (list) list.classList.add('picking');
     document.body.classList.toggle('bulk-mode', on);
     bar.hidden = !on;
-    if (!on) { picked.clear(); last = null; }
-    document.querySelectorAll('[data-pick-toggle]').forEach(function (b) { b.textContent = on ? 'Done' : 'Select'; });
+    picked.clear();
+    last = null;
+    document.querySelectorAll('[data-pick-toggle]').forEach(function (b) { b.textContent = on && list.contains(b) ? 'Done' : 'Select'; });
     if (on && !optionsLoaded) loadOptions();
     render();
   }
@@ -68,7 +78,7 @@
   document.addEventListener('click', function (e) {
     if (!on) return;
     var row = e.target.closest('[data-pick-list] [data-pick]');
-    if (!row || e.target.closest('#bulkBar')) return;
+    if (!row || !list.contains(row) || e.target.closest('#bulkBar')) return;
     e.preventDefault();
     e.stopPropagation();
     toggle(row, e.shiftKey);
@@ -78,7 +88,24 @@
   });
   document.addEventListener('pick-list-changed', function () { render(); });   // rows added later (the dashboard's months, loaded when opened)
   document.querySelectorAll('[data-pick-toggle]').forEach(function (b) {
-    b.addEventListener('click', function (e) { e.preventDefault(); setMode(!on); });
+    b.addEventListener('click', function (e) {
+      e.preventDefault();
+      var l = b.closest('[data-pick-list]');
+      if (on && list === l) setMode(false);
+      else setMode(true, l);                       // on another list, its picks are dropped
+    });
+  });
+  // "Pick by reason": every row of the list with that reason; again, and they're unpicked
+  document.querySelectorAll('[data-pick-group]').forEach(function (b) {
+    b.addEventListener('click', function (e) {
+      e.preventDefault();
+      var l = b.closest('[data-pick-list]');
+      if (!on || list !== l) setMode(true, l);
+      var key = b.dataset.pickGroup, like = visible().filter(function (r) { return has(r, 'groups', key); });
+      var all = like.every(function (r) { return picked.has(r.dataset.pick); });
+      like.forEach(function (r) { all ? picked.delete(r.dataset.pick) : picked.add(r.dataset.pick); });
+      render();
+    });
   });
 
   function submit(action, extra) {
@@ -106,6 +133,10 @@
     if (!n) return;
     if (act === 'delete' && !confirm('Delete ' + plural(n) + '? They go to Recently deleted on the Import page for 30 days, to restore from there.')) return;
     if (act === 'dismiss' && !confirm('Mark ' + plural(n) + ' as right? Flagged ones count in the speed and weather analytics again.')) return;
+    if (act === 'climb' || act === 'elapsed') {
+      var k = pickedWith(act), what = act === 'climb' ? 'Use Strava’s climb on ' : 'Use the elapsed time as the moving time of ';
+      if (!confirm(what + plural(k) + '?' + (k < n ? ' The other ' + (n - k) + ' picked have none to use and stay as they are.' : ''))) return;
+    }
     if (act === 'rename') {
       var name = prompt('New name for ' + plural(n) + ':');
       if (!name || !name.trim()) return;

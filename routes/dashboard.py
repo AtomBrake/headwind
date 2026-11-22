@@ -513,8 +513,9 @@ def dashboard():
     try:
         from services import sanity
         flagged = sanity.flagged(get_db(), rid)
+        flag_groups = sanity.group_counts(flagged)     # to pick every one with the same reason
     except Exception:
-        flagged = []
+        flagged, flag_groups = [], []
 
     from services import goals
     rider_goals = goals.goals(get_db(), rid)
@@ -525,7 +526,7 @@ def dashboard():
     return render_template(
         'dashboard.html',
         gear_due=gear_due,
-        flagged=flagged,
+        flagged=flagged, flag_groups=flag_groups,
         gear_merged=gear_merged, sport_merged=sport_merged, sport_fixes=sport_fixes, sport_guesses=sport_guesses,
         rider_goals=rider_goals,
         live_challenges=live_challenges,

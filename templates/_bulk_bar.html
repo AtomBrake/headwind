@@ -1,5 +1,8 @@
 {# The selection bar for activity lists. Include once on a page whose rows carry data-pick="<activity id>" (a ride or a workout) inside an element
-   with data-pick-list; a button with data-pick-toggle turns select mode on. static/js/bulk.js does the rest; routes/activities.py bulk* does the work. #}
+   with data-pick-list; a button with data-pick-toggle in it turns select mode on for that list alone (a page can have more than one, as the
+   dashboard has its "Activities that look wrong" card). A button with data-pick-group="<key>" picks every row of its list whose data-groups has the
+   key; a row's data-fixes ("climb", "elapsed") shows the bar's button for that fix while it's picked. static/js/bulk.js does the rest;
+   routes/activities.py bulk* does the work. #}
 <form method="POST" action="{{ url_for('activities.bulk') }}" id="bulkBar" class="bulk-bar" hidden>
   <input type="hidden" name="back" value="{{ request.full_path if request.query_string else request.path }}">
   <input type="hidden" name="action" value="">
@@ -15,6 +18,8 @@
   <select name="commute" aria-label="Set commute"><option value="">Commute…</option><option value="1">Commute</option><option value="0">Not a commute</option></select>
   <button type="button" class="btn btn-secondary" data-bulk="rename">Rename</button>
   <button type="button" class="btn btn-secondary" data-bulk="dismiss" title="Clear the &quot;looks wrong&quot; flag">It's right</button>
+  <button type="button" class="btn btn-secondary" data-bulk="climb" data-fix hidden title="Strava's climb in place of the file's, on those that have one">Use Strava's climb</button>
+  <button type="button" class="btn btn-secondary" data-bulk="elapsed" data-fix hidden title="The elapsed time in place of a moving time the file broke, on those it puts right">Use the elapsed time</button>
   <button type="button" class="btn btn-secondary" data-bulk="download" title="GPX files in a zip">Download</button>
   <button type="button" class="btn btn-danger-quiet bulk-delete" data-bulk="delete">Delete</button>
   <span class="bulk-sep"></span>

@@ -647,7 +647,8 @@ def bulk():
     except Exception:
         log.warning('Home Assistant update after a bulk edit failed', exc_info=True)
     verb = {'delete': 'Deleted', 'sport': 'Changed the type of', 'bike': 'Set the bike on', 'kit': 'Set the gear on', 'rider': 'Moved',
-            'rename': 'Renamed', 'dismiss': 'Cleared the flag on', 'commute': 'Marked'}[action]
+            'rename': 'Renamed', 'dismiss': 'Cleared the flag on', 'commute': 'Marked', 'climb': "Used Strava's climb on",
+            'elapsed': 'Used the elapsed time on'}[action]
     n = res['done']
     msg = f"{verb} {n} activit{'y' if n == 1 else 'ies'}"
     if action == 'commute':
@@ -655,8 +656,9 @@ def bulk():
     msg += '.'
     others, friends = res['skipped'] - res['friends'], res['friends']
     if others:
-        msg += f" {others} could not be changed" + {'bike': ' (only rides have a bike)', 'dismiss': ' (only rides have a flag)',
-                                                  'kit': ' (rides have a bike, not shoes)'}.get(action, '') + '.'
+        msg += f" {others} could not be changed" + {'bike': ' (only rides have a bike)', 'kit': ' (rides have a bike, not shoes)',
+                                                  'climb': ' (no climb from Strava to use)',
+                                                  'elapsed': ' (the elapsed time does not put them right)'}.get(action, '') + '.'
     if friends:
         whose = "is a friend's activity" if friends == 1 else "are friends' activities"
         msg += f' {friends} {whose}, changed only on their instance.'
@@ -707,16 +709,21 @@ def bulk_download():
 @bp.route('/flagged/delete-blips', methods=['POST'])
 def delete_blips():
     """Delete every flagged ride shorter than the sanity limit (an accidental start-stop), and every recording with nothing in it, for one rider,
-    each through the normal delete."""
-    from services import duplicates, sanity
+    each through the bulk delete (a ride's or a workout's own delete, into Recently deleted)."""
+    from services import bulk as _bulk, sanity
     from services.ingest import after_ride_removed
     db = get_db()
     rider = request.form.get('rider')
     rid = int(rider) if rider and rider.isdigit() else (query_db('SELECT id FROM Rider WHERE isDefault=1', one=True) or {'id': -1})['id']
-    for act_id in sanity.blip_ids(db, rid):
-        duplicates.delete_activity(db, act_id)
+    res = _bulk.apply(db, 'delete', sanity.blip_ids(db, rid))
     db.commit()
     after_ride_removed()
+    if 'workout' in res['kinds']:
+        try:
+            from services.mqtt import push_update_nutrition
+            push_update_nutrition()                     # their calories leave the day's burn
+        except Exception:
+            log.warning('Home Assistant update after deleting blips failed', exc_info=True)
     return redirect(url_for('dashboard.dashboard', rider=rider) if rider and rider.isdigit() else url_for('dashboard.dashboard'))
 
 
