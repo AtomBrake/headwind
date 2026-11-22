@@ -4,6 +4,7 @@
 
 ### Fixed
 - **Settings → Activity types no longer says "0 have the wrong sport" above a list of them without explaining why.** That count is from the last time you pressed **Check with Garmin**. Each time Headwind starts, it can add more to the list, going by the type each activity had at its last sync. When it has done that since your last check, the page now says so under the count and suggests checking with Garmin again.
+- **The server refuses a phone upload whose track has no distance and no time.** Older iPhone apps and the Android app can still send Apple Health's stale-location route (see 0.7.50-beta): one location repeated at a single moment. It became an empty activity under "Activities that look wrong". Now the server stores nothing and answers that nothing was recorded. The iPhone counts it under "refused by the server" in Settings → Apple Health. Once the app is updated, it can send the same workout again as a timed session. Files you import on the web and Strava exports are unchanged.
 
 ## [0.7.50-beta] - 2026-11-21
 

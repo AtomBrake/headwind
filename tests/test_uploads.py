@@ -132,3 +132,64 @@ def test_another_riders_client_id_is_not_this_ones(phone):
 def test_a_session_that_cant_be_kept_is_a_400_saying_why(phone):
     r = phone.post('/api/v1/activities', headers=phone.H, json={'sport': 'Ride', 'date': '2999-01-01', 'duration_s': 60, 'distance_m': 1})
     assert r.status_code == 400 and r.get_json() == {'error': 'that is in the future'}
+
+
+def one_moment(points=5, at='2026-11-03T07:30:00Z', last=None):
+    """Apple Health's route for a workout that recorded none: one stale location, at the same moment, over and over."""
+    times = [at] * (points - 1) + [last or at]
+    pts = ''.join(f'<trkpt lat="51.5000000" lon="-0.1000000"><ele>10.0</ele><time>{t}</time></trkpt>' for t in times)
+    return (f'<?xml version="1.0" encoding="UTF-8"?><gpx version="1.1" creator="Headwind iOS" xmlns="http://www.topografix.com/GPX/1/1">'
+            f'<trk><name>Workout</name><type>walking</type><trkseg>{pts}</trkseg></trk></gpx>').encode()
+
+
+def nothing_stored(phone):
+    return sql(phone, 'SELECT COUNT(*) FROM Activity') == [(0,)] and sql(phone, 'SELECT COUNT(*) FROM ActivityDuplicate') == [(0,)]
+
+
+REFUSED = {'error': 'The recording has no distance and no time: nothing was recorded'}
+
+
+def test_a_track_that_is_one_moment_is_refused_through_every_door_and_nothing_is_stored(phone):
+    old = lambda path, cid: phone.post(f'/api/v1/{path}', headers=phone.H, content_type='multipart/form-data',
+                                       data={'file': (BytesIO(one_moment()), 'Workout.gpx'), 'client_id': cid, 'source': 'ios'})
+    for r in (send(phone, one_moment(), sport='Walk', client_id='ah_w'), send(phone, one_moment(), sport='Ride', client_id='ah_r'),
+              send(phone, one_moment(), client_id='ah_any'), old('rides', 'ah_old_r'), old('workouts', 'ah_old_w')):
+        assert (r.status_code, r.get_json()) == (422, REFUSED)
+    assert nothing_stored(phone)
+    assert known(phone, 'ah_w', 'ah_r', 'ah_any', 'ah_old_r', 'ah_old_w') == []
+
+
+def test_one_point_or_one_moment_written_two_ways_is_refused_too(phone):
+    for data in (one_moment(points=1), one_moment(last='2026-11-03T07:30:00.000Z'), one_moment(at='2026-11-03t07:30:00z')):
+        r = send(phone, data, sport='Walk', client_id='ah_x')
+        assert (r.status_code, r.get_json()) == (422, REFUSED)
+    assert nothing_stored(phone)
+
+
+def test_a_refused_one_can_come_again_as_a_timed_session(phone):
+    assert send(phone, one_moment(), sport='Walk', client_id='ah_later').status_code == 422
+    r = phone.post('/api/v1/activities', headers=phone.H, json={**SESSION, 'sport': 'Walk', 'distance_m': 3000, 'client_id': 'ah_later'})
+    assert r.status_code == 201 and r.get_json()['created']
+    assert known(phone, 'ah_later') == ['ah_later']
+
+
+def test_a_short_real_track_is_still_stored(phone):
+    two = lambda kind, hour: gpx(kind, start=datetime(2026, 11, 3, hour, 30, tzinfo=timezone.utc), seconds=2, step=0.0001).replace(
+        b':01Z', b':05Z')                                                                           # two points, 5 s and 11 m apart
+    assert b'07:30:05Z' in two('walking', 7) and b'07:30:01Z' not in two('walking', 7)
+    walk = send(phone, two('walking', 7), sport='Walk', client_id='ah_short')
+    assert walk.status_code == 201 and walk.get_json()['created'], walk.get_json()
+    ride = phone.post('/api/v1/rides', headers=phone.H, content_type='multipart/form-data',
+                      data={'file': (BytesIO(two('cycling', 17)), 'Ride.gpx'), 'client_id': 'rec_short', 'source': 'ios'})
+    assert ride.status_code == 200 and ride.get_json()['imported'] == 1, ride.get_json()          # the older path's reply
+    assert known(phone, 'ah_short', 'rec_short') == ['ah_short', 'rec_short']
+    assert sql(phone, 'SELECT COUNT(*) FROM Activity WHERE elapsedTime > 0') == [(2,)]
+
+
+def test_the_check_reads_only_plain_gpx_times():
+    from services.uploads import _no_time
+    assert _no_time(one_moment()) and _no_time(one_moment().replace(b'<trkpt', b'<g:trkpt').replace(b'</trkpt', b'</g:trkpt'))
+    assert not _no_time(gpx(seconds=2))
+    assert not _no_time(gpx(seconds=1).replace(b'<time>', b'<x>').replace(b'</time>', b'</x>'))     # no times: the parsers say why
+    assert not _no_time(one_moment().replace(b'2026-11-03T07:30:00Z', b'yesterday'))              # unreadable: the parsers say why
+    assert not _no_time(b'\x0e\x10\x00\x00\x00\x00\x00\x00.FIT' + b'\x00' * 20)                       # a FIT file

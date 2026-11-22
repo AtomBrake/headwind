@@ -11,15 +11,6 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
 
 ## P1, next
 
-### Data and import
-
-- [ ] **Refuse a phone upload whose track has no distance and no time** (found 2026-11-20). The iPhone's Apple Health sync used to send a workout's route even when it was one stale location repeated at a single moment (some apps save one with a workout). `services/uploads.receive` stored it anyway: `parser.parse_gpx` gives distance, moving time and elapsed time all 0 (elapsed is the first point's time to the last's), `parser.aligned_streams` keeps one point, and the result is an empty activity that the dashboard's "Activities that look wrong" card lists as "no distance and no time: nothing was recorded" (`services/sanity.py`). The updated iPhone app no longer sends such a route (`HealthSync.isRoute`), but older iPhone apps and the Android app still go through the same door. With a GPX attached, the apps send no duration or distance of their own (`Uploader.destination` in `ios/Shared/Uploader.swift`), so the server can't fall back to a timed session: refusing is the safe answer.
-  - [ ] In `uploads.receive`, when `gpx` is given (POST `/api/v1/activities`, and the older `/rides` and `/workouts`, which come through it), raise `Refused` (422) before anything is stored if the track has fewer than two distinct timed points or no time between its first and last, with a plain message ("The recording has no distance and no time: nothing was recorded"). Check it cheaply, without parsing the file twice: `_ride` parses it again in `routes/import_rides._process_single_file`, and `_track` in `services/workouts.save_from_gpx`.
-  - [ ] Nothing is stored for a refused upload, so `uploads.known` doesn't list its client id and a later, fixed app sends the workout again as a timed session. Check that stays true.
-  - [ ] What the apps do with the 422, which is already handled: Apple Health's sync counts it under "refused by the server" in Settings and doesn't retry it (`HealthSync.send`, `AppError.isRejection`); the iPhone's upload queue marks the recording "rejected" with the message (`RideStore.upload`); the Watch's direct upload stops trying and leaves it to the phone's copy, which shows it (`ios/HeadwindWatch/PhoneLink.swift`). The Watch's and the iPhone's own recordings can't produce such a track (`RideTracker.add` drops a fix that isn't later than the last), so only Apple Health and older apps should ever see it.
-  - [ ] Leave the web's file import and Strava export import as they are.
-  - [ ] Tests in `tests/test_uploads.py`: a GPX with several points at one moment is refused through `/api/v1/activities` and `/api/v1/rides`, stores nothing, and isn't in `/activities/known`; a short real track (two points a few seconds apart) is still stored.
-
 ## P2, soon
 
 ### Friends

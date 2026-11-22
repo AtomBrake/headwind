@@ -11,12 +11,16 @@ another sport with a track, services/workouts (best times, foot segments, weathe
 Each ends in the same check for the same session from another source (services/duplicates.resolve)."""
 import logging
 import os
+import re
 import tempfile
 
 from services.sports import canonical, is_ride
 
 log = logging.getLogger(__name__)
 MAX_KNOWN = 500                 # client ids asked about in one request
+NOTHING_RECORDED = 'The recording has no distance and no time: nothing was recorded'
+_TRKPT = re.compile(rb'<(?:[\w.-]+:)?trkpt\b[^>]*?(?:/>|>(.*?)</(?:[\w.-]+:)?trkpt\s*>)', re.S)
+_TIME = re.compile(rb'<(?:[\w.-]+:)?time>\s*([^<]*?)\s*</(?:[\w.-]+:)?time>')
 
 
 class Refused(Exception):
@@ -120,10 +124,38 @@ def receive(db, rider_id, client_id=None, source=None, gpx=None, filename=None, 
             return _reply(db, had['stands'], False, None)
     if gpx is None:
         return _session(db, rider_id, client_id, source, sport, name, bike_id, session or {})
+    if _no_time(gpx):
+        log.warning('Upload refused: its track is one moment (client_id=%s, source=%s)', client_id, source)
+        raise Refused(NOTHING_RECORDED)
     ride = kind == 'ride' if kind else (is_ride(sport) if sport else _file_is_ride(gpx, filename))
     if ride:
         return _ride(db, rider_id, client_id, source, gpx, filename, bike_id)
     return _track(db, rider_id, client_id, source, gpx, sport, name, calories, steps)
+
+
+def _no_time(data):
+    """True when a GPX track's first and last timed points are at the same moment (one point, or one stale location sent over and over, as Apple
+    Health has given a workout's route): stored, it would be an activity with no distance and no time. A scan of the <trkpt> times only, not a
+    parse, as the ride and workout paths parse the file themselves. A FIT or gzipped file, a track with no times, or a time that can't be read
+    is left to them: they refuse those with their own reason."""
+    from services.parser import sniff
+    if sniff(data) != 'gpx':
+        return False
+    first = last = None
+    for m in _TRKPT.finditer(data):
+        t = _TIME.search(m.group(1) or b'')
+        if t and t.group(1):
+            if first is None:
+                first = t.group(1)
+            last = t.group(1)
+    if first is None:
+        return False
+    from gpxpy.gpxfield import parse_time
+    try:
+        a, b = (parse_time(s.decode('ascii').upper()) for s in (first, last))
+    except Exception:
+        return False
+    return a == b
 
 
 def _file_is_ride(data, filename):
