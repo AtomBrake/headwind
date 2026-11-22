@@ -14,9 +14,9 @@ log = logging.getLogger(__name__)
 bp = Blueprint('setup', __name__)
 
 # Step 1 (riders) is the only one gated on "no riders yet" — once it creates the owner rider,
-# steps 2-7 must keep working even though Rider count is now > 0 (see check below).
-# 1 riders, 2 units, 3 outside address, 4 garmin, 5 home assistant, 6 telemetry, 7 done.
-_STEPS = ('1', '2', '3', '4', '5', '6', '7')
+# steps 2-6 must keep working even though Rider count is now > 0 (see check below).
+# 1 riders, 2 units, 3 outside address, 4 garmin, 5 home assistant, 6 done.
+_STEPS = ('1', '2', '3', '4', '5', '6')
 
 
 @bp.route('/setup', methods=['GET', 'POST'])
@@ -27,7 +27,7 @@ def wizard():
     has_riders = query_db('SELECT COUNT(*) FROM Rider', one=True)[0] > 0
 
     # A completed install visiting /setup (bare, or re-POSTing step 1) goes straight to the dashboard.
-    # Mid-wizard steps (2-6) stay reachable — and POST-able — even after step 1 has created the owner
+    # Mid-wizard steps (2-5) stay reachable — and POST-able — even after step 1 has created the owner
     # rider; this must NOT be GET-only, or a POST to this auth-exempt route after install creates a
     # second isDefault=1 rider and every "WHERE isDefault=1 LIMIT 1" owner lookup becomes order-dependent.
     if has_riders and step == '1':
@@ -77,14 +77,6 @@ def wizard():
                        [url or None])
             db.commit()
             return redirect('/setup?step=4')
-
-        if step == '6':
-            from services import telemetry
-            if request.form.get('telemetry') == 'off':
-                telemetry.opt_out()
-            else:
-                telemetry.ping_once()
-            return redirect('/setup?step=7')
 
     return _page(step)
 

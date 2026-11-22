@@ -12,7 +12,6 @@ services:
       - APP_USERNAME=test
       - APP_PASSWORD=test
       - SECRET_KEY=${DEMO_SECRET_KEY:-change-me-demo-secret}
-      - TELEMETRY=off
       - DATABASE_URL=/data/bike.db
       - DEMO_PRISTINE_DB=/demo/pristine.db
       - DEMO_PRISTINE_BIKEIMG=/demo/bikeimg

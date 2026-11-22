@@ -1496,6 +1496,17 @@ def _step_10(db):
         db.execute('CREATE INDEX IF NOT EXISTS idx_activitysensor_activity ON ActivitySensor(activityId)')
 
 
+def _step_11(db):
+    """The install ping is gone: Settings.installId, telemetryOptOut and telemetryPingedAt (its random id, and whether it was sent or refused)
+    are dropped. Left in place on SQLite before 3.35, which can't drop a column; nothing reads them."""
+    have = {r[1] for r in db.execute('PRAGMA table_info(Settings)').fetchall()}
+    for col in ('installId', 'telemetryOptOut', 'telemetryPingedAt'):
+        if col in have:
+            try:
+                db.execute(f'ALTER TABLE Settings DROP COLUMN {col}')
+            except sqlite3.OperationalError as e:
+                logging.getLogger(__name__).info('Left Settings.%s in place, not dropped: %s', col, e)
+
 def _compact(db):
     """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
     a temporary file and once through the WAL. Logged either way. Commits."""
@@ -1548,6 +1559,7 @@ STEPS = (
     (_step_8, False),
     (_step_9, False),
     (_step_10, True),        # an older Headwind reads RideMemory, RideSensor and the rideId columns
+    (_step_11, False),
 )
 LATEST = len(STEPS)
 

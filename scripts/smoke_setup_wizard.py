@@ -1,5 +1,5 @@
-"""The 6-step /setup wizard (riders -> units -> Garmin -> Home Assistant -> telemetry -> done), /garmin/connect +
-/garmin/connect/mfa, and the one-time telemetry ping/opt-out. Throwaway instance only:
+"""The 6-step /setup wizard (riders -> units -> outside address -> Garmin -> Home Assistant -> done), /garmin/connect and
+/garmin/connect/mfa. Throwaway instance only:
   d=$(mktemp -d); printf "DATABASE_URL=$d/t.db\nSECRET_KEY=x\nAPP_USERNAME=t\nAPP_PASSWORD=t\n" > $d/env; HEADWIND_ENV=$d/env PYTHONPATH=. python3 scripts/smoke_setup_wizard.py"""
 import sqlite3
 from app import create_app
@@ -56,26 +56,6 @@ ok('list_entities includes the weather entity', any(e['entity_id'] == 'weather.h
 ok('list_entities excludes unrelated domains (light)', not any(e['entity_id'].startswith('light.') for e in ents))
 
 r = c.get('/setup?step=6')
-ok('step 6 renders telemetry disclosure', r.status_code == 200 and b'one-time' in r.data.lower() and b'Opt out forever' in r.data)
-
-# --- opt out: no ping ever sent, flag recorded, ping_once() becomes a permanent no-op ---
-import services.telemetry as tel
-pinged = {'n': 0}
-def fake_post(url, json=None, timeout=None):
-    pinged['n'] += 1
-    class R: ok = True
-    return R()
-tel.requests.post = fake_post
-r = c.post('/setup?step=6', data={'telemetry': 'off'}, follow_redirects=False)
-ok('POST step 6 (opt out) -> redirect step 7', r.status_code == 302 and 'step=7' in r.headers['Location'])
-con3 = sqlite3.connect(db_path)
-ok('telemetryOptOut recorded', con3.execute('SELECT telemetryOptOut FROM Settings WHERE id=1').fetchone() == (1,))
-ok('no ping was sent', pinged['n'] == 0)
-with a.app_context():
-    tel.ping_once()  # even called directly, opt-out must block it forever
-ok('ping_once() is a permanent no-op after opt-out', pinged['n'] == 0)
-
-r = c.get('/setup?step=7')
-ok('step 7 renders done screen', r.status_code == 200 and b'dashboard' in r.data.lower())
+ok('step 6 renders done screen', r.status_code == 200 and b'dashboard' in r.data.lower())
 
 print('ALL PASS')

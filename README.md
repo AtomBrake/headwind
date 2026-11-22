@@ -13,7 +13,6 @@ Self-hosted training analytics for cycling, running, swimming and every other sp
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Status: beta](https://img.shields.io/badge/status-beta-orange.svg)](CHANGELOG.md)
 [![Docker](https://img.shields.io/badge/docker-amd64%20%7C%20arm64-2496ED.svg?logo=docker&logoColor=white)](https://hub.docker.com/r/lordmerchant99/headwind)
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-FFDD00?logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/lordmerchant)
 
 <img src="docs/promo/headwind-hero.jpg" alt="Headwind: your rides, your data. A self-hosted cycling archive." width="900">
 
@@ -37,7 +36,7 @@ Self-hosted training analytics for cycling, running, swimming and every other sp
 - [Nutrition in depth](#nutrition-in-depth)
 - [Putting it on the internet safely](#putting-it-on-the-internet-safely) — [Cloudflare Tunnel (recommended)](#recommended-cloudflare-tunnel) · [other proxies](#other-reverse-proxies)
 - [Backups, updates and your data](#backups-updates-and-your-data)
-- [Privacy and telemetry](#privacy-and-telemetry)
+- [Privacy](#privacy)
 - [Security notes](#security-notes)
 - [The Android app](#the-android-app)
 - [The iPhone and Apple Watch app](#the-iphone-and-apple-watch-app)
@@ -59,14 +58,14 @@ Headwind is a single self-hosted web app that brings together the things most at
 - **Coaching and automation** — optional AI analysis with your own key (or local Ollama), on demand or as each activity arrives; Home Assistant sensors over MQTT; push notifications.
 - **A social layer without a central server** — link your instance to a friend's directly to share activities, segment leaderboards, the heatmap and challenges.
 
-It runs on a Raspberry Pi, a NAS, a spare PC or a VPS. Your data lives in one SQLite file you can copy, back up and inspect. It only talks to services you explicitly configure (plus a few public data APIs listed [below](#privacy-and-telemetry)).
+It runs on a Raspberry Pi, a NAS, a spare PC or a VPS. Your data lives in one SQLite file you can copy, back up and inspect. It only talks to services you explicitly configure (plus a few public data APIs listed [below](#privacy)).
 
 **Design principles**
 
 | | |
 |---|---|
 | **Yours** | One folder of data. Export any ride as GPX, back up everything as one zip, no lock-in. |
-| **Quiet** | No account, no analytics, no ads. A single optional, anonymous install ping — fully disclosed, one-time, opt-out. |
+| **Quiet** | No account, no analytics, no ads, and nothing sent back to the developer. |
 | **One person per instance** | Your stats, your PRs, your coaching. To track someone else, they run their own Headwind and you link them as a friend. |
 | **Honest** | It's a beta; this README lists what's rough. The AI coach is deliberately blunt rather than flattering. |
 
@@ -385,7 +384,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 </details>
 
 <details>
-<summary><b>The setup wizard</b> (7 screens)</summary>
+<summary><b>The setup wizard</b> (6 screens)</summary>
 
 **Step 1: your name (or restore from a backup).**
 
@@ -407,13 +406,9 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 
 <img src="docs/screenshots/wizard-4b-ha-entity-picker.jpg" alt="Choosing a health entity from Home Assistant." width="800">
 
-**Step 6: the one-time anonymous install ping, with a permanent opt-out.**
+**Step 6: done.**
 
-<img src="docs/screenshots/wizard-5-telemetry.jpg" alt="Step 6: the one-time anonymous install ping, with a permanent opt-out." width="800">
-
-**Step 7: done.**
-
-<img src="docs/screenshots/wizard-6-done.jpg" alt="Step 7: done." width="800">
+<img src="docs/screenshots/wizard-6-done.jpg" alt="Step 6: done." width="800">
 
 </details>
 
@@ -604,15 +599,14 @@ docker buildx build --platform linux/amd64,linux/arm64 -t yourname/headwind:dev 
 
 ## First run: the setup wizard
 
-A new install walks you through seven short steps. Everything except step 1 is skippable and can be changed later in **Settings**.
+A new install walks you through six short steps. Everything except step 1 is skippable and can be changed later in **Settings**.
 
 1. **Your name** — Headwind tracks one person. (Restoring from a backup is also offered here.)
 2. **Units** — imperial (mi, mph, ft, st/lb) or metric.
 3. **Outside address** — the https address you reach Headwind on from outside the house (a [Cloudflare Tunnel](#recommended-cloudflare-tunnel) or another reverse proxy). The phone app pairs with it, friends' Headwinds sync from it and notification links open it. **Check** loads it from your browser. It starts with `APP_URL` when that's https; skip it if Headwind isn't reachable from outside yet.
 4. **Garmin Connect** — optional. Enter your Garmin email and password; if Garmin asks for an MFA code you'll be prompted in the browser. The password is used only to sign in and isn't kept: Headwind keeps the sign-in tokens Garmin gives it, which renew themselves.
 5. **Home Assistant** — optional. Connect to HA with a long-lived token, map health entities and pick a weather entity.
-6. **Telemetry** — the exact text of the one-time anonymous ping is shown with a permanent opt-out.
-7. **Done** — you land on the dashboard.
+6. **Done** — you land on the dashboard.
 
 No Garmin? Go to **Import** and drop in `.fit` / `.gpx` / `.tcx` files or a Strava export zip.
 
@@ -631,7 +625,6 @@ Set these in a `.env` file next to `docker-compose.yml` (Compose reads it automa
 | `APP_PASSWORD` | generated | Login password. If blank or a known placeholder, a random one is generated and printed once in the logs. A password changed in **Settings** is kept (as a hash, in `.admin_login`) across container recreation until you edit this value: then this one wins, which is the way back in if you forget yours. Headwind never writes it to `.env`. |
 | `APP_URL` | `http://localhost:5001` | The address others (and your phone) reach this instance at, used until one is saved under **Settings → Outside address**, which is the easier place to set it: no restart, and the setup wizard asks for it. |
 | `DATABASE_URL` | `/data/bike.db` (Docker) | Path to the SQLite database. |
-| `TELEMETRY` | *(unset)* | Set to `off` to skip the telemetry question and never send the install ping. |
 | `HEADWIND_MULTI_RIDER` | *(unset)* | `1` enables the advanced multi-rider mode (several local riders on one instance). |
 | `RIDE_UPLOAD_TOKEN` | *(unset)* | Enables `POST /import/api/upload-ride` (authenticated by the `X-Upload-Token` header). Disabled when unset. |
 | `SESSION_COOKIE_SECURE` | `false` | Set to `true` when serving over HTTPS so the login cookie is never sent over plain HTTP. |
@@ -789,7 +782,6 @@ services:
       - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-true}   # the login cookie only travels over HTTPS
       - TZ=${TZ:-}
       - LOG_LEVEL=${LOG_LEVEL:-}
-      - TELEMETRY=${TELEMETRY:-}
     restart: unless-stopped
 
   cloudflared:
@@ -846,7 +838,7 @@ Where a direct client can still arrive from a private address (Docker Desktop on
 
 ---
 
-## Privacy and telemetry
+## Privacy
 
 **What leaves your machine** — only to services you configure or the public APIs below:
 
@@ -862,7 +854,7 @@ Where a direct client can still arrive from a private address (Docker Desktop on
 | Your MQTT broker / Home Assistant (if configured) | Automation | Sensor values / notifications |
 | Linked friends (if configured) | P2P sync | Activities and segments you've chosen to share, and challenges you send |
 
-**Telemetry (the one exception).** At the end of setup, Headwind can send **one single, one-time, anonymous ping** — a random install id and the version number, nothing else — so the author has a rough idea how many instances exist. No rides, food, weight, location or any personal data is ever sent. The collector does not store IP addresses. The wizard shows this text and a permanent opt-out; you can also set `TELEMETRY=off` in your `.env` to skip the question entirely. The code is [`services/telemetry.py`](services/telemetry.py) — read it rather than take our word for it.
+**Nothing else.** Headwind sends no usage data, install pings or analytics anywhere, to its developers or anyone else.
 
 ---
 
@@ -924,7 +916,7 @@ Like the Android app it **requires HTTPS**. Pair it from **Phones**: name the ph
 | **Garmin sync finds nothing** | Make sure activity sync is enabled in Settings → Garmin and the account matches the one you connected. Failed rides are retried on the next sync. |
 | **Phone app can't pair** | It needs an **HTTPS** address. Put Headwind behind a [Cloudflare Tunnel](#recommended-cloudflare-tunnel) or another TLS proxy and save that address under **Settings → Outside address**. |
 | **Home Assistant sensors missing** | Check the MQTT broker settings, that discovery is enabled in HA, and that no other Headwind uses the same `HEADWIND_MQTT_PREFIX`. |
-| **Map is blank** | Your browser needs to reach the map tile hosts listed under [Privacy](#privacy-and-telemetry). The map and chart libraries come from Headwind itself. |
+| **Map is blank** | Your browser needs to reach the map tile hosts listed under [Privacy](#privacy). The map and chart libraries come from Headwind itself. |
 | **Windows SmartScreen warning** | The build is unsigned. More info → Run anyway, or use Docker. |
 | **Restore says "not compatible"** | The backup's database couldn't be migrated, or is from a newer Headwind. Nothing was changed — your current data is intact. |
 | **Reporting a bug** | **Tasks → Download diagnostics** gives one zip to attach: the recent logs, the version, settings without passwords, keys or addresses, and row counts. When someone helping needs your data itself, **Tasks → Make a copy for troubleshooting** makes the database without saved keys, passwords, tokens, addresses, your friends' data or photos, and without GPS or the streams if you tick them; the page lists what's still in it. It's made in the background (a minute or so on a big database; you can leave the page) and offered on the Tasks page for a day, or until you delete it or make another. An error page shows a reference such as `3f9c2a1b`, and so does a message when a sync, an AI analysis, a friend's address or a restore fails for a reason other than something you can fix; quote it, and the matching log lines carry `[3f9c2a1b]`. The log file is `./data/logs/headwind.log`. Set `LOG_LEVEL=DEBUG` in `.env` and recreate the container for more detail. |
@@ -1003,7 +995,7 @@ Other smoke scripts: `smoke_client_ops`, `smoke_api_v1`, `smoke_recipes_sync`, `
 
 Headwind stands on a lot of generous open data and software: [Open Food Facts](https://openfoodfacts.org), [Open-Meteo](https://open-meteo.com), [OpenStreetMap](https://www.openstreetmap.org) contributors, [Esri](https://www.esri.com) imagery, [OpenTopoMap](https://opentopomap.org), [CyclOSM](https://www.cyclosm.org), [Waymarked Trails](https://waymarkedtrails.org), [Leaflet](https://leafletjs.com), [Chart.js](https://www.chartjs.org), [Flask](https://flask.palletsprojects.com), [garminconnect](https://github.com/cyberjunky/python-garminconnect), [fitparse](https://github.com/dtcooper/python-fitparse), [gpxpy](https://github.com/tkrajina/gpxpy), [paho-mqtt](https://github.com/eclipse/paho.mqtt.python) and [Home Assistant](https://www.home-assistant.io).
 
-Released under the [MIT licence](LICENSE). If Headwind is useful to you, [a coffee](https://buymeacoffee.com/lordmerchant) is always appreciated.
+Released under the [MIT licence](LICENSE).
 
 ## Public demo
 A locked-down read-mostly demo mode (`HEADWIND_DEMO=1`) with anonymised data is described in [demo/README.md](demo/README.md).

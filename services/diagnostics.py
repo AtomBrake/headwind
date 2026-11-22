@@ -17,11 +17,11 @@ from datetime import datetime, timezone
 from services import logs
 
 # Settings columns whose values stay out: credentials, addresses, the person's body and goals. Matched anywhere in the column name.
-PRIVATE = re.compile(r'(?i)key|password|token|secret|email|user|url|host|webhook|installid|entity|height|sex|birth|weight|goal|holiday|'
+PRIVATE = re.compile(r'(?i)key|password|token|secret|email|user|url|host|webhook|entity|height|sex|birth|weight|goal|holiday|'
                      r'bmr|kcal|cal(orie)?|protein|carb|fat|sugar|alcohol|water|diet|haWeather')
 _EMAIL = re.compile(r'[\w.+-]+@[\w-]+\.[\w.-]+')
 # Environment variables worth reporting with their value; any other Headwind-looking one is listed by name only.
-_ENV_VALUES = ('LOG_LEVEL', 'LOG_FORMAT', 'LOG_CONSOLE_LEVEL', 'TZ', 'TELEMETRY', 'HEADWIND_MULTI_RIDER', 'HEADWIND_MQTT_NUTRITION',
+_ENV_VALUES = ('LOG_LEVEL', 'LOG_FORMAT', 'LOG_CONSOLE_LEVEL', 'TZ', 'HEADWIND_MULTI_RIDER', 'HEADWIND_MQTT_NUTRITION',
                'HEADWIND_DEBUG', 'SESSION_COOKIE_SECURE', 'DEMO_MODE', 'PORT')
 _ENV_NAMES = ('APP_', 'HEADWIND_', 'LOG_', 'DATABASE_URL', 'SECRET_KEY', 'RIDE_UPLOAD_TOKEN', 'TRUSTED_PROXIES', 'AVATAR_DIR', 'DEMO')
 

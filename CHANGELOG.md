@@ -9,6 +9,10 @@
 ### Changed
 - **Each recording from the iPhone or the Watch has its id from the start.** The id goes with every live reading and, as before, with the upload, so a live link takes only its own recording's readings. A recording recovered after a crash keeps its id, and saving or discarding it ends any link it had.
 
+### Removed
+- **The install ping.** The setup wizard no longer has the step that sent a random install id and the version number to the original developer's server, and Headwind sends nothing of the kind. The wizard has six steps now. A database that had the ping loses its install id and the record of whether it was sent at the next start. `TELEMETRY` in `.env` does nothing any more and can be taken out.
+- **The Buy Me a Coffee card at the top of Settings, and the README's links to it.** They went to the original developer's page.
+
 ## [0.7.51-beta] - 2026-11-22
 
 ### Added

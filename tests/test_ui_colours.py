@@ -41,7 +41,7 @@ def test_every_variable_used_is_defined():
 # ---------- light and dark ----------
 CSS = (ROOT / 'static/css/style.css').read_text()
 NOT_COLOURS = {'--sidebar-w', '--font'}
-SAME_IN_BOTH = {'--strava', '--coffee'}                                      # brands: dark only, the light block leaves them be
+SAME_IN_BOTH = {'--strava'}                                                 # brands: dark only, the light block leaves them be
 
 
 def _block(selector):

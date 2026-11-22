@@ -439,7 +439,6 @@ def create_app():
     from routes.garmin_page   import bp as garmin_page_bp
     from routes.about         import bp as about_bp
     from routes.setup         import bp as setup_bp
-    from routes.telemetry_forward import bp as telemetry_forward_bp
     from routes.friends       import bp as friends_bp
     from routes.nutrition      import bp as nutrition_bp
     from routes.route_builder  import bp as route_builder_bp
@@ -448,7 +447,7 @@ def create_app():
     # ── Auth guard ───────────────────────────────────────────────
     _PUBLIC = {'login.login_page', 'login.logout', 'static', 'demo.counter', 'demo.health',
                'friends.feed', 'friends.riders_list', 'import_rides.api_upload_ride',
-               'friends.foods_feed', 'friends.food_image', 'telemetry_forward.ping', 'avatar_files',
+               'friends.foods_feed', 'friends.food_image', 'avatar_files',
                'live_share.page', 'live_share.data'}       # a live tracking link, for whoever the rider sent it to
 
     # The phone app authenticates with a per-device Bearer token (services/device_auth.py) instead of a login session — accepted
@@ -660,7 +659,6 @@ def create_app():
     app.register_blueprint(garmin_page_bp)
     app.register_blueprint(about_bp)
     app.register_blueprint(setup_bp)
-    app.register_blueprint(telemetry_forward_bp)
     app.register_blueprint(friends_bp)
     app.register_blueprint(nutrition_bp)
     app.register_blueprint(route_builder_bp)

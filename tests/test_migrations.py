@@ -261,3 +261,22 @@ def test_step_10_renames_ride_tables_and_columns_and_keeps_every_row(tmp_path):
         assert not conn.execute("SELECT 1 FROM sqlite_master WHERE name='idx_ridesensor_ride'").fetchone()
     finally:
         conn.close()
+
+
+def test_step_11_drops_the_install_ping_columns_and_keeps_the_settings(tmp_path, fresh):
+    """installId, telemetryOptOut and telemetryPingedAt go, from a database that had the ping and from a new one; the other settings stay."""
+    old = tmp_path / 'pinged.db'
+    _from_sql(old, 'schema_step_1.sql', 1)
+    conn = sqlite3.connect(old)
+    conn.execute("INSERT INTO Settings (id, units, installId, telemetryOptOut, telemetryPingedAt) VALUES (1, 'metric', 'abc', 0, '2026-10-03')")
+    conn.commit()
+    conn.close()
+    _migrate(old)
+    gone = {'installId', 'telemetryOptOut', 'telemetryPingedAt'}
+    for path in (old, fresh):
+        assert not gone & set(_schema(path)[0]['Settings'])
+    conn = sqlite3.connect(old)
+    try:
+        assert conn.execute('SELECT units FROM Settings WHERE id=1').fetchone() == ('metric',)
+    finally:
+        conn.close()

@@ -307,13 +307,13 @@
   </div>
 
   <div class="step-track">
-    {% for n in ('1','2','3','4','5','6','7') %}
+    {% for n in ('1','2','3','4','5','6') %}
     <div class="step-dot {{ 'done' if n|int < step|int else ('active' if n == step else '') }}"></div>
     {% endfor %}
   </div>
 
   {% if step == '1' %}
-  <div class="step-label">Step 1 of 7 — Riders</div>
+  <div class="step-label">Step 1 of 6 — Riders</div>
 
   {% if multi_rider %}
   <!-- Architecture explanation -->
@@ -449,7 +449,7 @@
   </form>
 
   {% elif step == '2' %}
-  <div class="step-label">Step 2 of 7 — Units</div>
+  <div class="step-label">Step 2 of 6 — Units</div>
   <form method="POST" action="/setup?step=2">
     <div class="choice-row">
       <label class="choice-card" id="cardImperial">
@@ -470,7 +470,7 @@
   </form>
 
   {% elif step == '3' %}
-  <div class="step-label">Step 3 of 7 — Outside address</div>
+  <div class="step-label">Step 3 of 6 — Outside address</div>
   <div class="arch-box">
     <div class="arch-box-title">Why it's needed</div>
     <div class="arch-row">
@@ -498,7 +498,7 @@
   <script src="{{ url_for('static', filename='js/address_check.js') }}"></script>
 
   {% elif step == '4' %}
-  <div class="step-label">Step 4 of 7 — Garmin</div>
+  <div class="step-label">Step 4 of 6 — Garmin</div>
   <div class="arch-box">
     <div class="arch-box-title">What this connects</div>
     <div class="arch-row">
@@ -558,7 +558,7 @@
   <a href="/setup?step=5" class="skip-link" id="garminSkip">Skip for now — I'll connect Garmin later from Settings →</a>
 
   {% elif step == '5' %}
-  <div class="step-label">Step 5 of 7 — Home Assistant</div>
+  <div class="step-label">Step 5 of 6 — Home Assistant</div>
   <div class="arch-box">
     <div class="arch-box-title">What this connects</div>
     <div class="arch-row">
@@ -627,45 +627,7 @@
   <a href="/setup?step=6" class="skip-link">Skip Home Assistant for now — I can connect it later from Settings →</a>
 
   {% elif step == '6' %}
-  <div class="step-label">Step 6 of 7 — One-time ping</div>
-  <div class="arch-box">
-    <div class="arch-box-title">What this sends, exactly</div>
-    <div class="arch-row">
-      <span class="arch-icon">📡</span>
-      <span>
-        A single, one-time, anonymous ping to the Headwind dev server so we have a rough idea how many
-        instances are actually running — nothing more. It happens once, ever, right now, when you click
-        Continue below.
-      </span>
-    </div>
-    <div class="arch-row">
-      <span class="arch-icon">🔍</span>
-      <span>
-        <strong>Exactly two values are sent:</strong> a random id generated just now on this install
-        (not tied to you, your IP isn't stored against it, and it can't be reversed to anything personal),
-        and the Headwind version number. That's the whole payload — no rides, no food, no weight, no
-        location, nothing else, ever.
-      </span>
-    </div>
-    <div class="arch-row">
-      <span class="arch-icon">🚫</span>
-      <span>
-        <strong>Opt out forever</strong> with the toggle below — no ping is ever sent, and this can't
-        be turned back on later short of editing the database directly.
-      </span>
-    </div>
-  </div>
-
-  <form method="POST" action="/setup?step=6">
-    <label class="check" style="margin-bottom:1.5rem;">
-      <input type="checkbox" name="telemetry" value="off">
-      <span>Opt out forever — never send this ping</span>
-    </label>
-    <button type="submit" class="btn btn-primary submit-btn">Continue →</button>
-  </form>
-
-  {% elif step == '7' %}
-  <div class="step-label">Step 7 of 7 — Done</div>
+  <div class="step-label">Step 6 of 6 — Done</div>
   <div class="done-icon">🚴</div>
   <p class="done-text">Headwind is ready. Head to your dashboard, or import some rides to get started.</p>
   <a href="/dashboard" class="btn btn-primary submit-btn" style="display:block; text-align:center;">Go to dashboard →</a>

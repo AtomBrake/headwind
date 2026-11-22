@@ -34,7 +34,7 @@ jobs:
       - name: Smoke test the packaged app
         shell: pwsh
         run: |
-          $env:HEADWIND_DATA = "$PWD\smoke-data"; $env:PORT = "5099"; $env:TELEMETRY = "off"; $env:APP_USERNAME = "smoke"; $env:APP_PASSWORD = "smoke-pass-123"
+          $env:HEADWIND_DATA = "$PWD\smoke-data"; $env:PORT = "5099"; $env:APP_USERNAME = "smoke"; $env:APP_PASSWORD = "smoke-pass-123"
           $env:HEADWIND_NO_TRAY = "1"; $env:HEADWIND_NO_BROWSER = "1"
           $p = Start-Process -FilePath "dist\Headwind\Headwind.exe" -PassThru
           Start-Sleep -Seconds 20

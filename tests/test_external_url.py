@@ -132,13 +132,13 @@ def test_the_setup_wizard_asks_for_it(tmp_path, monkeypatch):
     c.post('/setup?step=1', data={'riders[]': 'Tom'})
     assert c.post('/setup?step=2', data={'units': 'metric'}).headers['Location'].endswith('/setup?step=3')
     page = c.get('/setup?step=3').get_data(as_text=True)
-    assert 'Step 3 of 7' in page and 'value="https://env.example"' in page, 'pre-filled from an https APP_URL'
-    assert 'Step 3 of 7' in c.post('/setup?step=3', data={'externalUrl': 'nope'}).get_data(as_text=True)
+    assert 'Step 3 of 6' in page and 'value="https://env.example"' in page, 'pre-filled from an https APP_URL'
+    assert 'Step 3 of 6' in c.post('/setup?step=3', data={'externalUrl': 'nope'}).get_data(as_text=True)
     assert c.post('/setup?step=3', data={'externalUrl': 'https://bike.example.com/'}).headers['Location'].endswith('/setup?step=4')
     assert _saved(app) == 'https://bike.example.com'
-    assert 'No outside address yet' not in c.get('/setup?step=7').get_data(as_text=True)
+    assert 'No outside address yet' not in c.get('/setup?step=6').get_data(as_text=True)
     with app.app_context():
         database.get_db().execute('UPDATE Settings SET externalUrl=NULL WHERE id=1')
         database.get_db().commit()
     app.config['APP_URL'] = 'http://localhost:5000'
-    assert 'No outside address yet' in c.get('/setup?step=7').get_data(as_text=True), 'skipped: the Done step says so'
+    assert 'No outside address yet' in c.get('/setup?step=6').get_data(as_text=True), 'skipped: the Done step says so'

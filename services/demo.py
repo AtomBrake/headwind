@@ -53,7 +53,7 @@ ALLOWED_WRITES = {
 DENIED_ENDPOINTS = {
     'ai_page.bulk_analyse', 'friends.feed', 'friends.food_image', 'friends.foods_feed', 'friends.riders_list', 'garmin.sync_activities', 'heatmap.tile_proxy',
     'nutrition.image_search', 'nutrition.stock_image', 'settings.backup_export', 'settings.backup_download', 'phones.app_apk', 'route_builder.export_saved', 'import_rides.api_upload_ride',
-    'telemetry_forward.ping', 'api_v1.sync_nutrition',
+    'api_v1.sync_nutrition',
 }
 WRITE_METHODS = ('POST', 'PUT', 'PATCH', 'DELETE')
 _STATIC = ('static', 'avatar_files')

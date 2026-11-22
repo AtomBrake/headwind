@@ -57,19 +57,3 @@ def test_the_phone_api_and_the_ride_upload_get_the_phone_limit(client):
 @pytest.mark.parametrize('path', ['/import/upload', '/settings/backup/import', '/setup/restore'])
 def test_the_export_import_and_restores_keep_the_app_wide_limit(client, path):
     assert client.post(path, data=b'x' * 20_000, content_type='application/octet-stream').status_code == 302   # to sign in, not 413
-
-
-def test_the_telemetry_ping_reads_at_most_4_kb(client, monkeypatch):
-    sent = {}
-
-    class Reply:
-        content, status_code = b'{}', 200
-
-    def post(url, data=None, **kw):
-        sent['body'] = data
-        return Reply()
-    monkeypatch.setenv('TELEMETRY_FORWARD_URL', 'http://collector.invalid/ping')
-    monkeypatch.setattr('routes.telemetry_forward.requests.post', post)
-    monkeypatch.setattr('services.limits.MAX_PUBLIC_REQUEST', 100_000)
-    assert client.post('/telemetry/ping', data=b'{' + b'x' * 9000, content_type='application/json').status_code == 200
-    assert len(sent['body']) == 4096
