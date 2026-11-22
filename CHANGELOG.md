@@ -7,6 +7,7 @@
 - **Share a live tracking link from the Watch.** Switch on **Share live location** on the Watch's start screen (it starts from the phone's setting). A recording with GPS sends where you are every 30 s, through the phone when it's near and over Wi-Fi or cellular when it isn't, and the Watch makes the link itself. The Watch can't send it, so your iPhone shows a notification, "Your live link is ready", and tapping it opens the share sheet. The link also waits on the iPhone's Record screen, with **Send**, **Copy** and **Stop sharing**, and shows as finished when the Watch recording ends. The iPhone asks to show notifications when you switch sharing on in Settings. Needs the updated Watch app, and the Watch's own token (made by the iPhone app).
 
 ### Changed
+- **The iPhone and Watch apps' version goes up with every build, and the Watch shows it.** It was 0.1.0 on every build, so it couldn't tell you which one a device had. This build is 0.1.1 (2): the version, then the build number. The iPhone shows it in Settings, and the Watch at the bottom of its start screen. `ios/README.md` (Versions) says when each part goes up.
 - **Each recording from the iPhone or the Watch has its id from the start.** The id goes with every live reading and, as before, with the upload, so a live link takes only its own recording's readings. A recording recovered after a crash keeps its id, and saving or discarding it ends any link it had.
 
 ### Removed

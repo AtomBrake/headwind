@@ -124,6 +124,12 @@ struct StartView: View {
                 if let error = workout.error {
                     Text(error.localizedDescription).font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center)
                 }
+
+                Text("Version \(AppVersion.display)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 6)
+                    .accessibilityIdentifier("watch-app-version")
             }
         }
         .navigationTitle("Headwind")

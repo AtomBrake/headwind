@@ -175,6 +175,28 @@ What's planned for the apps (food logging, widgets, smart-trainer control, follo
    `Config/HeadwindWatch.entitlements`. The iPhone target needs it too, with background delivery, for Apple Health
    (`Config/Headwind.entitlements`).
 
+## Versions
+
+Both apps show their version: the iPhone in **Settings**, the Watch at the bottom of its start screen, as `0.1.1 (2)`
+(the version, then the build number). It lives in `Config/Version.xcconfig`, shared by every target, since the Watch
+app has to match the iPhone app it's inside. Bump it before every build that goes onto a phone or Watch, so you can tell
+which build a device is running:
+
+```sh
+python3 ios/scripts/bump_version.py          # 0.1.1 -> 0.1.2
+```
+
+The parts move the way the server's do:
+
+- **patch** (`0.1.1` → `0.1.2`), the default: every build put on a device, whether it fixes something or adds something.
+- **minor** (`bump_version.py minor`, `0.1.7` → `0.2.0`): the app needs a newer server than the last version did, or it
+  changes what it keeps on the device (the recording journal, the upload queue) so that going back a version would lose
+  or misread it.
+- **major** (`bump_version.py major`, `0.x` → `1.0.0`): the app leaves beta.
+
+The build number goes up by one with every bump. `bump_version.py --show` prints both without changing them. Builds in
+the simulator and test runs don't need a bump.
+
 ## Pairing
 
 On the server, open **Phones**, name the phone and press **Create token**. Then either:
@@ -236,7 +258,9 @@ The **HeadwindWatch** scheme's UI test records a ride on a Watch simulator. Give
 ```
 ios/
   Headwind.xcodeproj
-  Config/                  Info.plists (URL scheme, background modes) and the Watch's HealthKit entitlements
+  Config/                  Info.plists (URL scheme, background modes), the Watch's HealthKit entitlements, signing and
+                           the apps' version (Version.xcconfig)
+  scripts/                 bump_version.py
   Shared/                  compiled into both apps: sports, ride tracker, GPX writer, crash journal, ride summary, units,
                            API client and pairing, upload routing, Bluetooth sensor parsing and readings
   Headwind/

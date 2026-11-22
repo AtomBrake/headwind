@@ -5,3 +5,6 @@
 DEVELOPMENT_TEAM =
 
 #include? "Signing.local.xcconfig"
+
+// The project's base configuration is this file, so the apps' version comes in through it too.
+#include "Version.xcconfig"

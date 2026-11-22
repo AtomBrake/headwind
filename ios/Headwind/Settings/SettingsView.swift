@@ -72,7 +72,7 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    LabeledContent("App version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
+                    LabeledContent("App version", value: AppVersion.display)
                     LabeledContent("Server API", value: session.info?.api.map(String.init) ?? "–")
                 }
             }
