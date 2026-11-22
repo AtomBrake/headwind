@@ -132,11 +132,11 @@ def test_clean_rounds_and_drops_standing_still_and_nonsense():
 
 # ---------- saving ----------
 
-def test_the_same_name_and_points_are_kept_once_per_rider(db):
+def test_the_same_points_are_kept_once_per_rider_whatever_they_are_called(db):
     t = planned_routes.from_gpx(trk())['track']
     a = planned_routes.save(db, 1, 'Loop', track=t, source='gpx')
     assert a[1] and planned_routes.save(db, 1, 'Loop', track=t, source='strava') == (a[0], False)
-    assert planned_routes.save(db, 1, 'Loop again', track=t)[1]                 # another name: another route
+    assert planned_routes.save(db, 1, 'Loop again', track=t) == (a[0], False)  # renamed on the Routes page since: still the same route
     assert planned_routes.save(db, 1, 'Loop', track=t[:-1])[1]                  # other points: another route
     db.execute("INSERT INTO Rider (id, name) VALUES (2, 'Sam')")
     assert planned_routes.save(db, 2, 'Loop', track=t)[1]                       # another rider's
@@ -205,7 +205,7 @@ def test_the_export_s_routes_come_in_once_when_asked_for(db):
 # ---------- the planner ----------
 
 def test_import_gpx_saves_each_file_and_says_what_it_did_with_the_rest(client):
-    files = [(io.BytesIO(trk()), 'a.gpx'), (io.BytesIO(trk()), 'copy of a.gpx'), (io.BytesIO(trk(name='', meta=False, kind=None)), 'Ride two.gpx'),
+    files = [(io.BytesIO(trk()), 'a.gpx'), (io.BytesIO(trk()), 'copy of a.gpx'), (io.BytesIO(trk(40, name='', meta=False, kind=None)), 'Ride two.gpx'),
              (io.BytesIO(b'<gpx xmlns="http://www.topografix.com/GPX/1/1"></gpx>'), 'empty.gpx'), (io.BytesIO(b'not xml at all'), 'junk.gpx')]
     res = client.post('/planner/routes/import', data={'files': files}, content_type='multipart/form-data').get_json()
     assert [r['status'] for r in res] == ['saved', 'exists', 'saved', 'empty', 'unreadable']
@@ -240,7 +240,7 @@ def test_save_as_route_from_a_run_and_not_from_zwift(client):
     page = client.get('/activities/run1').get_data(as_text=True)
     assert 'Save as route' in page and 'Save as route' not in client.get('/activities/zw1').get_data(as_text=True)
     r = client.post('/planner/routes/from-activity/run1')
-    assert r.status_code == 302 and '/planner/?route=' in r.headers['Location']
+    assert r.status_code == 302 and '/routes/?route=' in r.headers['Location']      # the Routes page, showing it
     route = client.get('/planner/routes/' + r.headers['Location'].split('=')[1]).get_json()
     assert route['name'] == 'Canal run' and route['source'] == 'activity' and route['sourceId'] == 'run1' and route['sportType'] == 'Run'
     assert len(route['track']) == 40 and route['track'][0] == [51.5, -0.1, 10.0]      # the standing still at the end is one point

@@ -1,0 +1,126 @@
+{% extends 'base.html' %}
+
+{% block title %}Routes{% endblock %}
+{% block page_title %}Routes{% endblock %}
+
+{% block head %}
+  {% include '_maps.html' %}
+  <script src="{{ url_for('static', filename='vendor/chart.js-4.4.0/chart.umd.js') }}"></script>
+  <style>
+    #routesMap { height: 360px; border-radius: 0.5rem; }
+    #routeProfile { height: 120px; margin-top: 0.75rem; }
+    .route-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; margin-bottom: 0.75rem; }
+    .route-head h3 { margin: 0; }
+    .route-name-edit { display: flex; gap: 0.35rem; align-items: center; }
+    .route-name-edit input { min-width: 12rem; }
+    tr.shown > td { background: var(--hover-tint); }
+    #routesTable select { min-width: 9rem; }
+    .row-actions { display: flex; gap: 0.35rem; justify-content: flex-end; white-space: nowrap; }
+    @media (max-width: 700px) { #routesMap { height: 260px; } }
+  </style>
+{% endblock %}
+
+{% block topbar_actions %}
+  <button class="btn btn-primary" data-click="chooseGpxFiles()">Import GPX</button>
+  <button class="btn btn-secondary" data-click="toggleHidden('stravaPanel')">From Strava</button>
+  {% if garmin_on %}
+  <button class="btn btn-secondary" id="garminBtn" data-click="importGarmin()" title="Bring in your Garmin Connect courses">From Garmin</button>
+  {% endif %}
+  <input type="file" id="gpxFiles" accept=".gpx,application/gpx+xml" multiple hidden data-change="importGPX(this)">
+{% endblock %}
+
+{% block content %}
+
+<div class="card" id="stravaPanel" hidden>
+  <div class="card-title">Routes from Strava</div>
+  <p class="hint">The routes you made on Strava come in your Strava export: on strava.com, Settings › My Account › Download or delete your
+    account › Request your archive. Routes you starred from other people aren't in it: open one on Strava, choose Export GPX, then use
+    <strong>Import GPX</strong> here.</p>
+  {% for k in kept %}
+  <p><button class="btn btn-secondary" data-click="importStrava({{ k.riderId }}, this)">Read the routes in {{ k.riderName ~ "'s " if multi else 'the ' }}export imported {{ k.keptAt | fmt_when }}</button></p>
+  {% endfor %}
+  <div class="form-group">
+    <label for="stravaZip">{{ 'Or upload' if kept else 'Upload' }} your Strava export</label>
+    <input type="file" id="stravaZip" accept=".zip,application/zip" data-change="importStravaZip(this)">
+    <p class="hint">Only its routes are read: to bring in its activities as well, use the Import page.</p>
+  </div>
+</div>
+
+<div id="importResult" class="flash" hidden></div>
+
+{% if not routes %}
+<div class="card empty-state">
+  <div class="empty-icon">🗺️</div>
+  <h3>No routes yet</h3>
+  <p>Import GPX files, read the routes from your Strava export{% if garmin_on %} or bring in your Garmin Connect courses{% endif %}.
+    To keep the way you went on an activity, open it and choose <strong>Save as route</strong> from its <strong>⋯</strong> menu.
+    {% if not garmin_on %}Connect Garmin in Settings to bring in your Garmin Connect courses as well.{% endif %}</p>
+  <button class="btn btn-primary" data-click="chooseGpxFiles()">Import GPX</button>
+</div>
+{% else %}
+
+<div class="card">
+  <div class="route-head">
+    <h3 id="shownName"></h3>
+    <span class="hint" id="shownFacts"></span>
+  </div>
+  <div id="routesMap"></div>
+  <div id="routeProfile" hidden><canvas id="profileChart"></canvas></div>
+</div>
+
+<p class="hint">Open an activity and choose <strong>Save as route</strong> from its <strong>⋯</strong> menu to keep the way you went.</p>
+
+<div class="card" style="padding:0; overflow:hidden;">
+  <div class="table-wrap">
+  <table class="table flush sortable" id="routesTable">
+    <thead>
+      <tr>
+        <th>Route</th>
+        <th>Sport</th>
+        <th class="num" data-first="desc">Distance</th>
+        <th class="num" data-first="desc">Climb</th>
+        <th>From</th>
+        {% if multi %}<th>Rider</th>{% endif %}
+        <th data-first="desc" aria-sort="descending">Added</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in routes %}
+      <tr data-route="{{ r.id }}">
+        <td data-sort="{{ r.name }}">
+          <a href="{{ url_for('saved_routes.index', route=r.id) }}" data-name data-click="showRoute({{ r.id }})">{{ r.name }}</a>
+        </td>
+        <td data-sort="{{ r.sportType | sport_label if r.sportType else '' }}">
+          <select aria-label="Sport of {{ r.name }}" data-change="setSport({{ r.id }}, this)">
+            <option value="">Not set</option>
+            {% if r.sportType and r.sportType not in sports | map('first') | list %}<option value="{{ r.sportType }}" selected>{{ r.sportType }}</option>{% endif %}
+            {% for v, l in sports %}<option value="{{ v }}" {{ 'selected' if r.sportType == v }}>{{ l }}</option>{% endfor %}
+          </select>
+        </td>
+        <td class="num" data-sort="{{ r.distance or 0 }}">{{ r.distance | fmt_dist }}</td>
+        <td class="num" data-sort="{{ r.elevationGain if r.elevationGain is not none else '' }}">{{ r.elevationGain | fmt_elev if r.elevationGain is not none else '—' }}</td>
+        <td>{% if r.activityId %}<a href="{{ url_for('activities.detail', rid=r.activityId) }}">{{ source_labels.activity }}</a>{% else %}{{ source_labels.get(r.source, r.source) }}{% endif %}</td>
+        {% if multi %}<td>{{ r.riderName or '' }}</td>{% endif %}
+        <td data-sort="{{ r.createdAt or '' }}">{{ r.createdAt | fmt_when if r.createdAt else '' }}</td>
+        <td>
+          <div class="row-actions">
+            <button class="btn btn-secondary btn-sm" data-click="startRename({{ r.id }})">Rename</button>
+            <a class="btn btn-secondary btn-sm" href="{{ url_for('route_builder.export_saved', route_id=r.id) }}" title="Download as a GPX file">GPX</a>
+            <button class="btn btn-danger-quiet btn-sm" data-click="deleteRoute({{ r.id }})">Delete</button>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script type="application/json" id="routesData">{{ {'show': page.show, 'lat': page.lat, 'lng': page.lng, 'garminJob': garmin_job} | tojson }}</script>
+<script src="{{ url_for('static', filename='js/routes.js') }}"></script>
+{% endblock %}

@@ -1,16 +1,18 @@
-"""Routes in the planner (PlannedRoute, routes/route_builder.py) that hold a followed line: from a GPX file, an activity or a Strava export.
+"""Saved routes (PlannedRoute): listed, renamed and given a sport on the Routes page (routes/saved_routes.py), drawn in the planner
+(routes/route_builder.py). One that holds a followed line comes from a GPX file, an activity, a Strava export or a Garmin Connect course.
 
 A route made by clicking the map is its waypoints ([{lat, lng}], joined by straight lines). One that follows a line has a track instead,
 [[lat, lng, ele], ...] with ele None where the source had no height: hundreds or thousands of points, drawn as one line and exported with
 its own heights. Editing one turns it into waypoints (as_waypoints), as a new route, so the line it came from stays.
 
-Each route belongs to a rider and says where it came from (source: planner, gpx, activity, strava; sourceId the activity's id). Saving the
-same rider's route again with the same name and the same points keeps the one already here (save), so a Strava export imported twice, or a
-GPX file chosen twice, makes no copies."""
+Each route belongs to a rider and says where it came from (source: planner, gpx, activity, strava, garmin; sourceId the activity's id or the
+Garmin course's). Saving the same rider's route again with the same points keeps the one already here, whatever either is called (save), so a
+Strava export imported twice, a GPX file chosen twice or a route renamed since makes no copies."""
 import json
 import math
 
-SOURCES = ('planner', 'gpx', 'activity', 'strava')
+SOURCES = ('planner', 'gpx', 'activity', 'strava', 'garmin')
+MAX_NAME = 100
 SIMPLIFY_M = 5          # as_waypoints: how far the straight lines between waypoints may stray from the line they replace
 _R = 6371008.8          # metres
 
@@ -109,13 +111,13 @@ def from_gpx(data, filename=''):
 
 
 def save(db, rider_id, name, *, track=None, waypoints=None, source='planner', source_id=None, sport=None):
-    """(id, True) for a new PlannedRoute, or (id, False) when the rider has one already with this name and these points. track: as clean()
-    gives it; waypoints: [{lat, lng}]. Does not commit."""
-    name = (name or 'Unnamed Route').strip()[:100] or 'Unnamed Route'
+    """(id, True) for a new PlannedRoute, or (id, False) when the rider has one already with these points, under any name (it may have been
+    renamed since). track: as clean() gives it; waypoints: [{lat, lng}]. Does not commit."""
+    name = (name or 'Unnamed Route').strip()[:MAX_NAME] or 'Unnamed Route'
     track_json = json.dumps(track, separators=(',', ':')) if track else None
     wps_json = json.dumps(waypoints or [])
     if track_json:
-        same = db.execute('SELECT id FROM PlannedRoute WHERE riderId IS ? AND name=? AND track=?', [rider_id, name, track_json]).fetchone()
+        same = db.execute('SELECT id FROM PlannedRoute WHERE riderId IS ? AND track=?', [rider_id, track_json]).fetchone()
         if same:
             return same[0], False
     cur = db.execute('''INSERT INTO PlannedRoute (name, waypoints, track, source, sourceId, sportType, riderId, distance, elevationGain)
@@ -144,7 +146,7 @@ def from_activity(db, activity_id, rider_id):
 
 def import_strava(db, zf, names, rider_id):
     """The routes in a Strava export (routes.csv: Route Name, Route Filename -> routes/<n>.gpx) saved for the rider, source 'strava'. Matched on
-    the name and the points, as the file numbers change between exports. {routes_created, routes_existing, routes_unread}. Does not commit."""
+    the points (save), as the file numbers change between exports and the route may have been renamed here. {routes_created, routes_existing, routes_unread}. Does not commit."""
     import csv
     import io
     import logging
@@ -170,3 +172,73 @@ def import_strava(db, zf, names, rider_id):
         created += new
         existing += not new
     return {'routes_created': created, 'routes_existing': existing, 'routes_unread': unread}
+
+
+def rename(db, route_id, name):
+    """The route's new name, trimmed, or None when it's blank or there's no such route. Does not commit."""
+    name = (name or '').strip()[:MAX_NAME]
+    if not name:
+        return None
+    return name if db.execute('UPDATE PlannedRoute SET name=? WHERE id=?', [name, route_id]).rowcount else None
+
+
+def set_sport(db, route_id, sport):
+    """Give the route a sport (one of services/sports.SPORTS), or none with '' or None. False for a sport not in the list or no such route.
+    Does not commit."""
+    from services import sports
+    sport = sports.canonical(sport) or None
+    if sport is not None and sport not in sports.SPORTS:
+        return False
+    return bool(db.execute('UPDATE PlannedRoute SET sportType=? WHERE id=?', [sport, route_id]).rowcount)
+
+
+def _garmin_courses(raw):
+    """The list of courses in what Garmin's /course-service/course/owner/<name> sends: a list, or (in case) an object holding one."""
+    if isinstance(raw, list):
+        return [c for c in raw if isinstance(c, dict)]
+    if isinstance(raw, dict):
+        for v in raw.values():
+            if isinstance(v, list) and all(isinstance(c, dict) for c in v):
+                return v
+    return []
+
+
+def _garmin_sport(course):
+    from services import sports
+    t = course.get('activityType')
+    key = t.get('typeKey') if isinstance(t, dict) else course.get('activityTypeKey')
+    return sports.from_type(key) if key else None
+
+
+def import_garmin(db, api, rider_id, progress=None):
+    """The rider's Garmin Connect courses (garminconnect's get_courses, then each one's GPX) saved as routes, source 'garmin' with the course id
+    in sourceId. A course brought in before is skipped without downloading it again, and one with the same points as a route here is kept once
+    (save). A course deleted on Garmin stays here. progress(done, total): after each course.
+    {created, existing, unread, total}. Commits after each course, so a run that fails part way keeps what it got."""
+    import logging
+    log = logging.getLogger(__name__)
+    courses = _garmin_courses(api.get_courses())
+    have = {r[0] for r in db.execute("SELECT sourceId FROM PlannedRoute WHERE riderId IS ? AND source='garmin'", [rider_id])}
+    out = {'created': 0, 'existing': 0, 'unread': 0, 'total': len(courses)}
+    for i, c in enumerate(courses):
+        cid = c.get('courseId') or c.get('id')
+        if cid is None:
+            out['unread'] += 1
+        elif str(cid) in have:
+            out['existing'] += 1
+        else:
+            try:
+                got = from_gpx(api.download_course(cid, 'gpx'), f'{cid}.gpx')
+            except Exception as e:
+                log.warning('Garmin courses: course %s could not be read (%s)', cid, e)
+                got = None
+            if not got:
+                out['unread'] += 1
+            else:
+                _, new = save(db, rider_id, (c.get('courseName') or c.get('name') or '').strip() or got['name'], track=got['track'],
+                              source='garmin', source_id=str(cid), sport=_garmin_sport(c) or got['sportType'])
+                out['created' if new else 'existing'] += 1
+                db.commit()
+        if progress:
+            progress(i + 1, len(courses))
+    return out

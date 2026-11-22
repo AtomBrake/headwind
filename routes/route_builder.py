@@ -186,7 +186,7 @@ def import_gpx():
 @bp.route('/routes/from-activity/<rid>', methods=['POST'])
 def from_activity(rid):
     """Save as route on an activity's page: a route from its own points, the activity's rider's (the owner's, for a friend's activity),
-    then the planner showing it."""
+    then the Routes page showing it (routes/saved_routes.py)."""
     db = get_db()
     act = db.execute('SELECT riderId, sportType FROM Activity WHERE id=?', [rid]).fetchone()
     if not act:
@@ -201,7 +201,7 @@ def from_activity(rid):
     if not got:
         abort(400)                                      # no GPS track
     db.commit()
-    return redirect(url_for('route_builder.index', route=got[0]))
+    return redirect(url_for('saved_routes.index', route=got[0]))
 
 
 @bp.route('/routes/<int:route_id>', methods=['DELETE'])

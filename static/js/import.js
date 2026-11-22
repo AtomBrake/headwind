@@ -148,7 +148,7 @@ function handleEvent(d) {
       (d.segments_created !== undefined ? `<br><a href="/segments" style="color:var(--accent)">${d.segments_created} segment${d.segments_created === 1 ? '' : 's'} created</a>` +
         (d.segments_existing ? `<span style="color:var(--text-muted)">, ${d.segments_existing} already here</span>` : '') +
         (d.segments_unridden ? `<span style="color:var(--text-muted)">, ${d.segments_unridden} skipped (no ride here goes along them)</span>` : '') : '') +
-      (d.routes_created !== undefined ? `<br><a href="/planner" style="color:var(--accent)">${d.routes_created} route${d.routes_created === 1 ? '' : 's'} added to the planner</a>` +
+      (d.routes_created !== undefined ? `<br><a href="/routes/" style="color:var(--accent)">${d.routes_created} route${d.routes_created === 1 ? '' : 's'} added to Routes</a>` +
         (d.routes_existing ? `<span style="color:var(--text-muted)">, ${d.routes_existing} already there</span>` : '') +
         (d.routes_unread ? `<span style="color:var(--danger)">, ${d.routes_unread} could not be read</span>` : '') : '');
   }

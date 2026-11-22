@@ -441,6 +441,7 @@ def create_app():
     from routes.friends       import bp as friends_bp
     from routes.nutrition      import bp as nutrition_bp
     from routes.route_builder  import bp as route_builder_bp
+    from routes.saved_routes   import bp as saved_routes_bp
 
     # ── Auth guard ───────────────────────────────────────────────
     _PUBLIC = {'login.login_page', 'login.logout', 'static', 'demo.counter', 'demo.health',
@@ -452,7 +453,7 @@ def create_app():
 
     _BEARER_PATHS = ('/api/v1/', '/nutrition/api/')
 
-    _WHOLE_UPLOADS = {'import_rides.upload', 'settings.backup_import', 'setup.restore'}   # Strava export zips and backups: the app-wide 2 GB
+    _WHOLE_UPLOADS = {'import_rides.upload', 'saved_routes.import_strava', 'settings.backup_import', 'setup.restore'}   # Strava export zips and backups: the app-wide 2 GB
 
     @app.before_request
     def limit_body():
@@ -660,6 +661,7 @@ def create_app():
     app.register_blueprint(friends_bp)
     app.register_blueprint(nutrition_bp)
     app.register_blueprint(route_builder_bp)
+    app.register_blueprint(saved_routes_bp)
     from routes.api_v1 import bp as api_v1_bp
     from routes.phones import bp as phones_bp
     app.register_blueprint(api_v1_bp)

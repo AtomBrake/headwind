@@ -235,7 +235,7 @@ function renderSavedRoutes() {
   }).join('');
 }
 
-var SOURCES = { gpx: 'from a GPX file', activity: 'from an activity', strava: 'from Strava', planner: 'drawn here' };
+var SOURCES = { gpx: 'from a GPX file', activity: 'from an activity', strava: 'from Strava', garmin: 'from Garmin Connect', planner: 'drawn here' };
 
 function loadSaved(id) {
   return fetch('/planner/routes/' + id)

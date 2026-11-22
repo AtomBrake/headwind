@@ -56,6 +56,10 @@
          class="nav-item {% if request.blueprint == 'segments' %}active{% endif %}">
         {% include 'icons/_flag.svg' %} Segments
       </a>
+      <a href="{{ url_for('saved_routes.index') }}"
+         class="nav-item {% if request.blueprint == 'saved_routes' %}active{% endif %}">
+        {% include 'icons/_route.svg' %} Routes
+      </a>
       <a href="{{ url_for('gear.index') }}"
          class="nav-item {% if request.blueprint == 'gear' %}active{% endif %}">
         {% include 'icons/_gear.svg' %} Gear
@@ -64,7 +68,7 @@
          class="nav-item {% if request.blueprint == 'heatmap' %}active{% endif %}">
         {% include 'icons/_pin.svg' %} Heatmap
       </a>
-      {# Roughness and the route planner are hidden until they work; their pages are still at /roughness and /planner.
+      {# Roughness and the route planner are hidden until they work; their pages are still at /roughness and /planner (routes are on Routes).
       <a href="{{ url_for('roughness.index') }}"
          class="nav-item {% if request.blueprint == 'roughness' %}active{% endif %}">
         {% include 'icons/_road.svg' %} Roughness
