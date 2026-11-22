@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.51-beta] - 2026-11-22
 
 ### Added
 - **A Routes page.** **Routes** in the sidebar lists every route you've saved, for any sport, with its distance, climb, sport and where it came from. Click one to see it on the map with its elevation profile. Bring routes in with **Import GPX** (several files at once), **From Strava** (the routes you made on Strava, read from the export Headwind kept when you imported it, or from an export you upload there, of which only the routes are read) and **From Garmin** (your Garmin Connect courses, when Garmin is connected; it runs in the background and skips courses already here). **Save as route** on an activity now opens its route here. In each row you can rename a route, change its sport, download it as a GPX file or delete it. Routes can't be edited yet. A route with the same points as one already here is no longer saved again under another name, so a route you've renamed doesn't come back as a copy when you import the same export again.
