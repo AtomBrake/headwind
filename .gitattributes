@@ -1,0 +1,28 @@
+# Line endings. The repository keeps LF; a checkout gets its platform's endings (CRLF on Windows), except the files below that must be LF
+# everywhere, so that editing on Windows (core.autocrlf=true or not) never commits CRLF.
+* text=auto
+
+# Run inside Linux containers or on a Pi: a CRLF here breaks them (#!/bin/sh\r)
+*.sh                text eol=lf
+Dockerfile          text eol=lf
+docker-compose*.yml text eol=lf
+.dockerignore       text eol=lf
+.env.example        text eol=lf
+
+# Binary: never converted, never diffed as text
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.zip   binary
+*.fit   binary
+*.db    binary
+
+# Third-party files exactly as their authors published them (Leaflet's LICENSE and CSS are CRLF)
+static/vendor/** -text
