@@ -10,7 +10,7 @@ log = logging.getLogger(__name__)
 
 bp = Blueprint('heatmap', __name__)
 
-# The lines drawn are worked out once per activity (services/tracks.py: SAMPLE points for the live map, SAMPLE_HD for the HD export), not from
+# The lines drawn are worked out once per activity (services/tracks.py: simplified to within SIMPLIFY_M for the live map, SIMPLIFY_HD_M for the HD export), not from
 # every ride's streams on each request.
 _WITH_LINE = 'FROM Ride a JOIN ActivityTrack t ON t.activityId = a.id WHERE t.line IS NOT NULL'
 

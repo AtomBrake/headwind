@@ -7,8 +7,9 @@ A route match is:
     with indoor runs, and anything else with the same sport (a run with runs, never with walks);
   - a distance within DIST_TOL of this one's, and a bounding box whose every edge is within BOX_M of this one's (cheap, in SQL);
   - a start and a finish within END_M of this one's, so the ride home is not the ride to work;
-  - and SHARE of each track's sampled points within NEAR_M of the other's line, so a detour or a different road between the same two places is
-    not the same route.
+  - and SHARE of each track's points within NEAR_M of the other's line, so a detour or a different road between the same two places is not the
+    same route. The stored lines keep only their bends (services/tracks.simplify), so each is spaced out again to POINTS evenly by distance first,
+    and SHARE of the points is SHARE of the way.
 """
 import json
 import statistics
@@ -23,6 +24,7 @@ END_M = 300
 NEAR_M = 150
 SHARE = 0.8
 RECENT = 20         # "your last 20"
+POINTS = 50         # points along each line compared
 _M_PER_DEG = 111_320.0
 
 
@@ -54,9 +56,10 @@ def _follows(pts, line):
 
 
 def same_route(line_a, line_b):
-    """Are two sampled tracks ([[lat, lng], ...], services/tracks) the same route, ridden the same way?"""
+    """Are two tracks' lines ([[lat, lng], ...], services/tracks) the same route, ridden the same way?"""
     if not line_a or not line_b or len(line_a) < 2 or len(line_b) < 2:
         return False
+    line_a, line_b = tracks.even(line_a, POINTS), tracks.even(line_b, POINTS)
     a, b = _xy(line_a, line_a[0][0]), _xy(line_b, line_a[0][0])
     d = lambda p, q: ((p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2) ** 0.5
     if d(a[0], b[0]) > END_M or d(a[-1], b[-1]) > END_M:

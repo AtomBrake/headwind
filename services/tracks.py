@@ -3,7 +3,8 @@ ride), so anything that only needs to know where it went keeps a small summary h
 
   - its bounding box and the map cells it passes through (CELL degrees square), so a new segment is matched only against the activities that
     went near it (services/segments.scan_all_activities);
-  - the sampled lines the heatmap draws (routes/heatmap.py), worked out exactly as the heatmap used to on every request;
+  - the simplified lines the heatmap draws (routes/heatmap.py): only the points needed to keep within SIMPLIFY_M of the recorded track, so
+    straight roads take a few points and bends keep theirs (services/matched.py spaces them out evenly again to compare routes);
   - how far its GPS and time streams are out of step (services/reimport.out_of_step: the Import page lists those segments can't time).
 
 A row is made from the streams the first time it is needed (fill), and triggers drop it when the streams change or the activity is deleted, so it
@@ -11,25 +12,31 @@ is never stale. An activity with no GPS gets a row with no box, so it is not rea
 import json
 from math import cos, isfinite, radians
 
-SAMPLE = 50       # points per activity for the live heatmap
-SAMPLE_HD = 250   # points per activity for the HD export
+SIMPLIFY_M = 10     # metres the live heatmap's line may stray from the recorded track
+SIMPLIFY_HD_M = 5   # the same for the HD export's
+VERSION = 2         # how the summaries are made: rows made another way (version 1: every nth point, 50 and 250 a track) are made again
 _BATCH = 50       # activities read at a time while filling: streams are large
 CELL = 0.005      # degrees: ~550 m north-south, ~350 m east-west in the UK; larger than any matcher tolerance (75 m) below MAX_CELL_LAT
 MAX_CELL_LAT = 80 # nearer the poles a cell gets narrower than the tolerances, so cells aren't used there
+_M_PER_DEG = 111_320.0
 
 
 def ensure_schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS ActivityTrack (
         activityId TEXT PRIMARY KEY,
         minLat REAL, maxLat REAL, minLng REAL, maxLng REAL,     -- NULL: no GPS track
-        line   TEXT,                                            -- JSON [[lat, lng], ...], SAMPLE points at 4 places, or NULL
-        lineHd TEXT,                                            -- the same at SAMPLE_HD points and 5 places
+        line   TEXT,                                            -- JSON [[lat, lng], ...] within SIMPLIFY_M of the track, at 5 places, or NULL
+        lineHd TEXT,                                            -- the same within SIMPLIFY_HD_M
         cells  TEXT,                                            -- the cells (cell_of) of every point, space-separated; NULL: unknown
-        outOfStep INTEGER                                       -- how many more times than positions (stored before 0.7.7); 0 in step
+        outOfStep INTEGER,                                      -- how many more times than positions (stored before 0.7.7); 0 in step
+        version INTEGER                                         -- VERSION when it was made
     )''')
-    if 'outOfStep' not in {r[1] for r in db.execute('PRAGMA table_info(ActivityTrack)')}:
-        db.execute('ALTER TABLE ActivityTrack ADD COLUMN outOfStep INTEGER')
-        db.execute('DELETE FROM ActivityTrack')                 # made again from the streams, with it (app._fill_tracks, or the next fill)
+    have = {r[1] for r in db.execute('PRAGMA table_info(ActivityTrack)')}
+    for col in ('outOfStep', 'version'):
+        if col not in have:
+            db.execute(f'ALTER TABLE ActivityTrack ADD COLUMN {col} INTEGER')
+    # Rows made before a column or another way of making them: made again from the streams (app._track_summaries, or the next fill)
+    db.execute('DELETE FROM ActivityTrack WHERE version IS NOT ?', [VERSION])
     # Any write that can change an activity's track, or its id, drops the summary; fill() makes it again when it's next needed. AFTER INSERT
     # covers INSERT OR REPLACE, whose implicit delete fires no trigger. The streams are in ActivityStream (services/streams.py, made first).
     db.execute('''CREATE TRIGGER IF NOT EXISTS ActivityTrack_insert AFTER INSERT ON Activity
@@ -55,9 +62,60 @@ def latlng_of(streams):
     return (streams.get('latlng') or {}).get('data') or []
 
 
-def _sample(latlng, n, places):
-    step = max(1, len(latlng) // n)
-    return [[round(p[0], places), round(p[1], places)] for p in latlng[::step]]
+def simplify(points, tol_m):
+    """The points of a [lat, lng] track needed to keep the line through them within tol_m metres of every point (Ramer-Douglas-Peucker): the
+    first and last, and each bend. Iterative, so a long track can't overflow the stack."""
+    if len(points) < 3:
+        return list(points)
+    kx, ky = _M_PER_DEG * cos(radians(points[0][0])), _M_PER_DEG
+    xs, ys = [p[1] * kx for p in points], [p[0] * ky for p in points]
+    keep = [False] * len(points)
+    keep[0] = keep[-1] = True
+    tol2 = tol_m * tol_m
+    todo = [(0, len(points) - 1)]
+    while todo:
+        a, b = todo.pop()
+        ax, ay, dx, dy = xs[a], ys[a], xs[b] - xs[a], ys[b] - ys[a]
+        ll = dx * dx + dy * dy
+        worst, at = tol2, None
+        for i in range(a + 1, b):
+            px, py = xs[i] - ax, ys[i] - ay
+            t = 0.0 if not ll else max(0.0, min(1.0, (px * dx + py * dy) / ll))     # to the segment, not its line: a track can double back
+            ex, ey = px - t * dx, py - t * dy
+            d2 = ex * ex + ey * ey
+            if d2 > worst:
+                worst, at = d2, i
+        if at is not None:
+            keep[at] = True
+            todo += [(a, at), (at, b)]
+    return [p for p, k in zip(points, keep) if k]
+
+
+def even(line, n):
+    """n points evenly spaced along a [lat, lng] line by distance, first and last included (a simplified line has few points on straight roads
+    and many on bends; something that counts points, like services/matched.py, wants them spread by distance)."""
+    if len(line) < 2 or n < 2:
+        return list(line)
+    kx = cos(radians(line[0][0]))
+    run = [0.0]
+    for p, q in zip(line, line[1:]):
+        run.append(run[-1] + ((q[0] - p[0]) ** 2 + ((q[1] - p[1]) * kx) ** 2) ** 0.5)
+    if not run[-1]:
+        return [line[0]] * n
+    out, j = [], 0
+    for k in range(n):
+        at = run[-1] * k / (n - 1)
+        while j < len(line) - 2 and run[j + 1] < at:
+            j += 1
+        seg = run[j + 1] - run[j]
+        f = (at - run[j]) / seg if seg else 0.0
+        out.append([line[j][0] + (line[j + 1][0] - line[j][0]) * f, line[j][1] + (line[j + 1][1] - line[j][1]) * f])
+    return out
+
+
+def _line_json(pts, tol_m):
+    line = [[round(p[0], 5), round(p[1], 5)] for p in simplify(pts, tol_m)]
+    return json.dumps(line, separators=(',', ':')) if len(line) >= 2 else None
 
 
 def cell_of(lat, lng):
@@ -95,16 +153,10 @@ def summarize(latlng):
         return None, None, None, None, None, None, None
     lats = [p[0] for p in pts]
     lngs = [p[1] for p in pts]
-    try:
-        line, line_hd = _sample(latlng, SAMPLE, 4), _sample(latlng, SAMPLE_HD, 5)
-    except Exception:                                   # a bad point somewhere: the heatmap skipped such a track
-        line = line_hd = None
+    line, line_hd = _line_json(pts, SIMPLIFY_M), _line_json(pts, SIMPLIFY_HD_M)
     cells = cells_of(latlng) if len(pts) == len(latlng) else None
     cells = ' '.join(sorted(cells)) if cells is not None else None
-    return (min(lats), max(lats), min(lngs), max(lngs),
-            json.dumps(line, separators=(',', ':')) if line and len(line) >= 2 else None,
-            json.dumps(line_hd, separators=(',', ':')) if line_hd and len(line_hd) >= 2 else None,
-            cells)
+    return min(lats), max(lats), min(lngs), max(lngs), line, line_hd, cells
 
 
 def out_of_step(streams):
@@ -128,8 +180,8 @@ def store(db, activity_id, streams):
             streams = json.loads(streams or '{}')
         except Exception:
             streams = {}
-    db.execute('INSERT OR REPLACE INTO ActivityTrack (activityId, minLat, maxLat, minLng, maxLng, line, lineHd, cells, outOfStep) '
-               'VALUES (?,?,?,?,?,?,?,?,?)', [activity_id, *summarize(latlng_of(streams)), out_of_step(streams)])
+    db.execute('INSERT OR REPLACE INTO ActivityTrack (activityId, minLat, maxLat, minLng, maxLng, line, lineHd, cells, outOfStep, version) '
+               'VALUES (?,?,?,?,?,?,?,?,?,?)', [activity_id, *summarize(latlng_of(streams)), out_of_step(streams), VERSION])
 
 
 def fill(db):

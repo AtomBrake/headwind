@@ -98,8 +98,8 @@ def test_track_summaries_follow_the_streams(db):
     assert tracks.fill(db) == 1 and tracks.fill(db) == 0
     t = db.execute("SELECT * FROM ActivityTrack WHERE activityId='a1'").fetchone()
     ll = json.loads(line(600))['latlng']['data']
-    step = max(1, len(ll) // tracks.SAMPLE)
-    assert json.loads(t['line']) == [[round(p[0], 4), round(p[1], 4)] for p in ll[::step]]     # what the heatmap drew from the streams
+    assert json.loads(t['line']) == [[round(p[0], 5), round(p[1], 5)] for p in (ll[0], ll[-1])]     # a straight road: its two ends
+    assert t['version'] == tracks.VERSION
     assert t['minLat'] == ll[0][0] and t['maxLat'] == ll[-1][0]
     db.execute("UPDATE Activity SET name='renamed' WHERE id='a1'")                         # not the track: kept
     assert db.execute("SELECT 1 FROM ActivityTrack WHERE activityId='a1'").fetchone()
