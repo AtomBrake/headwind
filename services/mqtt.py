@@ -425,6 +425,42 @@ def _attr_topic(uid):
     return f"homeassistant/sensor/{_prefix()}_{uid}/attributes"
 
 
+_taken_down: set = set()      # uids removed from Home Assistant because their feature is off, so each removal is sent once per process
+
+
+def _switched_off(rid, uids):
+    """The uids whose feature (services/features.sensor_feature) is off for rid: Recovery off takes its entities out of Home Assistant, and so
+    on. None (no rider yet): none."""
+    if rid is None:
+        return set()
+    from services import features
+    off = features.off(rid)
+    return {u for u in uids if features.sensor_feature(u) in off}
+
+
+def _removals(uids):
+    """The messages that take these entities out of Home Assistant: an empty retained config removes the entity (its history in Home
+    Assistant's recorder stays), and empty retained state and attributes leave nothing behind on the broker. Headwind's data is untouched."""
+    msgs = []
+    for uid in sorted(uids):
+        config_topic, state_topic, _ = _discovery(uid, uid, None, None)
+        msgs.append({'topic': config_topic, 'payload': '', 'retain': True, 'qos': 1})
+        msgs.append({'topic': state_topic, 'payload': '', 'retain': True, 'qos': 1})
+        if uid in HISTORY_UIDS:
+            msgs.append({'topic': _attr_topic(uid), 'payload': '', 'retain': True, 'qos': 1})
+    return msgs
+
+
+def _take_down(uids, force=False):
+    """Removal messages for the uids not yet taken down in this process (all of them with force, the Settings button), and remembers them as
+    gone: their last state is forgotten, so switching the feature on again publishes them afresh."""
+    todo = set(uids) if force else set(uids) - _taken_down
+    for uid in uids:
+        _last_state.pop(uid, None)
+    _taken_down.update(todo)
+    return _removals(todo)
+
+
 _hist_cache = {'t': 0.0, 'v': {}, 'rid': None}
 
 
@@ -959,7 +995,9 @@ def publish(settings, stats, rid):
     states = _state_values(stats)
     garmin_states    = _garmin_state_values(_gather_garmin())
     nutrition_states = _nutrition_state_values(_gather_nutrition(rid), rid)
-    msgs   = []
+    off = _switched_off(rid, [u for u, *_ in SENSORS + GARMIN_SENSORS + _nutrition_sensors()])
+    msgs   = _take_down(off, force=True)
+    _taken_down.difference_update(set(_taken_down) - off)
 
     for sensor_list, state_map in [
         (SENSORS,           states),
@@ -967,6 +1005,8 @@ def publish(settings, stats, rid):
         (_nutrition_sensors(), nutrition_states),
     ]:
         for uid, name, icon, unit in sensor_list:
+            if uid in off:
+                continue
             config_topic, state_topic, config_json = _discovery(uid, name, icon, unit)
             msgs.append({'topic': config_topic, 'payload': config_json, 'retain': True, 'qos': 1})
             msgs.append({'topic': state_topic,  'payload': state_map[uid], 'retain': True, 'qos': 1})
@@ -980,8 +1020,9 @@ def publish(settings, stats, rid):
     all_states.update(states)
     all_states.update(garmin_states)
     all_states.update(nutrition_states)
-    _last_state.update(all_states)
-    log.info("MQTT publish complete — %d sensors", len(SENSORS) + len(GARMIN_SENSORS) + len(_nutrition_sensors()))
+    _last_state.update({uid: v for uid, v in all_states.items() if uid not in off})
+    log.info("MQTT publish complete — %d sensors%s", len(SENSORS) + len(GARMIN_SENSORS) + len(_nutrition_sensors()) - len(off),
+             f', {len(off)} taken down (turned off in Settings)' if off else '')
 
 
 def push_update(activity=None, background=False):
@@ -1007,10 +1048,12 @@ def push_update(activity=None, background=False):
 
         sensor_lookup = {uid: (name, icon, unit)
                          for uid, name, icon, unit in SENSORS + GARMIN_SENSORS + _nutrition_sensors()}
-        all_states = {uid: val for uid, val in all_states.items() if uid in sensor_lookup}   # ride-only instances skip nutrition
+        off = _switched_off(rid, sensor_lookup)
+        _taken_down.difference_update(set(_taken_down) - off)    # switched back on: published again below, as never seen
+        all_states = {uid: val for uid, val in all_states.items() if uid in sensor_lookup and uid not in off}   # ride-only instances skip nutrition
         changed = {uid for uid, val in all_states.items() if _last_state.get(uid) != val}
 
-        msgs = []
+        msgs = _take_down(off)
         if changed:
             for uid in changed:
                 name, icon, unit = sensor_lookup[uid]
@@ -1063,6 +1106,7 @@ def push_update(activity=None, background=False):
             _last_state.update({uid: all_states[uid] for uid in changed})
             log.info("MQTT push_update — %d sensor(s) changed%s",
                         len(changed), ", ride notification sent" if activity else "")
+            # a failed send leaves the removals marked as sent; the Settings button (publish) sends them all again
         elif activity:
             _broker_send(msgs, *conn)
             log.info("MQTT push_update — ride notification sent (no sensor changes)")
@@ -1117,12 +1161,15 @@ def push_update_nutrition():
             return
 
         rid = sensor_rider()
-        nutrition_states = _nutrition_state_values(_gather_nutrition(rid), rid)
+        uids = [u for u, *_ in _nutrition_sensors()]
+        off = _switched_off(rid, uids)
+        _taken_down.difference_update(set(uids) - off)
+        nutrition_states = {uid: v for uid, v in _nutrition_state_values(_gather_nutrition(rid), rid).items() if uid not in off}
         changed = {uid for uid, val in nutrition_states.items() if _last_state.get(uid) != val}
-        if not changed:
+        msgs = _take_down(off)
+        if not changed and not msgs:
             return
 
-        msgs = []
         for uid, name, icon, unit in _nutrition_sensors():
             if uid not in changed:
                 continue

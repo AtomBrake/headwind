@@ -352,7 +352,7 @@ def estimate_meal_photo():
 @bp.route('/api/goal-plan', methods=['GET'])
 def goal_plan():
     from services import goal_model
-    return jsonify({'plan': goal_model.plan(whose.rider_id()), 'profile': goal_model.profile(), 'current': _get_goals(),
+    return jsonify({'plan': goal_model.plan(whose.rider_id()), 'profile': goal_model.profile(whose.rider_id()), 'current': _get_goals(),
                     'weight_unit': _weight_settings()['unit']})      # the loss rate is shown in kg a week when weights are
 
 
@@ -364,7 +364,7 @@ def get_profile():
     pl = goal_model.plan(rider_id)
     kg = goal_model.current_weight_kg(rider_id)
     ws = _weight_settings()
-    return jsonify({'profile': goal_model.profile(), 'weight_kg': round(kg, 1) if kg else None, 'goal_weight_kg': ws.get('goalWeightKg'),
+    return jsonify({'profile': goal_model.profile(whose.rider_id()), 'weight_kg': round(kg, 1) if kg else None, 'goal_weight_kg': ws.get('goalWeightKg'),
                     'weight_unit': ws['unit'], 'weight_settings': ws, 'plan_error': pl.get('error'), 'plan': None if 'error' in pl else pl})
 
 
@@ -407,7 +407,7 @@ def save_goal_profile():
         db.execute('UPDATE Settings SET birthDate=?, birthDateGuessed=1, birthYear=? WHERE id=1', [f'{y:04d}-01-01', y])
     db.commit()
     _mqtt_nutrition()
-    return jsonify({'plan': goal_model.plan(whose.rider_id()), 'profile': goal_model.profile()})
+    return jsonify({'plan': goal_model.plan(whose.rider_id()), 'profile': goal_model.profile(whose.rider_id())})
 
 
 @bp.route('/api/goal-plan/apply', methods=['POST'])

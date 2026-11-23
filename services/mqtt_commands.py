@@ -54,6 +54,11 @@ def _apply_water(app, payload):
         rider_id = sensor_rider()           # the button belongs to the sensors, so to the rider they show (the owner)
         if rider_id is None:
             return
+        from services import features
+        if not features.on('nutrition', rider_id):
+            log.warning('Water from Home Assistant ignored: Nutrition is turned off in Settings')
+            db.commit()                     # the press is still remembered as seen
+            return
         today = tz.today().isoformat()      # the home zone's date, as the diary uses
         db.execute('INSERT INTO HydrationLog (riderId, logDate, ml) VALUES (?, ?, ?)', [rider_id, today, ml])
         db.commit()

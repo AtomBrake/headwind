@@ -31,7 +31,7 @@ Self-hosted training analytics for cycling, running, swimming and every other sp
 - [Features](#features)
 - [Install](#install) — [Docker](#docker-recommended) · [Raspberry Pi](#raspberry-pi) · [Windows](#windows-experimental) · [From source](#from-source)
 - [First run: the setup wizard](#first-run-the-setup-wizard)
-- [Configuration](#configuration)
+- [Configuration](#configuration) — [Turning features off](#turning-features-off)
 - [Integrations](#integrations) — Garmin · Home Assistant / MQTT · AI coaching · Friends · Notifications
 - [Nutrition in depth](#nutrition-in-depth)
 - [Putting it on the internet safely](#putting-it-on-the-internet-safely) — [Cloudflare Tunnel (recommended)](#recommended-cloudflare-tunnel) · [other proxies](#other-reverse-proxies)
@@ -647,7 +647,33 @@ Windows-build only: `HEADWIND_HOST`, `HEADWIND_DATA`, `HEADWIND_NO_TRAY`.
 
 ### Settings inside the app
 
-The Garmin sign-in, the MQTT broker, Home Assistant URL/token and mappings, AI provider/key/model, the optional map keys, the **outside address** (what phones pair with, friends sync from and notification links open), coaching personality and goals, display units, home time zone, appearance (Auto, Light or Dark), your login details, backups and the **calorie burn adjustment** (a percentage taken off every burn estimate as it is pulled in, kept reversible; see the changelog) are all configured under **Settings** — not in `.env`. Calorie and macro goals live under **Nutrition → Goals**, and friend-sync is under **Friends → Auto-Sync**.
+The Garmin sign-in, the MQTT broker, Home Assistant URL/token and mappings, AI provider/key/model, the optional map keys, the **outside address** (what phones pair with, friends sync from and notification links open), coaching personality and goals, display units, home time zone, appearance (Auto, Light or Dark), which features are on ([Turning features off](#turning-features-off)), your login details, backups and the **calorie burn adjustment** (a percentage taken off every burn estimate as it is pulled in, kept reversible; see the changelog) are all configured under **Settings** — not in `.env`. Calorie and macro goals live under **Nutrition → Goals**, and friend-sync is under **Friends → Auto-Sync**.
+
+### Turning features off
+
+Not everyone wants the food diary or the bike maintenance. **Settings → Features** turns off the parts you don't use:
+
+| Switch | What goes |
+|---|---|
+| **Health** | Nutrition, Steps, Weight and Recovery together, and the Health heading in the sidebar. It overrides the four below without changing them, so turning Health back on brings back the same choices. |
+| &nbsp;&nbsp;**Nutrition** | The food diary, water and the calorie goals, and the profile card in Settings that the goals are worked out from. |
+| &nbsp;&nbsp;**Steps** | The Steps page. With Steps off and Nutrition on, the calorie goals count your rides only, not your step goal. |
+| &nbsp;&nbsp;**Weight** | The Weight page and its backfill page. Nutrition still takes weigh-ins for its goals while it's on. |
+| &nbsp;&nbsp;**Recovery** | The Recovery page, the dashboard's **Recovery Today** card, and the AI coach's recovery notes. |
+| **Gear** | Bikes, shoes and other kit, and picking them on an activity. Activities keep the bike they had. |
+| &nbsp;&nbsp;**Gear maintenance** | The parts, wear and service log on a bike, kit's replace-at distance, the dashboard's due list and the alerts. Bikes, kit and their distances stay. |
+| **Segments** | Segments and leaderboards, an activity's efforts, and segments in the AI coach's notes. |
+| **Routes** | Saved routes, and **Save as route** on an activity. |
+| **Heatmap** | The heatmap. |
+| **Goals** | Goals and challenges, and their card on the dashboard. |
+| **AI coach** | The coaching notes on an activity, and the analysis of new rides as they arrive. |
+| **Friends** | The Friends page and friends' activities, the automatic sync, and the feed your friends' Headwinds read from yours (they get an error until it's back on). |
+| **Live tracking** | Starting live tracking links from the phone, and the contacts they're emailed to. A link already running carries on until it ends. |
+| **Roughness**, **Route planner** | The road roughness map and the route planner (not in the sidebar yet, but at `/roughness` and `/planner`). |
+
+A feature you turn off leaves the sidebar and the dashboard, and its pages say it's turned off in Settings. Its work in the background stops too: the Garmin sync stops reading the daily health figures once Recovery, Steps and Nutrition are all off, and the weigh-ins once Weight and Nutrition are; the part alerts, the AI coach's analysis of new rides and the friends' sync stop; and its Home Assistant entities are removed. Nothing is deleted. Turn a feature back on and its data, pages and entities are back as they were.
+
+Each rider has their own switches. **Save, and start new riders with these** also makes them what a rider added later starts with. The phone apps can read what's off from `GET /api/v1/ping` (`features_off`), and the API endpoints of a feature that's off answer `403` with `feature_off` naming it.
 
 ### Data and volumes
 

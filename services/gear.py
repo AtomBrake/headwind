@@ -774,11 +774,17 @@ def _headline(bike, part, st, what, level):
 def evaluate_alerts(db, rider_id=None, send=True):
     """Finds parts (and kit: services/kit.evaluate_alerts) that have newly crossed a threshold, remembers them (so each fires once per cycle) and optionally notifies.
     Returns the list of new alerts [{part, bike, what, level, text}]. Does not commit."""
+    from services import features
+    quiet = features.riders_without('maintenance', db)     # Gear maintenance off: nothing is checked or remembered, so it all comes when it's on
+    if rider_id and rider_id in quiet:
+        return []
     q = '''SELECT p.*, b.name AS bikeName, b.riderId AS riderId FROM Part p JOIN Bike b ON b.id=p.bikeId
            WHERE p.retiredOn IS NULL AND p.notify=1 AND b.archived=0'''
     args = []
     if rider_id:
         q += ' AND b.riderId=?'; args.append(rider_id)
+    if quiet:
+        q += f" AND b.riderId NOT IN ({','.join('?' * len(quiet))})"; args += sorted(quiet)
     new = []
     for p in db.execute(q, args).fetchall():
         st = part_status(db, p)
@@ -797,7 +803,7 @@ def evaluate_alerts(db, rider_id=None, send=True):
             new.append({'part': p['id'], 'bikeId': p['bikeId'], 'riderId': p['riderId'], 'what': what, 'level': lvl, 'text': _headline(bike, p, st, what, lvl)})
     try:
         from services import kit
-        new += kit.evaluate_alerts(db, rider_id)        # shoes and other kit past their replace-at distance, in the same message
+        new += kit.evaluate_alerts(db, rider_id, skip=quiet)    # shoes and other kit past their replace-at distance, in the same message
     except Exception as e:
         log.warning('kit alerts failed (non-fatal): %s', e)
     if send and new:

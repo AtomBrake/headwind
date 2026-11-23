@@ -457,8 +457,17 @@ async function pfApply() {
   var r = await fetch('/nutrition/api/goal-plan/apply', { method: 'POST' });
   document.getElementById('pfMsg').textContent = r.ok ? 'Your calorie and macro goals are updated.' : ((await r.json()).error || 'Could not apply.');
 }
-document.getElementById('pfUnit').addEventListener('change', function() { var lb = pfLossLb(); pfShowUnit(this.value); pfLossShow(lb, this.value); });
-pfLoad();
+if (document.getElementById('profileCard')) {     // with Nutrition off there's no profile card
+  document.getElementById('pfUnit').addEventListener('change', function() { var lb = pfLossLb(); pfShowUnit(this.value); pfLossShow(lb, this.value); });
+  pfLoad();
+}
+
+// ── Features ──
+// An upper switch (Health, Gear) off: its parts are dimmed, but keep their ticks and are still sent, so they come back as they were
+function featureGroup(box) {
+  var parts = document.getElementById('featureParts-' + box.value);
+  if (parts) parts.classList.toggle('is-dimmed', !box.checked);
+}
 (function () {
   try {
     var b = Intl.DateTimeFormat().resolvedOptions().timeZone, sel = document.getElementById('timeZone');

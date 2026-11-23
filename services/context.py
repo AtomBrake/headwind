@@ -333,9 +333,10 @@ def _build_other_training_context(rider_id, exclude_id):
     return '\n'.join(lines)
 
 
-def _build_garmin_context(ride_date, rid):
+def _build_garmin_context(ride_date, rid, steps=True):
     """Return rider rid's recovery/readiness block for the 3 days up to and including ride_date: Garmin's, or Apple Health's for a day Garmin has
-    nothing for (services/health). Apple's HRV is SDNN, not Garmin's overnight RMSSD, so it's named as such and has no balance."""
+    nothing for (services/health). Apple's HRV is SDNN, not Garmin's overnight RMSSD, so it's named as such and has no balance. steps=False
+    (Steps turned off) leaves the day's steps out."""
     from services import health
     rows = health.recovery_days(rid, ride_date, 3)
 
@@ -365,7 +366,7 @@ def _build_garmin_context(ride_date, rid):
                 parts.append(f'score {r["sleepScore"]}')
         if r['bodyBattery']:
             parts.append(f'body battery {r["bodyBattery"]}%')
-        if r['steps']:
+        if r['steps'] and steps:
             parts.append(f'steps {r["steps"]:,}')
         if r['stressScore']:
             parts.append(f'stress {r["stressScore"]}')
@@ -565,7 +566,15 @@ def build_context(activity):
     if not recent and not month:
         lines.append('No previous rides in memory yet — this may be one of the first analysed rides.')
 
-    garmin_ctx = _build_garmin_context(str(activity['startDateLocal'])[:10], activity['riderId'])
+    # What the rider has switched off stays out (services/features.py): no recovery with Recovery off, no steps with Steps off, no segments with
+    # Segments off. Nothing here reads the food diary; anything that adds it checks 'nutrition' the same way. The rider is the activity's, as
+    # this also runs in the background (services/auto_analyse.py).
+    from services import features
+    rid = activity['riderId']
+    def wanted(name):
+        return rid is None or features.on(name, rid)
+
+    garmin_ctx = _build_garmin_context(str(activity['startDateLocal'])[:10], rid, steps=wanted('steps')) if wanted('recovery') else ''
     if garmin_ctx:
         lines.append('')
         lines.append(garmin_ctx)
@@ -575,7 +584,7 @@ def build_context(activity):
         lines.append('')
         lines.append(other_ctx)
 
-    seg_ctx = _build_segment_context(ride_id)
+    seg_ctx = _build_segment_context(ride_id) if wanted('segments') else ''
     if seg_ctx:
         lines.append('')
         lines.append(seg_ctx)

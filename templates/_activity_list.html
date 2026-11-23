@@ -160,7 +160,7 @@
     <div class="empty-icon">🚴</div>
     <h3>No activities yet</h3>
     {% if friends_list %}<p>Your friends' activities arrive with each sync.</p>
-    <a class="btn btn-secondary" href="{{ url_for('friends.index') }}">Friends</a>
+    {% if feature('friends') %}<a class="btn btn-secondary" href="{{ url_for('friends.index') }}">Friends</a>{% endif %}
     {% else %}<p>Connect Garmin in Settings, record with the phone app, or import files.</p>
     <a class="btn btn-primary" href="/import">Import files</a>{% endif %}
   </div>

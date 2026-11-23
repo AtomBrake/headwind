@@ -34,7 +34,7 @@
   {% else %}
     <span class="btn btn-secondary" style="opacity:0.3;cursor:default;"><span class="wide-only">Next </span>›</span>
   {% endif %}
-  {% set can_route = coords_from_stream and not is_virtual %}{# a route from its own points, any sport; not a game world's #}
+  {% set can_route = coords_from_stream and not is_virtual and feature('routes') %}{# a route from its own points, any sport; not a game world's #}
   {% if coords_from_stream or can_route or source_links or not friend %}
   <details class="more-menu">
     <summary class="btn btn-secondary" title="More" aria-label="More actions">⋯</summary>
@@ -120,7 +120,7 @@
 </div>
 {% endif %}
 
-{% if is_ride and not friend and (gear_bikes or activity.riderId) %}
+{% if feature('gear') and is_ride and not friend and (gear_bikes or activity.riderId) %}
 <div class="card" style="margin-bottom:1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;padding:.7rem 1rem;">
   <span style="color:var(--text-muted);font-size:.78rem;letter-spacing:.07em;text-transform:uppercase;font-weight:700;">Bike</span>
   {% if gear_bikes %}
@@ -138,7 +138,7 @@
 </div>
 {% endif %}
 
-{% if not is_ride and not friend and activity.riderId %}
+{% if feature('gear') and not is_ride and not friend and activity.riderId %}
 <div class="card" style="margin-bottom:1rem;display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;padding:.7rem 1rem;" id="kitCard">
   <span style="color:var(--text-muted);font-size:.78rem;letter-spacing:.07em;text-transform:uppercase;font-weight:700;">Gear</span>
   {% if kit_items %}
@@ -183,7 +183,7 @@
     <strong style="color:var(--text);">{{ d.source }}</strong> &middot; {{ d.start | fmt_date }} &middot; {{ d.distance | fmt_dist }} &middot; {{ d.moving | fmt_duration }}{% if d.hr %} &middot; avg HR {{ d.hr | round | int }}{% endif %}{% if d.watts %} &middot; {{ d.watts | round | int }} W{% endif %}
     <div>{{ d.reason }} The other recording is saved, not deleted.</div>
   </div>
-  {% if d.gear %}{% set g = d.gear %}
+  {% if d.gear and feature('gear') %}{% set g = d.gear %}
   <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:-.25rem 0 .75rem;padding:.5rem .75rem;border:1px solid var(--warning-line);background:var(--warning-soft);border-radius:8px;font-size:.9rem;">
     <span style="flex:1 1 16rem;"><strong>Different {{ 'bike' if g.ride else 'gear' }}:</strong> this {{ 'ride' if g.ride else 'activity' }} is on <strong>{{ g.kept.name }}</strong>,
       the other recording on <strong>{{ g.other.name }}</strong>{% if g.fromStrava %} (its Strava export says){% endif %}. Check which is right.</span>
@@ -839,7 +839,7 @@
 
 <!-- Segments -->
 
-{% if coords %}
+{% if coords and feature('segments') %}
 <div class="card" style="margin-top:1rem;" id="segmentsCard">
   <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
     <div class="card-title" style="margin:0;">Segments{% if seg_family_label %} <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted);">{{ seg_family_label }}</span>{% endif %}</div>
@@ -969,7 +969,7 @@
 
 
 <!-- AI Coaching Analysis -->
-{% if is_ride and not friend %}
+{% if is_ride and not friend and feature('coach') %}
 <div class="card" style="margin-top:1rem;" id="kudosCard">
   <div class="card-title">AI Coaching Analysis</div>
 

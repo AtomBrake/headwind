@@ -7,7 +7,7 @@ ago is left for the AI page's batch analysis. Failures (no key, rate limit, prov
 the ride keeps its Analyse button. Never raises into the import."""
 import logging
 
-from services import jobs
+from services import features, jobs
 from services import streams as _streams
 
 log = logging.getLogger(__name__)
@@ -29,9 +29,11 @@ def _wanted(db, act_id):
     s = db.execute('SELECT aiAutoAnalyse FROM Settings WHERE id=1').fetchone()
     if not s or not s[0]:
         return False
-    a = db.execute(f"SELECT sportType, aiKudos FROM Activity WHERE id=? AND date(startDateLocal) >= date('now', 'localtime', '-{RECENT_DAYS} days')",
+    a = db.execute(f"SELECT sportType, aiKudos, riderId FROM Activity WHERE id=? AND date(startDateLocal) >= date('now', 'localtime', '-{RECENT_DAYS} days')",
                    [act_id]).fetchone()
     from services.sports import is_ride
+    if a and a['riderId'] is not None and not features.on('coach', a['riderId']):
+        return False                                    # the AI coach turned off in Settings
     return bool(a) and is_ride(a['sportType']) and not a['aiKudos']      # the kept copy of a duplicate may have been analysed already
 
 
@@ -54,6 +56,8 @@ def _run(job):
     activity = db.execute(f'SELECT *, {_streams.sql()} FROM Activity WHERE id=?', [act_id]).fetchone()
     if activity is None:
         log.warning('Ride %s was queued for AI analysis but has gone since', act_id)
+    elif activity['riderId'] is not None and not features.on('coach', activity['riderId']):
+        log.info('Ride %s not analysed: the AI coach was turned off in Settings since it was queued', act_id)
     elif not activity['aiKudos']:                       # not analysed from the ride page meanwhile
         _analyse(db, activity)
 

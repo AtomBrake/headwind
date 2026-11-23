@@ -23,7 +23,7 @@
     {% if is_bike %}<label>Year<input name="year" type="number" min="1900" max="2100" value="{{ item.year or '' if item else '' }}"></label>{% endif %}
     <label>Bought on (optional)<input name="boughtOn" type="date" value="{{ item.boughtOn or '' if item else '' }}"></label>
     <label>{{ 'Already ridden' if is_bike else 'Already used' }} before Headwind ({{ unit }})<input name="start" type="number" min="0" step="1" value="{{ start_disp }}" placeholder="0"></label>
-    {% if not is_bike %}<label>Replace at ({{ unit }}, blank for never)<input name="replace" type="number" min="0" step="1" value="{{ replace_disp }}"></label>{% endif %}
+    {% if not is_bike and feature('maintenance') %}<label>Replace at ({{ unit }}, blank for never)<input name="replace" type="number" min="0" step="1" value="{{ replace_disp }}"></label>{% endif %}
     {% if not retired %}
     <fieldset class="wide">
       <legend>Default for new {{ 'rides' if is_bike else 'activities' }}</legend>

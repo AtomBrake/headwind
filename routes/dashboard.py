@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 from flask import Blueprint, redirect, render_template, request, session
 
 from database import get_db, query_db
-from services import friend_rides, sports, tz, whose
+from services import features, friend_rides, sports, tz, whose
 from services.dates import day_month
 from services.sport_filter import SportFilter, chart_groups, speed_sql
 
@@ -174,6 +174,11 @@ def _riders(args, friends=False):
     (services/friend_rides.friend_riders). With no friend synced it's the request's own rider, as for any rider that isn't there."""
     all_riders = query_db('SELECT * FROM Rider ORDER BY isDefault DESC, name')
     view = whose.viewable(args.get('rider'), friends=friends) or whose.viewable(None)
+    if not features.on('friends'):                     # Friends off: no friend's riders to pick, and ?rider= one of them is your own list
+        mine = set(friend_rides.friend_riders(get_db()))
+        all_riders = [r for r in all_riders if r['id'] not in mine]
+        if view.how in (whose.FRIEND, whose.FRIENDS):
+            view = whose.viewable(None)
     if view.how == whose.FRIENDS:
         return all_riders, {'id': FRIENDS, 'name': 'Friends', 'isDefault': 0, 'avatarPath': None, 'ids': list(view.ids)}, None
     active_rider = query_db('SELECT * FROM Rider WHERE id=?', [view.id], one=True) if view.id is not None else None
@@ -378,7 +383,7 @@ def _activity_list(args, list_path):
         all_riders=all_riders,
         active_rider=active_rider,
         friends_list=_is_friends(active_rider),
-        friend_riders=len(friend_rides.friend_riders(get_db())),     # the Friends button is offered once two have synced
+        friend_riders=len(friend_rides.friend_riders(get_db())) if features.on('friends') else 0,     # the Friends button is offered once two have synced
         rider_query=urlencode(rider_args + sf.args() + gf['args'] + af.args()),     # kept on every link the page makes: the rider, the sports left out, the gear, the more filters
         clear_url=list_path + ('?' + urlencode(rider_args + sf.args()) if rider_args or sf.args() else ''),     # Clear drops the search and the gear
     )
@@ -477,7 +482,7 @@ def dashboard():
         ]
 
     recovery = None
-    if active_rider and active_rider['isDefault']:
+    if active_rider and active_rider['isDefault'] and features.on('recovery'):
         from services import health
         recovery = health.latest_recovery(active_rider['id'])      # Garmin's, or Apple Health's for a rider without one
 
@@ -503,14 +508,16 @@ def dashboard():
     # One friend's own list: their activities are changed on their Headwind, not here, so none of the things to fix below is offered.
     gear_due, gear_merged, sport_merged, sport_fixes, sport_guesses, flagged, flag_groups = [], 0, 0, 0, 0, [], []
     if not friend_rides.is_friend_rider(get_db(), rid):
-        try:
-            from services import gear
-            from services import kit
-            gear_due = (kit.due_items(get_db(), rid, include_soon=False) + gear.due_items(get_db(), rid, include_soon=False))[:4]   # shoes and the like, then bike parts
-        except Exception:
-            gear_due = []
-        from services import merged_gear
-        gear_merged = merged_gear.count(get_db(), rid)      # merged activities whose two recordings are on different gear
+        if features.on('maintenance'):                 # the due list is maintenance's; the merged-gear prompt is Gear's
+            try:
+                from services import gear
+                from services import kit
+                gear_due = (kit.due_items(get_db(), rid, include_soon=False) + gear.due_items(get_db(), rid, include_soon=False))[:4]   # shoes and the like, then bike parts
+            except Exception:
+                gear_due = []
+        if features.on('gear'):
+            from services import merged_gear
+            gear_merged = merged_gear.count(get_db(), rid)  # merged activities whose two recordings are on different gear
         from services import merged_sport, sport_fix, sport_guess
         sport_merged = merged_sport.count(get_db(), rid)    # ... or say different sports
         sport_fixes = sport_fix.count(get_db(), rid)        # Garmin activities saved with another sport than Garmin's type
@@ -524,8 +531,8 @@ def dashboard():
             flagged, flag_groups = [], []
 
     from services import goals
-    rider_goals = goals.goals(get_db(), rid)
-    rider_challenges = goals.challenges(get_db(), rid)
+    rider_goals = goals.goals(get_db(), rid) if features.on('goals') else []
+    rider_challenges = goals.challenges(get_db(), rid) if features.on('goals') else []
     live_challenges = [c for c in rider_challenges if c['status'] == 'on' and c['joined']]
     invitations = sum(1 for c in rider_challenges if c['invitation'] and c['status'] != 'finished')
 

@@ -113,10 +113,12 @@ def _item(db, what, row, stats, full=False):
     from services import strava_gear
     is_bike = what == 'bike'
     rid, iid = row['riderId'], row['id']
+    from services import features
+    upkeep = features.on('maintenance')               # off: no wear, as the parts and replace-at that give it are hidden
     if is_bike:
         st = kit_st = None
         odo = gear.odometer(db, row)
-        wear = _bike_wear(db, iid)
+        wear = _bike_wear(db, iid) if upkeep else None
         defaults = gear.bike_defaults_of(db, iid)
         retired, retired_on = bool(row['archived']), row['retiredOn']
         sub = [row['brand'], row['model'], row['year']]
@@ -125,7 +127,7 @@ def _item(db, what, row, stats, full=False):
     else:
         kit_st = kit.status(db, row, stats.get('distance', 0))
         odo = kit_st['meters']
-        wear = None if not row['replaceAtM'] or row['retiredOn'] else \
+        wear = None if not upkeep or not row['replaceAtM'] or row['retiredOn'] else \
             {'level': kit_st['level'], 'ratio': kit_st['ratio'], 'text': f"Replace at {_fmt_dist(row['replaceAtM'])}"}
         defaults = kit.defaults_of(db, iid)
         retired, retired_on = bool(row['retiredOn']), row['retiredOn']
@@ -167,8 +169,10 @@ def index():
     from services import merged_gear
     used = kit.all_stats(db, rid)
     items = [_item(db, 'kit', k, used.get(k['id'], {})) for k in kit.list_kit(db, rid, include_retired=request.args.get('retired') == '1')]
-    return render_template('gear.html', bikes=bikes, kit_items=items, no_gear=_no_gear(db, rid), kit_due=kit.due_items(db, rid), show_retired=request.args.get('retired') == '1',
-                           has_retired=bool(query_db('SELECT 1 FROM Kit WHERE riderId=? AND retiredOn IS NOT NULL', [rid], one=True)), strava=strava, due=gear.due_items(db, rid), span=gear.ride_span(db, rid), rid=rid,
+    from services import features
+    upkeep = features.on('maintenance')               # off: no "Needs attention" list
+    return render_template('gear.html', bikes=bikes, kit_items=items, no_gear=_no_gear(db, rid), kit_due=kit.due_items(db, rid) if upkeep else [], show_retired=request.args.get('retired') == '1',
+                           has_retired=bool(query_db('SELECT 1 FROM Kit WHERE riderId=? AND retiredOn IS NOT NULL', [rid], one=True)), strava=strava, due=gear.due_items(db, rid) if upkeep else [], span=gear.ride_span(db, rid), rid=rid,
                            riders=_pickable(), error=request.args.get('error'), units=units,
                            show_archived=request.args.get('archived') == '1', has_archived=bool(query_db('SELECT 1 FROM Bike WHERE riderId=? AND archived=1', [rid], one=True)),
                            defaults=_defaults_card(db, rid), done=request.args.get('done'), merged=merged_gear.count(db, rid))
@@ -597,7 +601,10 @@ def kit_save():
     kit_id = f.get('id', type=int)
     try:
         start = gear.to_meters(f['start'], units) if f.get('start') not in (None, '') else 0
-        replace = gear.to_meters(f['replace'], units) if f.get('replace') not in (None, '') else 0      # blank: never
+        if 'replace' in f:
+            replace = gear.to_meters(f['replace'], units) if f['replace'] != '' else 0      # blank: never
+        else:                                           # Gear maintenance off: the form has no replace-at, and what was set stays
+            replace = (_kit_or_404(kit_id)['replaceAtM'] or 0) if kit_id else 0
         fields = dict(name=f.get('name'), kind=f.get('kind'), brand=f.get('brand'), model=f.get('model'), boughtOn=f.get('boughtOn'),
                       startMeters=start, replaceAtM=replace, notes=f.get('notes'))
         if kit_id:

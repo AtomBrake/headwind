@@ -2,7 +2,8 @@
 
   GET  /api/v1/ping        who this instance is (the app calls it right after pairing), the rider's bikes for the app's bike picker, and
                             server_url, the https outside address set in Settings (null when there's none), and favourite_sports: the
-                            rider's favourites ({label, icon, group} or {label, icon, sport}, for GET /api/v1/activities' group= or sport=)
+                            rider's favourites ({label, icon, group} or {label, icon, sport}, for GET /api/v1/activities' group= or sport=),
+                            and features_off: what's turned off in Settings → Features (services/features.py), e.g. ["nutrition"]
   GET  /api/v1/today       everything the app's home screen needs in ONE request (fast start)
   POST /api/v1/activities  every activity from the phone, the Watch or Apple Health, whatever its sport (services/uploads.py): multipart
                             with file=GPX for one with a track, JSON for a session with no track (strength, a pool swim, an indoor ride).
@@ -30,6 +31,8 @@
                             rider's contacts: GET /api/v1/live/share?recording= says to whom and how it went
   GET  /api/v1/contacts    the people live links are emailed to (services/contacts.py); POST adds one, PATCH/DELETE /api/v1/contacts/<id>
 The nutrition endpoints the app also uses (/nutrition/api/log, /water, /search, /lookup/<barcode> ...) accept the same token.
+An endpoint of a feature turned off in Settings answers 403 {error, feature_off: <name>, settings_url} (services/features.ENDPOINTS); one
+that mixes several (/today, /overview, /perform, /sync/nutrition) answers without the parts that are off (null or empty).
 """
 import logging
 from datetime import datetime, timedelta
@@ -37,7 +40,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, current_app, jsonify, request
 
 from database import get_db, query_db
-from services import external_url, friend_rides, tz, whose
+from services import external_url, features, friend_rides, tz, whose
 from services.sports import KIND_SQL, kind as sport_kind, kind_of
 from services import streams as _streams
 
@@ -71,7 +74,10 @@ def ping():
                     'favourite_sports': [{'label': d['label'], 'icon': d['icon'], ('group' if d['arg'][0] == 'group' else 'sport'): d['arg'][1]}
                                          for d in map(favourites.describe, favourites.parse(s['favouriteSports'] if s else None))],
                     'server_time': tz.now().isoformat(timespec='seconds'), 'bikes': _bikes(r['id']) if r else [],
-                    'server_url': external_url.https() or None})        # the outside address: an app that paired on another can offer to move
+                    'server_url': external_url.https() or None,         # the outside address: an app that paired on another can offer to move
+                    # what's turned off in Settings → Features for this rider, parts of an upper switch that's off included
+                    # (services/features.off); no key (an older server) means everything is on
+                    'features_off': sorted(features.off(r['id'])) if r else []})
 
 
 def _bikes(rider_id):
@@ -117,9 +123,10 @@ def today():
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     d = _today()
-    day = nu.day_log(d).get_json()
-    recent = nu.recent_foods().get_json()
-    favs = nu.list_favourites().get_json()
+    food = features.on('nutrition')                     # the Today screen is still sent with Nutrition off, without the food diary
+    day = nu.day_log(d).get_json() if food else {}
+    recent = nu.recent_foods().get_json() if food else []
+    favs = nu.list_favourites().get_json() if food else []
     g = query_db('SELECT steps FROM GarminDaily WHERE date=?', [d], one=True)
     goal = (query_db('SELECT stepGoal FROM Settings WHERE id=1', one=True) or {'stepGoal': None})['stepGoal'] or 8000
     eaten = {k: round(sum((e.get(k) or 0) for e in day.get('entries', [])), 1) for k in ('calories', 'protein', 'carbs', 'fat', 'fibre')}
@@ -132,9 +139,9 @@ def today():
                       'protein': round((goals.get('protein') or 0) - eaten['protein']) if goals.get('protein') else None},
         'water_ml': day.get('water_ml', 0), 'water_goal_ml': goals.get('water'),
         'burned': day.get('burned'), 'burn_source': day.get('burn_source'),
-        'steps': {'today': _best_steps_for(rider['id'], d, g['steps'] if g else None), 'goal': goal},
+        'steps': {'today': _best_steps_for(rider['id'], d, g['steps'] if g else None), 'goal': goal} if features.on('steps') else None,
         'weight': day.get('weight'),
-        'weight_kg': _weight_kg(rider['id']),
+        'weight_kg': _weight_kg(rider['id']) if features.any_on(('weight', 'nutrition')) else None,
         'calorie_adjust_pct': __import__('services.calorie_adjust', fromlist=['get_pct']).get_pct(),   # the phone applies the same % to its own live estimate
         'entries': day.get('entries', []),
         'recent': (recent.get('items') if isinstance(recent, dict) else recent) or [],
@@ -196,7 +203,7 @@ def overview():
         'rider': rider['name'], 'all': tot(sums()['ride']),
         'week': tot(period['week']['ride']), 'month': tot(period['month']['ride']), 'year': tot(period['year']['ride']),
         'workouts': {k: wk(period[k]['workout']) for k in ('week', 'month', 'year')},
-        'weekly': weekly, 'sports': sports, 'recovery': health.latest_recovery(rid),
+        'weekly': weekly, 'sports': sports, 'recovery': health.latest_recovery(rid) if features.on('recovery') else None,
         'groups': groups, 'weekly_all': weekly_all,
     })
 
@@ -279,7 +286,7 @@ def perform():
     biggest_climbs = [{'activityId': c['id'], 'activityName': c['name'], 'elevM': round(c['totalElevationGain']), 'date': c['d'],
                        'rideId': c['id'], 'rideName': c['name']} for c in climbs]
 
-    segs = query_db('''
+    segs = [] if not features.on('segments') else query_db('''
         SELECT s.id, s.name, s.distanceM, s.elevationGainM,
                COUNT(e.id) AS effort_count, MIN(e.elapsedSecs) AS best_secs,
                MAX(CASE WHEN e.isPR=1 THEN e.activityDate END) AS pr_date
@@ -831,16 +838,17 @@ def sync_nutrition():
             meta[d] = {'burned': est[0], 'burn_source': est[1]}
     g = query_db('SELECT steps FROM GarminDaily WHERE date=?', [today.isoformat()], one=True)
     goal = (query_db('SELECT stepGoal FROM Settings WHERE id=1', one=True) or {'stepGoal': None})['stepGoal'] or 8000
+    steps_on = features.on('steps')                     # Nutrition is on (or this endpoint refuses, services/features.ENDPOINTS); Steps may not be
     return jsonify({
         'server_time': tz.now().isoformat(timespec='seconds'), 'since': since, 'today': today.isoformat(),
         'entries': entries, 'water': water, 'days': meta, 'goals': nu._get_goals(),
-        'steps': {'today': _best_steps_for(rid, today.isoformat(), g['steps'] if g else None), 'goal': goal},
+        'steps': {'today': _best_steps_for(rid, today.isoformat(), g['steps'] if g else None), 'goal': goal} if steps_on else None,
         'weight_kg': _weight_kg(rid), 'workouts': workouts.recent(rid, 30),
         'weights': [{'id': r['id'], 'date': r['logDate'], 'kg': r['weightKg'], 'source': r['source']}
                     for r in query_db('SELECT id, logDate, weightKg, source FROM WeightLog WHERE riderId=? ORDER BY logDate', [rid])],
         'weight_settings': nu._weight_settings(),
         'profile': dict(query_db('SELECT sex, birthYear, birthDate, heightCm, lossLbPerWeek, stepGoal, goalAuto, rideKcalWeek, rideGoalWeek FROM Settings WHERE id=1', one=True) or {}),
-        'steps_days': [{'date': d['date'], 'best': d['best'], 'manual': d['manual']} for d in nu.steps_list().get_json()['days']],
+        'steps_days': [{'date': d['date'], 'best': d['best'], 'manual': d['manual']} for d in nu.steps_list().get_json()['days']] if steps_on else [],
         'saved_meals': nu.list_saved_meals().get_json(),
     })
 
