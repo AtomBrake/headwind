@@ -88,9 +88,9 @@ Release 1 is meant to change nothing except the duplicates, but two things will:
 | `routes/friends.py:473` | `_do_ride_sync` | `SELECT id, startDateLocal, streams FROM Activity WHERE riderId=? AND streams IS NOT NULL AND streams NOT IN…` | friend sync re-scans the friend's rides for segments and best efforts |
 | `routes/friends.py:495` | `_do_ride_sync` | `SELECT id, startDateLocal, streams FROM Activity WHERE riderId=? AND streams IS NOT NULL AND streams NOT IN…` | friend sync re-scans the friend's rides for segments and best efforts |
 | `routes/garmin_page.py:22` | `index` | `SELECT DISTINCT date(startDateLocal) as d FROM Activity WHERE date(startDateLocal) >= date('now', ? \|\| ' …` | Garmin page chart: markers on days with a ride |
-| `routes/heatmap.py:16` | `index` | `SELECT MIN(date(startDateLocal)) as min_d, MAX(date(startDateLocal)) as max_d FROM Activity WHERE streams I…` | heatmap (later: every sport) |
-| `routes/heatmap.py:21` | `index` | `SELECT DISTINCT sportType FROM Activity WHERE sportType IS NOT NULL AND streams IS NOT NULL AND streams != …` | heatmap (later: every sport) |
-| `routes/heatmap.py:95` | `data` | `SELECT streams FROM Activity {…}` | heatmap (later: every sport) |
+| `routes/heatmap.py:16` | `index` | `SELECT MIN(date(startDateLocal)) as min_d, MAX(date(startDateLocal)) as max_d FROM Activity WHERE streams I…` | heatmap (every sport) |
+| `routes/heatmap.py:21` | `index` | `SELECT DISTINCT sportType FROM Activity WHERE sportType IS NOT NULL AND streams IS NOT NULL AND streams != …` | heatmap (every sport) |
+| `routes/heatmap.py:95` | `data` | `SELECT streams FROM Activity {…}` | heatmap (every sport) |
 | `routes/riders.py:23` | `_nth_ride` | `SELECT id, startDateLocal FROM Activity WHERE riderId=? ORDER BY startDateLocal LIMIT 1 OFFSET ?` | badges: cycling milestones |
 | `routes/riders.py:28` | `_dist_milestone` | `SELECT id, startDateLocal FROM ( SELECT id, startDateLocal, SUM(distance) OVER (ORDER BY startDateLocal) as…` | badges: cycling milestones |
 | `routes/riders.py:38` | `_elev_milestone` | `SELECT id, startDateLocal FROM ( SELECT id, startDateLocal, SUM(totalElevationGain) OVER (ORDER BY startDat…` | badges: cycling milestones |

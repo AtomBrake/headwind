@@ -213,9 +213,9 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 
 <img src="docs/screenshots/segment-leaderboard.jpg" alt="Segment leaderboard: every effort ranked, your trend over time, and linked friends' efforts on the same board." width="800">
 
-**GPS heatmap of everywhere you've ridden, filterable by date range and sport.**
+**GPS heatmap of everywhere you've ridden, run, walked or swum, filterable by date range and sport.**
 
-<img src="docs/screenshots/heatmap.jpg" alt="GPS heatmap of everywhere you've ridden, filterable by date range and sport." width="800">
+<img src="docs/screenshots/heatmap.jpg" alt="GPS heatmap of everywhere you've ridden, run, walked or swum, filterable by date range and sport." width="800">
 
 **The same heatmap on satellite imagery (also Dark, Light, topographic and cycling maps, with HD export).**
 

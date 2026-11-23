@@ -11,7 +11,7 @@ var shownWorlds = [];                  // the worlds drawn now, for the HD expor
 // Starts on the grey map that matches the page, and follows the page when it flips between light and dark (unless on another type)
 var mapTypes = HWMap.attach(map, { page: 'heatmap', base: 'scheme', position: 'topleft' });
 layerGroup.addTo(map);
-var fitNext = true;                    // zoom to the tracks on the next load: the first, and after switching whose rides are shown
+var fitNext = true;                    // zoom to the tracks on the next load: the first, and after switching whose activities are shown
 var currentFrom = '', currentTo = '';
 var currentCount = 0;
 
@@ -38,8 +38,8 @@ function filterParams() {
 
 function virtualValue() { var v = document.getElementById('virtualFilter'); return v ? v.value : 'out'; }
 
-// Draw each Zwift world that has a track, under the tracks. With real rides on the map too, only the made-up worlds: Zwift's London
-// would cover the real London the other rides are on. Then a button per world (busiest first) to go to it.
+// Draw each Zwift world that has a track, under the tracks. With real activities on the map too, only the made-up worlds: Zwift's London
+// would cover the real London the other activities are in. Then a button per world (busiest first) to go to it.
 function showWorlds(d) {
   worldGroup.clearLayers();
   var counts = {};
@@ -91,7 +91,7 @@ function opacityFor(count) {
 
 function loadRange(from, to) {
   document.getElementById('loadingMsg').style.display = 'inline';
-  document.getElementById('rideCount').textContent = '';
+  document.getElementById('trackCount').textContent = '';
   document.getElementById('exportBtn').disabled = true;
   currentFrom = from; currentTo = to;
 
@@ -104,7 +104,7 @@ function loadRange(from, to) {
       d.boxes = d.tracks.map(boxOf);
       projected = []; projectedZoom = null;
       var opacity = opacityFor(d.count);
-      var bounds  = [];                // where to zoom: the real rides, so Zwift's worlds don't pull the view out to sea
+      var bounds  = [];                // where to zoom: the real activities, so Zwift's worlds don't pull the view out to sea
 
       d.tracks.forEach(function(pts, i) {
         if (!pts || pts.length < 2) return;
@@ -123,8 +123,8 @@ function loadRange(from, to) {
 
       currentCount = d.count;
       document.getElementById('loadingMsg').style.display = 'none';
-      document.getElementById('rideCount').textContent =
-        d.count + ' ride' + (d.count !== 1 ? 's' : '');
+      document.getElementById('trackCount').textContent =
+        d.count.toLocaleString() + (d.count !== 1 ? ' activities' : ' activity');
       document.getElementById('exportBtn').disabled = d.count === 0;
     })
     .catch(function() {

@@ -11,13 +11,13 @@ log = logging.getLogger(__name__)
 bp = Blueprint('heatmap', __name__)
 
 # The lines drawn are worked out once per activity (services/tracks.py: simplified to within SIMPLIFY_M for the live map, SIMPLIFY_HD_M for the HD export), not from
-# every ride's streams on each request.
-_WITH_LINE = 'FROM Ride a JOIN ActivityTrack t ON t.activityId = a.id WHERE t.line IS NOT NULL'
+# every activity's streams on each request. Every sport with a track: rides, runs, walks, hikes, swims and the rest.
+_WITH_LINE = 'FROM Activity a JOIN ActivityTrack t ON t.activityId = a.id WHERE t.line IS NOT NULL'
 
 
 def _people():
     """Whose lines the heatmap can show: the request's own rider (whose.rider_id: the owner, today) first, then this instance's other riders,
-    then friends (their rides came in by friend sync, routes/friends.py), each but the first only once they have a line to draw."""
+    then friends (their activities came in by friend sync, routes/friends.py), each but the first only once they have a line to draw."""
     return query_db(f'''
         SELECT r.id, r.name, r.isDefault, f.id IS NOT NULL AS isFriend
         FROM Rider r LEFT JOIN Friend f ON f.riderId = r.id
@@ -27,7 +27,7 @@ def _people():
 
 
 def _who_sql(who):
-    """?who= as SQL on Ride a: '' (the default) the request's own rider's rides, 'all' everyone's together, or one rider's id."""
+    """?who= as SQL on Activity a: '' (the default) the request's own rider's activities, 'all' everyone's together, or one rider's id."""
     if who == 'all':
         return '', []
     if who.isdigit():
@@ -43,7 +43,7 @@ def index():
         f"SELECT MIN(date(a.startDateLocal)) as min_d, MAX(date(a.startDateLocal)) as max_d {_WITH_LINE}",
         one=True
     )
-    sport_types = query_db(                    # virtual rides have their own Zwift switch
+    sport_types = query_db(                    # virtual rides and runs have their own Zwift switch
         f"SELECT DISTINCT a.sportType {_WITH_LINE} AND a.sportType IS NOT NULL AND NOT {sports.virtual_sql('a.sportType')} ORDER BY a.sportType"
     )
     has_virtual = query_db(f"SELECT 1 {_WITH_LINE} AND {sports.virtual_sql('a.sportType')} LIMIT 1", one=True) is not None
@@ -82,7 +82,7 @@ def data():
     to_date   = request.args.get('to', '')
     sport     = request.args.get('sport', '').strip()
     who       = request.args.get('who', '').strip()
-    virtual   = request.args.get('virtual', 'out')    # Zwift and other virtual rides: 'out' (the default: no patch of ocean), 'in' or 'only'
+    virtual   = request.args.get('virtual', 'out')    # Zwift and other virtual rides and runs: 'out' (the default: no patch of ocean), 'in' or 'only'
 
     hd = request.args.get('hd') == '1'
     col = 't.lineHd' if hd else 't.line'
@@ -110,8 +110,8 @@ def data():
 
     _tracks.fill(get_db())                     # anything new since start-up
     rows = query_db(f"SELECT a.riderId, {col}, a.sportType, t.minLat, t.maxLat, t.minLng, t.maxLng, a.id, a.name, a.startDateLocal, a.distance "
-                    f"FROM Ride a JOIN ActivityTrack t ON t.activityId = a.id {where}", params)
-    worlds = []                                # the Zwift world each virtual ride is in, so the page can draw its map; null for the rest
+                    f"FROM Activity a JOIN ActivityTrack t ON t.activityId = a.id {where}", params)
+    worlds = []                                # the Zwift world each virtual activity is in, so the page can draw its map; null for the rest
     for r in rows:
         w = zwift.world_of(*r[3:7]) if sports.is_virtual(r[2]) else None
         worlds.append(w['slug'] if w else None)

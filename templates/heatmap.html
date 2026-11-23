@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
-{% block title %}Ride Heatmap{% endblock %}
-{% block page_title %}Ride Heatmap{% endblock %}
+{% block title %}Heatmap{% endblock %}
+{% block page_title %}Heatmap{% endblock %}
 
 {% block head %}
   {% include '_maps.html' %}
@@ -35,7 +35,7 @@
       flex: 1; min-width: 110px;
     }
     .date-input:focus { outline: none; border-color: var(--accent); }
-    #rideCount  { font-size: 0.8125rem; color: var(--text-muted); }
+    #trackCount  { font-size: 0.8125rem; color: var(--text-muted); }
     #loadingMsg { font-size: 0.8125rem; color: var(--accent); display: none; }
     #exportBtn  {
       margin-left: auto;
@@ -91,7 +91,7 @@
              min="{{ min_date }}" max="{{ max_date }}"
              data-change="applyCustom()">
     </div>
-    <!-- Whose rides: only once there's someone besides the owner (a friend, or another rider here) -->
+    <!-- Whose activities: only once there's someone besides the owner (a friend, or another rider here) -->
     {% if people | length > 1 %}
     {% set others = people | rejectattr('isFriend') | rejectattr('isDefault') | list %}
     {% set friends = people | selectattr('isFriend') | list %}
@@ -132,7 +132,7 @@
     <!-- Status + export -->
     <div class="overlay-row">
       <span id="loadingMsg">Loading…</span>
-      <span id="rideCount"></span>
+      <span id="trackCount"></span>
       <button id="exportBtn" data-click="exportHD()" disabled>⬇ Export 3440×1440</button>
     </div>
   </div>

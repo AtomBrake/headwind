@@ -1,4 +1,4 @@
-"""The heatmap's Whose filter: the owner's rides by default, one friend's (or another rider's) on their own, or everyone's together, with
+"""The heatmap's Whose filter: the owner's activities by default, one friend's (or another rider's) on their own, or everyone's together, with
 whose each track is so the page can colour them. Full app, throwaway DB."""
 import json
 import re
@@ -56,13 +56,23 @@ def _data(client, **args):
 
 
 def test_mine_by_default_one_friend_or_everyone(client):
-    assert _data(client)['riders'] == [1, 1]                             # the owner's rides only: not the friend's, and not the run
+    assert _data(client)['riders'] == [1, 1, 1]                          # the owner's activities only, not the friend's
     assert _data(client, who='2')['riders'] == [2, 2]
-    assert sorted(_data(client, who='all')['riders']) == [1, 1, 2, 2]
+    assert sorted(_data(client, who='all')['riders']) == [1, 1, 1, 2, 2]
     assert _data(client, who='all', sport='ebike')['riders'] == [2]      # the other filters still apply
     assert _data(client, who='3')['count'] == 0
     hd = _data(client, who='all', hd='1')
-    assert sorted(hd['riders']) == [1, 1, 2, 2]                          # the HD export's tracks are tagged too
+    assert sorted(hd['riders']) == [1, 1, 1, 2, 2]                       # the HD export's tracks are tagged too
+
+
+def test_every_sport_with_a_track_is_on_the_heatmap(client):
+    """Not only rides: a run is drawn, the Sport list offers it, and picking it shows it alone."""
+    d = _data(client)
+    assert sorted(d['ids']) == ['mine1', 'mine2', 'run']
+    assert _data(client, sport='Run')['ids'] == ['run']
+    assert sorted(_data(client, sport='Ride')['ids']) == ['mine1', 'mine2']
+    html = client.get('/heatmap').get_data(as_text=True)
+    assert '<option value="Run">' in html and '<option value="Ride">' in html
 
 
 def test_the_page_offers_the_owner_and_friends_with_rides(client):
@@ -91,10 +101,10 @@ def test_each_track_says_which_activity_it_is(client):
     for hd in ('', '1'):
         d = _data(client, who='all', hd=hd)
         by_id = {aid: i for i, aid in enumerate(d['ids'])}
-        assert set(by_id) == {'mine1', 'mine2', 'f2_a', 'f2_b'}
+        assert set(by_id) == {'mine1', 'mine2', 'run', 'f2_a', 'f2_b'}
         for aid, i in by_id.items():
-            assert d['tracks'][i][0][0] == pytest.approx({'mine1': 51.5, 'mine2': 51.6, 'f2_a': 52.5, 'f2_b': 52.6}[aid], abs=1e-3)
-            assert d['riders'][i] == (1 if aid.startswith('mine') else 2)
+            assert d['tracks'][i][0][0] == pytest.approx({'mine1': 51.5, 'mine2': 51.6, 'run': 51.7, 'f2_a': 52.5, 'f2_b': 52.6}[aid], abs=1e-3)
+            assert d['riders'][i] == (2 if aid.startswith('f2') else 1)
         i = by_id['f2_b']
         assert d['names'][i] == d['sports'][i] == 'E-bike ride'                # no name: the sport, as people read it
         assert d['dates'][i] == '2026-10-02T07:30:00' and d['distances'][i] == 12346
