@@ -77,6 +77,17 @@ def test_nothing_on_the_friends_list_can_be_changed(client):
     assert 'data-pick-toggle' in page and '/activities/bulk-sport' in page and 'Add an activity by hand' in page
 
 
+def test_one_friends_dashboard_offers_nothing_to_fix(client):
+    """A friend's activities are changed on their Headwind: their flagged ones aren't offered to keep or delete here. Yours still are."""
+    with client.application.app_context():
+        database.get_db().execute("UPDATE Activity SET flagReason='only 127 m long' WHERE id IN ('s1', 'r1')")
+        database.get_db().commit()
+    page = client.get('/dashboard?rider=2').get_data(as_text=True)
+    assert 'id="flaggedCard"' not in page and 'dismissFlagged' not in page
+    page = client.get('/dashboard').get_data(as_text=True)
+    assert 'id="flaggedCard"' in page and "dismissFlagged('r1')" in page
+
+
 def test_a_search_and_its_totals_cover_the_friends_together(client):
     page = client.get('/activities?rider=friends&q=Act').get_data(as_text=True)
     assert '3 results' in page and '3 activities' in page

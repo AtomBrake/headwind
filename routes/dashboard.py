@@ -500,25 +500,28 @@ def dashboard():
         return render_template('dashboard.html', athlete=athlete, totals=totals, group_totals=group_totals, weekly=_weekly_data(ids, sf),
                                year_speed=year_speed, chart_groups=chart_groups(sf.groups), now=date.today(), weather=weather, **ctx)
 
-    try:
-        from services import gear
-        from services import kit
-        gear_due = (kit.due_items(get_db(), rid, include_soon=False) + gear.due_items(get_db(), rid, include_soon=False))[:4]   # shoes and the like, then bike parts
-    except Exception:
-        gear_due = []
-    from services import merged_gear
-    gear_merged = merged_gear.count(get_db(), rid)      # merged activities whose two recordings are on different gear
-    from services import merged_sport, sport_fix, sport_guess
-    sport_merged = merged_sport.count(get_db(), rid)    # ... or say different sports
-    sport_fixes = sport_fix.count(get_db(), rid)        # Garmin activities saved with another sport than Garmin's type
-    sport_guesses = len(sport_guess.pending(get_db(), rid))     # uploads saved as rides that moved like runs
+    # One friend's own list: their activities are changed on their Headwind, not here, so none of the things to fix below is offered.
+    gear_due, gear_merged, sport_merged, sport_fixes, sport_guesses, flagged, flag_groups = [], 0, 0, 0, 0, [], []
+    if not friend_rides.is_friend_rider(get_db(), rid):
+        try:
+            from services import gear
+            from services import kit
+            gear_due = (kit.due_items(get_db(), rid, include_soon=False) + gear.due_items(get_db(), rid, include_soon=False))[:4]   # shoes and the like, then bike parts
+        except Exception:
+            gear_due = []
+        from services import merged_gear
+        gear_merged = merged_gear.count(get_db(), rid)      # merged activities whose two recordings are on different gear
+        from services import merged_sport, sport_fix, sport_guess
+        sport_merged = merged_sport.count(get_db(), rid)    # ... or say different sports
+        sport_fixes = sport_fix.count(get_db(), rid)        # Garmin activities saved with another sport than Garmin's type
+        sport_guesses = len(sport_guess.pending(get_db(), rid))     # uploads saved as rides that moved like runs
 
-    try:
-        from services import sanity
-        flagged = sanity.flagged(get_db(), rid)
-        flag_groups = sanity.group_counts(flagged)     # to pick every one with the same reason
-    except Exception:
-        flagged, flag_groups = [], []
+        try:
+            from services import sanity
+            flagged = sanity.flagged(get_db(), rid)
+            flag_groups = sanity.group_counts(flagged)     # to pick every one with the same reason
+        except Exception:
+            flagged, flag_groups = [], []
 
     from services import goals
     rider_goals = goals.goals(get_db(), rid)

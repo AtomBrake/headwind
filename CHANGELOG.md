@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **A friend's dashboard no longer asks you to fix their activities.** Picking a friend's rider showed their **Activities that look wrong** card, with **It's right**, the fixes and **Delete all blips**, though you can't change a friend's activities here; they're fixed on their own Headwind. The card is gone from a friend's dashboard, along with the other things to sort out there (gear due, activities recorded on different gear or as different sports, uploads that look like runs). Your own dashboard is unchanged.
+
 ## [0.7.53-beta] - 2026-11-23
 
 ### Added
