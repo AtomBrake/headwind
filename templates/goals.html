@@ -43,7 +43,7 @@
     <label>What{{ metric_select('goalMetric') }}</label>
     <label>Sport{{ sport_select() }}</label>
     <label>How often<select name="period">{% for p in periods %}<option value="{{ p }}"{{ ' selected' if p == 'week' }}>{{ every[p][:1] | upper }}{{ every[p][1:] }}</option>{% endfor %}</select></label>
-    <label>Target (<span data-unit-for="goalMetric">{{ units_of.distance }}</span>)<input type="number" name="target" min="0" step="any" required></label>
+    <label><span>Target (<span data-unit-for="goalMetric">{{ units_of.distance }}</span>)</span><input type="number" name="target" min="0" step="any" required></label>
     <div class="wide form-actions"><button class="btn btn-primary" type="submit">Add goal</button>
       <span class="hint">Weeks run Monday to Sunday. A distance goal is for one kind of sport; climbing, time and activities can count every sport.</span></div>
   </form>
@@ -101,7 +101,7 @@
     <label>Sport{{ sport_select() }}</label>
     <label>First day<input type="date" name="startDate" value="{{ today }}" required></label>
     <label>Last day<input type="date" name="endDate" value="{{ month_end }}" required></label>
-    <label>Target (<span data-unit-for="chMetric">{{ units_of.distance }}</span>, optional)<input type="number" name="target" min="0" step="any"><span class="hint">Blank: the most wins. Otherwise the race is to the target.</span></label>
+    <label><span>Target (<span data-unit-for="chMetric">{{ units_of.distance }}</span>, optional)</span><input type="number" name="target" min="0" step="any"><span class="hint">Blank: the most wins. Otherwise the race is to the target.</span></label>
     {% if invitable %}
     <fieldset class="wide">
       <legend>Invite</legend>
