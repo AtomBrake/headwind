@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Changed
+- **Home Assistant draws every Headwind number as a graph.** Sensors that count things, like **Activities This Week**, **Badges Earned**, **Total Rides** and **Total Activities**, had no unit, so Home Assistant showed their history as a coloured bar of values. They now have units (rides, activities, badges, laps, steps, and ms for HRV), and every sensor that's a number is marked as a measurement, so each draws a line graph and keeps long-term statistics, as the speed and distance sensors already did. Sleep score, stress and Everests climbed graph without a unit. A missing reading, like the last ride's power when it had no power meter, is now sent in the form Home Assistant reads as unknown, which stops an error in its log for each one. The values themselves and the entity ids are unchanged, so dashboards keep working.
 - **The pointer turns into a hand over a track on the heatmap.** Tracks can be clicked to open their activity since the last release, but nothing showed it: now the pointer changes over a track, as over a link, and goes back to the grab hand off one, so you can see where a click will find something.
 
 ### Fixed

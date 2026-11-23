@@ -49,13 +49,13 @@ def _nutrition_sensors():
 SENSORS = [
     # (uid, friendly_name, icon, unit_of_measurement)
     # ── Lifetime totals ──────────────────────────────────────────
-    ("total_rides",              "Total Rides",              "mdi:bike",                None),
+    ("total_rides",              "Total Rides",              "mdi:bike",                "rides"),
     ("total_distance_mi",        "Total Distance",            "mdi:map-marker-distance", "mi"),
     ("total_elevation_ft",       "Total Elevation",           "mdi:elevation-rise",      "ft"),
     ("total_calories",           "Total Calories",            "mdi:fire",                "kcal"),
     ("total_time_hours",         "Total Moving Time",         "mdi:clock-outline",       "h"),
     ("everests_climbed",         "Everests Climbed",          "mdi:mountain",            None),
-    ("laps_of_earth",            "Laps of Earth",             "mdi:earth",               None),
+    ("laps_of_earth",            "Laps of Earth",             "mdi:earth",               "laps"),
     # ── Last ride ────────────────────────────────────────────────
     ("last_ride_name",           "Last Ride Name",            "mdi:tag-outline",         None),
     ("last_ride_date",           "Last Ride Date",            "mdi:calendar",            None),
@@ -68,9 +68,9 @@ SENSORS = [
     ("last_ride_avg_watts",      "Last Ride Avg Power",       "mdi:lightning-bolt",      "W"),
     ("last_ride_calories",       "Last Ride Calories",        "mdi:fire",                "kcal"),
     # ── Every sport (the totals and last ride above count rides only) ──
-    ("total_activities",         "Total Activities",          "mdi:medal-outline",       None),
+    ("total_activities",         "Total Activities",          "mdi:medal-outline",       "activities"),
     ("total_training_hours",     "Total Training Time",       "mdi:timer-outline",       "h"),
-    ("week_activities",          "Activities This Week",      "mdi:calendar-week",       None),
+    ("week_activities",          "Activities This Week",      "mdi:calendar-week",       "activities"),
     ("week_training_hours",      "Training This Week",        "mdi:timer-sand",          "h"),
     ("week_training_calories",   "Training Calories This Week", "mdi:fire",              "kcal"),
     ("week_ride_distance_mi",    "Ride Distance This Week",   "mdi:bike",                "mi"),
@@ -80,18 +80,18 @@ SENSORS = [
     ("last_activity_sport",      "Last Activity Sport",       "mdi:run",                 None),
     ("last_activity_date",       "Last Activity Date",        "mdi:calendar",            None),
     # ── Trophy case ──────────────────────────────────────────────
-    ("badges_earned",            "Badges Earned",             "mdi:trophy",              None),
-    ("badges_total",             "Total Badges",              "mdi:trophy-outline",      None),
+    ("badges_earned",            "Badges Earned",             "mdi:trophy",              "badges"),
+    ("badges_total",             "Total Badges",              "mdi:trophy-outline",      "badges"),
 ]
 
 GARMIN_SENSORS = [
     # (uid, friendly_name, icon, unit_of_measurement)
     ("garmin_body_battery", "Recovery Body Battery", "mdi:battery-heart-variant", "%"),
     ("garmin_resting_hr",   "Recovery Resting HR",   "mdi:heart-pulse",           "bpm"),
-    ("garmin_hrv",          "Recovery HRV",           "mdi:heart-flash",           None),
+    ("garmin_hrv",          "Recovery HRV",           "mdi:heart-flash",           "ms"),
     ("garmin_sleep_hours",  "Recovery Sleep",         "mdi:sleep",                 "h"),
     ("garmin_sleep_score",  "Recovery Sleep Score",   "mdi:star-circle",           None),
-    ("garmin_steps",        "Recovery Daily Steps",   "mdi:walk",                  None),
+    ("garmin_steps",        "Recovery Daily Steps",   "mdi:walk",                  "steps"),
     ("garmin_stress",       "Recovery Stress",        "mdi:head-dots-horizontal",  None),
 ]
 
@@ -177,9 +177,13 @@ NUTRITION_SENSORS = [
     for mk, ml in NUTRITION_MEALS for suffix, label, icon, unit in _MEAL_METRICS
 ]
 
-# uids that can legitimately be 'unknown' — everything else is always numeric, so HA can keep long-term statistics
+# Chart data: the state is a content hash, the series are in the attributes
 HISTORY_UIDS = {"nutrition_weight_history", "nutrition_diary_history", "nutrition_recovery_history", "nutrition_reality_check", "nutrition_goal_projection", "nutrition_plan", "nutrition_activity_weekly", "nutrition_ride_months", "nutrition_ride_years", "nutrition_ride_route", "nutrition_ride_segments", "nutrition_run_stats", "nutrition_run_route", "nutrition_run_segments", "nutrition_training_weekly"}
-_NON_NUMERIC_OK = HISTORY_UIDS | {"nutrition_activity_status", "nutrition_garmin_watch_sync", "nutrition_steps_source", "nutrition_garmin_last_sync", "nutrition_garmin_status", "nutrition_calories_burned", "nutrition_weight_trend_kg", "nutrition_weight_rate_kg_wk"}
+# A number with nothing to measure it in still gets a line graph and long-term statistics in Home Assistant (state_class below)
+UNITLESS_NUMBERS = {"everests_climbed", "garmin_sleep_score", "garmin_stress"}
+# What a numeric sensor publishes when it has no reading: Home Assistant's MQTT sensor takes "None" as no value and shows it as unknown,
+# where the text "unknown" on a sensor with a unit is an error in its log
+NO_VALUE = "None"
 
 
 # Distances, climbs and speeds stay in mi, ft and mph (their ids say so, and dashboards read them), but tagged as a distance or a speed so Home
@@ -205,8 +209,8 @@ def _discovery(uid, name, icon, unit):
         config["device_class"] = "timestamp"
     if uid in HISTORY_UIDS:
         config["json_attributes_topic"] = f"homeassistant/sensor/{p}_{uid}/attributes"
-    elif uid.startswith("nutrition_") and uid not in _NON_NUMERIC_OK:
-        config["state_class"] = "measurement"
+    elif unit or uid in UNITLESS_NUMBERS:
+        config["state_class"] = "measurement"       # a line graph and long-term statistics in Home Assistant, not a bar of values
     return config_topic, state_topic, json.dumps(config)
 
 
@@ -292,7 +296,7 @@ def _gather_garmin():
 
 def _garmin_state_values(g):
     def v(val):
-        return str(val) if val is not None else 'unknown'
+        return str(val) if val is not None else NO_VALUE
     return {
         "garmin_body_battery": v(g.get('bodyBattery')),
         "garmin_resting_hr":   v(g.get('restingHR')),
@@ -707,12 +711,12 @@ def _alcohol(rid, today, goal):
 
 def _nutrition_state_values(n, rid):
     def v(val):
-        return str(val) if val is not None else 'unknown'
+        return str(val) if val is not None else NO_VALUE
     cal_pct   = round(n['eaten']    / n['cal_goal']   * 100) if n.get('cal_goal')   and n['eaten']    else 0
     water_pct = round(n['water_ml'] / n['water_goal'] * 100) if n.get('water_goal') and n['water_ml'] else 0
     out = {
         'nutrition_calories_eaten':     v(n['eaten']),
-        'nutrition_calories_burned':    v(n['burned']) if n.get('burned') else 'unknown',
+        'nutrition_calories_burned':    v(n['burned']) if n.get('burned') else NO_VALUE,
         'nutrition_calories_net':       v(n['net']),
         'nutrition_calories_remaining': v(max(0, n['cal_goal'] - n['eaten']) if n.get('cal_goal') else 0),
         'nutrition_protein_g':          v(n['protein']),
@@ -740,15 +744,15 @@ def _nutrition_state_values(n, rid):
         'nutrition_steps_goal':         v(n.get('steps_goal') or 0),
         'nutrition_steps_today':        v(n.get('steps_today') or 0),
         'nutrition_steps_source':       n.get('steps_source') or 'unknown',
-        'nutrition_garmin_watch_sync':  n.get('garmin_watch_sync') or 'unknown',
-        'nutrition_garmin_last_sync':   n.get('garmin_last_ok') or 'unknown',
+        'nutrition_garmin_watch_sync':  n.get('garmin_watch_sync') or NO_VALUE,
+        'nutrition_garmin_last_sync':   n.get('garmin_last_ok') or NO_VALUE,
         'nutrition_garmin_status':      n.get('garmin_status') or 'unknown',
         'nutrition_steps_avg_7d':       v(n.get('steps_avg_7d') or 0),
         'nutrition_water_ml':           v(n['water_ml']),
         'nutrition_calorie_pct':        v(cal_pct),
         'nutrition_water_pct':          v(water_pct),
-        'nutrition_weight_trend_kg':    str(round(n['weight_trend'], 2)) if n.get('weight_trend') is not None else 'unknown',
-        'nutrition_weight_rate_kg_wk':  str(round(n['weight_rate'], 2) + 0.0) if n.get('weight_rate') is not None else 'unknown',
+        'nutrition_weight_trend_kg':    str(round(n['weight_trend'], 2)) if n.get('weight_trend') is not None else NO_VALUE,
+        'nutrition_weight_rate_kg_wk':  str(round(n['weight_rate'], 2) + 0.0) if n.get('weight_rate') is not None else NO_VALUE,
     }
     import hashlib
     for uid, payload in (n.get('history') or {}).items():
@@ -794,9 +798,9 @@ def _state_values(stats):
         "last_ride_moving_time":   _fmt_duration(last_time),
         "last_ride_elevation_ft":  str(round(last_elev * 3.28084)),
         "last_ride_avg_speed_mph": str(round(last_speed * 2.23694, 1)),
-        "last_ride_avg_hr":        str(round(last_hr))    if last_hr    else 'unknown',
-        "last_ride_avg_watts":     str(round(last_watts)) if last_watts else 'unknown',
-        "last_ride_calories":      str(int(last_cals))    if last_cals  else 'unknown',
+        "last_ride_avg_hr":        str(round(last_hr))    if last_hr    else NO_VALUE,
+        "last_ride_avg_watts":     str(round(last_watts)) if last_watts else NO_VALUE,
+        "last_ride_calories":      str(int(last_cals))    if last_cals  else NO_VALUE,
         # every sport
         "total_activities":        str(stats.get('all_n') or 0),
         "total_training_hours":    str(round((stats.get('all_secs') or 0) / 3600, 1)),

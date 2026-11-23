@@ -75,9 +75,10 @@ def clean(payload):
 
 
 def states_for(c):
-    """{uid: state string} for the sensors; missing readings are 'unknown'."""
+    """{uid: state string} for the sensors; a missing reading is mqtt.NO_VALUE, which Home Assistant shows as unknown."""
+    from services.mqtt import NO_VALUE
     riding = c['state'] == 'riding'
-    s = lambda v: 'unknown' if v is None else str(v)
+    s = lambda v: NO_VALUE if v is None else str(v)
     return {
         'live_ride_status': c['state'], 'live_ride_sport': c['sport'] or 'unknown',
         'live_ride_speed_mph': s(c['speed_mph'] if riding else 0), 'live_ride_distance_mi': s(c['distance_mi']),
