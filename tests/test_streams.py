@@ -104,7 +104,7 @@ def test_deleted_restored_and_parked_ones_keep_their_streams(app):
 def _old_database(path):
     """A database as step 1 left it (tests/fixtures/schema_step_1.sql), with two activities whose streams are in Activity.streams."""
     conn = sqlite3.connect(path)
-    conn.executescript((FIXTURES / 'schema_step_1.sql').read_text())
+    conn.executescript((FIXTURES / 'schema_step_1.sql').read_text(encoding='utf-8'))
     conn.execute('PRAGMA user_version = 1')
     conn.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Tom', 1)")
     for aid, st in (('gps', json.dumps(TRACK)), ('none', '{}')):

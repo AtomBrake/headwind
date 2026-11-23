@@ -59,7 +59,7 @@ def about(database):
     build = None
     for p in ('/app/build_time.txt', os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'build_time.txt')):
         try:
-            with open(p) as f:
+            with open(p, encoding='utf-8') as f:
                 build = f.read().strip()
             break
         except OSError:

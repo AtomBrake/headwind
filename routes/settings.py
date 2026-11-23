@@ -147,7 +147,7 @@ def index():
     from services import credentials
     current_username = credentials.admin_login().username
     try:
-        with open('/app/build_time.txt') as _f:
+        with open('/app/build_time.txt', encoding='utf-8') as _f:
             build_time = _f.read().strip()
     except FileNotFoundError:
         build_time = None

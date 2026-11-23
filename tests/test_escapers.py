@@ -79,7 +79,7 @@ def test_known_escapers_found():
 def test_every_escaper_escapes_all_five():
     found, _ = _escapers()
     items = [{'name': n, 'src': s, 'isFunction': f} for _, _, n, s, f in found]
-    res = subprocess.run(['node', '-e', _RUNNER], input=json.dumps(items), capture_output=True, text=True, timeout=30, check=True)
+    res = subprocess.run(['node', '-e', _RUNNER], input=json.dumps(items), capture_output=True, text=True, encoding='utf-8', timeout=30, check=True)
     got = json.loads(res.stdout)
     bad = [f'{f}:{line} {n} -> {g!r}' for (f, line, n, _, _), g in zip(found, got) if g != EXPECTED]
     assert not bad, bad
@@ -89,5 +89,5 @@ def test_every_escaper_escapes_all_five():
 def test_runner_catches_a_weak_escaper():
     src = " (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');"
     res = subprocess.run(['node', '-e', _RUNNER], input=json.dumps([{'name': 'esc', 'src': src, 'isFunction': False}]),
-                         capture_output=True, text=True, timeout=30, check=True)
+                         capture_output=True, text=True, encoding='utf-8', timeout=30, check=True)
     assert json.loads(res.stdout) == ['&lt;>&amp;"\'']

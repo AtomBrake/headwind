@@ -1,6 +1,12 @@
+import os
+
 import pytest
 
 from services import tz
+
+# Warn about text opened without encoding= (pytest.ini turns that into an error). Python reads this only as it starts, so setting it here
+# reaches the -n auto workers, not this process: for a run without -n, set it in the environment (CI does).
+os.environ.setdefault('PYTHONWARNDEFAULTENCODING', '1')
 
 
 @pytest.fixture(autouse=True)

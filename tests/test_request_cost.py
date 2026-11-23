@@ -142,9 +142,9 @@ def test_auth_version_is_kept_until_the_login_changes(creds, tmp_path):
     assert second != first
 
     path = tmp_path / '.admin_login'                                  # changed by another process: the file's time and size move
-    d = json.loads(path.read_text())
+    d = json.loads(path.read_text(encoding='utf-8'))
     d['username'] = 'robert'
-    path.write_text(json.dumps(d))
+    path.write_text(json.dumps(d), encoding='utf-8')
     os.utime(path, ns=(1, 1))
     third = credentials.auth_version()
     assert third not in (first, second)

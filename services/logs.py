@@ -218,7 +218,7 @@ class _SharedRotatingFileHandler(logging.handlers.RotatingFileHandler):
             import fcntl
         except ImportError:                     # Windows: one process (windows_launcher.py)
             return super().doRollover()
-        with open(self.baseFilename + '.lock', 'a') as lock:
+        with open(self.baseFilename + '.lock', 'a', encoding='utf-8') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             try:
                 if self._moved():               # the other process has just rolled it over: write to the new file

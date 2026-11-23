@@ -37,7 +37,7 @@ def main(args):
     part = args[0] if args else 'patch'
     if part not in ('patch', 'minor', 'major', '--show'):
         sys.exit(__doc__)
-    text = XCCONFIG.read_text()
+    text = XCCONFIG.read_text(encoding='utf-8')
     version, build = read(text)
     if part == '--show':
         print(f"{'.'.join(map(str, version))} ({build})")
@@ -45,7 +45,7 @@ def main(args):
     new_version, new_build = '.'.join(map(str, bumped(version, part))), build + 1
     text = VERSION.sub(lambda m: m.group(1) + new_version, text, count=1)
     text = BUILD.sub(lambda m: m.group(1) + str(new_build), text, count=1)
-    XCCONFIG.write_text(text)
+    XCCONFIG.write_text(text, encoding='utf-8')
     print(f"{'.'.join(map(str, version))} ({build}) -> {new_version} ({new_build})")
 
 

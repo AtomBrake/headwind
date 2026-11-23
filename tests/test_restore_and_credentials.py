@@ -24,7 +24,7 @@ def creds(tmp_path, monkeypatch):
 
 
 def _login_file(tmp_path):
-    return json.loads((tmp_path / '.admin_login').read_text())
+    return json.loads((tmp_path / '.admin_login').read_text(encoding='utf-8'))
 
 
 def test_env_wins_without_saved_file(creds):
@@ -56,7 +56,7 @@ def test_generated_password_is_stable_and_changeable(creds, tmp_path):
     first = credentials.generated_password()
     assert login.generated and first not in credentials.PLACEHOLDER_PASSWORDS and len(first) >= credentials.MIN_PASSWORD
     assert credentials.check('admin', first) and credentials.generated_password() == first
-    assert first not in (tmp_path / '.admin_login').read_text()
+    assert first not in (tmp_path / '.admin_login').read_text(encoding='utf-8')
     credentials.save_login(None, 'mine-now-123')
     assert credentials.check('admin', 'mine-now-123') and not credentials.check('admin', first)
     assert credentials.generated_password() is None and not credentials.admin_login().generated
@@ -68,7 +68,7 @@ def test_only_a_hash_is_saved(creds, tmp_path):
     d = _login_file(tmp_path)
     assert set(d) == {'username', 'password_hash', 'env_sig'}
     assert d['username'] == 'rob' and d['password_hash'].startswith('scrypt:')
-    assert 'a-long-password' not in (tmp_path / '.admin_login').read_text()
+    assert 'a-long-password' not in (tmp_path / '.admin_login').read_text(encoding='utf-8')
     assert oct((tmp_path / '.admin_login').stat().st_mode & 0o777) == '0o600'
 
 
@@ -87,7 +87,7 @@ def test_the_quick_env_sig_from_before_still_matches_and_is_replaced(creds, tmp_
     credentials.save_login(None, 'changed-in-settings')
     d = _login_file(tmp_path)
     d['env_sig'] = credentials._old_env_sig('rob\0compose-pw-1')
-    (tmp_path / '.admin_login').write_text(json.dumps(d))
+    (tmp_path / '.admin_login').write_text(json.dumps(d), encoding='utf-8')
     assert credentials.check('rob', 'changed-in-settings') and not credentials.check('rob', 'compose-pw-1')
     assert _login_file(tmp_path)['env_sig'].startswith('scrypt:')
     assert credentials.check('rob', 'changed-in-settings')
@@ -134,12 +134,12 @@ def test_auth_version_is_no_quick_hash_of_the_password(creds):
 def test_plain_password_from_before_is_hashed_and_its_sessions_stay_signed_in(creds, tmp_path):
     creds.setenv('APP_PASSWORD', 'compose-pw-1')
     (tmp_path / '.admin_login').write_text(json.dumps({'username': 'rob', 'password': 'typed-in-settings',
-                                                       'env_sig': credentials._env_sig()}))
+                                                       'env_sig': credentials._env_sig()}), encoding='utf-8')
     before = credentials._old_av('rob', 'typed-in-settings')     # what sessions signed in then carry
     assert credentials.check('rob', 'typed-in-settings')
     d = _login_file(tmp_path)
     assert 'password' not in d and d['password_hash'].startswith('scrypt:') and d['username'] == 'rob'
-    assert 'typed-in-settings' not in (tmp_path / '.admin_login').read_text() and before not in json.dumps(d)
+    assert 'typed-in-settings' not in (tmp_path / '.admin_login').read_text(encoding='utf-8') and before not in json.dumps(d)
     assert credentials.signed_in_before_hashing(before)
     assert not credentials.signed_in_before_hashing(credentials._old_av('rob', 'an-older-password'))
     assert not credentials.signed_in_before_hashing(None)
@@ -171,7 +171,7 @@ def test_generated_password_kept_in_memory_when_it_cant_be_saved(creds):
 
 def test_plain_file_in_a_read_only_folder_is_hashed_once_in_memory(creds, tmp_path):
     creds.setenv('APP_PASSWORD', '')
-    (tmp_path / '.admin_login').write_text(json.dumps({'username': 'admin', 'password': 'typed-in-settings'}))
+    (tmp_path / '.admin_login').write_text(json.dumps({'username': 'admin', 'password': 'typed-in-settings'}), encoding='utf-8')
     creds.setattr(credentials, '_write_private', lambda *a: (_ for _ in ()).throw(OSError(30, 'Read-only file system')))
     av = credentials.auth_version()
     assert credentials.auth_version() == av and credentials.check('admin', 'typed-in-settings')
@@ -201,7 +201,7 @@ def app_client(tmp_path, monkeypatch):
     for k in ('APP_USERNAME', 'APP_PASSWORD'):
         monkeypatch.delenv(k, raising=False)
     env = tmp_path / 'env'
-    env.write_text('SECRET_KEY=x\n')
+    env.write_text('SECRET_KEY=x\n', encoding='utf-8')
     monkeypatch.setenv('HEADWIND_ENV', str(env))
     a = app_module.create_app()
     c = a.test_client()
@@ -234,7 +234,7 @@ def test_settings_password_change_writes_no_env_file(app_client):
     c.post('/settings/password', data={'currentPassword': pw, 'newUsername': 'rob',
                                        'newPassword': 'a-long-password', 'confirmPassword': 'a-long-password'})
     assert _flashes(c) == ['Login details updated.'] and credentials.check('rob', 'a-long-password')
-    assert env.read_text() == 'SECRET_KEY=x\n' and 'APP_PASSWORD' not in os.environ
+    assert env.read_text(encoding='utf-8') == 'SECRET_KEY=x\n' and 'APP_PASSWORD' not in os.environ
     assert c.get('/settings/').status_code == 200          # this session stays signed in
     assert 'minlength="10"' in c.get('/settings/').get_data(as_text=True)
 
@@ -258,7 +258,7 @@ def test_old_sessions_survive_the_upgrade(app_client, tmp_path):
     a, c, env = app_client
     _with_rider(a)
     login = tmp_path / '.admin_login'
-    login.write_text(json.dumps({'username': 'admin', 'password': 'typed-in-settings', 'env_sig': credentials._env_sig()}))
+    login.write_text(json.dumps({'username': 'admin', 'password': 'typed-in-settings', 'env_sig': credentials._env_sig()}), encoding='utf-8')
     with c.session_transaction() as s:
         s['av'] = credentials._old_av('admin', 'typed-in-settings')
     assert c.get('/settings/').status_code == 200
@@ -316,7 +316,7 @@ def test_asset_copy_failure_leaves_live_db_untouched(tmp_path):
         database.migrate_db(); db = database.get_db()
         db.execute("INSERT INTO Rider (name,isDefault) VALUES ('FromBackup',1)"); db.commit()
     avatars = tmp_path / 'staged_av'; avatars.mkdir(); (avatars / 'rider_1.jpg').write_bytes(b'x')
-    blocker = tmp_path / 'not_a_dir'; blocker.write_text('file where the avatar dir should be')
+    blocker = tmp_path / 'not_a_dir'; blocker.write_text('file where the avatar dir should be', encoding='utf-8')
     with pytest.raises(Exception):
         backup.apply(live, other, {'avatars': str(avatars)}, str(blocker))
     assert _riders(live) == ['Original']

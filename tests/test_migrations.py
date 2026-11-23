@@ -23,7 +23,7 @@ def _migrate(path):
 
 def _from_sql(path, name, version):
     conn = sqlite3.connect(path)
-    conn.executescript((FIXTURES / name).read_text())
+    conn.executescript((FIXTURES / name).read_text(encoding='utf-8'))
     conn.execute(f'PRAGMA user_version = {version}')
     conn.commit()
     conn.close()
@@ -219,7 +219,7 @@ def test_one_process_migrates_at_a_time(tmp_path):
     path = tmp_path / 'locked.db'
     _migrate(path)
     done = threading.Event()
-    with open(f'{path}.lock', 'a') as f:
+    with open(f'{path}.lock', 'a', encoding='utf-8') as f:
         fcntl.flock(f, fcntl.LOCK_EX)                                   # another process migrating
         t = threading.Thread(target=lambda: (_migrate(path), done.set()))
         t.start()

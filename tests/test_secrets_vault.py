@@ -275,7 +275,7 @@ def test_copies_of_the_database_beside_it_are_encrypted_too(tmp_path, monkeypatc
     conn.execute("INSERT INTO Athlete (id, firstname, accessToken) VALUES (1, 'Tom', 'strava-access-token-old')")
     conn.commit()
     conn.close()
-    open(path + '.pre-other', 'w').write('not a database')       # left alone, and doesn't stop the start
+    open(path + '.pre-other', 'w', encoding='utf-8').write('not a database')       # left alone, and doesn't stop the start
     _make_app(path, monkeypatch)
     data = _file_bytes(copy)
     for secret in [*OLD.values(), FRIEND_TOKEN, 'old-shared-feed-token', 'strava-access-token-old']:
