@@ -48,11 +48,11 @@ def _escapers():
             line = text.count('\n', 0, m.start()) + 1
             before = [d for d in defs if d.start() < m.start() and text.count('\n', d.start(), m.start()) <= 3]
             if not before:
-                stray.append(f'{p.relative_to(ROOT)}:{line}')
+                stray.append(f'{p.relative_to(ROOT).as_posix()}:{line}')
                 continue
             d = before[-1]
             name = d.group(1) or d.group(2)
-            key = (str(p.relative_to(ROOT)), name)
+            key = (p.relative_to(ROOT).as_posix(), name)
             if key in {(f, n) for f, _, n, _, _ in found}:
                 continue
             start = d.start() if d.group(1) else d.start(2) + len(name)
