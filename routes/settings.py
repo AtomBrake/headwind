@@ -149,7 +149,7 @@ def index():
             sanity.scan_all(db)
         if periods_changed:                             # the Home Assistant sensors' week totals and names follow it
             from services import mqtt
-            mqtt.push_update(background=True)
+            mqtt.push_later()                           # the worker's, so the page needn't wait for every sensor to be worked out
         flash('Settings saved.', 'success')
         return redirect('/settings')
 
@@ -202,8 +202,8 @@ def save_features():
         features.save_default(db, off)
     db.commit()
     try:
-        from services.mqtt import push_update           # Home Assistant: a switched-off feature's entities go, one switched on comes back
-        push_update()
+        from services.mqtt import push_later            # Home Assistant: a switched-off feature's entities go, one switched on comes back
+        push_later()
     except Exception:
         log.warning('Home Assistant update after the feature switches changed failed', exc_info=True)
     eff = features.off(rid)
@@ -477,7 +477,7 @@ def calorie_adjust_history():
     touched = calorie_adjust.reapply_all(include_unrecorded=True)
     try:
         from services import mqtt
-        mqtt.push_update()
+        mqtt.push_later()
     except Exception:
         log.warning('Home Assistant update after reapplying calorie adjustments failed', exc_info=True)
     return jsonify({'ok': True, 'pct': calorie_adjust.get_pct(), 'touched': touched})

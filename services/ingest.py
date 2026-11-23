@@ -22,7 +22,7 @@ def after_ride_removed():
     """What every deleted ride gets, once the delete is committed: the Home Assistant sensors are re-published, so their totals drop now rather than
     at the next ride. (The web pages need nothing: they work everything out from Activity on each load.) Never raises."""
     try:
-        from services.mqtt import push_update
-        push_update(background=True)
+        from services.mqtt import push_later
+        push_later()                            # by the worker, so the page doesn't wait for it
     except Exception:
         log.warning('Home Assistant update after a delete failed', exc_info=True)

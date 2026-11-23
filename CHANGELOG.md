@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **Saving a setting no longer waits for Home Assistant.** With MQTT set up, saving Settings, the feature switches or anything else that changes a sensor made the page wait while Headwind worked out every sensor and sent the ones that changed, often 3 to 4 seconds. The update now goes to the background worker and the page comes straight back. Home Assistant gets the change a moment later. The same goes for deleting, restoring and bulk-editing activities, logging food and water, matching Strava bikes, and the phone app's uploads and deletes. Several changes in a row make one update. The worker also keeps one record of what Home Assistant was last sent, so it sends only what changed. Each web process kept its own record and started with an empty one, so its first update after a restart sent all 126 sensors again.
+
 ## [0.7.54-beta] - 2026-11-23
 
 ### Added

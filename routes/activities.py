@@ -592,17 +592,10 @@ def delete(rid):
     """Delete an activity of any sport (services/duplicates.delete_activity) and go back to the list it was opened from."""
     from services import duplicates
     db = get_db()
-    kind = sports.kind_of(db, rid)
     duplicates.delete_activity(db, rid)
     db.commit()
     from services.ingest import after_ride_removed
-    after_ride_removed()
-    if kind == 'workout':
-        try:
-            from services.mqtt import push_update_nutrition
-            push_update_nutrition()                     # its calories leave the day's burn
-        except Exception:
-            log.warning('Home Assistant update after a delete failed', exc_info=True)
+    after_ride_removed()                                # every sensor, the day's burn too: a workout's calories leave it
     back = session.get('list_back')                    # the list it was opened from (dashboard.remember_list)
     return redirect(back['url'] if back else url_for('dashboard.activities_page'))
 
@@ -639,11 +632,11 @@ def bulk():
         return redirect(back)
     db.commit()
     try:                                                # once for the whole batch, not per activity
-        from services.mqtt import push_update, push_update_nutrition
+        from services.mqtt import push_later
         if 'ride' in res['kinds'] or action == 'delete':
-            push_update(background=True)
-        if 'workout' in res['kinds']:
-            push_update_nutrition()
+            push_later()                                # the nutrition sensors too
+        elif 'workout' in res['kinds']:
+            push_later(nutrition_only=True)
     except Exception:
         log.warning('Home Assistant update after a bulk edit failed', exc_info=True)
     verb = {'delete': 'Deleted', 'sport': 'Changed the type of', 'bike': 'Set the bike on', 'kit': 'Set the gear on', 'rider': 'Moved',
@@ -717,13 +710,7 @@ def delete_blips():
     rid = int(rider) if rider and rider.isdigit() else whose.rider_id()
     res = _bulk.apply(db, 'delete', sanity.blip_ids(db, rid))
     db.commit()
-    after_ride_removed()
-    if 'workout' in res['kinds']:
-        try:
-            from services.mqtt import push_update_nutrition
-            push_update_nutrition()                     # their calories leave the day's burn
-        except Exception:
-            log.warning('Home Assistant update after deleting blips failed', exc_info=True)
+    after_ride_removed()                                # every sensor, the day's burn too: a walk's calories leave it
     return redirect(url_for('dashboard.dashboard', rider=rider) if rider and rider.isdigit() else url_for('dashboard.dashboard'))
 
 
@@ -765,8 +752,8 @@ def bulk_sport():
             skipped += 1
     db.commit()
     try:
-        from services.mqtt import push_update, push_update_nutrition
-        push_update(background=True); push_update_nutrition()
+        from services.mqtt import push_later
+        push_later()                                    # the nutrition sensors too
     except Exception:
         log.warning('Home Assistant update after a bulk change failed', exc_info=True)
     sep = '&' if '?' in back else '?'

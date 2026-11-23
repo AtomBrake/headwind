@@ -63,8 +63,8 @@ def deleted_resolve(act_id, choice):
             flash(f'Restored {what}.' if kept == act_id else
                   f'Restored, and set aside as another recording of {what}, which arrived while it was deleted.', 'success')
             try:
-                from services.mqtt import push_update
-                push_update(background=True)             # the Home Assistant totals take it back now, not at the next ride
+                from services.mqtt import push_later
+                push_later()                             # the Home Assistant totals take it back now, not at the next ride
             except Exception:
                 log.warning('Home Assistant update after a restore failed', exc_info=True)
     elif choice == 'empty':
@@ -168,8 +168,8 @@ def resolve_change(ride_id, choice):
     db.commit()
     if changed:
         try:
-            from services.mqtt import push_update
-            push_update(background=True)
+            from services.mqtt import push_later
+            push_later()
         except Exception:
             log.warning('Home Assistant update after the import failed', exc_info=True)
     n = len(ids)

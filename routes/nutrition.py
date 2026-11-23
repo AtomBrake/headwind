@@ -180,8 +180,8 @@ def _weight_snapshot(rider_id, date_str):
 
 def _mqtt_nutrition():
     try:
-        from services.mqtt import push_update_nutrition
-        push_update_nutrition()
+        from services.mqtt import push_later
+        push_later(nutrition_only=True)
     except Exception:
         log.warning('Home Assistant nutrition update failed', exc_info=True)
 

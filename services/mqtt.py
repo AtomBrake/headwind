@@ -1181,6 +1181,46 @@ def push_gear_alert(alerts):
     _broker_send(msgs, *conn)
 
 
+PUSH_JOB = 'mqtt_push'                      # push_update, run by the worker (services/jobs.py)
+PUSH_NUTRITION_JOB = 'mqtt_push_nutrition'  # push_update_nutrition, the same
+
+
+def push_later(nutrition_only=False):
+    """For a page or the API: the sensor update queued for the worker rather than run while the page waits. Working out every sensor takes
+    seconds on a long history (a Settings save waited 3-4 s for it), and the worker's process keeps the one change cache, where each web
+    process starts with an empty one and re-sends every sensor on its first push. Queued only when MQTT is set up, and not twice: one
+    already queued (not yet running) will see this change too. Never raises."""
+    from database import get_db
+    from services import jobs
+    try:
+        if not broker():
+            return
+        db = get_db()
+        kinds = [PUSH_JOB] if not nutrition_only else [PUSH_JOB, PUSH_NUTRITION_JOB]   # a full push covers the nutrition sensors
+        if db.execute(f"SELECT 1 FROM Job WHERE state='queued' AND kind IN ({','.join('?' * len(kinds))}) LIMIT 1", kinds).fetchone():
+            return
+        jobs.enqueue(db, PUSH_NUTRITION_JOB if nutrition_only else PUSH_JOB, once=False)
+    except Exception:
+        log.warning('Queueing the Home Assistant update failed', exc_info=True)
+
+
+def _push_job(job):
+    push_update()
+
+
+def _push_nutrition_job(job):
+    push_update_nutrition()
+
+
+def _register_jobs():
+    from services import jobs
+    jobs.handler(PUSH_JOB, quick=True)(_push_job)               # quick: a second or two, run however busy the worker is with imports
+    jobs.handler(PUSH_NUTRITION_JOB, quick=True)(_push_nutrition_job)
+
+
+_register_jobs()
+
+
 def push_update_nutrition():
     """Publish nutrition sensors that have changed — called after every food/water log action."""
     global _last_state

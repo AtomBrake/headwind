@@ -377,8 +377,8 @@ def strava_save():
         db.rollback()
         return _flash_redirect(url_for('gear.strava_page', rider=rid), e)
     try:
-        from services.mqtt import push_update
-        push_update(background=True)
+        from services.mqtt import push_later
+        push_later()
     except Exception:
         log.warning('Home Assistant update after matching Strava bikes failed', exc_info=True)
     n, m = len(res['created']), res['moved']

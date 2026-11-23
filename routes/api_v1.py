@@ -378,9 +378,9 @@ def _after_upload(res, rider):
     """Home Assistant and the push notification for a new activity (never fatal). A ride's import has already updated Home Assistant."""
     try:
         if res['via'] == 'track':
-            from services.mqtt import push_workout, push_update_nutrition
+            from services.mqtt import push_workout, push_later
             push_workout(res['workout'], rider['name'], f"{external_url.get()}/activities/{res['id']}")
-            push_update_nutrition()                      # the day's burn changed
+            push_later(nutrition_only=True)              # the day's burn changed
         elif res['via'] == 'session':
             _refresh_after_change(res['kind'])
     except Exception as e:
@@ -886,8 +886,8 @@ def delete_workout(wid):
     db.commit()
     if n:
         try:
-            from services.mqtt import push_update_nutrition
-            push_update_nutrition()
+            from services.mqtt import push_later
+            push_later(nutrition_only=True)
         except Exception:
             log.warning('Home Assistant nutrition update after a phone upload failed', exc_info=True)
     return jsonify({'deleted': bool(n)}), (200 if n else 404)
@@ -932,12 +932,8 @@ def known_activities():
 def _refresh_after_change(kind):
     """Re-publish the Home Assistant sensors after an activity was added or removed (never fatal)."""
     try:
-        if kind == 'workout':
-            from services.mqtt import push_update_nutrition
-            push_update_nutrition()
-        else:
-            from services.mqtt import push_update
-            push_update()
+        from services.mqtt import push_later
+        push_later(nutrition_only=kind == 'workout')
     except Exception as e:
         log.warning('sensor refresh failed (non-fatal): %s', e)
 

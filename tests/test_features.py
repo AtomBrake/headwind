@@ -9,7 +9,7 @@ from flask import Flask
 import app as app_module
 import config
 import database
-from services import credentials, device_auth, features
+from services import credentials, device_auth, features, jobs
 
 
 class _NoThread:
@@ -382,7 +382,8 @@ def test_home_assistant_entities_are_taken_down_and_come_back(app, client, monke
     first = push()
     assert first[cfg] and json.loads(first[cfg])['name'] == 'Recovery HRV'
     sent.clear()
-    switch(client, 'recovery')                          # saving the switches pushes straight away
+    switch(client, 'recovery')                          # saving the switches queues the update for the worker
+    jobs.run_queued(app)
     gone = {m['topic']: m['payload'] for m in sent}
     assert 'homeassistant/sensor/bike_tracker_garmin_steps/config' not in gone     # Steps is still on
     assert gone[cfg] == '' and gone['homeassistant/sensor/bike_tracker_garmin_hrv/state'] == ''
@@ -391,5 +392,6 @@ def test_home_assistant_entities_are_taken_down_and_come_back(app, client, monke
     assert push().get(cfg) is None                      # taken down once, not again on every push
     sent.clear()
     switch(client)                                      # on again: published afresh as the switches are saved
+    jobs.run_queued(app)
     got = {m['topic']: m['payload'] for m in sent}
     assert got.get(cfg) and json.loads(got[cfg])['name'] == 'Recovery HRV'

@@ -47,7 +47,7 @@ def _page(client):
 
 def test_deleting_a_ride_updates_every_dashboard_number_at_once(client, monkeypatch):
     pushed = []
-    monkeypatch.setattr('services.mqtt.push_update', lambda *a, **kw: pushed.append(1))
+    monkeypatch.setattr('services.mqtt.push_later', lambda *a, **kw: pushed.append(1))
     html, weekly, _ = _page(client)
     assert max(w['dist_m'] for w in weekly) > 18000 * 1609 and 'huge' in html
 

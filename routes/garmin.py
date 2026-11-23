@@ -143,9 +143,9 @@ def sync():
 
     try:
         from services.garmin import sync_garmin
-        from services.mqtt import push_update
+        from services.mqtt import push_later
         days = sync_garmin(whose.rider_id(), days=14)
-        push_update()
+        push_later()
         return jsonify({'synced': days})
     except Exception as e:
         log.exception('Garmin health sync from the page failed')
@@ -238,8 +238,8 @@ def sports_apply():
     res = sport_fix.apply(get_db(), rider['id'], request.form.getlist('ride'))
     after_ride_removed()                                   # the Home Assistant ride totals drop the activities that moved out
     try:
-        from services.mqtt import push_update_nutrition
-        push_update_nutrition()
+        from services.mqtt import push_later
+        push_later(nutrition_only=True)
     except Exception:
         log.warning('Home Assistant nutrition update after the activity type fix failed', exc_info=True)
     msg = f"Changed {res['changed']}." + (f" {res['failed']} could not be changed (see below)." if res['failed'] else '') + \

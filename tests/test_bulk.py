@@ -26,8 +26,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(config.Config, 'DATABASE', str(tmp_path / 't.db'))
     monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)
     pushed = []
-    monkeypatch.setattr('services.mqtt.push_update', lambda *a, **k: pushed.append('ride'))
-    monkeypatch.setattr('services.mqtt.push_update_nutrition', lambda *a, **k: pushed.append('workout'))
+    monkeypatch.setattr('services.mqtt.push_later', lambda nutrition_only=False: pushed.append('workout' if nutrition_only else 'ride'))
     app = app_module.create_app()
     with app.app_context():
         db = database.get_db()
@@ -68,7 +67,7 @@ def test_delete_mixes_rides_and_workouts_and_refreshes_once(client):
     with client.application.app_context():
         db = database.get_db()
         assert duplicates.is_deleted(db, 'r1') and duplicates.is_deleted(db, 'garmin_9')     # a re-sync won't bring them back
-    assert client.pushed.count('ride') == 1 and client.pushed.count('workout') == 1
+    assert client.pushed == ['ride']                    # once for the batch: the full update covers the workouts' nutrition sensors
     with client.session_transaction() as s:
         assert 'Deleted 4 activities. 1 could not be changed.' in str(s.get('_flashes'))
 
@@ -193,4 +192,4 @@ def test_delete_all_blips_takes_an_empty_walk_into_recently_deleted(client):
     assert client.post('/activities/flagged/delete-blips').status_code == 302
     assert {x[0] for x in q(client, "SELECT id FROM Activity WHERE flagReason IS NOT NULL")} == {'run1'}
     assert {x[0] for x in q(client, "SELECT id FROM ActivityDuplicate WHERE status='deleted'")} == {'r4', 'wk2'}
-    assert 'workout' in client.pushed                                            # the walk's calories leave the day's burn
+    assert client.pushed == ['ride']                    # every sensor once: the walk's calories leave the day's burn

@@ -37,8 +37,8 @@ def sync():
             sync_garmin(rider['id'], days=14)
 
         if imported > 0:
-            from services.mqtt import push_update
-            push_update()
+            from services.mqtt import push_later
+            push_later()
     except Exception as e:
         log.exception('Sync failed')
         from services.garmin import sync_error
