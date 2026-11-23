@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **A strength, yoga or HIIT session uploaded as a FIT file keeps its sport.** Garmin watches write these as "training" with the kind of session beside it, and Headwind read only the first part, so they came in as Other. Garmin sync wasn't affected.
+- **A FIT file from a watch paired with a gym's machine keeps its sport.** An indoor bike comes in as an indoor ride, a treadmill as an indoor run and a rowing machine as a row, rather than Other.
+- **Water skiing is no longer a ski day.** It came in as Ski, adding to your snow totals; it's now Other.
+
 ## [0.7.58-beta] - 2026-11-23
 
 ### Changed

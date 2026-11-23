@@ -17,7 +17,14 @@ from services.garmin import garmin_sport
     ('alpine_skiing', 'generic', 'Ski'), ('cross_country_skiing', 'generic', 'Ski'),
     ('stand_up_paddleboarding', 'generic', 'Paddle'), ('kayaking', 'generic', 'Paddle'),
     ('windsurfing', 'generic', 'Surf'), ('kitesurfing', 'generic', 'Kitesurf'), ('surfing', 'generic', 'Surf'),
-    ('training', 'yoga', 'Other'), ('training', 'strength_training', 'Other'), ('training', 'cardio_training', 'Other'),
+    ('training', 'yoga', 'Yoga'), ('training', 'strength_training', 'Strength'), ('training', 'cardio_training', 'Other'),
+    ('training', 'generic', 'Other'), ('training', None, 'Other'), ('hiit', 'amrap', 'HIIT'),
+    # a watch paired with a gym's machine
+    ('fitness_equipment', 'indoor_cycling', 'VirtualRide'), ('fitness_equipment', 'treadmill', 'VirtualRun'), ('fitness_equipment', 'indoor_rowing', 'Row'),
+    ('fitness_equipment', 'stair_climbing', 'Other'), ('fitness_equipment', 'elliptical', 'Other'), ('fitness_equipment', 'indoor_skiing', 'Other'),
+    ('fitness_equipment', 'generic', 'Other'), ('rowing', 'indoor_rowing', 'Row'),
+    # skis, but not on snow
+    ('water_skiing', 'generic', 'Other'), ('waterskiing', None, 'Other'), ('jet_ski', None, 'Other'), ('snowboarding', 'generic', 'Ski'),
     ('tennis', 'generic', 'Other'), ('snowshoeing', 'generic', 'Other'), (62, 'generic', 'Other'), (64, 85, 'Other'),
     # GPX <type>
     ('cycling', None, 'Ride'), ('mountain_biking', None, 'MountainBikeRide'), ('MountainBikeRide', None, 'MountainBikeRide'), ('GravelRide', None, 'GravelRide'), ('EMountainBikeRide', None, 'EBikeRide'), ('ebikeride', None, 'EBikeRide'),

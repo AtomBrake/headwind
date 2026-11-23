@@ -148,6 +148,14 @@ _TYPE_NEEDLES = (('run', 'Run'), ('walk', 'Walk'), ('hik', 'Hike'), ('mountainee
                  ('hiit', 'HIIT'), ('highintensity', 'HIIT'), ('high_intensity', 'HIIT'), ('high intensity', 'HIIT'), ('yoga', 'Yoga'))
 _INDOOR_SUBS = ('indoor_cycling', 'virtual_activity')
 _INDOOR_RUN_SUBS = ('treadmill', 'indoor_running', 'virtual_activity')
+# FIT's sports that only say "a workout of some kind": the sub-sport says which. A Garmin watch writes a strength session as training +
+# strength_training, and one paired with a gym's bike, treadmill or rower as fitness_equipment + indoor_cycling / treadmill / indoor_rowing.
+# Sub-sports not here (cardio_training, flexibility_training, elliptical, stair_climbing, pilates, indoor_skiing) stay Other, as Garmin
+# Connect's types of the same names do: stair_climbing isn't a Climb, nor a ski machine a Ski.
+_WORKOUT_SPORTS = ('training', 'fitness_equipment')
+_WORKOUT_SUBS = {'strength_training': 'Strength', 'yoga': 'Yoga', 'hiit': 'HIIT', 'amrap': 'HIIT', 'emom': 'HIIT', 'tabata': 'HIIT',
+                 'indoor_cycling': 'VirtualRide', 'treadmill': INDOOR_RUN, 'indoor_running': INDOOR_RUN, 'indoor_rowing': 'Row',
+                 'indoor_walking': 'Walk'}
 
 # How an activity's sport is decided, source by source:
 # - Garmin sync: Garmin's list type (services/garmin.garmin_sport, which is from_type) wins over the FIT file's sport and sub-sport, which are read
@@ -171,7 +179,7 @@ def differ(kept, other):
 
 def from_type(type_key, sub=None):
     """A device's or service's name for a sport -> one of SPORTS. Garmin Connect's activity type ('mountain_biking', 'lap_swimming'), a FIT
-    file's sport with its sub-sport ('cycling' + 'e_bike_mountain', 'alpine_skiing'), a GPX <type> ('EMountainBikeRide', 'trail_running',
+    file's sport with its sub-sport ('cycling' + 'e_bike_mountain', 'alpine_skiing', 'training' + 'strength_training'), a GPX <type> ('EMountainBikeRide', 'trail_running',
     'StandUpPaddling') or a TCX Sport. Rides are Ride / VirtualRide / EBikeRide / MountainBikeRide / GravelRide, and a run on a treadmill or in
     Zwift (Garmin's virtual_run and treadmill_running, a FIT file's running + treadmill, a GPX's VirtualRun) is VirtualRun; anything not recognised is
     'Other', never a ride: a ski day saved as a ride breaks the ride totals, the segments and the bike's mileage. Mountain and gravel rides keep
@@ -179,6 +187,10 @@ def from_type(type_key, sub=None):
     k = str(type_key if type_key is not None else '').lower()
     s = str(sub if sub is not None else '').lower()
     if 'motor' in k or 'snowmobil' in k:                      # motorcycling, motocross: 'cycl' but not a bike ride
+        return 'Other'
+    if k in _WORKOUT_SPORTS:
+        return _WORKOUT_SUBS.get(s, 'Other')
+    if 'ski' in k and ('water' in k or 'jet' in k):           # water_skiing, jet skis: 'ski' but not on snow
         return 'Other'
     bike = 'cycl' in k or 'bik' in k or 'mtb' in k or k.endswith('ride') or k == 'bmx'      # Strava's GPX GravelRide too
     if k in ('indoor_cycling', 'virtual_ride') or ('virtual' in k and (bike or 'ride' in k)) or (bike and s in _INDOOR_SUBS):
