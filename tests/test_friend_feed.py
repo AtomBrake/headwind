@@ -54,7 +54,67 @@ def test_feed_never_reshares_a_friends_rides(client):
     assert _rides(resp) == []
 
 
-FEED_ENDPOINTS = ['/api/riders', '/api/feed', '/api/foods-feed', '/api/food-image/0000.jpg']
+def _lines(resp, kind):
+    return [o for o in map(json.loads, resp.get_data(as_text=True).splitlines()) if o['type'] == kind]
+
+
+def _dated(client, aid, utc, local):
+    with client.application.app_context():
+        d = database.get_db()
+        d.execute("INSERT INTO Activity (id, name, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData, updatedAt) "
+                  "VALUES (?, 'ride', 'Ride', 1, ?, ?, 20000, 3600, 3600, '{}', '2026-10-01 09:00:00')", [aid, utc, local])
+        _streams.save(d, aid, '{}')
+        d.commit()
+
+
+@pytest.fixture
+def future(client):
+    """Rob's 2106 ride (a device clock reset to 1970, wrapped round), and two that are only ahead of the clock here: one recorded in New Zealand,
+    its local time tomorrow, and one saved with no zone, 14 hours on."""
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    at = lambda h: (now + timedelta(hours=h)).strftime('%Y-%m-%dT%H:%M:%S')
+    _dated(client, 'avinox', '2106-02-08T23:46:37+00:00', '2106-02-08T23:46:37')
+    _dated(client, 'kiwi', at(-1) + 'Z', at(12))
+    _dated(client, 'naive', at(14), at(14))
+    return client
+
+
+def test_a_start_that_hasnt_happened_is_left_out_of_the_feed(future):
+    H = {'X-Feed-Token': TOKEN}
+    assert sorted(_rides(future.get('/api/feed', headers=H))) == ['kiwi', 'naive', 'own1'], 'only the impossible one is held back'
+    manifest = _lines(future.get('/api/feed?manifest=1', headers=H), 'manifest')[0]['rides']
+    assert sorted(r[0] for r in manifest) == ['kiwi', 'naive', 'own1'], 'so a friend who already has it deletes it'
+    assert _rides(future.get('/api/feed?ids=avinox,own1', headers=H)) == ['own1'], 'nor sent when asked for by id'
+    assert 'avinox' not in _rides(future.get('/api/feed?since=2026-01-01', headers=H))
+
+
+def test_dismissing_the_flag_doesnt_share_it(future):
+    from services import sanity
+    with future.application.app_context():
+        d = database.get_db()
+        sanity.flag(d, 'avinox')
+        sanity.dismiss(d, 'avinox')
+        d.commit()
+    assert 'avinox' not in _rides(future.get('/api/feed', headers={'X-Feed-Token': TOKEN}))
+
+
+def test_once_its_date_is_fixed_it_goes_out_as_new(future):
+    from services import sanity
+    with future.application.app_context():
+        d = database.get_db()
+        d.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
+        d.execute("UPDATE Activity SET startLat=51.5, startLng=-0.12 WHERE id='avinox'")
+        assert sanity.set_start(d, 'avinox', '2026-10-02T08:00') is None
+        d.commit()
+    H = {'X-Feed-Token': TOKEN}
+    manifest = dict(map(tuple, _lines(future.get('/api/feed?manifest=1', headers=H), 'manifest')[0]['rides']))
+    assert 'avinox' in manifest and manifest['avinox'] > '2026-10-01 09:00:00', 'its updatedAt is new, so a friend fetches it'
+    ride = next(r for r in _lines(future.get('/api/feed?ids=avinox', headers=H), 'ride'))
+    assert ride['startDateLocal'] == '2026-10-02T08:00:00'
+
+
+FEED_ENDPOINTS =['/api/riders', '/api/feed', '/api/foods-feed', '/api/food-image/0000.jpg']
 
 
 @pytest.mark.parametrize('path', FEED_ENDPOINTS)

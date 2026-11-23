@@ -425,6 +425,13 @@ def activity_list(old=False):
         f"SELECT {KIND_SQL} kind, CAST(id AS TEXT) id, riderId, name, sportType sport, startDateLocal, distance, movingTime, totalElevationGain elev, averageSpeed spd, "
         f"averageHeartrate hr, calories, city, summaryPolyline FROM Activity WHERE riderId IN ({who})")
     where, args = [], list(riders)
+    theirs = [i for i in riders if i != rider['id']]
+    if theirs:
+        # A friend's that starts more than a day ahead (sanity.future_start, from a friend on a version that still sends them) would top the
+        # list until then: left out. It still opens on its own. The phone's own stay, flagged for the rider to fix.
+        from services import sanity
+        held, held_args = sanity.not_future_sql(get_db(), f"riderId IN ({','.join('?' * len(theirs))})", theirs)
+        where.append(held); args += held_args
     if sport:
         where.append('lower(sport)=?'); args.append(sport)
     if group:

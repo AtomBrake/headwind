@@ -63,3 +63,19 @@ def test_the_page_asks_for_the_real_date_and_takes_it(app, client):
         db = database.get_db()
         assert db.execute("SELECT COUNT(*) FROM Activity WHERE flagReason IS NOT NULL").fetchone()[0] == 0
         assert db.execute("SELECT COUNT(*) FROM ActivityDuplicate WHERE status='parked' AND id IN ('imp_avinox', 'imp_twin')").fetchone()[0] == 1
+
+
+def test_it_says_friends_wont_see_it_until_its_date_is_fixed(app, client):
+    with app.app_context():
+        database.migrate_db()
+    note = "Friends you share with won't see it until its date is fixed"
+    assert note in client.get('/activities/imp_avinox').get_data(as_text=True).replace('&#39;', "'")
+    assert note in client.get('/dashboard').get_data(as_text=True).replace('&#39;', "'"), "and in the dashboard's list of ones that look wrong"
+    with app.app_context():
+        db = database.get_db()
+        db.execute("UPDATE Activity SET averageSpeed=40 WHERE id='ok'")       # wrong another way: friends still see it
+        from services import sanity
+        sanity.flag(db, 'ok')
+        db.commit()
+    html = client.get('/activities/ok').get_data(as_text=True).replace('&#39;', "'")
+    assert 'looks wrong' in html and note not in html

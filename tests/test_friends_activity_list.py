@@ -96,3 +96,33 @@ def test_friends_with_none_synced_is_your_own_list(client):
         database.get_db().commit()
     page = client.get('/activities?rider=friends').get_data(as_text=True)
     assert listed(page) == ['r1'] and "Tom&#39;s activities" in page
+
+
+def add_dated(client, aid, rider, utc, local):
+    with client.application.app_context():
+        db = database.get_db()
+        db.execute("INSERT INTO Activity (id, name, type, sportType, riderId, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData) "
+                   "VALUES (?, ?, 'Ride', 'Ride', ?, ?, ?, 20000, 3600, 3600, '{}')", [aid, f'Act {aid}', rider, utc, local])
+        db.commit()
+
+
+@pytest.mark.parametrize('path', ['/dashboard?rider=friends', '/activities?rider=friends', '/activities?rider=2', '/activities?rider=friends&q=Act',
+                                  '/dashboard/history?rider=friends&from=2026-10-01&to=2106-12-31&list=/activities'])
+def test_a_friends_start_that_hasnt_happened_isnt_listed(client, path):
+    """Sam's instance is on a version that still sends one: a device clock reset to 1970 gave it 2106, and it would top the list (and be the month
+    the history tree opens) until then. Off the lists, but it opens on its own."""
+    add_dated(client, 's_2106', 2, '2106-02-08T23:46:37+00:00', '2106-02-08T23:46:37')
+    page = client.get(path).get_data(as_text=True)
+    assert 's_2106' not in page and '2106' not in page
+    assert listed(page) == (['s2', 's1'] if 'rider=2' in path else ['s2', 's1', 'a1'])
+    assert client.get('/activities/s_2106').status_code == 200
+
+
+def test_new_zealands_tomorrow_and_your_own_are_listed(client):
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    add_dated(client, 's_kiwi', 2, (now - timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%SZ'), (now + timedelta(hours=12)).strftime('%Y-%m-%dT%H:%M:%S'))
+    add_dated(client, 'r_2106', 1, '2106-02-08T23:46:37+00:00', '2106-02-08T23:46:37')
+    assert '/activities/s_kiwi"' in client.get('/activities?rider=friends&q=Act').get_data(as_text=True), "a friend abroad, ahead of the clock here"
+    page = client.get('/activities?q=Act').get_data(as_text=True)
+    assert '/activities/r_2106"' in page, 'your own stays, flagged for you to fix'

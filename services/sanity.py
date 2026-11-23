@@ -101,6 +101,20 @@ def future_start(r):
     return at if at and at > datetime.now(timezone.utc) + timedelta(seconds=FUTURE_GRACE_S) else None
 
 
+def future_ids(db, where='1=1', args=()):
+    """Ids of the activities matching `where` (a condition on Activity's own columns) whose start future_start catches. FUTURE_SQL picks the few
+    to look at, and future_start keeps the day's grace, so one started abroad ahead of here (New Zealand's tomorrow) isn't among them."""
+    return [r['id'] for r in db.execute(f'SELECT id, startDate, startDateLocal FROM Activity WHERE ({where}) AND {FUTURE_SQL}', list(args))
+            if future_start(r)]
+
+
+def not_future_sql(db, where='1=1', args=(), col='id'):
+    """(condition, params) that leaves out the activities matching `where` that future_start catches: for keeping a start that hasn't happened
+    off a friend's feed and off the lists of a friend's activities here. ('1=1', []) when there are none."""
+    ids = future_ids(db, where, args)
+    return (f"{col} NOT IN ({','.join('?' * len(ids))})", ids) if ids else ('1=1', [])
+
+
 def empty(r):
     """True for a ride, run, walk or swim with time but no distance, no speed, no heart rate, no power and no GPS track (duplicates.is_empty, read
     from the columns: startLat is set whenever there's a track). Only for a mapping that has startLat."""
@@ -320,6 +334,7 @@ def flagged(db, rider_id):
         d['groups'] = reason_groups(r['flagReason'])
         d['stravaClimb'] = sc if sc is not None and abs(sc - float(r['totalElevationGain'] or 0)) > 1 else None
         d['elapsedFix'] = elapsed_fix(r)
+        d['future'] = bool(future_start(r))          # held back from friends' feeds until its date is fixed (routes/friends.feed)
         out.append(d)
     return out
 

@@ -68,7 +68,7 @@
 {% if not friend and activity.flagReason and not activity.flagDismissed %}
 <div class="card" id="flagBanner" style="margin-bottom:1rem; padding:0.8rem 1rem; border-color:var(--warning-line); background:var(--warning-soft);">
   <div style="font-weight:600; margin-bottom:0.25rem;">This {{ 'activity' if is_workout else 'ride' }} looks wrong</div>
-  <div class="hint">{{ activity.flagReason }}. It is left out of the speed and weather analytics until you decide.</div>
+  <div class="hint">{{ activity.flagReason }}. It is left out of the speed and weather analytics until you decide.{% if future_start %} Friends you share with won't see it until its date is fixed.{% endif %}</div>
   <div style="margin-top:0.6rem; display:flex; gap:0.6rem; flex-wrap:wrap;">
     {% if elapsed_fix %}<button class="btn btn-secondary" data-click="useElapsedTime()"
       title="The file's timestamps are broken; start to finish gives {{ (activity.distance / elapsed_fix) | fmt_rate(activity.sportType) }}">Use the elapsed time ({{ elapsed_fix | fmt_duration }})</button>{% endif %}

@@ -139,6 +139,29 @@ def test_a_new_activity_no_longer_shared_drops_out(alex, tom):
     assert news(alex) == (None, 'Old ride')
 
 
+def arrived(aid, name, utc, local):
+    """An activity of Tom's as a sync from a version that still sends a start that hasn't happened would leave it."""
+    d = database.get_db()
+    d.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData, riderId, createdAt) "
+              "VALUES (?, ?, 'Ride', 'Ride', ?, ?, 7200, 1200, 1200, '{}', (SELECT riderId FROM Friend WHERE id=1), "
+              f"{friends.NOW_MS})", [aid, name, utc, local])
+    d.commit()
+
+
+def test_a_start_that_hasnt_happened_isnt_their_newest(alex, tom):
+    from datetime import datetime, timedelta, timezone
+    add_ride(tom, 'a', 'Old ride', '2026-09-01')
+    sync()
+    add_ride(tom, 'b', 'Evening Ride', '2026-10-20')
+    sync()
+    arrived('f1_avinox', 'Clock reset', '2106-02-08T23:46:37+00:00', '2106-02-08T23:46:37')
+    assert news(alex) == (('1 new ride', 'Evening Ride'), 'Evening Ride'), 'neither the newest nor new'
+    now = datetime.now(timezone.utc)
+    arrived('f1_kiwi', 'Kiwi ride', (now - timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%SZ'),
+            (now + timedelta(hours=12)).strftime('%Y-%m-%dT%H:%M:%S'))
+    assert news(alex) == (('2 new rides', 'Kiwi ride'), 'Kiwi ride'), "New Zealand's tomorrow has happened"
+
+
 @pytest.mark.parametrize('sports_, text', [
     (['Ride'], '1 new ride'),
     (['Ride', 'VirtualRide', 'EBikeRide'], '3 new rides'),

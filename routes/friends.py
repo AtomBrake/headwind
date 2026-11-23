@@ -92,6 +92,7 @@ def feed():
     Since 0.7.6 a friend asks ?manifest=1 instead: the segments and a manifest, [id, updatedAt] of every ride it may have, and no rides; then
     ?ids=<id>,<id>,... for just the rides it is missing or that changed here (no segments). A friend on an older version sends neither and gets
     the rides that started after `since`, as before.
+    An activity starting more than a day ahead (sanity.future_start) is in none of it until its date is fixed.
     """
     scope = dict(_feed_token())
 
@@ -132,6 +133,12 @@ def feed():
         if scope['untilDate']:
             where.append('substr(startDateLocal, 1, 10) <= ?')
             args.append(scope['untilDate'])
+        if share_rides:
+            # A start that hasn't happened (a device clock that was wrong: the 2106 dates) would top every list of theirs until then. Held back
+            # from the manifest too, so a friend who has it deletes it; once set_start fixes it, its updatedAt is new and it goes out.
+            held, held_args = sanity.not_future_sql(db, ' AND '.join(where), args)
+            where.append(held)
+            args.extend(held_args)
 
         if manifest:
             # No such rider (renamed?): no manifest, so the friend deletes nothing. Rides no longer shared: an empty one, so they go.
@@ -195,12 +202,14 @@ def _with_activities(f):
     if not f['riderId']:
         return f
     cols = 'id, name, sportType, startDateLocal, distance, movingTime'
-    latest = query_db(f'SELECT {cols} FROM Activity WHERE riderId=? ORDER BY startDateLocal DESC LIMIT 1', [f['riderId']], one=True)
+    # One that starts more than a day ahead (a friend on a version that still sends them) would be their newest until then: left out
+    held, held_args = sanity.not_future_sql(get_db(), 'riderId=?', [f['riderId']])
+    latest = query_db(f'SELECT {cols} FROM Activity WHERE riderId=? AND {held} ORDER BY startDateLocal DESC LIMIT 1', [f['riderId'], *held_args], one=True)
     if latest:
         f['latest'] = dict(latest, name=_name(latest), when=_day(latest['startDateLocal']))
     if f['newFrom']:
-        new = query_db(f'SELECT {cols} FROM Activity WHERE riderId=? AND createdAt >= ? ORDER BY startDateLocal DESC',
-                       [f['riderId'], f['newFrom']])
+        new = query_db(f'SELECT {cols} FROM Activity WHERE riderId=? AND createdAt >= ? AND {held} ORDER BY startDateLocal DESC',
+                       [f['riderId'], f['newFrom'], *held_args])
         if new:
             f['new'] = {'n': len(new), 'text': _count(len(new), [a['sportType'] for a in new]),
                         'newest': dict(new[0], name=_name(new[0]), when=_day(new[0]['startDateLocal']))}

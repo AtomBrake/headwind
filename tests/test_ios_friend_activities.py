@@ -75,3 +75,24 @@ def test_a_friends_activity_cant_be_changed_from_the_phone(phone):
     with phone.app_.app_context():
         row = database.get_db().execute('SELECT sportType, commute FROM Activity WHERE id=?', ['sams']).fetchone()
     assert row['sportType'] == 'Run' and not row['commute']
+
+
+def test_a_friends_start_that_hasnt_happened_isnt_listed(phone):
+    """From a friend on a version that still sends one (a device clock reset to 1970, wrapped round to 2106): it would top the list until then.
+    Off it, but it opens on its own. One recorded in New Zealand, its local time tomorrow, and your own 2106 one are listed."""
+    from datetime import datetime, timedelta, timezone
+    befriend(phone)
+    add(phone, 'sams2106', 'Ride', '2106-02-08', dist=20000, rider=2)
+    add(phone, 'mine2106', 'Ride', '2106-02-08', dist=20000)
+    now = datetime.now(timezone.utc)
+    with phone.app_.app_context():
+        d = database.get_db()
+        d.execute("INSERT INTO Activity (id, riderId, type, sportType, name, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData) "
+                  "VALUES ('kiwi', 2, 'Ride', 'Ride', 'kiwi', ?, ?, 20000, 1800, 1800, '{}')",
+                  [(now - timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%SZ'), (now + timedelta(hours=12)).strftime('%Y-%m-%dT%H:%M:%S')])
+        d.commit()
+    code, got = listed(phone, rider=2)
+    assert code == 200 and [i['id'] for i in got['items']] == ['kiwi', 'sams'] and got['total'] == 2
+    assert [i['id'] for i in listed(phone, rider='all')[1]['items']] == ['mine2106', 'kiwi', 'sams', 'mine']
+    assert [i['id'] for i in listed(phone)[1]['items']] == ['mine2106', 'mine']
+    assert phone.get('/api/v1/rides/ride/sams2106', headers=phone.H).status_code == 200

@@ -200,8 +200,17 @@ def _ids(active_rider, rid):
 
 
 def _whose_sql(ids):
-    """(condition on a.riderId, params) for these riders."""
-    return f"a.riderId IN ({','.join('?' * len(ids))})", list(ids)
+    """(condition on a.riderId, params) for these riders. A friend's activity that starts more than a day ahead (sanity.future_start: a clock that
+    was wrong, sent by a friend on a version that still shares them) is left out, as it would top the list until then; it keeps its own page.
+    Your own stays, flagged for you to fix."""
+    from services import sanity
+    whose, params = f"a.riderId IN ({','.join('?' * len(ids))})", list(ids)
+    friends = friend_rides.friend_riders(get_db())
+    theirs = [i for i in ids if i in friends]
+    if theirs:
+        held, held_args = sanity.not_future_sql(get_db(), f"riderId IN ({','.join('?' * len(theirs))})", theirs, col='a.id')
+        whose, params = f'{whose} AND {held}', params + held_args
+    return whose, params
 
 
 def _activities(where, params, order='a.startDateLocal DESC', limit=None, offset=0):
