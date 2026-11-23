@@ -1,11 +1,11 @@
 {% extends 'base.html' %}
 
-{% block title %}Import Rides{% endblock %}
-{% block page_title %}Import Rides{% endblock %}
+{% block title %}Import{% endblock %}
+{% block page_title %}Import{% endblock %}
 
 {% block head %}
 <style>
-  /* The upload card on the left, what to look at on the right; the long lists under both, as wide as the two */
+  /* Importing: the upload card on the left, the kept Strava export on the right. Under it, what waits to be reviewed. */
   .imp-page { max-width:1240px; }
   .imp-cols { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:1.25rem; align-items:start; }
   .imp-cols:not(.has-side) { grid-template-columns:minmax(0,600px); }
@@ -18,8 +18,32 @@
 {% set oos_files = out_of_step.files + ([] if garmin_on else out_of_step.garmin) %}
 {% set oos_garmin = out_of_step.garmin if garmin_on else [] %}
 {% set oos_n = oos_files | length + oos_garmin | length + out_of_step.friend | length %}
+{# What waits for a decision, in the order its cards come: (anchor, words, how many) #}
+{% set review = [
+  ('garmin-sports', "Garmin's activity types", sport_fixes or 0),
+  ('strava-bikes', 'Strava bikes to match', strava_pending or 0),
+  ('problems', "Files that couldn't be read", problems | length),
+  ('out-of-step', 'Left out of segments', oos_n),
+  ('changes', "Differ from what's saved", changes | length),
+  ('sport-guess', 'Look like runs or walks', sport_guesses | length),
+  ('sports', 'Recorded twice', (sport_groups | sum(attribute='rows', start=[]) | length) if sport_groups else 0),
+  ('garmin-changes', 'Changed in Garmin', garmin_changes | length + garmin_missing | length),
+] %}
+{% set waiting = namespace(n=0, lists=0) %}
+{% for _, _, n in review if n %}{% set waiting.n = waiting.n + n %}{% set waiting.lists = waiting.lists + 1 %}{% endfor %}
+{% set show_review = waiting.n or garmin_full %}
 <div class="imp-page">
-<div class="imp-cols{% if kept or strava_pending or problems or oos_n or sport_fixes %} has-side{% endif %}">
+{% if show_review or binned %}
+<nav class="page-toc" aria-label="Sections of this page">
+  <a class="btn btn-secondary btn-sm" href="#import">Import</a>
+  {% if show_review %}<a class="btn btn-secondary btn-sm" href="#review">To review{% if waiting.n %}<span class="count">{{ '{:,}'.format(waiting.n) }}</span>{% endif %}</a>{% endif %}
+  {% if binned %}<a class="btn btn-secondary btn-sm" href="#deleted">Recently deleted<span class="count">{{ binned | length }}</span></a>{% endif %}
+</nav>
+{% endif %}
+
+<section class="page-section" id="import">
+  <h2 class="section-head">Import</h2>
+<div class="imp-cols{% if kept %} has-side{% endif %}">
 <div class="imp-col">
 {% for a in advice %}
 <div class="card" id="advice-{{ a.riderId }}" style="border-color:var(--accent);">
@@ -43,8 +67,8 @@
 </div>
 {% endfor %}
 
-<div class="card">
-  <div class="card-title">Import Rides</div>
+<div class="card" id="upload">
+  <div class="card-title">Import activities</div>
 
   <p class="hint" style="margin-bottom:1.25rem;">
     Upload a single <strong style="color:var(--text);">.gpx</strong>,
@@ -121,15 +145,14 @@
   <a href="/dashboard" class="btn btn-primary" style="margin-top:1rem;">View Dashboard</a>
 </div>
 </div>
-
+{% if kept %}
 <div class="imp-col">
-
 {% for k in kept %}
 <div class="card"{% if loop.first %} id="kept"{% endif %}>
   <div class="card-title">Strava export kept{% if riders | length > 1 %} for {{ k.riderName }}{% endif %}</div>
   <p class="hint" style="margin:0 0 0.75rem;">
     Uploaded {{ k.keptAt | fmt_date }}: {{ k.sizeBytes | filesizeformat }}, {{ k.activities or 'its' }} activities.
-    Last imported {{ k.readAt | fmt_date }}. Import it again to pick up what a newer version of Headwind reads from it, with the options ticked under Import Rides.
+    Last imported {{ k.readAt | fmt_date }}. Import it again to pick up what a newer version of Headwind reads from it, with the options ticked under Import activities.
   </p>
   {% if k.stale %}
   <p style="font-size:0.875rem;line-height:1.6;margin:0 0 0.75rem;">This version of Headwind reads exports differently from the one that last imported it: importing it again may fix or add to activities already here. Anything that differs from what's saved waits below for you to decide.</p>
@@ -142,9 +165,35 @@
   </div>
 </div>
 {% endfor %}
+</div>
+{% endif %}
+</div>
+</section>
+
+{% if show_review %}
+<section class="page-section" id="review">
+  <h2 class="section-head">To review</h2>
+  <p class="hint">{% if waiting.n %}What imports and the Garmin check found that needs you to decide. Nothing changes until you choose.
+    {%- else %}Nothing waits for you to decide. Anything an import or the Garmin check finds is listed here.{% endif %}</p>
+  {% if waiting.lists > 1 %}
+  <nav class="page-toc" aria-label="Lists to review">
+    {% for anchor, words, n in review if n %}<a class="btn btn-secondary btn-sm" href="#{{ anchor }}">{{ words }}<span class="count">{{ '{:,}'.format(n) }}</span></a>
+    {% endfor %}
+  </nav>
+  {% endif %}
+
+{% if sport_fixes or strava_pending or problems or oos_n %}
+<div class="section-grid">
+{% if sport_fixes %}
+<div class="card" id="garmin-sports">
+  <div class="card-title">{{ '{:,}'.format(sport_fixes) }} Garmin activit{{ 'y is' if sport_fixes == 1 else 'ies are' }} saved with another sport than Garmin's</div>
+  <p class="hint" style="margin:0 0 0.75rem;">Saved before Headwind knew Garmin's type for {{ 'it' if sport_fixes == 1 else 'them' }}: e-bike or mountain bike rides saved as plain rides, say. Nothing changes until you apply it.</p>
+  <a class="btn btn-secondary" href="{{ url_for('garmin.sports_page') }}">Review activity types</a>
+</div>
+{% endif %}
 
 {% if strava_pending %}
-<div class="card">
+<div class="card" id="strava-bikes">
   <div class="card-title">{{ strava_pending }} bike{{ 's' if strava_pending != 1 }} from Strava to match</div>
   <p class="hint" style="margin:0 0 0.75rem;">Your Strava export says which bike rode each ride. Say which of your bikes each one is, or add it as a new one, and its rides go on it.</p>
   <a class="btn btn-secondary" href="{{ url_for('gear.strava_page') }}">Match Strava bikes</a>
@@ -180,7 +229,7 @@
       put right on their own Headwind (by its Garmin check, or by importing the file{{ 's' if out_of_step.friend | length != 1 }} again), and here
       with the next sync.</li>{% endif %}
     {% if oos_files %}<li>{{ oos_files | length }} need{{ 's' if oos_files | length == 1 }} {{ 'their files' if oos_files | length != 1 else 'its file' }}
-      imported again under Import Rides (a zip of them all will do):
+      imported again under Import activities (a zip of them all will do):
       <ul style="margin:0.25rem 0 0 1rem; padding:0;">
         {% for a in oos_files[:20] %}<li><a href="/activities/{{ a.id }}" style="color:var(--accent);">{{ a.name or a.id }}</a>
           <span style="color:var(--text-muted);">{{ a.startDateLocal | fmt_date }}</span></li>{% endfor %}
@@ -189,22 +238,13 @@
   </ul>
 </div>
 {% endif %}
-
-{% if sport_fixes %}
-<div class="card">
-  <div class="card-title">{{ '{:,}'.format(sport_fixes) }} Garmin activit{{ 'y is' if sport_fixes == 1 else 'ies are' }} saved with another sport than Garmin's</div>
-  <p class="hint" style="margin:0 0 0.75rem;">Saved before Headwind knew Garmin's type for {{ 'it' if sport_fixes == 1 else 'them' }}: e-bike or mountain bike rides saved as plain rides, say. Nothing changes until you apply it.</p>
-  <a class="btn btn-secondary" href="{{ url_for('garmin.sports_page') }}">Review activity types</a>
 </div>
 {% endif %}
-
-</div>
-</div>
 
 {% if changes %}
 {% set n = changes | length %}
 {% set any_fills = changes | selectattr('fills') | list %}
-<div class="card" id="changes" style="margin-top:1.25rem;">
+<div class="card" id="changes">
   <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
     <div class="card-title" style="margin:0;">{{ '{:,}'.format(n) }} activit{{ 'ies' if n != 1 else 'y' }} in the import differ{{ 's' if n == 1 }} from what's saved</div>
     {% if n > 1 %}
@@ -246,8 +286,86 @@
 </div>
 {% endif %}
 
+{% if sport_guesses %}
+{% set n = sport_guesses | length %}
+<div class="card" id="sport-guess">
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
+    <div class="card-title" style="margin:0;">{{ '{:,}'.format(n) }} upload{{ 's' if n != 1 }} look{{ 's' if n == 1 }} like {{ 'a run or a walk' if n == 1 else 'runs or walks' }}, not {{ 'a ride' if n == 1 else 'rides' }}</div>
+    {% if n > 1 %}
+    <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+      <form method="POST" action="{{ url_for('import_rides.sport_guess_resolve', act_id='all', choice='use') }}" style="margin:0;"
+            data-confirm="Change all {{ n }} to what their pace says? They lose their bike and ride segment times, and their calories are worked out again.">
+        <button class="btn btn-secondary btn-sm">Change all {{ n }}</button></form>
+      <form method="POST" action="{{ url_for('import_rides.sport_guess_resolve', act_id='all', choice='keep') }}" style="margin:0;">
+        <button class="btn btn-secondary btn-sm">Keep all {{ n }} as they are</button></form>
+    </div>
+    {% endif %}
+  </div>
+  <p class="hint" style="margin:0.5rem 0 0;">
+    Their files didn't say what sport they were, so they were saved as rides: Strava writes "Biking" into every TCX file it exports, a run's too,
+    and a GPX file often names no sport at all. Their pace is a runner's or a walker's, though a slow ride can look the same. Nothing changes until you say.</p>
+  {% for g in sport_guesses %}
+  <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;">
+    <span style="flex:1; min-width:12rem;">
+      <a href="{{ url_for('activities.detail', rid=g.activityId) }}" style="color:var(--text);">{{ g.startDateLocal | fmt_date }} · {{ g.name or (g.savedSport | sport_label) }}</a>
+      <span style="color:var(--text-muted);">{% if g.distance %} · {{ g.distance | fmt_dist }}{% endif %} · the file says {{ '"' ~ g.fileSport ~ '"' if g.fileSport else 'nothing' }},
+        the pace says {{ g.guess | sport_label }}</span>
+    </span>
+    {% for choice, text in (('use', 'Use ' ~ (g.guess | sport_label)), ('keep', (g.savedSport | sport_label) ~ ' is right')) %}
+    <form method="POST" action="{{ url_for('import_rides.sport_guess_resolve', act_id=g.activityId, choice=choice) }}" style="margin:0;">
+      <input type="hidden" name="back" value="{{ url_for('import_rides.index') }}#sport-guess"><button class="btn btn-secondary btn-sm">{{ text }}</button></form>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if sport_groups %}
+{% set n_sports = sport_groups | sum(attribute='rows', start=[]) | length %}
+<div class="card" id="sports">
+  <div class="card-title">{{ '{:,}'.format(n_sports) }} activit{{ 'y' if n_sports == 1 else 'ies' }} recorded twice with different sports</div>
+  <p class="hint" style="margin:0.5rem 0 0;">
+    Each was recorded twice (by Garmin and Strava, say), and the two recordings say different sports. Headwind kept one recording and its sport,
+    which may be the wrong one: a Garmin ride saved as a plain ride while Strava says it was on an e-bike, say, or the other way round.
+    Take the other recording's sport, or keep the one it has, for each kind of difference at once or one by one.</p>
+  {% for g in sport_groups %}
+  {% set n = g.rows | length %}
+  <div style="border-top:1px solid var(--border); margin-top:0.75rem; padding-top:0.75rem;">
+    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+      <span style="flex:1; min-width:12rem; font-weight:600; font-size:0.875rem;">Saved as {{ g.kept | sport_icon }} {{ g.kept | sport_label }}, the other recording says
+        {{ g.other | sport_icon }} {{ g.other | sport_label }} ({{ '{:,}'.format(n) }})</span>
+      {% if n > 1 %}
+      {% for choice, text in (('other', 'Use ' ~ (g.other | sport_label) ~ ' for all ' ~ n), ('kept', 'Keep ' ~ (g.kept | sport_label) ~ ' for all ' ~ n)) %}
+      <form method="POST" action="{{ url_for('import_rides.sports_resolve', dup_id='all', choice=choice) }}" style="margin:0;"
+            {% if choice == 'other' %}data-confirm="Change all {{ n }} to {{ g.other | sport_label }}?"{% endif %}>
+        <input type="hidden" name="kept" value="{{ g.kept }}"><input type="hidden" name="other" value="{{ g.other }}">
+        <button class="btn btn-secondary btn-sm">{{ text }}</button></form>
+      {% endfor %}
+      {% endif %}
+    </div>
+    <details{% if n <= 3 %} open{% endif %} style="margin-top:0.4rem;">
+      <summary style="cursor:pointer; color:var(--text-muted); font-size:0.8125rem;">{{ 'The activity' if n == 1 else 'The ' ~ n ~ ' activities' }}</summary>
+      {% for c in g.rows %}
+      <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--divider); padding:0.5rem 0; font-size:0.875rem;">
+        <span style="flex:1; min-width:12rem;">
+          <a href="{{ url_for('activities.detail', rid=c.id) }}" style="color:var(--text);">{{ c.startDateLocal | fmt_date }} · {{ c.name or (c.sportType | sport_label) }}</a>
+          <span style="color:var(--text-muted);">{% if c.distance %} · {{ c.distance | fmt_dist }}{% endif %} · {{ c.keptBy | capitalize if c.keptBy.islower() else c.keptBy }} says {{ c.sportType | sport_label }},
+            {{ c.otherBy }} says {{ c.other | sport_label }}</span>
+        </span>
+        {% for choice, text in (('other', 'Use ' ~ (c.other | sport_label)), ('kept', 'Keep ' ~ (c.sportType | sport_label))) %}
+        <form method="POST" action="{{ url_for('import_rides.sports_resolve', dup_id=c.dupId, choice=choice) }}" style="margin:0;">
+          <input type="hidden" name="back" value="{{ url_for('import_rides.index') }}#sports"><button class="btn btn-secondary btn-sm">{{ text }}</button></form>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </details>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if garmin_full or garmin_changes or garmin_missing or garmin_deleted %}
-<div class="card" id="garmin-changes" style="margin-top:1.25rem;">
+<div class="card" id="garmin-changes">
   {% set deleted = garmin_changes | selectattr('kind', 'equalto', 'deleted') | list %}
   {% set edited = garmin_changes | selectattr('kind', 'equalto', 'edited') | list %}
   {% set running = garmin_check and garmin_check.status == 'running' %}
@@ -260,7 +378,7 @@
   </div>
   <p class="hint" style="margin:0.5rem 0 0;">
     Once a day Headwind looks at your last 90 days in Garmin Connect, and a little further back each time, for activities deleted, renamed,
-    given another sport or cropped there since they came in. Nothing changes here until you choose. A cropped one is listed with the imports above.
+    given another sport or cropped there since they came in. Nothing changes here until you choose. A cropped one is listed with the imports that differ from what's saved.
     Full re-sync on the <a href="{{ url_for('settings.index') }}#garmin">Settings</a> page checks all of your history at once, and finds activities
     in Garmin that never came in or that you deleted here.
     {% if garmin_check and not running %}<br>Last check: {{ garmin_check.error or garmin_check.result }}
@@ -379,88 +497,14 @@
 </div>
 {% endif %}
 
-{% if sport_guesses %}
-{% set n = sport_guesses | length %}
-<div class="card" id="sport-guess" style="margin-top:1.25rem;">
-  <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; flex-wrap:wrap;">
-    <div class="card-title" style="margin:0;">{{ '{:,}'.format(n) }} upload{{ 's' if n != 1 }} look{{ 's' if n == 1 }} like {{ 'a run or a walk' if n == 1 else 'runs or walks' }}, not {{ 'a ride' if n == 1 else 'rides' }}</div>
-    {% if n > 1 %}
-    <div style="display:flex; gap:0.4rem; flex-wrap:wrap;">
-      <form method="POST" action="{{ url_for('import_rides.sport_guess_resolve', act_id='all', choice='use') }}" style="margin:0;"
-            data-confirm="Change all {{ n }} to what their pace says? They lose their bike and ride segment times, and their calories are worked out again.">
-        <button class="btn btn-secondary btn-sm">Change all {{ n }}</button></form>
-      <form method="POST" action="{{ url_for('import_rides.sport_guess_resolve', act_id='all', choice='keep') }}" style="margin:0;">
-        <button class="btn btn-secondary btn-sm">Keep all {{ n }} as they are</button></form>
-    </div>
-    {% endif %}
-  </div>
-  <p class="hint" style="margin:0.5rem 0 0;">
-    Their files didn't say what sport they were, so they were saved as rides: Strava writes "Biking" into every TCX file it exports, a run's too,
-    and a GPX file often names no sport at all. Their pace is a runner's or a walker's, though a slow ride can look the same. Nothing changes until you say.</p>
-  {% for g in sport_guesses %}
-  <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;">
-    <span style="flex:1; min-width:12rem;">
-      <a href="{{ url_for('activities.detail', rid=g.activityId) }}" style="color:var(--text);">{{ g.startDateLocal | fmt_date }} · {{ g.name or (g.savedSport | sport_label) }}</a>
-      <span style="color:var(--text-muted);">{% if g.distance %} · {{ g.distance | fmt_dist }}{% endif %} · the file says {{ '"' ~ g.fileSport ~ '"' if g.fileSport else 'nothing' }},
-        the pace says {{ g.guess | sport_label }}</span>
-    </span>
-    {% for choice, text in (('use', 'Use ' ~ (g.guess | sport_label)), ('keep', (g.savedSport | sport_label) ~ ' is right')) %}
-    <form method="POST" action="{{ url_for('import_rides.sport_guess_resolve', act_id=g.activityId, choice=choice) }}" style="margin:0;">
-      <input type="hidden" name="back" value="{{ url_for('import_rides.index') }}#sport-guess"><button class="btn btn-secondary btn-sm">{{ text }}</button></form>
-    {% endfor %}
-  </div>
-  {% endfor %}
-</div>
-{% endif %}
-
-{% if sport_groups %}
-{% set n_sports = sport_groups | sum(attribute='rows', start=[]) | length %}
-<div class="card" id="sports" style="margin-top:1.25rem;">
-  <div class="card-title">{{ '{:,}'.format(n_sports) }} activit{{ 'y' if n_sports == 1 else 'ies' }} recorded twice with different sports</div>
-  <p class="hint" style="margin:0.5rem 0 0;">
-    Each was recorded twice (by Garmin and Strava, say), and the two recordings say different sports. Headwind kept one recording and its sport,
-    which may be the wrong one: a Garmin ride saved as a plain ride while Strava says it was on an e-bike, say, or the other way round.
-    Take the other recording's sport, or keep the one it has, for each kind of difference at once or one by one.</p>
-  {% for g in sport_groups %}
-  {% set n = g.rows | length %}
-  <div style="border-top:1px solid var(--border); margin-top:0.75rem; padding-top:0.75rem;">
-    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
-      <span style="flex:1; min-width:12rem; font-weight:600; font-size:0.875rem;">Saved as {{ g.kept | sport_icon }} {{ g.kept | sport_label }}, the other recording says
-        {{ g.other | sport_icon }} {{ g.other | sport_label }} ({{ '{:,}'.format(n) }})</span>
-      {% if n > 1 %}
-      {% for choice, text in (('other', 'Use ' ~ (g.other | sport_label) ~ ' for all ' ~ n), ('kept', 'Keep ' ~ (g.kept | sport_label) ~ ' for all ' ~ n)) %}
-      <form method="POST" action="{{ url_for('import_rides.sports_resolve', dup_id='all', choice=choice) }}" style="margin:0;"
-            {% if choice == 'other' %}data-confirm="Change all {{ n }} to {{ g.other | sport_label }}?"{% endif %}>
-        <input type="hidden" name="kept" value="{{ g.kept }}"><input type="hidden" name="other" value="{{ g.other }}">
-        <button class="btn btn-secondary btn-sm">{{ text }}</button></form>
-      {% endfor %}
-      {% endif %}
-    </div>
-    <details{% if n <= 3 %} open{% endif %} style="margin-top:0.4rem;">
-      <summary style="cursor:pointer; color:var(--text-muted); font-size:0.8125rem;">{{ 'The activity' if n == 1 else 'The ' ~ n ~ ' activities' }}</summary>
-      {% for c in g.rows %}
-      <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--divider); padding:0.5rem 0; font-size:0.875rem;">
-        <span style="flex:1; min-width:12rem;">
-          <a href="{{ url_for('activities.detail', rid=c.id) }}" style="color:var(--text);">{{ c.startDateLocal | fmt_date }} · {{ c.name or (c.sportType | sport_label) }}</a>
-          <span style="color:var(--text-muted);">{% if c.distance %} · {{ c.distance | fmt_dist }}{% endif %} · {{ c.keptBy | capitalize if c.keptBy.islower() else c.keptBy }} says {{ c.sportType | sport_label }},
-            {{ c.otherBy }} says {{ c.other | sport_label }}</span>
-        </span>
-        {% for choice, text in (('other', 'Use ' ~ (c.other | sport_label)), ('kept', 'Keep ' ~ (c.sportType | sport_label))) %}
-        <form method="POST" action="{{ url_for('import_rides.sports_resolve', dup_id=c.dupId, choice=choice) }}" style="margin:0;">
-          <input type="hidden" name="back" value="{{ url_for('import_rides.index') }}#sports"><button class="btn btn-secondary btn-sm">{{ text }}</button></form>
-        {% endfor %}
-      </div>
-      {% endfor %}
-    </details>
-  </div>
-  {% endfor %}
-</div>
+</section>
 {% endif %}
 
 {% if binned %}
-<div class="card" id="deleted" style="margin-top:1.25rem;">
-  <div class="card-title">Recently deleted ({{ binned | length }})</div>
-  <p class="hint" style="margin:0.25rem 0 0;">Deleted activities are kept for {{ bin_days }} days. Restore one and it comes back as it was, with its
+<section class="page-section" id="deleted">
+  <h2 class="section-head">Recently deleted ({{ binned | length }})</h2>
+<div class="card">
+  <p class="hint" style="margin:0;">Deleted activities are kept for {{ bin_days }} days. Restore one and it comes back as it was, with its
     notes, photos, gear and segment times. After that only its id is kept, so no sync brings it back.</p>
   {% for b in binned %}
   <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap; border-top:1px solid var(--border); padding:0.5rem 0; font-size:0.875rem;">
@@ -477,6 +521,7 @@
   </div>
   {% endfor %}
 </div>
+</section>
 {% endif %}
 </div>
 {% endblock %}

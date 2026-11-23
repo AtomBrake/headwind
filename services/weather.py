@@ -305,14 +305,34 @@ def set_condition(db, activity_id, label, note=None, source='manual'):
 _FAILED = set()          # rides the weather service had nothing for this process lifetime: do not let them block the rest of the queue
 
 
+def _missing_sql():
+    """The activities backfill_missing fetches weather for: none yet, a date, a place to ask about, and not in a virtual world."""
+    from services import sports
+    return f"""weatherSummary IS NULL AND startDateLocal IS NOT NULL AND (startLat IS NOT NULL OR {_streams.has_sql(key='latlng')})
+               AND NOT {sports.virtual_sql()}"""
+
+
+def backfill_state(db):
+    """For the Tasks page's weather row: {'remaining', 'done', 'failed', 'running', 'finishedAt'}, from the activities still without weather
+    and the last 'weather_backfill' job (routes/tasks.py)."""
+    from services import jobs
+    remaining = db.execute(f'SELECT COUNT(*) FROM Activity WHERE {_missing_sql()}').fetchone()[0]
+    job = jobs.active(db, 'weather_backfill') or jobs.last(db, 'weather_backfill')
+    p = (job or {}).get('progress') or {}
+    return {'remaining': remaining, 'done': p.get('done', 0), 'failed': p.get('failed', 0),
+            'running': bool(job and job['state'] in ('queued', 'running')), 'finishedAt': (job or {}).get('finishedAt')}
+
+
+def backfill_offered(state):
+    """Whether Tasks offers Fetch now: some still without weather, nothing fetching, and not only ones Open-Meteo had nothing for last time."""
+    return bool(state['remaining'] and not state['running'] and not (state['failed'] and state['failed'] >= state['remaining']))
+
+
 def backfill_missing(db, limit=None, since_days=None, pause=0.15, on_each=None):
     """Fetch weather for activities of every sport that have none, using the start point or else the first GPS point of the track. Returns
     (done, failed). One the service has no data for is skipped for this run (never retried in a loop). Commits per activity."""
     import time
-    from services import sports
-    q = f"""SELECT id, sportType, startLat, startLng, startDateLocal, {_streams.sql()} FROM Activity
-           WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL AND (startLat IS NOT NULL OR {_streams.has_sql(key='latlng')})
-             AND NOT {sports.virtual_sql()}"""
+    q = f"""SELECT id, sportType, startLat, startLng, startDateLocal, {_streams.sql()} FROM Activity WHERE {_missing_sql()}"""
     if since_days:
         q += f" AND startDate >= datetime('now', '-{int(since_days)} days')"
     q += ' ORDER BY startDateLocal DESC'

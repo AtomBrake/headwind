@@ -5,6 +5,7 @@ import re
 from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 
 from database import get_db
+from services import jobs
 
 bp = Blueprint('tasks', __name__)
 
@@ -39,13 +40,25 @@ def run_now(job):
         db.commit()
         garmin.HISTORY_WAKE.set()
         flash('Trying again now.', 'success')
+    elif job == 'weather':
+        from services import weather
+        if weather.backfill_offered(weather.backfill_state(db)) and jobs.enqueue(db, 'weather_backfill'):
+            flash('Fetching the weather for older activities. This page follows it.', 'success')
     return redirect(url_for('tasks.index'))
+
+
+@jobs.handler('weather_backfill')
+def _weather_backfill(job):
+    """Weather for every activity without it (Tasks → Weather for older activities), from the start point, or the first GPS point of the
+    track for older imports. Each sync fills in a few by itself (routes/sync.py); this does the rest at once."""
+    from services.weather import backfill_missing
+    db = get_db()
+    backfill_missing(db, on_each=lambda done, failed: jobs.progress(db, job['id'], done=done, failed=failed))     # each ride is committed first
 
 
 @bp.route('/tasks/job/<int:job_id>')
 def job_events(job_id):
     """A queued job (services/jobs.py) for the page following it: {state, error, events from ?since=, next}. static/js/app.js followJob polls it."""
-    from services import jobs
     db = get_db()
     job = jobs.get(db, job_id)
     if not job:

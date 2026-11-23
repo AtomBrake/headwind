@@ -225,6 +225,24 @@ def overview(db):
                           f"{a['label']}: {a['error'] or a['result'] or 'in progress…'}" if a else 'Waiting for a new ride.',
                           (a or {}).get('finishedAt'), {'url': '/ai', 'label': 'AI Coach'}))
 
+    # Weather for activities that have none (services/weather.backfill_missing): each sync fills in a few, Fetch now the rest at once
+    try:
+        from services import weather
+        wx = weather.backfill_state(db)
+        if wx['running']:
+            jobs.append(_card('Weather for older activities', 'running', f"{wx['done']:,} fetched, {wx['remaining']:,} to go."))
+        elif not wx['remaining']:
+            jobs.append(_card('Weather for older activities', 'done', 'Every activity with a place to ask about has its weather.', wx['finishedAt']))
+        elif not weather.backfill_offered(wx):
+            jobs.append(_card('Weather for older activities', 'done', f"Open-Meteo had nothing for the {wx['remaining']:,} still without weather.",
+                              wx['finishedAt']))
+        else:
+            jobs.append(_card('Weather for older activities', 'idle',
+                              f"{wx['remaining']:,} activit{'y has' if wx['remaining'] == 1 else 'ies have'} no weather yet. Each sync fills in a few; "
+                              'this fetches them all.', wx['finishedAt'], {'url': '/tasks/run/weather', 'label': 'Fetch now'}))
+    except Exception:
+        log.debug('Weather card on the Tasks page failed', exc_info=True)
+
     # An import started on the Import page, running or in the last day (routes/import_rides: a job the worker runs)
     try:
         from services import jobs as _jobs

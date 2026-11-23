@@ -60,6 +60,26 @@ On a phone the actions wrap to a second row under the title rather than widen th
 
 A word that can go on a phone goes in `<span class="wide-only">`: `‹<span class="wide-only"> Prev</span>`.
 
+## Page sections
+
+A long page of cards (Settings, Import, Tasks, Goals) groups them under headings, with a row of links to each at the top:
+
+```html
+<nav class="page-toc" aria-label="Sections of this page">
+  <a class="btn btn-secondary btn-sm" href="#you">You</a>
+  <a class="btn btn-secondary btn-sm" href="#review">To review<span class="count">12</span></a>
+</nav>
+<section class="page-section" id="you">
+  <h2 class="section-head">You</h2>
+  <p class="hint">One line on what the section holds.</p>
+  <div class="card">…</div>
+</section>
+```
+
+- `.page-section` spaces its cards itself: don't give them margins.
+- `.section-grid` puts short cards side by side, as many as fit.
+- A card that a route redirects to keeps its own `id` (`/settings#garmin`), so moving it to another section doesn't break the link.
+
 ## Text
 
 - `.hint` is helper text: what a field, card or list is for, or what happens next. It's the one class for it; `.text-muted` is the old name.

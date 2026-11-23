@@ -1108,9 +1108,21 @@ body.bulk-mode { padding-bottom: 6rem; }
 .nav-badge { display: inline-block; min-width: 1.1rem; padding: 0 0.3rem; margin-left: 0.35rem; border-radius: 999px; background: var(--accent); color: var(--on-accent);
              font-size: 0.6875rem; font-weight: 700; line-height: 1.1rem; text-align: center; }
 
-/* ── Goals and challenges (templates/_goals.html) ───────────── */
+/* ── A page in sections (Goals, Settings, Import, Tasks): a heading over each group of cards, and a row of links to them ── */
 .section-head { font-size: 1.05rem; font-weight: 700; color: var(--text-strong); margin: 1.5rem 0 0.75rem; }
 .section-head:first-child { margin-top: 0; }
+.page-toc { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0 0 1.5rem; }
+.page-toc .count { color: var(--text-muted); font-weight: 400; margin-left: 0.3rem; }
+.page-section { display: flex; flex-direction: column; gap: 1.25rem; scroll-margin-top: 1rem; }
+.page-section + .page-section { margin-top: 2.5rem; }
+.page-section > .section-head { margin: 0; }
+.page-section > .section-head + .hint { margin: -0.85rem 0 0; }
+.page-section .card { margin: 0; }
+.page-section > .page-toc { margin: 0; }
+.section-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: 1.25rem; align-items: start; }
+[id].card { scroll-margin-top: 1rem; }
+
+/* ── Goals and challenges (templates/_goals.html) ───────────── */
 .goal-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
 .goal-grid > .card { margin: 0; }
 .goal-grid > .card.invitation { border-color: var(--accent-line); }

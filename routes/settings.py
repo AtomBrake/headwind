@@ -8,7 +8,7 @@ from pathlib import Path
 
 from flask import Blueprint, abort, current_app, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from database import get_db, migrate_db, query_db
-from services import external_url, jobs, logs, vault
+from services import external_url, logs, vault
 
 import time
 bp = Blueprint('settings', __name__)
@@ -16,7 +16,6 @@ bp = Blueprint('settings', __name__)
 
 OPENAI_MODELS = ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini', 'gpt-4-turbo', 'gpt-3.5-turbo']
 from services.ai import CLAUDE_MODELS
-from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
@@ -482,36 +481,6 @@ def calorie_adjust_history():
     except Exception:
         log.warning('Home Assistant update after reapplying calorie adjustments failed', exc_info=True)
     return jsonify({'ok': True, 'pct': calorie_adjust.get_pct(), 'touched': touched})
-
-
-_WX_MISSING = f"""FROM Activity WHERE weatherSummary IS NULL AND startDateLocal IS NOT NULL
-                 AND (startLat IS NOT NULL OR {_streams.has_sql(key='latlng')})"""
-
-
-@bp.route('/weather-backfill', methods=['POST'])
-def weather_backfill():
-    """Start fetching the weather for every activity without it, in the background worker, or say how far it has got: the page posts again
-    every 2 s until nothing remains. Not started again when every one still missing failed last time (Open-Meteo has nothing for them)."""
-    db = get_db()
-    remaining = db.execute('SELECT COUNT(*) ' + _WX_MISSING).fetchone()[0]
-    job = jobs.active(db, 'weather_backfill')
-    if job:
-        p = job['progress'] or {}
-        return jsonify(done=p.get('done', 0), failed=p.get('failed', 0), remaining=remaining, running=True)
-    last = jobs.last(db, 'weather_backfill')
-    p = (last or {}).get('progress') or {}
-    if remaining == 0 or (p.get('failed') and p['failed'] >= remaining):
-        return jsonify(done=p.get('done', 0), failed=p.get('failed', 0), remaining=0)
-    jobs.enqueue(db, 'weather_backfill')
-    return jsonify(done=0, failed=0, remaining=remaining, started=True)
-
-
-@jobs.handler('weather_backfill')
-def _weather_backfill(job):
-    """From the start point, or the first GPS point of the track for older imports."""
-    from services.weather import backfill_missing
-    db = get_db()
-    backfill_missing(db, on_each=lambda done, failed: jobs.progress(db, job['id'], done=done, failed=failed))     # each ride is committed first
 
 
 @bp.route('/password', methods=['POST'])

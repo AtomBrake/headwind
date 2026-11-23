@@ -1,5 +1,5 @@
 """Work a page starts that the background worker runs (services/jobs.py), with what the page shows read from the job, so any process serving
-pages sees it: the weather backfill on Settings and the friends' automatic sync. Full app, throwaway database, no network; the tests run the
+pages sees it: the weather backfill on Tasks and the friends' automatic sync. Full app, throwaway database, no network; the tests run the
 queue as the worker would."""
 import pytest
 
@@ -43,20 +43,42 @@ def _ride(app, rid, lat=51.5):
         db.commit()
 
 
-def test_the_weather_backfill_runs_in_the_worker_and_the_page_follows_it(app, client, monkeypatch):
+def _weather_row(client):
+    from services import tasks
+    html = client.get('/tasks').get_data(as_text=True)
+    assert 'Weather for older activities' in html
+    with client.application.app_context():
+        return next(j for j in tasks.overview(database.get_db())['jobs'] if j['name'] == 'Weather for older activities')
+
+
+def test_the_weather_backfill_runs_in_the_worker_and_the_tasks_page_follows_it(app, client, monkeypatch):
     from services import weather
     _ride(app, 'a')
     _ride(app, 'b', lat=1)                                             # Open-Meteo has nothing for this one
+    with app.app_context():                                            # a ride in a virtual world gets none, so it isn't waiting for any
+        db = database.get_db()
+        db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, startLat, startLng) VALUES ('z', 'Zwift', 'VirtualRide', 1, "
+                   "'2026-10-02T08:00:00', -11.6, 166.9)")
+        db.commit()
     sunny = {'weatherTempC': 12, 'weatherWindKph': 10, 'weatherGustKph': 20, 'weatherWindDir': 180, 'weatherHumidity': 60, 'weatherRainMm': 0,
              'weatherCode': 0, 'weatherSummary': 'Sunny', 'weatherWindRel': None}
     monkeypatch.setattr(weather, 'fetch_weather', lambda lat, *a, **k: sunny if lat > 1 else None)
     weather._FAILED.clear()
-    assert client.post('/settings/weather-backfill').get_json() == {'done': 0, 'failed': 0, 'remaining': 2, 'started': True}
-    assert client.post('/settings/weather-backfill').get_json() == {'done': 0, 'failed': 0, 'remaining': 2, 'running': True}    # not twice
-    assert jobs.run_queued(app) == 1
-    assert client.post('/settings/weather-backfill').get_json() == {'done': 1, 'failed': 1, 'remaining': 0}    # the one that failed isn't tried again
+    row = _weather_row(client)
+    assert row['state'] == 'idle' and row['detail'].startswith('2 activities have no weather yet') and row['action']['url'] == '/tasks/run/weather'
+    client.post('/tasks/run/weather')
+    client.post('/tasks/run/weather')                                  # not twice
     with app.app_context():
-        assert database.get_db().execute("SELECT weatherSummary FROM Activity WHERE id='a'").fetchone()[0]
+        assert database.get_db().execute("SELECT COUNT(*) FROM Job WHERE kind='weather_backfill'").fetchone()[0] == 1
+    assert _weather_row(client)['state'] == 'running'
+    assert jobs.run_queued(app) == 1
+    row = _weather_row(client)                                         # the one that failed isn't offered again
+    assert row['state'] == 'done' and not row['action'] and 'nothing for the 1' in row['detail']
+    client.post('/tasks/run/weather')                                  # nor queued by hand
+    with app.app_context():
+        db = database.get_db()
+        assert db.execute("SELECT weatherSummary FROM Activity WHERE id='a'").fetchone()[0]
+        assert db.execute("SELECT COUNT(*) FROM Job WHERE kind='weather_backfill'").fetchone()[0] == 1
 
 
 def test_the_automatic_friend_sync_is_one_run_and_the_page_sees_each_friend(app, client, monkeypatch):

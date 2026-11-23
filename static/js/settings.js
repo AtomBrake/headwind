@@ -120,41 +120,6 @@ function calAdjSave(history) {
     .catch(function() { st.textContent = 'Could not reach the server'; st.style.color = 'var(--danger)'; });
 }
 
-function weatherBackfill() {
-  var btn = document.getElementById('backfillBtn');
-  var status = document.getElementById('backfillStatus');
-  btn.disabled = true;
-  status.textContent = 'Starting…';
-  status.style.color = 'var(--text-muted)';
-
-  function poll() {
-    fetch('/settings/weather-backfill', { method: 'POST' })
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (d.error) {
-          status.textContent = 'Error: ' + d.error;
-          status.style.color = 'var(--danger)';
-          btn.disabled = false;
-          return;
-        }
-        if (d.remaining > 0) {
-          status.textContent = 'Running… ' + d.done + ' done, ' + d.remaining + ' remaining';
-          setTimeout(poll, 2000);
-        } else {
-          status.textContent = '✓ All done — ' + d.done + ' updated' + (d.failed ? ', ' + d.failed + ' failed' : '');
-          status.style.color = 'var(--success)';
-          btn.disabled = false;
-        }
-      })
-      .catch(function() {
-        status.textContent = 'Backfill running in background — refresh to check progress';
-        status.style.color = 'var(--text-muted)';
-        btn.disabled = false;
-      });
-  }
-  poll();
-}
-
 function garminSync() {
   var btn = document.getElementById('garminBtn');
   var status = document.getElementById('garminStatus');

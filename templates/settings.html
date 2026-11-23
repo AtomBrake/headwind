@@ -4,50 +4,20 @@
 {% block page_title %}Settings{% endblock %}
 
 {% block content %}
-<div style="display:flex; flex-direction:column; gap:1.5rem;">
+<nav class="page-toc" aria-label="Sections of this page">
+  <a class="btn btn-secondary btn-sm" href="#you">You</a>
+  <a class="btn btn-secondary btn-sm" href="#connections">Connections</a>
+  <a class="btn btn-secondary btn-sm" href="#sharing">Sharing</a>
+  <a class="btn btn-secondary btn-sm" href="#server">This server</a>
+</nav>
 
-  <!-- Profile & goals: the stats the smart goals work from (Nutrition's, so it goes with Nutrition) -->
-  {% if feature('nutrition') %}
-  <div class="card" id="profileCard">
-    <div class="card-title">Profile &amp; goals</div>
-    <p class="hint" style="margin:0 0 0.8rem;">Your body stats and targets. Headwind uses them to work out your daily calorie, protein, carb and fat goals, and to project your road to goal weight. Everything here is saved to this Headwind only.</p>
-    <div id="pfStatus" style="font-size:0.8125rem; margin-bottom:0.8rem;"></div>
-    <div class="form-grid">
-      <div class="form-group"><label>Sex</label><select id="pfSex"><option value="">—</option><option value="female">Female</option><option value="male">Male</option></select></div>
-      <div class="form-group"><label>Date of birth</label><input type="date" id="pfBorn" style="width:100%;"><small id="pfBornHint" class="hint"></small></div>
-      <div class="form-group"><label>Height</label>{# the metric/imperial setting picks which comes first; each fills in the other #}
-        {% if units == 'metric' %}
-        <input type="number" id="pfCm" min="100" max="250" inputmode="numeric" placeholder="cm" style="width:100%;" data-input="pfHeightFrom('cm')">
-        <small class="hint" style="white-space:nowrap;">or <input type="number" id="pfFt" min="3" max="7" inputmode="numeric" placeholder="ft" style="width:2.6rem; display:inline; padding:0.3rem;" data-input="pfHeightFrom('ft')"> ft
-          <input type="number" id="pfIn" min="0" max="11.9" step="0.5" inputmode="decimal" placeholder="in" style="width:2.6rem; display:inline; padding:0.3rem;" data-input="pfHeightFrom('ft')"> in</small>
-        {% else %}
-        <div style="display:flex; gap:0.4rem;"><input type="number" id="pfFt" min="3" max="7" inputmode="numeric" placeholder="ft" style="flex:1; min-width:0; width:100%;" data-input="pfHeightFrom('ft')"><input type="number" id="pfIn" min="0" max="11.9" step="0.5" inputmode="decimal" placeholder="in" style="flex:1; min-width:0; width:100%;" data-input="pfHeightFrom('ft')"></div>
-        <small class="hint">or <input type="number" id="pfCm" min="100" max="250" inputmode="numeric" placeholder="cm" style="width:5rem; display:inline;" data-input="pfHeightFrom('cm')"> cm</small>
-        {% endif %}</div>
-      <div class="form-group"><label>Weight now</label>
-        <div id="pfWtStlb" style="display:flex; gap:0.4rem;"><input type="number" id="pfSt" min="0" inputmode="numeric" placeholder="st" style="flex:1; min-width:0; width:100%;"><input type="number" id="pfLb" min="0" max="13.9" step="0.1" inputmode="decimal" placeholder="lb" style="flex:1; min-width:0; width:100%;"></div>
-        <input type="number" id="pfKg" min="0" step="0.1" inputmode="decimal" placeholder="kg" style="display:none;"></div>
-      <div class="form-group"><label>Goal weight</label>
-        <div id="pfGoalStlb" style="display:flex; gap:0.4rem;"><input type="number" id="pfGSt" min="0" inputmode="numeric" placeholder="st" style="flex:1; min-width:0; width:100%;"><input type="number" id="pfGLb" min="0" max="13.9" step="0.1" inputmode="decimal" placeholder="lb" style="flex:1; min-width:0; width:100%;"></div>
-        <input type="number" id="pfGKg" min="0" step="0.1" inputmode="decimal" placeholder="kg" style="display:none;"></div>
-      <div class="form-group"><label>Show weights as</label><select id="pfUnit"><option value="stlb">Stone &amp; lb</option><option value="kg">kg</option></select>
-        <small class="hint">Its own choice, apart from the units under Display Preferences.</small></div>
-      <div class="form-group"><label id="pfLossLabel" for="pfLoss">Loss target (lb / week)</label><input type="number" id="pfLoss" min="0" max="2.5" step="0.25" inputmode="decimal" style="flex:1; min-width:0; width:100%;"></div>
-      <div class="form-group"><label>Daily steps goal</label><input type="number" id="pfSteps" min="1000" step="500" inputmode="numeric" style="flex:1; min-width:0; width:100%;"></div>
-    </div>
-    <div class="form-actions">
-      <button class="btn btn-primary" type="button" data-click="pfSave()">Save profile</button>
-      <button class="btn btn-secondary" type="button" id="pfApply" data-click="pfApply()" disabled>Use the calculated goals</button>
-      <span id="pfMsg" style="font-size:0.8125rem; color:var(--text-muted);"></span>
-    </div>
-    <div id="pfPlan" style="font-size:0.85rem; line-height:1.55; margin-top:0.8rem;"></div>
-    <p style="color:var(--text-muted); font-size:0.75rem; margin:0.8rem 0 0;">Fine-tune the calorie and macro goals themselves on the Nutrition page (Goals).</p>
-  </div>
-  {% endif %}
+<section class="page-section" id="you">
+  <h2 class="section-head">You</h2>
+  <p class="hint">How Headwind shows things, which parts of it you use, and the body stats your goals are worked out from.</p>
 
-  <!-- Measurement Units -->
-  <form method="POST" class="card">
-    <div class="card-title">Display Preferences</div>
+  <!-- Display: units, appearance, favourite sports, this week and month, time zone -->
+  <form method="POST" class="card" id="display">
+    <div class="card-title">Display</div>
     <fieldset>
       <legend>Units</legend>
       <div class="checks">
@@ -130,7 +100,7 @@
     <input type="hidden" name="mqttUser"          value="{{ s.mqttUser          if s and s.mqttUser          else '' }}">
     <input type="hidden" name="garminSyncHours"   value="{{ s.garminSyncHours   if s and s.garminSyncHours   else 0.5 }}">
     <input type="hidden" name="garminSyncMode"    value="{{ s.garminSyncMode    if s and s.garminSyncMode    else 'health' }}">
-    <button type="submit" class="btn btn-primary" style="margin-top:1.25rem;">Save Preferences</button>
+    <button type="submit" class="btn btn-primary" style="margin-top:1.25rem;">Save</button>
   </form>
 
   <!-- Features (services/features.py): what this rider has switched off. An upper switch (Health, Gear) overrides its parts without
@@ -161,6 +131,354 @@
     </div>
     <p class="hint" style="margin:0.5rem 0 0;">A rider added later starts with {{ 'everything on' if not features_default else (features_default_labels | join(', ') ~ ' off') }}; riders already here keep their own.</p>
   </form>
+
+  <!-- Profile & goals: the stats the smart goals work from (Nutrition's, so it goes with Nutrition) -->
+  {% if feature('nutrition') %}
+  <div class="card" id="profileCard">
+    <div class="card-title">Profile &amp; goals</div>
+    <p class="hint" style="margin:0 0 0.8rem;">Your body stats and targets. Headwind uses them to work out your daily calorie, protein, carb and fat goals, and to project your road to goal weight. Everything here is saved to this Headwind only.</p>
+    <div id="pfStatus" style="font-size:0.8125rem; margin-bottom:0.8rem;"></div>
+    <div class="form-grid">
+      <div class="form-group"><label>Sex</label><select id="pfSex"><option value="">—</option><option value="female">Female</option><option value="male">Male</option></select></div>
+      <div class="form-group"><label>Date of birth</label><input type="date" id="pfBorn" style="width:100%;"><small id="pfBornHint" class="hint"></small></div>
+      <div class="form-group"><label>Height</label>{# the metric/imperial setting picks which comes first; each fills in the other #}
+        {% if units == 'metric' %}
+        <input type="number" id="pfCm" min="100" max="250" inputmode="numeric" placeholder="cm" style="width:100%;" data-input="pfHeightFrom('cm')">
+        <small class="hint" style="white-space:nowrap;">or <input type="number" id="pfFt" min="3" max="7" inputmode="numeric" placeholder="ft" style="width:2.6rem; display:inline; padding:0.3rem;" data-input="pfHeightFrom('ft')"> ft
+          <input type="number" id="pfIn" min="0" max="11.9" step="0.5" inputmode="decimal" placeholder="in" style="width:2.6rem; display:inline; padding:0.3rem;" data-input="pfHeightFrom('ft')"> in</small>
+        {% else %}
+        <div style="display:flex; gap:0.4rem;"><input type="number" id="pfFt" min="3" max="7" inputmode="numeric" placeholder="ft" style="flex:1; min-width:0; width:100%;" data-input="pfHeightFrom('ft')"><input type="number" id="pfIn" min="0" max="11.9" step="0.5" inputmode="decimal" placeholder="in" style="flex:1; min-width:0; width:100%;" data-input="pfHeightFrom('ft')"></div>
+        <small class="hint">or <input type="number" id="pfCm" min="100" max="250" inputmode="numeric" placeholder="cm" style="width:5rem; display:inline;" data-input="pfHeightFrom('cm')"> cm</small>
+        {% endif %}</div>
+      <div class="form-group"><label>Weight now</label>
+        <div id="pfWtStlb" style="display:flex; gap:0.4rem;"><input type="number" id="pfSt" min="0" inputmode="numeric" placeholder="st" style="flex:1; min-width:0; width:100%;"><input type="number" id="pfLb" min="0" max="13.9" step="0.1" inputmode="decimal" placeholder="lb" style="flex:1; min-width:0; width:100%;"></div>
+        <input type="number" id="pfKg" min="0" step="0.1" inputmode="decimal" placeholder="kg" style="display:none;"></div>
+      <div class="form-group"><label>Goal weight</label>
+        <div id="pfGoalStlb" style="display:flex; gap:0.4rem;"><input type="number" id="pfGSt" min="0" inputmode="numeric" placeholder="st" style="flex:1; min-width:0; width:100%;"><input type="number" id="pfGLb" min="0" max="13.9" step="0.1" inputmode="decimal" placeholder="lb" style="flex:1; min-width:0; width:100%;"></div>
+        <input type="number" id="pfGKg" min="0" step="0.1" inputmode="decimal" placeholder="kg" style="display:none;"></div>
+      <div class="form-group"><label>Show weights as</label><select id="pfUnit"><option value="stlb">Stone &amp; lb</option><option value="kg">kg</option></select>
+        <small class="hint">Its own choice, apart from the units under Display.</small></div>
+      <div class="form-group"><label id="pfLossLabel" for="pfLoss">Loss target (lb / week)</label><input type="number" id="pfLoss" min="0" max="2.5" step="0.25" inputmode="decimal" style="flex:1; min-width:0; width:100%;"></div>
+      <div class="form-group"><label>Daily steps goal</label><input type="number" id="pfSteps" min="1000" step="500" inputmode="numeric" style="flex:1; min-width:0; width:100%;"></div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-primary" type="button" data-click="pfSave()">Save profile</button>
+      <button class="btn btn-secondary" type="button" id="pfApply" data-click="pfApply()" disabled>Use the calculated goals</button>
+      <span id="pfMsg" style="font-size:0.8125rem; color:var(--text-muted);"></span>
+    </div>
+    <div id="pfPlan" style="font-size:0.85rem; line-height:1.55; margin-top:0.8rem;"></div>
+    <p style="color:var(--text-muted); font-size:0.75rem; margin:0.8rem 0 0;">Fine-tune the calorie and macro goals themselves on the Nutrition page (Goals).</p>
+  </div>
+  {% endif %}
+
+  <!-- Calorie burn adjustment -->
+  <div class="card" id="calories">
+    <div class="card-title">Calorie burn adjustment</div>
+    <p class="hint" style="margin-bottom:1rem;">
+      Burn figures are estimates and tend to read high. This takes a percentage off every burn estimate as it is pulled in
+      (Garmin and FIT rides, phone recordings, walks and runs, Garmin daily totals). Everything downstream — dashboards, Home
+      Assistant, the API and the Android app — then carries the corrected number. Food calories and figures you type in yourself
+      are never changed, and the original number is always kept so this can be undone.
+    </p>
+    <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+      <label for="calAdjPct" style="margin:0;">Shave off</label>
+      <input type="number" id="calAdjPct" min="0" max="50" step="1" value="{{ (s.calorieAdjustPct if s and s.calorieAdjustPct else 0)|round|int }}" style="width:5.5rem;">
+      <span style="font-size:0.875rem;">%</span>
+      <button class="btn btn-secondary" type="button" data-click="calAdjSave(false)">Save (new data)</button>
+      <button class="btn btn-secondary" type="button" data-click="calAdjSave(true)">Save and apply to history</button>
+      <span id="calAdjStatus" style="font-size:0.8125rem; color:var(--text-muted);"></span>
+    </div>
+    <p style="color:var(--text-muted); font-size:0.75rem; margin-top:0.75rem; line-height:1.5;">
+      0 turns it off. "Apply to history" re-works your own stored activities and Garmin totals from their original numbers
+      (rides received from friends are left alone). Run it again with a different percentage at any time.
+    </p>
+  </div>
+</section>
+
+<section class="page-section" id="connections">
+  <h2 class="section-head">Connections</h2>
+  <p class="hint">The services Headwind fetches from and sends to. Each stays off until you fill it in.</p>
+
+  <!-- Garmin Connect -->
+  <form method="POST" class="card" id="garmin" data-submit="garminSave(this)">
+    <div class="card-title">Garmin Connect</div>
+    <p class="hint" style="margin-bottom:1rem;">
+      Pulls resting HR, HRV, sleep score, and body battery from Garmin Connect for richer AI coaching context.
+      Your password is only used to sign in and isn't kept: Headwind keeps the sign-in Garmin gives it, which renews itself.
+      If your account uses 2-step verification, Connect asks for the code here.
+    </p>
+    {% if s and s.garminSignInNeeded %}
+    <div style="margin-bottom:1rem; font-size:0.8125rem; padding:0.5rem 0.75rem; border-radius:8px; color:var(--warning); border:1px solid var(--warning);">
+      Garmin stopped accepting Headwind's sign-in, so syncing has stopped. Enter your password below and press Sign in again.
+    </div>
+    {% elif garmin_on and not s.garminPassword %}
+    <div class="hint" style="margin-bottom:1rem;">Signed in as {{ s.garminEmail }}.</div>
+    {% endif %}
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Garmin Email</label>
+        <input type="email" name="garminEmail"
+               value="{{ s.garminEmail if s and s.garminEmail else '' }}"
+               placeholder="you@example.com">
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" name="garminPassword" value="" autocomplete="off"
+               placeholder="{{ 'Only to sign in again' if garmin_on else '••••••••' }}">
+      </div>
+    </div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Garmin use</label>
+        <select name="garminSyncMode" id="garminSyncMode" data-change="updateGarminMode(this.value)">
+          <option value="health" {% if not s or not s.garminSyncMode or s.garminSyncMode == 'health' %}selected{% endif %}>Health stats only (HRV, sleep, HR)</option>
+          <option value="full"   {% if s and s.garminSyncMode == 'full' %}selected{% endif %}>Rides + health stats</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Sync every (hours)</label>
+        <input type="number" name="garminSyncHours" min="0.25" max="24" step="0.25"
+               value="{{ s.garminSyncHours if s and s.garminSyncHours else 0.5 }}"
+               placeholder="0.5">
+      </div>
+    </div>
+
+    <input type="hidden" name="aiProvider"       value="{{ s.aiProvider or 'openai' }}">
+    <input type="hidden" name="openaiModel"      value="{{ s.openaiModel or 'gpt-4o' }}">
+    <input type="hidden" name="ollamaUrl"        value="{{ s.ollamaUrl or '' }}">
+    <input type="hidden" name="ollamaModel"      value="{{ s.ollamaModel or '' }}">
+    <input type="hidden" name="mqttHost"         value="{{ s.mqttHost or '' }}">
+    <input type="hidden" name="mqttPort"         value="{{ s.mqttPort         if s else 1883 }}">
+    <input type="hidden" name="mqttUser"         value="{{ s.mqttUser or '' }}">
+
+    <div style="display:flex; gap:0.75rem; margin-top:1.25rem; align-items:center; flex-wrap:wrap;">
+      <button type="submit" class="btn btn-primary">Save</button>
+      <button type="button" class="btn btn-secondary" data-click="garminConnect()" id="garminConnectBtn">
+        {{ 'Sign in again' if garmin_on else 'Connect' }}
+      </button>
+      <button type="button" class="btn btn-secondary" data-click="garminSync()" id="garminBtn"
+              {% if not garmin_on %}disabled{% endif %}>Sync Recovery</button>
+      <button type="button" class="btn btn-secondary" data-click="garminActivitySync()" id="garminActivityBtn"
+              style="display:{% if s and s.garminSyncMode == 'full' %}inline-flex{% else %}none{% endif %};"
+              {% if not garmin_on %}disabled{% endif %}>Sync Rides</button>
+      {% if garmin_on %}
+      <button type="button" class="btn btn-secondary" data-click="garminSignOut(this)">Sign out</button>
+      {% endif %}
+      <span id="garminStatus" style="font-size:0.8125rem; color:var(--text-muted);"></span>
+    </div>
+    <div id="garminConnectStatus" style="margin-top:0.6rem; font-size:0.8125rem; display:none; padding:0.5rem 0.75rem; border-radius:8px;"></div>
+    <div id="garminMfaBox" style="display:none; margin-top:0.6rem; gap:0.5rem;">
+      <input type="text" id="garminMfaCode" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code"
+             style="background:var(--field-bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:0.45rem 0.7rem; width:140px;">
+      <button type="button" class="btn btn-secondary" data-click="garminVerifyMfa()">Verify code</button>
+    </div>
+    <div id="garminActivityStatus" style="margin-top:0.5rem; font-size:0.8125rem; color:var(--text-muted); display:none;"></div>
+    {% if s and s.garminSyncMode == 'full' %}
+    <div style="margin-top:0.5rem; font-size:0.8125rem;"><a href="{{ url_for('garmin.sports_page') }}">Check activity types with Garmin</a>
+      <span style="color:var(--text-muted);">: finds runs, swims and other activities an older sync saved as rides.</span></div>
+    {% if garmin_on %}
+    <div style="margin-top:0.75rem; display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap;">
+      <button type="submit" class="btn btn-secondary btn-sm" formaction="{{ url_for('garmin.changes_check', whole=1) }}" formnovalidate>Full re-sync</button>
+      <span class="hint" style="flex:1; min-width:14rem;">Checks every activity here against all of your Garmin Connect history, for ones deleted, renamed or
+        cropped there; the daily check only gets through a little at a time. They're listed on the Import page for you to keep or delete: nothing changes until you choose.
+        It also brings in strength, yoga and other gym activities an older sync skipped, and lists any other activity in Garmin that isn't here, and the ones you deleted here, to bring back.</span>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {% if garmin_on %}
+    <!-- First run: how much past health data to pull (asked once per Garmin account; default all of it) -->
+    <div style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--border);">
+      <div id="garminHistoryStatus" style="font-size:0.8125rem; color:var(--text-muted); {% if not s.garminHistoryFrom %}display:none;{% endif %}">
+        {{ s.garminHistoryStatus or '' }}{% if s.garminWeightsStatus %}<br>{{ s.garminWeightsStatus }}{% endif %}
+        <a href="#" data-click="setDisplay('garminHistoryAsk', 'block'); event.preventDefault()" style="margin-left:0.35rem;">Fetch more history</a>
+      </div>
+      <div id="garminHistoryAsk" style="{% if s.garminHistoryFrom %}display:none;{% endif %}">
+        <label for="garminHistoryRange" style="margin-top:0.5rem;">How much of your past health data should Headwind fetch from Garmin?</label>
+        <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
+          <select id="garminHistoryRange" style="width:auto;">
+            <option value="all" selected>All of it</option>
+            <option value="1825">The last 5 years</option>
+            <option value="730">The last 2 years</option>
+            <option value="365">The last year</option>
+            <option value="182">The last 6 months</option>
+            <option value="91">The last 3 months</option>
+            <option value="none">None — just the last two weeks</option>
+          </select>
+          <button type="button" class="btn btn-secondary" data-click="garminHistory()" id="garminHistoryBtn">Fetch history</button>
+        </div>
+        <p style="font-size:0.75rem; color:var(--text-muted); margin-top:0.5rem;">
+          Sleep, HRV, resting heart rate, steps and weigh-ins. It downloads in the background; several years can take an hour or two.
+        </p>
+      </div>
+    </div>
+    {% endif %}
+  </form>
+
+  <!-- Home Assistant: health data in (routes/home_assistant.py, its own page), and sensors out over MQTT -->
+  <div class="card" id="home-assistant">
+    <div class="card-title">Home Assistant</div>
+    <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap; padding-bottom:1rem; margin-bottom:1rem; border-bottom:1px solid var(--border);">
+      <div style="flex:1; min-width:200px;">
+        <div style="font-weight:600;">Health data in</div>
+        <div class="hint">Pull your Bluetooth scale's weight and body readings into Headwind.</div>
+      </div>
+      <a href="{{ url_for('homeassistant.index') }}" class="btn btn-secondary">Set up &rarr;</a>
+    </div>
+    <form method="POST" id="mqtt">
+      <div style="font-weight:600;">Sensors out, over MQTT</div>
+      <p class="hint" style="margin:0.25rem 0 1rem;">
+        Publishes sensors to Home Assistant by MQTT Discovery: totals, distance, elevation, calories, time, Everests, laps of Earth,
+        and the last activity. Set the <strong>HA Device</strong> on each rider's profile for their own push notifications.
+      </p>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Broker Host</label>
+          <input type="text" name="mqttHost"
+                 value="{{ s.mqttHost if s and s.mqttHost else '' }}"
+                 placeholder="192.168.1.x or homeassistant.local">
+        </div>
+        <div class="form-group">
+          <label>Port</label>
+          <input type="number" name="mqttPort" id="mqttPort"
+                 value="{{ s.mqttPort if s and s.mqttPort else 1883 }}"
+                 placeholder="{{ 8883 if s and s.mqttTls else 1883 }}">
+        </div>
+        <div class="form-group">
+          <label>Username <span class="hint">(optional)</span></label>
+          <input type="text" name="mqttUser"
+                 value="{{ s.mqttUser if s and s.mqttUser else '' }}"
+                 placeholder="mqtt user">
+        </div>
+        <div class="form-group">
+          <label>Password <span class="hint">(optional)</span></label>
+          <input type="password" name="mqttPassword" value="" autocomplete="off"
+                 placeholder="{{ 'Saved: leave blank to keep it' if s and s.mqttPassword else '••••••••' }}">
+        </div>
+        <div class="form-group">
+          <label class="check"><input type="checkbox" name="mqttTls" value="1" id="mqttTls" {{ 'checked' if s and s.mqttTls }} data-change="mqttTlsPort(this)"> Use TLS</label>
+          <p class="hint">Encrypts the connection, username and password included. Brokers usually take TLS on port 8883.</p>
+        </div>
+        <div class="form-group">
+          <label>CA certificate file <span class="hint">(optional)</span></label>
+          <input type="text" name="mqttCaFile" value="{{ s.mqttCaFile if s and s.mqttCaFile else '' }}" placeholder="/data/mqtt-ca.crt">
+          <p class="hint">For a broker with a self-signed certificate: the path, on this server, of the CA certificate that signed it. Blank uses the system's.</p>
+        </div>
+      </div>
+
+      <input type="hidden" name="aiProvider"       value="{{ s.aiProvider or 'openai' }}">
+      <input type="hidden" name="openaiModel"      value="{{ s.openaiModel or 'gpt-4o' }}">
+      <input type="hidden" name="ollamaUrl"        value="{{ s.ollamaUrl or '' }}">
+      <input type="hidden" name="ollamaModel"      value="{{ s.ollamaModel or '' }}">
+      <input type="hidden" name="garminSyncHours"  value="{{ s.garminSyncHours  if s and s.garminSyncHours else 0.5 }}">
+      <input type="hidden" name="garminSyncMode"   value="{{ s.garminSyncMode   if s and s.garminSyncMode   else 'health' }}">
+
+      <div style="display:flex; gap:0.75rem; margin-top:1.25rem; align-items:center; flex-wrap:wrap;">
+        <button type="submit" class="btn btn-primary">Save</button>
+        <button type="button" class="btn btn-secondary" id="mqttTestBtn" data-click="testSetting('mqtt', this)">Test connection</button>
+        <button type="button" class="btn btn-secondary" data-click="mqttPublish()" id="mqttBtn">Publish to HA</button>
+        <span id="mqttStatus" style="font-size:0.8125rem; color:var(--text-muted);"></span>
+      </div>
+    </form>
+  </div>
+
+  <!-- AI Provider -->
+  <form method="POST" class="card" id="ai">
+    <div class="card-title">AI Provider</div>
+    <div class="ai-grid">
+      <div class="form-group">
+        <label>Provider</label>
+        <select name="aiProvider" id="providerSelect" data-change="updateProvider()">
+          <option value="openai" {% if not s or s.aiProvider == 'openai' %}selected{% endif %}>OpenAI</option>
+          <option value="claude" {% if s and s.aiProvider == 'claude' %}selected{% endif %}>Claude</option>
+          <option value="ollama" {% if s and s.aiProvider == 'ollama' %}selected{% endif %}>Ollama (local)</option>
+        </select>
+      </div>
+      <div id="openaiFields" style="display:contents;">
+        <div class="form-group">
+          <label>API Key</label>
+          <input type="password" name="openaiKey" value="" autocomplete="off"
+                 placeholder="{{ 'Saved: leave blank to keep it' if s and s.openaiKey else 'sk-...' }}">
+        </div>
+        <div class="form-group">
+          <label>Model</label>
+          <select name="openaiModel">
+            {% for m in openai_models %}
+            <option value="{{ m }}" {% if s and s.openaiModel == m %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div id="claudeFields" style="display:none;">
+        <div class="form-group">
+          <label>API Key</label>
+          <input type="password" name="claudeKey" value="" autocomplete="off"
+                 placeholder="{{ 'Saved: leave blank to keep it' if s and s.claudeKey else 'sk-ant-...' }}">
+        </div>
+        <div class="form-group">
+          <label>Model</label>
+          <select name="claudeModel">
+            {% for m in claude_models %}
+            <option value="{{ m }}" {% if s and s.claudeModel == m %}selected{% endif %}>{{ m }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div id="ollamaFields" style="display:none; grid-column:2/-1; display:none;">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Ollama URL</label>
+            <input type="text" name="ollamaUrl"
+                   value="{{ s.ollamaUrl if s and s.ollamaUrl else 'http://localhost:11434' }}"
+                   placeholder="http://localhost:11434">
+          </div>
+          <div class="form-group">
+            <label>Model</label>
+            <input type="text" name="ollamaModel"
+                   value="{{ s.ollamaModel if s and s.ollamaModel else 'llama3.2' }}"
+                   placeholder="llama3.2">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <input type="hidden" name="garminSyncHours" value="{{ s.garminSyncHours if s and s.garminSyncHours else 0.5 }}">
+    <input type="hidden" name="garminSyncMode"  value="{{ s.garminSyncMode  if s and s.garminSyncMode  else 'health' }}">
+    <div style="display:flex; gap:0.75rem; margin-top:1.25rem; align-items:center; flex-wrap:wrap;">
+      <button type="submit" class="btn btn-primary">Save</button>
+      <button type="button" class="btn btn-secondary" id="aiTestBtn" data-click="testSetting('ai', this)">Test AI</button>
+      <span id="aiTestStatus" style="font-size:0.8125rem; color:var(--text-muted);"></span>
+    </div>
+  </form>
+
+  <!-- Optional map keys (services/map_tiles.py): each adds map types to every map's picker -->
+  <form method="POST" action="/settings/maps" class="card" id="maps">
+    <div class="card-title">Maps</div>
+    <p class="hint" style="margin:0 0 1rem;">Every map has a picker for its map type: satellite, grey, Esri Topo, OpenTopoMap and CyclOSM, with Waymarked Trails' mountain bike and cycling routes over any of them. These two need a free key of your own, and join the picker once one is saved.</p>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="thunderforestKey">Thunderforest API key</label>
+        <input type="password" id="thunderforestKey" name="thunderforestKey" value="" autocomplete="off"
+               placeholder="{{ 'Saved: leave blank to keep it' if s and s.thunderforestKey else 'For OpenCycleMap and Outdoors' }}">
+        <span class="hint">From <a href="https://manage.thunderforest.com/" target="_blank" rel="noopener">thunderforest.com</a>. The free Hobby plan has 150,000 tiles a month.</span>
+        {% if s and s.thunderforestKey %}<label class="check" style="margin-top:0.4rem;"><input type="checkbox" name="clear_thunderforest"> Remove the saved key</label>{% endif %}
+      </div>
+      <div class="form-group">
+        <label for="osMapsKey">OS Maps API key</label>
+        <input type="password" id="osMapsKey" name="osMapsKey" value="" autocomplete="off"
+               placeholder="{{ 'Saved: leave blank to keep it' if s and s.osMapsKey else 'For Ordnance Survey maps of Great Britain' }}">
+        <span class="hint">From the <a href="https://osdatahub.os.uk/" target="_blank" rel="noopener">OS Data Hub</a>, with the OS Maps API added to a project. Only the free OpenData zoom levels are used; closer in, they're enlarged.</span>
+        {% if s and s.osMapsKey %}<label class="check" style="margin-top:0.4rem;"><input type="checkbox" name="clear_os"> Remove the saved key</label>{% endif %}
+      </div>
+    </div>
+    <p class="hint" style="margin:0 0 1rem;">Your browser loads these tiles with the key in the address, as each provider's own examples do, so anyone who can open your maps could read it.</p>
+    <div class="form-actions"><button type="submit" class="btn btn-primary">Save</button></div>
+  </form>
+</section>
+
+<section class="page-section" id="sharing">
+  <h2 class="section-head">Sharing</h2>
+  <p class="hint">The address your phone and your friends reach Headwind on, and who your live tracking links are emailed to.</p>
 
   <!-- Outside address (services/external_url.py) -->
   <form method="POST" action="{{ url_for('settings.save_address') }}" class="card" id="address">
@@ -267,9 +585,14 @@
       <span id="emailStatus" style="font-size:0.8125rem; color:var(--text-muted);"></span>
     </div>
   </form>
+</section>
+
+<section class="page-section" id="server">
+  <h2 class="section-head">This server</h2>
+  <p class="hint">Your login, backups, and the version you are running.</p>
 
   <!-- Login Details -->
-  <form method="POST" action="/settings/password" class="card">
+  <form method="POST" action="/settings/password" class="card" id="login">
     <div class="card-title">Login Details</div>
     <div class="form-grid">
       <div class="form-group">
@@ -292,418 +615,67 @@
     <button type="submit" class="btn btn-primary">Update Login</button>
   </form>
 
-  <!-- AI Provider -->
-  <form method="POST" class="card">
-    <div class="card-title">AI Provider</div>
-    <div class="ai-grid">
-      <div class="form-group">
-        <label>Provider</label>
-        <select name="aiProvider" id="providerSelect" data-change="updateProvider()">
-          <option value="openai" {% if not s or s.aiProvider == 'openai' %}selected{% endif %}>OpenAI</option>
-          <option value="claude" {% if s and s.aiProvider == 'claude' %}selected{% endif %}>Claude</option>
-          <option value="ollama" {% if s and s.aiProvider == 'ollama' %}selected{% endif %}>Ollama (local)</option>
-        </select>
-      </div>
-      <div id="openaiFields" style="display:contents;">
-        <div class="form-group">
-          <label>API Key</label>
-          <input type="password" name="openaiKey" value="" autocomplete="off"
-                 placeholder="{{ 'Saved: leave blank to keep it' if s and s.openaiKey else 'sk-...' }}">
-        </div>
-        <div class="form-group">
-          <label>Model</label>
-          <select name="openaiModel">
-            {% for m in openai_models %}
-            <option value="{{ m }}" {% if s and s.openaiModel == m %}selected{% endif %}>{{ m }}</option>
-            {% endfor %}
-          </select>
-        </div>
-      </div>
-      <div id="claudeFields" style="display:none;">
-        <div class="form-group">
-          <label>API Key</label>
-          <input type="password" name="claudeKey" value="" autocomplete="off"
-                 placeholder="{{ 'Saved: leave blank to keep it' if s and s.claudeKey else 'sk-ant-...' }}">
-        </div>
-        <div class="form-group">
-          <label>Model</label>
-          <select name="claudeModel">
-            {% for m in claude_models %}
-            <option value="{{ m }}" {% if s and s.claudeModel == m %}selected{% endif %}>{{ m }}</option>
-            {% endfor %}
-          </select>
-        </div>
-      </div>
-      <div id="ollamaFields" style="display:none; grid-column:2/-1; display:none;">
-        <div class="form-grid">
-          <div class="form-group">
-            <label>Ollama URL</label>
-            <input type="text" name="ollamaUrl"
-                   value="{{ s.ollamaUrl if s and s.ollamaUrl else 'http://localhost:11434' }}"
-                   placeholder="http://localhost:11434">
-          </div>
-          <div class="form-group">
-            <label>Model</label>
-            <input type="text" name="ollamaModel"
-                   value="{{ s.ollamaModel if s and s.ollamaModel else 'llama3.2' }}"
-                   placeholder="llama3.2">
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <input type="hidden" name="garminSyncHours" value="{{ s.garminSyncHours if s and s.garminSyncHours else 0.5 }}">
-    <input type="hidden" name="garminSyncMode"  value="{{ s.garminSyncMode  if s and s.garminSyncMode  else 'health' }}">
-    <div style="display:flex; gap:0.75rem; margin-top:1.25rem; align-items:center; flex-wrap:wrap;">
-      <button type="submit" class="btn btn-primary">Save</button>
-      <button type="button" class="btn btn-secondary" id="aiTestBtn" data-click="testSetting('ai', this)">Test AI</button>
-      <span id="aiTestStatus" style="font-size:0.8125rem; color:var(--text-muted);"></span>
-    </div>
-  </form>
-
-  <!-- Optional map keys (services/map_tiles.py): each adds map types to every map's picker -->
-  <form method="POST" action="/settings/maps" class="card" id="maps">
-    <div class="card-title">Maps</div>
-    <p class="hint" style="margin:0 0 1rem;">Every map has a picker for its map type: satellite, grey, Esri Topo, OpenTopoMap and CyclOSM, with Waymarked Trails' mountain bike and cycling routes over any of them. These two need a free key of your own, and join the picker once one is saved.</p>
-    <div class="form-grid">
-      <div class="form-group">
-        <label for="thunderforestKey">Thunderforest API key</label>
-        <input type="password" id="thunderforestKey" name="thunderforestKey" value="" autocomplete="off"
-               placeholder="{{ 'Saved: leave blank to keep it' if s and s.thunderforestKey else 'For OpenCycleMap and Outdoors' }}">
-        <span class="hint">From <a href="https://manage.thunderforest.com/" target="_blank" rel="noopener">thunderforest.com</a>. The free Hobby plan has 150,000 tiles a month.</span>
-        {% if s and s.thunderforestKey %}<label class="check" style="margin-top:0.4rem;"><input type="checkbox" name="clear_thunderforest"> Remove the saved key</label>{% endif %}
-      </div>
-      <div class="form-group">
-        <label for="osMapsKey">OS Maps API key</label>
-        <input type="password" id="osMapsKey" name="osMapsKey" value="" autocomplete="off"
-               placeholder="{{ 'Saved: leave blank to keep it' if s and s.osMapsKey else 'For Ordnance Survey maps of Great Britain' }}">
-        <span class="hint">From the <a href="https://osdatahub.os.uk/" target="_blank" rel="noopener">OS Data Hub</a>, with the OS Maps API added to a project. Only the free OpenData zoom levels are used; closer in, they're enlarged.</span>
-        {% if s and s.osMapsKey %}<label class="check" style="margin-top:0.4rem;"><input type="checkbox" name="clear_os"> Remove the saved key</label>{% endif %}
-      </div>
-    </div>
-    <p class="hint" style="margin:0 0 1rem;">Your browser loads these tiles with the key in the address, as each provider's own examples do, so anyone who can open your maps could read it.</p>
-    <div class="form-actions"><button type="submit" class="btn btn-primary">Save</button></div>
-  </form>
-
-  <!-- Home Assistant import (scale / health entities) -->
-  <div class="card" style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
-    <div style="flex:1; min-width:200px;">
-      <div class="card-title" style="margin-bottom:0.25rem;">Home Assistant — import health data</div>
-      <div class="hint">Pull your Bluetooth scale's weight and body readings into Headwind.</div>
-    </div>
-    <a href="{{ url_for('homeassistant.index') }}" class="btn btn-secondary" style="min-height:44px;">Set up &rarr;</a>
-  </div>
-
-  <!-- MQTT / Home Assistant -->
-  <form method="POST" class="card">
-    <div class="card-title">Home Assistant — MQTT</div>
+  <!-- Backup & Restore -->
+  <div class="card" id="backup">
+    <div class="card-title">Backup &amp; Restore</div>
     <p class="hint" style="margin-bottom:1rem;">
-      Publishes sensors to Home Assistant via MQTT Discovery — total rides, distance,
-      elevation, calories, time, Everests, laps of Earth, and last ride details.
+      Export a full backup — all rides, segments, settings, avatars, and rider data.
+      Use to migrate to a new machine or restore after a problem.
     </p>
-    <div class="form-grid">
-      <div class="form-group">
-        <label>Broker Host</label>
-        <input type="text" name="mqttHost"
-               value="{{ s.mqttHost if s and s.mqttHost else '' }}"
-               placeholder="192.168.1.x or homeassistant.local">
-      </div>
-      <div class="form-group">
-        <label>Port</label>
-        <input type="number" name="mqttPort" id="mqttPort"
-               value="{{ s.mqttPort if s and s.mqttPort else 1883 }}"
-               placeholder="{{ 8883 if s and s.mqttTls else 1883 }}">
-      </div>
-      <div class="form-group">
-        <label>Username <span class="hint">(optional)</span></label>
-        <input type="text" name="mqttUser"
-               value="{{ s.mqttUser if s and s.mqttUser else '' }}"
-               placeholder="mqtt user">
-      </div>
-      <div class="form-group">
-        <label>Password <span class="hint">(optional)</span></label>
-        <input type="password" name="mqttPassword" value="" autocomplete="off"
-               placeholder="{{ 'Saved: leave blank to keep it' if s and s.mqttPassword else '••••••••' }}">
-      </div>
-      <div class="form-group">
-        <label class="check"><input type="checkbox" name="mqttTls" value="1" id="mqttTls" {{ 'checked' if s and s.mqttTls }} data-change="mqttTlsPort(this)"> Use TLS</label>
-        <p class="hint">Encrypts the connection, username and password included. Brokers usually take TLS on port 8883.</p>
-      </div>
-      <div class="form-group">
-        <label>CA certificate file <span class="hint">(optional)</span></label>
-        <input type="text" name="mqttCaFile" value="{{ s.mqttCaFile if s and s.mqttCaFile else '' }}" placeholder="/data/mqtt-ca.crt">
-        <p class="hint">For a broker with a self-signed certificate: the path, on this server, of the CA certificate that signed it. Blank uses the system's.</p>
-      </div>
+    {% if backup_job.state == 'running' %}
+    <p style="margin:0 0 1rem; padding:0.6rem 0.75rem; border:1px solid var(--border); border-radius:8px;" data-poll="{{ url_for('settings.backup_status') }}">Making the backup:
+      <span id="backupProgress">{{ backup_job.progress or 'starting' }}</span>… You can leave this page: the backup is offered here, and at
+      the top of whatever page you're on, when it's ready.</p>
+    {% elif backup_job.state == 'ready' %}
+    <div style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; margin:0 0 1rem; padding:0.6rem 0.75rem; border:1px solid var(--border); border-radius:8px;">
+      <span style="flex:1 1 12rem;"><strong>Your backup is ready</strong> ({{ backup_job.size_text }}). It's kept here for a day, or until
+        you make another.</span>
+      <a class="btn btn-primary" href="{{ backup_job.url }}">Download</a>
+      <form method="POST" action="{{ url_for('settings.backup_delete') }}" style="margin:0;"><button class="btn btn-danger-quiet">Delete it</button></form>
     </div>
-
-    <input type="hidden" name="aiProvider"       value="{{ s.aiProvider or 'openai' }}">
-    <input type="hidden" name="openaiModel"      value="{{ s.openaiModel or 'gpt-4o' }}">
-    <input type="hidden" name="ollamaUrl"        value="{{ s.ollamaUrl or '' }}">
-    <input type="hidden" name="ollamaModel"      value="{{ s.ollamaModel or '' }}">
-    <input type="hidden" name="garminSyncHours"  value="{{ s.garminSyncHours  if s and s.garminSyncHours else 0.5 }}">
-    <input type="hidden" name="garminSyncMode"   value="{{ s.garminSyncMode   if s and s.garminSyncMode   else 'health' }}">
-
-    <div style="display:flex; gap:0.75rem; margin-top:1.25rem; align-items:center; flex-wrap:wrap;">
-      <button type="submit" class="btn btn-primary">Save</button>
-      <button type="button" class="btn btn-secondary" id="mqttTestBtn" data-click="testSetting('mqtt', this)">Test connection</button>
-      <button type="button" class="btn btn-secondary" data-click="mqttPublish()" id="mqttBtn">Publish to HA</button>
-      <span id="mqttStatus" style="font-size:0.8125rem; color:var(--text-muted);"></span>
-    </div>
-  </form>
-
-  <!-- Garmin Connect -->
-  <div>
-
-    <!-- Garmin Connect -->
-    <form method="POST" class="card" id="garmin" data-submit="garminSave(this)">
-      <div class="card-title">Garmin Connect</div>
-      <p class="hint" style="margin-bottom:1rem;">
-        Pulls resting HR, HRV, sleep score, and body battery from Garmin Connect for richer AI coaching context.
-        Your password is only used to sign in and isn't kept: Headwind keeps the sign-in Garmin gives it, which renews itself.
-      </p>
-      {% if s and s.garminSignInNeeded %}
-      <div style="margin-bottom:1rem; font-size:0.8125rem; padding:0.5rem 0.75rem; border-radius:8px; color:var(--warning); border:1px solid var(--warning);">
-        Garmin stopped accepting Headwind's sign-in, so syncing has stopped. Enter your password below and press Sign in again.
-      </div>
-      {% elif garmin_on and not s.garminPassword %}
-      <div class="hint" style="margin-bottom:1rem;">Signed in as {{ s.garminEmail }}.</div>
+    {% elif backup_job.state == 'failed' %}
+    <p class="hint" style="margin:0 0 1rem; color:var(--danger-text);">The last backup failed: {{ backup_job.error }}. The
+      <a href="{{ url_for('tasks.index') }}">Tasks page</a> has its log lines.</p>
+    {% endif %}
+    <div style="display:flex; gap:0.75rem; align-items:flex-start; flex-wrap:wrap;">
+      {% if backup_job.state != 'running' %}
+      <form method="POST" action="{{ url_for('settings.backup_export') }}" style="max-width:22rem;">
+        <button class="btn btn-secondary">Make backup</button>
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.4rem;">A <code>.zip</code> of the database and photos, made
+          in the background and offered to download when it's ready{% if last_backup %}. The last one, <span data-backup-when="{{ last_backup.finishedAt }}">{{ last_backup.finishedAt[:10] }}</span>,
+          was {{ (last_backup.result or '').split(',')[0] }}{% endif %}.</div>
+        <label style="display:flex; gap:0.4rem; align-items:flex-start; font-size:0.8125rem; margin-top:0.6rem;">
+          <input type="checkbox" name="secrets" value="1" style="margin-top:0.2rem;">
+          <span>Include the secrets key
+            <span style="display:block; font-size:0.75rem; color:var(--text-muted);">Restoring on another server then keeps the saved AI keys,
+              Home Assistant token, MQTT and mail server passwords, Garmin email and friends' feed tokens. Anyone who gets the zip can read them too:
+              keep it as safe as the passwords themselves.</span></span>
+        </label>
+      </form>
       {% endif %}
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Garmin Email</label>
-          <input type="email" name="garminEmail"
-                 value="{{ s.garminEmail if s and s.garminEmail else '' }}"
-                 placeholder="you@example.com">
-        </div>
-        <div class="form-group">
-          <label>Password</label>
-          <input type="password" name="garminPassword" value="" autocomplete="off"
-                 placeholder="{{ 'Only to sign in again' if garmin_on else '••••••••' }}">
-        </div>
-      </div>
-      <div class="form-grid">
-        <div class="form-group">
-          <label>Garmin use</label>
-          <select name="garminSyncMode" id="garminSyncMode" data-change="updateGarminMode(this.value)">
-            <option value="health" {% if not s or not s.garminSyncMode or s.garminSyncMode == 'health' %}selected{% endif %}>Health stats only (HRV, sleep, HR)</option>
-            <option value="full"   {% if s and s.garminSyncMode == 'full' %}selected{% endif %}>Rides + health stats</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>Sync every (hours)</label>
-          <input type="number" name="garminSyncHours" min="0.25" max="24" step="0.25"
-                 value="{{ s.garminSyncHours if s and s.garminSyncHours else 0.5 }}"
-                 placeholder="0.5">
-        </div>
-      </div>
-
-      <input type="hidden" name="aiProvider"       value="{{ s.aiProvider or 'openai' }}">
-      <input type="hidden" name="openaiModel"      value="{{ s.openaiModel or 'gpt-4o' }}">
-      <input type="hidden" name="ollamaUrl"        value="{{ s.ollamaUrl or '' }}">
-      <input type="hidden" name="ollamaModel"      value="{{ s.ollamaModel or '' }}">
-      <input type="hidden" name="mqttHost"         value="{{ s.mqttHost or '' }}">
-      <input type="hidden" name="mqttPort"         value="{{ s.mqttPort         if s else 1883 }}">
-      <input type="hidden" name="mqttUser"         value="{{ s.mqttUser or '' }}">
-
-      <div style="display:flex; gap:0.75rem; margin-top:1.25rem; align-items:center; flex-wrap:wrap;">
-        <button type="submit" class="btn btn-primary">Save</button>
-        <button type="button" class="btn btn-secondary" data-click="garminConnect()" id="garminConnectBtn">
-          {{ 'Sign in again' if garmin_on else 'Connect' }}
-        </button>
-        <button type="button" class="btn btn-secondary" data-click="garminSync()" id="garminBtn"
-                {% if not garmin_on %}disabled{% endif %}>Sync Recovery</button>
-        <button type="button" class="btn btn-secondary" data-click="garminActivitySync()" id="garminActivityBtn"
-                style="display:{% if s and s.garminSyncMode == 'full' %}inline-flex{% else %}none{% endif %};"
-                {% if not garmin_on %}disabled{% endif %}>Sync Rides</button>
-        {% if garmin_on %}
-        <button type="button" class="btn btn-secondary" data-click="garminSignOut(this)">Sign out</button>
-        {% endif %}
-        <span id="garminStatus" style="font-size:0.8125rem; color:var(--text-muted);"></span>
-      </div>
-      <div id="garminConnectStatus" style="margin-top:0.6rem; font-size:0.8125rem; display:none; padding:0.5rem 0.75rem; border-radius:8px;"></div>
-      <div id="garminMfaBox" style="display:none; margin-top:0.6rem; gap:0.5rem;">
-        <input type="text" id="garminMfaCode" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code"
-               style="background:var(--field-bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:0.45rem 0.7rem; width:140px;">
-        <button type="button" class="btn btn-secondary" data-click="garminVerifyMfa()">Verify code</button>
-      </div>
-      <div id="garminActivityStatus" style="margin-top:0.5rem; font-size:0.8125rem; color:var(--text-muted); display:none;"></div>
-      {% if s and s.garminSyncMode == 'full' %}
-      <div style="margin-top:0.5rem; font-size:0.8125rem;"><a href="{{ url_for('garmin.sports_page') }}">Check activity types with Garmin</a>
-        <span style="color:var(--text-muted);">: finds runs, swims and other activities an older sync saved as rides.</span></div>
-      {% if garmin_on %}
-      <div style="margin-top:0.75rem; display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap;">
-        <button type="submit" class="btn btn-secondary btn-sm" formaction="{{ url_for('garmin.changes_check', whole=1) }}" formnovalidate>Full re-sync</button>
-        <span class="hint" style="flex:1; min-width:14rem;">Checks every activity here against all of your Garmin Connect history, for ones deleted, renamed or
-          cropped there; the daily check only gets through a little at a time. They're listed on the Import page for you to keep or delete: nothing changes until you choose.
-          It also brings in strength, yoga and other gym activities an older sync skipped, and lists any other activity in Garmin that isn't here, and the ones you deleted here, to bring back.</span>
-      </div>
-      {% endif %}
-      {% endif %}
-
-      {% if garmin_on %}
-      <!-- First run: how much past health data to pull (asked once per Garmin account; default all of it) -->
-      <div style="margin-top:1rem; padding-top:1rem; border-top:1px solid var(--border);">
-        <div id="garminHistoryStatus" style="font-size:0.8125rem; color:var(--text-muted); {% if not s.garminHistoryFrom %}display:none;{% endif %}">
-          {{ s.garminHistoryStatus or '' }}{% if s.garminWeightsStatus %}<br>{{ s.garminWeightsStatus }}{% endif %}
-          <a href="#" data-click="setDisplay('garminHistoryAsk', 'block'); event.preventDefault()" style="margin-left:0.35rem;">Fetch more history</a>
-        </div>
-        <div id="garminHistoryAsk" style="{% if s.garminHistoryFrom %}display:none;{% endif %}">
-          <label for="garminHistoryRange" style="margin-top:0.5rem;">How much of your past health data should Headwind fetch from Garmin?</label>
-          <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
-            <select id="garminHistoryRange" style="width:auto;">
-              <option value="all" selected>All of it</option>
-              <option value="1825">The last 5 years</option>
-              <option value="730">The last 2 years</option>
-              <option value="365">The last year</option>
-              <option value="182">The last 6 months</option>
-              <option value="91">The last 3 months</option>
-              <option value="none">None — just the last two weeks</option>
-            </select>
-            <button type="button" class="btn btn-secondary" data-click="garminHistory()" id="garminHistoryBtn">Fetch history</button>
-          </div>
-          <p style="font-size:0.75rem; color:var(--text-muted); margin-top:0.5rem;">
-            Sleep, HRV, resting heart rate, steps and weigh-ins. It downloads in the background; several years can take an hour or two.
-          </p>
-        </div>
-      </div>
-      {% endif %}
-    </form>
-
-  </div>
-
-  <!-- Calorie burn adjustment -->
-  <div class="card" style="margin-bottom:1.5rem;">
-    <div class="card-title">Calorie burn adjustment</div>
-    <p class="hint" style="margin-bottom:1rem;">
-      Burn figures are estimates and tend to read high. This takes a percentage off every burn estimate as it is pulled in
-      (Garmin and FIT rides, phone recordings, walks and runs, Garmin daily totals). Everything downstream — dashboards, Home
-      Assistant, the API and the Android app — then carries the corrected number. Food calories and figures you type in yourself
-      are never changed, and the original number is always kept so this can be undone.
-    </p>
-    <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
-      <label for="calAdjPct" style="margin:0;">Shave off</label>
-      <input type="number" id="calAdjPct" min="0" max="50" step="1" value="{{ (s.calorieAdjustPct if s and s.calorieAdjustPct else 0)|round|int }}" style="width:5.5rem;">
-      <span style="font-size:0.875rem;">%</span>
-      <button class="btn btn-secondary" type="button" data-click="calAdjSave(false)">Save (new data)</button>
-      <button class="btn btn-secondary" type="button" data-click="calAdjSave(true)">Save and apply to history</button>
-      <span id="calAdjStatus" style="font-size:0.8125rem; color:var(--text-muted);"></span>
-    </div>
-    <p style="color:var(--text-muted); font-size:0.75rem; margin-top:0.75rem; line-height:1.5;">
-      0 turns it off. "Apply to history" re-works your own stored activities and Garmin totals from their original numbers
-      (rides received from friends are left alone). Run it again with a different percentage at any time.
-    </p>
-  </div>
-
-  <!-- Weather Backfill + Backup side by side -->
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; align-items:start;">
-
-    <!-- Weather Backfill -->
-    <div class="card">
-      <div class="card-title">Weather Backfill</div>
-      <p class="hint" style="margin-bottom:1rem;">
-        Fetch weather data for all historical rides that are missing it.
-        Runs in batches automatically — click once and let it finish.
-      </p>
-      <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
-        <button class="btn btn-secondary" data-click="weatherBackfill()" id="backfillBtn">Backfill All Weather</button>
-        <span id="backfillStatus" style="font-size:0.8125rem; color:var(--text-muted);"></span>
-      </div>
-    </div>
-
-    <!-- Backup & Restore -->
-    <div class="card" id="backup">
-      <div class="card-title">Backup &amp; Restore</div>
-      <p class="hint" style="margin-bottom:1rem;">
-        Export a full backup — all rides, segments, settings, avatars, and rider data.
-        Use to migrate to a new machine or restore after a problem.
-      </p>
-      {% if backup_job.state == 'running' %}
-      <p style="margin:0 0 1rem; padding:0.6rem 0.75rem; border:1px solid var(--border); border-radius:8px;" data-poll="{{ url_for('settings.backup_status') }}">Making the backup:
-        <span id="backupProgress">{{ backup_job.progress or 'starting' }}</span>… You can leave this page: the backup is offered here, and at
-        the top of whatever page you're on, when it's ready.</p>
-      {% elif backup_job.state == 'ready' %}
-      <div style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; margin:0 0 1rem; padding:0.6rem 0.75rem; border:1px solid var(--border); border-radius:8px;">
-        <span style="flex:1 1 12rem;"><strong>Your backup is ready</strong> ({{ backup_job.size_text }}). It's kept here for a day, or until
-          you make another.</span>
-        <a class="btn btn-primary" href="{{ backup_job.url }}">Download</a>
-        <form method="POST" action="{{ url_for('settings.backup_delete') }}" style="margin:0;"><button class="btn btn-danger-quiet">Delete it</button></form>
-      </div>
-      {% elif backup_job.state == 'failed' %}
-      <p class="hint" style="margin:0 0 1rem; color:var(--danger-text);">The last backup failed: {{ backup_job.error }}. The
-        <a href="{{ url_for('tasks.index') }}">Tasks page</a> has its log lines.</p>
-      {% endif %}
-      <div style="display:flex; gap:0.75rem; align-items:flex-start; flex-wrap:wrap;">
-        {% if backup_job.state != 'running' %}
-        <form method="POST" action="{{ url_for('settings.backup_export') }}" style="max-width:22rem;">
-          <button class="btn btn-secondary">Make backup</button>
-          <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.4rem;">A <code>.zip</code> of the database and photos, made
-            in the background and offered to download when it's ready{% if last_backup %}. The last one, <span data-backup-when="{{ last_backup.finishedAt }}">{{ last_backup.finishedAt[:10] }}</span>,
-            was {{ (last_backup.result or '').split(',')[0] }}{% endif %}.</div>
-          <label style="display:flex; gap:0.4rem; align-items:flex-start; font-size:0.8125rem; margin-top:0.6rem;">
-            <input type="checkbox" name="secrets" value="1" style="margin-top:0.2rem;">
-            <span>Include the secrets key
-              <span style="display:block; font-size:0.75rem; color:var(--text-muted);">Restoring on another server then keeps the saved AI keys,
-                Home Assistant token, MQTT and mail server passwords, Garmin email and friends' feed tokens. Anyone who gets the zip can read them too:
-                keep it as safe as the passwords themselves.</span></span>
+      <div>
+        <form method="POST" action="/settings/backup/import" enctype="multipart/form-data" id="importForm" style="display:flex; flex-direction:column; gap:0.4rem;">
+          <label class="btn btn-secondary" style="cursor:pointer; margin:0;">
+            Restore Backup
+            <input type="file" name="backup" accept=".zip,.db" style="display:none;" data-autosubmit>
           </label>
+          <div style="font-size:0.75rem; color:var(--text-muted);">Replaces current data — back up first</div>
         </form>
-        {% endif %}
-        <div>
-          <form method="POST" action="/settings/backup/import" enctype="multipart/form-data" id="importForm" style="display:flex; flex-direction:column; gap:0.4rem;">
-            <label class="btn btn-secondary" style="cursor:pointer; margin:0;">
-              Restore Backup
-              <input type="file" name="backup" accept=".zip,.db" style="display:none;" data-autosubmit>
-            </label>
-            <div style="font-size:0.75rem; color:var(--text-muted);">Replaces current data — back up first</div>
-          </form>
-        </div>
-      </div>
-    </div>
-
-  </div>
-
-  <!-- Setup Guide -->
-  <div class="card">
-    <div class="card-title">Setup Guide</div>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:2rem;">
-      <div>
-        <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); font-weight:600; margin-bottom:0.5rem;">Home Assistant / MQTT</div>
-        <p class="hint" style="margin:0 0 1.25rem;">
-          Enter broker details above. Sensors publish every 20 seconds and after every sync.
-          Set the <strong style="color:var(--text);">HA Device</strong> on each rider's profile for per-rider push notifications.
-        </p>
-
-        <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); font-weight:600; margin-bottom:0.5rem;">Garmin Connect</div>
-        <p class="hint" style="margin:0;">
-          Enter credentials above and click <strong style="color:var(--text);">Connect</strong> — if your account uses 2-step
-          verification you'll be asked for the code right there, no command line needed. Recovery data syncs automatically
-          every few hours after that.
-        </p>
-      </div>
-      <div>
-        <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--accent); font-weight:600; margin-bottom:0.5rem;">Environment Variables</div>
-        <div style="background:var(--inset-bg); border:1px solid var(--border); border-radius:8px; padding:0.9rem 1rem; font-size:0.8125rem; font-family:monospace; line-height:2;">
-          <div><span style="color:var(--accent);">DATABASE_URL</span>=<span style="color:var(--text-muted);">/data/bike.db</span></div>
-          <div><span style="color:var(--accent);">SECRET_KEY</span>=<span style="color:var(--text-muted);">your-random-secret</span></div>
-          <div><span style="color:var(--accent);">APP_USERNAME</span>=<span style="color:var(--text-muted);">admin</span></div>
-          <div><span style="color:var(--accent);">APP_PASSWORD</span>=<span style="color:var(--text-muted);">your-password</span></div>
-          <div><span style="color:var(--accent);">OPENAI_API_KEY</span>=<span style="color:var(--text-muted);">(optional — for AI coaching)</span></div>
-        </div>
       </div>
     </div>
   </div>
 
   <!-- About -->
-  <div class="card">
+  <div class="card" id="about">
     <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.75rem;">
       <img src="{{ url_for('static', filename='logo.png') }}" alt="" style="width:36px; height:36px; border-radius:9px; flex-shrink:0;">
       <div>
         <div style="font-weight:700; font-size:1rem; color:var(--text);">Headwind</div>
-        <div style="font-size:0.75rem; color:var(--text-muted);">Self-hosted, private cycling analytics</div>
+        <div style="font-size:0.75rem; color:var(--text-muted);">Self-hosted, private training analytics</div>
       </div>
     </div>
     <p class="hint" style="margin:0 0 0.75rem;">
-      Your rides, your data — stored locally on your own hardware.
+      Your activities, your data — stored locally on your own hardware.
       Syncs from Garmin Connect and the Headwind phone app, supports FIT/GPX/Strava-export imports,
       and runs entirely on your network.
     </p>
@@ -728,13 +700,13 @@
       </div>
     </div>
 
+    <p class="hint" style="margin:0 0 0.75rem;">What's set outside the app, before Headwind starts (where the database is, the first login, the
+      log), is in environment variables: the README's Configuration section lists them.</p>
     <a href="{{ url_for('about.index') }}" class="btn btn-secondary btn-sm">View full feature list</a>
   </div>
-
-</div>
+</section>
 {% endblock %}
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/settings.js') }}" data-server-zone="{{ server_zone or '' }}"{% if s and s.garminHistoryFrom and not s.garminHistoryDone %} data-garmin-history-running="1"{% endif %}></script>
-
 {% endblock %}

@@ -6,11 +6,18 @@
 {% block content %}
 {% set badge = {'running': ('Running', 'var(--info)'), 'waiting': ('Waiting', 'var(--warning)'), 'done': ('OK', 'var(--success)'), 'failed': ('Failed', 'var(--danger)'),
                 'off': ('Off', 'var(--text-muted)'), 'idle': ('Not yet', 'var(--text-muted)')} %}
-<p class="hint" style="margin:0 0 1rem;">What Headwind is doing in the background, and what changed when it last started up.
-  {% if jobs | selectattr('state', 'in', ['running', 'waiting']) | list %}This page refreshes itself while something is running.{% endif %}</p>
+<nav class="page-toc" aria-label="Sections of this page">
+  <a class="btn btn-secondary btn-sm" href="#background">Background work</a>
+  <a class="btn btn-secondary btn-sm" href="#problems">When something goes wrong</a>
+</nav>
 
-<div class="card" style="margin-bottom:1.25rem;">
-  <div class="card-title">Background jobs</div>
+<section class="page-section" id="background">
+  <h2 class="section-head">Background work</h2>
+  <p class="hint">What Headwind is doing in the background, what it did lately, and what an update put right as Headwind started.
+    {%- if jobs | selectattr('state', 'in', ['running', 'waiting']) | list %} This page refreshes itself while something is running.{% endif %}</p>
+
+<div class="card" id="jobs">
+  <div class="card-title">Jobs</div>
   {% for j in jobs %}
   <div style="display:flex; align-items:flex-start; gap:0.75rem; padding:0.65rem 0; border-top:1px solid var(--border); flex-wrap:wrap;">
     <span style="min-width:4.8rem; font-size:0.75rem; font-weight:600; color:{{ badge[j.state][1] }};">● {{ badge[j.state][0] }}</span>
@@ -31,7 +38,21 @@
   {% endfor %}
 </div>
 
-<div class="card" style="margin-bottom:1.25rem;">
+<div class="card" id="runs">
+  <div class="card-title">Recent runs</div>
+  {% for r in history %}
+  <div style="display:flex; gap:0.75rem; padding:0.4rem 0; border-top:1px solid var(--border); font-size:0.8125rem; flex-wrap:wrap;">
+    <span style="color:{{ badge[r.status][1] }}; min-width:4.5rem;">● {{ badge[r.status][0] }}</span>
+    <span style="min-width:7rem;">{{ r.label }}</span>
+    <span style="color:var(--text-muted); min-width:9rem;" data-when="{{ r.startedAt }}">{{ r.startedAt }}</span>
+    <span style="color:var(--text-muted); flex:1 1 14rem;">{{ r.error or r.result or '' }}{% if r.status == 'failed' and r.logId %} · <a href="?log={{ r.logId }}#logs" data-click="showLogId('{{ r.logId }}')">log lines marked <code>[{{ r.logId }}]</code></a>{% endif %}</span>
+  </div>
+  {% else %}
+  <p class="hint">No runs recorded yet.</p>
+  {% endfor %}
+</div>
+
+<div class="card" id="startup">
   <div class="card-title">Start-up repairs</div>
   <p class="hint" style="margin:0 0 0.5rem;">One-off fixes to stored data that an update runs when Headwind starts. They finish before any page opens.</p>
   {% for r in startup %}
@@ -43,11 +64,39 @@
   <p class="hint">None have needed to run.</p>
   {% endfor %}
 </div>
+</section>
 
-<div class="card" style="margin-bottom:1.25rem;">
+<section class="page-section" id="problems">
+  <h2 class="section-head">When something goes wrong</h2>
+  <p class="hint">Search the log for what happened, then send what's needed to whoever is helping.</p>
+
+<div class="card" id="logs">
+  <div class="card-title">Logs</div>
+  {% if log_file %}
+  <p class="hint" style="margin:0 0 0.75rem;">The newest lines first. Every line carries the id of the page request or background run
+    that wrote it: click one to see only that request's lines, or paste the reference from an error page.</p>
+  <form id="logForm" style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem;" data-submit="event.preventDefault(); loadLogs()">
+    <input type="text" id="logQ" placeholder="Search, or a reference like 3f9c2a1b" autocomplete="off" style="flex:3 1 14rem; min-width:0;">
+    <select id="logLevel" style="flex:1 1 9rem; min-width:0;" data-change="loadLogs()">
+      <option value="ERROR">Errors</option>
+      <option value="WARNING">Warnings and errors</option>
+      <option value="INFO" selected>Everything logged</option>
+      <option value="DEBUG">Including debug</option>
+    </select>
+    <button class="btn btn-secondary" style="flex:0 0 auto;">Show</button>
+  </form>
+  <div id="logList" style="font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:0.75rem; line-height:1.45;"></div>
+  <p id="logFoot" style="color:var(--text-muted); font-size:0.75rem; margin:0.5rem 0 0;"></p>
+  {% else %}
+  <p class="hint" style="margin:0;">Headwind isn't writing a log file (<code>LOG_DIR=off</code>, or its folder couldn't be created), so
+    there's nothing to show here. The log still goes to the console (<code>docker logs headwind</code>).</p>
+  {% endif %}
+</div>
+
+<div class="card" id="report">
   <div class="card-title">Reporting a problem</div>
   <p class="hint" style="margin:0 0 0.75rem;">Download one file to attach to a bug report: the recent log files, Headwind's version, your settings
-    with passwords, keys, addresses and body measurements left out, how many rows each table holds, and the recent runs below. The logs do include
+    with passwords, keys, addresses and body measurements left out, how many rows each table holds, and the recent runs above. The logs do include
     activity names and dates, so look through it before posting it anywhere public.
     {% if log_file %}Headwind writes its log to <code style="overflow-wrap:anywhere;">{{ log_file }}</code>.{% endif %}</p>
   <a class="btn btn-secondary" href="{{ url_for('tasks.diagnostics') }}">Download diagnostics</a>
@@ -91,43 +140,7 @@
     {% endif %}
   </div>
 </div>
-
-<div class="card" id="logs" style="margin-bottom:1.25rem;">
-  <div class="card-title">Logs</div>
-  {% if log_file %}
-  <p class="hint" style="margin:0 0 0.75rem;">The newest lines first. Every line carries the id of the page request or background run
-    that wrote it: click one to see only that request's lines, or paste the reference from an error page.</p>
-  <form id="logForm" style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.75rem;" data-submit="event.preventDefault(); loadLogs()">
-    <input type="text" id="logQ" placeholder="Search, or a reference like 3f9c2a1b" autocomplete="off" style="flex:3 1 14rem; min-width:0;">
-    <select id="logLevel" style="flex:1 1 9rem; min-width:0;" data-change="loadLogs()">
-      <option value="ERROR">Errors</option>
-      <option value="WARNING">Warnings and errors</option>
-      <option value="INFO" selected>Everything logged</option>
-      <option value="DEBUG">Including debug</option>
-    </select>
-    <button class="btn btn-secondary" style="flex:0 0 auto;">Show</button>
-  </form>
-  <div id="logList" style="font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:0.75rem; line-height:1.45;"></div>
-  <p id="logFoot" style="color:var(--text-muted); font-size:0.75rem; margin:0.5rem 0 0;"></p>
-  {% else %}
-  <p class="hint" style="margin:0;">Headwind isn't writing a log file (<code>LOG_DIR=off</code>, or its folder couldn't be created), so
-    there's nothing to show here. The log still goes to the console (<code>docker logs headwind</code>).</p>
-  {% endif %}
-</div>
-
-<div class="card">
-  <div class="card-title">Recent runs</div>
-  {% for r in history %}
-  <div style="display:flex; gap:0.75rem; padding:0.4rem 0; border-top:1px solid var(--border); font-size:0.8125rem; flex-wrap:wrap;">
-    <span style="color:{{ badge[r.status][1] }}; min-width:4.5rem;">● {{ badge[r.status][0] }}</span>
-    <span style="min-width:7rem;">{{ r.label }}</span>
-    <span style="color:var(--text-muted); min-width:9rem;" data-when="{{ r.startedAt }}">{{ r.startedAt }}</span>
-    <span style="color:var(--text-muted); flex:1 1 14rem;">{{ r.error or r.result or '' }}{% if r.status == 'failed' and r.logId %} · <a href="?log={{ r.logId }}#logs" data-click="showLogId('{{ r.logId }}')">log lines marked <code>[{{ r.logId }}]</code></a>{% endif %}</span>
-  </div>
-  {% else %}
-  <p class="hint">No runs recorded yet.</p>
-  {% endfor %}
-</div>
+</section>
 {% endblock %}
 
 {% block scripts %}
