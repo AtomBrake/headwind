@@ -6,13 +6,11 @@
 
 Self-hosted training analytics for cycling, running, swimming and every other sport, plus nutrition and body tracking — no cloud, no subscription, no one else touching your data.
 
-## 👉 [**TRY THE LIVE DEMO: headwindtest.smerchants.co.uk**](https://headwindtest.smerchants.co.uk)
-
-**Login: `test` / `test`**. A fictional rider, thousands of real routes (home area removed), made-up food diary. Play with anything; it resets every night.
-
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Status: beta](https://img.shields.io/badge/status-beta-orange.svg)](CHANGELOG.md)
-[![Docker](https://img.shields.io/badge/docker-amd64%20%7C%20arm64-2496ED.svg?logo=docker&logoColor=white)](https://hub.docker.com/r/lordmerchant99/headwind)
+[![Docker](https://img.shields.io/badge/docker-amd64%20%7C%20arm64-2496ED.svg?logo=docker&logoColor=white)](https://github.com/AtomBrake/headwind/pkgs/container/headwind)
+
+Built on [lordmaa's original Headwind](https://github.com/lordmaa/headwind), and now a separate project going its own way: see [Where Headwind came from](#where-headwind-came-from). Found a bug or want something added? [Open an issue](../../issues).
 
 <img src="docs/promo/headwind-hero.jpg" alt="Headwind: your rides, your data. A self-hosted cycling archive." width="900">
 
@@ -25,7 +23,9 @@ Self-hosted training analytics for cycling, running, swimming and every other sp
 ## Contents
 
 - [What is Headwind?](#what-is-headwind)
+- [Where Headwind came from](#where-headwind-came-from)
 - [Beta status — read this first](#beta-status--read-this-first)
+- [Bugs, ideas and feature requests](#bugs-ideas-and-feature-requests)
 - [A quick tour](#a-quick-tour)
 - [Every page and feature](#every-page-and-feature)
 - [Features](#features)
@@ -71,9 +71,17 @@ It runs on a Raspberry Pi, a NAS, a spare PC or a VPS. Your data lives in one SQ
 
 ---
 
+## Where Headwind came from
+
+Headwind was created by [lordmaa](https://github.com/lordmaa), who wrote the original app ([lordmaa/headwind](https://github.com/lordmaa/headwind)) and released it under the MIT licence. Thank you for building it and sharing it openly: none of this would exist without it.
+
+This repository began as a fork of it in October 2026, from the original's 0.5.3-beta, and is now a separate project going in a different direction: every sport rather than cycling first, an iPhone and Apple Watch app, more ways to import your history, and a lot of fixes along the way. The two no longer share code, and each is maintained on its own, so please report problems with this version **here**, not on the original. If you run the original and want to try this one, see [Moving from the original Headwind](#moving-from-the-original-headwind).
+
+---
+
 ## Beta status — read this first
 
-Headwind is a real, working application used daily by its author. The first public release (0.1.0-beta) went through a security and reliability review (restore safety, login hardening, injection fixes, Garmin sync reliability, resource limits), and every release since is listed in the [CHANGELOG](CHANGELOG.md), with any migration it runs at the first start. It is still a beta:
+Headwind is a real, working application used daily by its maintainer. The first public release (0.1.0-beta) went through a security and reliability review (restore safety, login hardening, injection fixes, Garmin sync reliability, resource limits), and every release since is listed in the [CHANGELOG](CHANGELOG.md), with any migration it runs at the first start. It is still a beta:
 
 - **Expect rough edges.** Report them — [open an issue](../../issues).
 - **Shared admin login.** There is one login for the whole instance. It is not a multi-user system. Don't give the login to people you don't trust with your data.
@@ -82,6 +90,14 @@ Headwind is a real, working application used daily by its author. The first publ
 - **The iPhone and Apple Watch app isn't on the App Store** — build it yourself with Xcode (see [ios/README.md](ios/README.md)). It hasn't yet been tried on every device it supports.
 - **The arm64 (Raspberry Pi) image and the Windows build are new** and have had little real-world testing.
 - **Don't expose it to the internet without HTTPS** — see [Putting it on the internet safely](#putting-it-on-the-internet-safely).
+
+---
+
+## Bugs, ideas and feature requests
+
+Please [open an issue](../../issues) for anything: a bug, something confusing, a sport or a device that isn't handled well, an import that went wrong, or a feature you'd like. Small requests are welcome too, and so are "this works but it's annoying". Headwind grows from what people ask for.
+
+For a bug, it helps to include the version (**Settings → This server**, beside **Check for update**), how you run it (Docker, Raspberry Pi, Windows or from source), what you did and what you expected. The **Tasks** page has a **Download diagnostics** button for the logs; look through it before attaching it, as it can hold activity names and places.
 
 ---
 
@@ -530,8 +546,8 @@ You need Docker with the Compose plugin. No clone required:
 
 ```bash
 mkdir headwind && cd headwind
-curl -O https://raw.githubusercontent.com/lordmaa/headwind/main/docker-compose.yml
-curl -O https://raw.githubusercontent.com/lordmaa/headwind/main/.env.example
+curl -O https://raw.githubusercontent.com/AtomBrake/headwind/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/AtomBrake/headwind/main/.env.example
 
 docker compose up -d
 ```
@@ -552,7 +568,17 @@ Data lives in `./data` (database, avatars, food photos, the saved login) and `./
 
 To reach it from outside your home, at an HTTPS address, add a Cloudflare Tunnel: see [Putting it on the internet safely](#recommended-cloudflare-tunnel).
 
-Images are published for **amd64 and arm64** on Docker Hub: `lordmerchant99/headwind` (tags: `latest`, `0.1.0-beta`).
+Images are published for **amd64 and arm64** on the GitHub Container Registry as [`ghcr.io/atombrake/headwind`](https://github.com/AtomBrake/headwind/pkgs/container/headwind). The `beta` tag follows the newest release, and each release also has a tag of its own version, to stay on one. There's no `latest` tag until a release comes out of beta.
+
+### Moving from the original Headwind
+
+If you run the original Headwind's image (`lordmerchant99/headwind`), back up your `./data` folder, then change the `image:` line in your `docker-compose.yml` to `ghcr.io/atombrake/headwind:beta` and run:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Keep `./data` and `./garmin_tokens` where they are. Headwind brings the database up to date at its first start, which can take a few minutes on a big one (see the health check above). Moving from the original's 0.5.3-beta has been tested. Its later releases (0.8 onwards) are a separate rewrite and haven't been tried yet, so keep the backup, and [open an issue](../../issues) if it goes wrong.
 
 ### Raspberry Pi
 
@@ -580,7 +606,7 @@ Tray menu (right-click, or double-click to open): **Open Headwind**, **Show sign
 ### From source
 
 ```bash
-git clone https://github.com/lordmaa/headwind.git
+git clone https://github.com/AtomBrake/headwind.git
 cd headwind
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
@@ -798,7 +824,7 @@ The token lets anyone run your tunnel, so keep `.env` private and don't commit i
 ```yaml
 services:
   headwind:
-    image: lordmerchant99/headwind:latest
+    image: ghcr.io/atombrake/headwind:beta
     container_name: headwind
     # No "ports:" here. cloudflared reaches Headwind over the Docker network, so the tunnel is the only way in.
     volumes:
@@ -1030,9 +1056,9 @@ Other smoke scripts: `smoke_client_ops`, `smoke_api_v1`, `smoke_recipes_sync`, `
 
 ## Acknowledgements and licence
 
-Headwind stands on a lot of generous open data and software: [Open Food Facts](https://openfoodfacts.org), [Open-Meteo](https://open-meteo.com), [OpenStreetMap](https://www.openstreetmap.org) contributors, [Esri](https://www.esri.com) imagery, [OpenTopoMap](https://opentopomap.org), [CyclOSM](https://www.cyclosm.org), [Waymarked Trails](https://waymarkedtrails.org), [Leaflet](https://leafletjs.com), [Chart.js](https://www.chartjs.org), [Flask](https://flask.palletsprojects.com), [garminconnect](https://github.com/cyberjunky/python-garminconnect), [fitparse](https://github.com/dtcooper/python-fitparse), [gpxpy](https://github.com/tkrajina/gpxpy), [paho-mqtt](https://github.com/eclipse/paho.mqtt.python) and [Home Assistant](https://www.home-assistant.io).
+Headwind began as [lordmaa's original Headwind](https://github.com/lordmaa/headwind); see [Where Headwind came from](#where-headwind-came-from). It stands on a lot of generous open data and software: [Open Food Facts](https://openfoodfacts.org), [Open-Meteo](https://open-meteo.com), [OpenStreetMap](https://www.openstreetmap.org) contributors, [Esri](https://www.esri.com) imagery, [OpenTopoMap](https://opentopomap.org), [CyclOSM](https://www.cyclosm.org), [Waymarked Trails](https://waymarkedtrails.org), [Leaflet](https://leafletjs.com), [Chart.js](https://www.chartjs.org), [Flask](https://flask.palletsprojects.com), [garminconnect](https://github.com/cyberjunky/python-garminconnect), [fitparse](https://github.com/dtcooper/python-fitparse), [gpxpy](https://github.com/tkrajina/gpxpy), [paho-mqtt](https://github.com/eclipse/paho.mqtt.python) and [Home Assistant](https://www.home-assistant.io).
 
-Released under the [MIT licence](LICENSE).
+Released under the [MIT licence](LICENSE), which keeps the original's copyright notice alongside this project's.
 
 ## Public demo
 A locked-down read-mostly demo mode (`HEADWIND_DEMO=1`) with anonymised data is described in [demo/README.md](demo/README.md).

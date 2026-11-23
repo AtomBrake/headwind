@@ -1,6 +1,6 @@
 services:
   headwind:
-    image: lordmerchant99/headwind:latest
+    image: ghcr.io/atombrake/headwind:beta
     container_name: headwind
     ports:
       - "5001:5001"
