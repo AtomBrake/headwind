@@ -1167,17 +1167,22 @@ def delete_water(entry_id):
 
 # ── Alcohol units ─────────────────────────────────────────────────────
 
-def _alcohol_summary(rider_id, date_str, week_goal):
-    """Units on `date_str`, in the 7 days ending that day, and how many of those 7 days had a drink (the UK guideline is no more than 14 units a week, spread over 3+ days)."""
-    from datetime import date as _d, timedelta as _td
+def _alcohol_summary(rider_id, date_str, week_goal, p=None):
+    """Units on `date_str`, in that day's week up to it, and how many of those days had a drink (the UK guideline is no more than 14 units a
+    week, spread over 3+ days). The week is the rider's (services/periods; p: their Prefs, read for rider_id when None, so a background
+    caller hands its rider in): the 7 days ending that day, or its calendar week so far."""
+    from datetime import date as _d
+    from services import periods
     try:
         end = _d.fromisoformat(date_str)
     except ValueError:
         return {'today': 0, 'week': 0, 'goal': week_goal, 'days': 0}
-    start = (end - _td(days=6)).isoformat()
-    rows = query_db('SELECT logDate, COALESCE(SUM(alcoholUnits), 0) u FROM FoodLog WHERE riderId=? AND logDate BETWEEN ? AND ? GROUP BY logDate', [rider_id, start, date_str])
+    week = periods.current('week', p or periods.prefs(rider_id), end)
+    rows = query_db('SELECT logDate, COALESCE(SUM(alcoholUnits), 0) u FROM FoodLog WHERE riderId=? AND logDate BETWEEN ? AND ? GROUP BY logDate',
+                    [rider_id, week.first.isoformat(), date_str])
     per = {r['logDate']: r['u'] for r in rows}
-    return {'today': round(per.get(date_str, 0), 1), 'week': round(sum(per.values()), 1), 'goal': week_goal, 'days': sum(1 for u in per.values() if u > 0)}
+    return {'today': round(per.get(date_str, 0), 1), 'week': round(sum(per.values()), 1), 'goal': week_goal, 'days': sum(1 for u in per.values() if u > 0),
+            'label': week.label}
 
 
 # ── Day summary ───────────────────────────────────────────────────────
@@ -1662,21 +1667,23 @@ def week_index(date_str=None):
 
 @bp.route('/api/week/<date_str>')
 def week_log(date_str):
+    """The diary's week holding date_str: a calendar week in either counting mode, starting on the rider's chosen day (services/periods)."""
     from datetime import datetime, timedelta
+    from services import periods
     rider_id = whose.rider_id()
+    week_start = periods.for_request().week_start
 
-    # Parse date and find Monday of that week
     d = datetime.fromisoformat(date_str)
-    monday = d - timedelta(days=d.weekday())
+    first = periods.week_first(d.date(), week_start)
 
     days = []
     goals = _get_goals()
     bmr = goals.get('bmr')
 
     for i in range(7):
-        date = monday + timedelta(days=i)
+        date = datetime.combine(first + timedelta(days=i), datetime.min.time())
         date_iso = date.strftime('%Y-%m-%d')
-        dow_name = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i]
+        dow_name = date.strftime('%a')
 
         # Food
         food = query_db(
@@ -1747,7 +1754,7 @@ def week_log(date_str):
     return jsonify({
         'days': days,
         'goals': goals,
-        'week_start': monday.strftime('%Y-%m-%d'),
+        'week_start': first.isoformat(),
         'totals': {
             'eaten': total_eaten,
             'burned': total_burned,

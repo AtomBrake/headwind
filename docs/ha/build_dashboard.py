@@ -323,7 +323,7 @@ const cell = (t, d) => `<div style="background:rgba(255,255,255,.07);border-radi
   <div style="font-size:20px;font-weight:800;color:#38bdf8">${d && d.n ? dist(d.m) : '0'}<span style="font-size:12px;color:${MUTED};font-weight:600"> ${DU}</span></div>
   <div style="font-size:12px;color:${MUTED}">${d && d.n ? d.n + (d.n === 1 ? ' run' : ' runs') + ' · ' + pace(d.s, d.m) + PU : 'no runs'}</div></div>`;
 const L = R.longest;
-return head('Totals', '') + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">${cell('This week', R.week)}${cell('This month', R.month)}${cell('This year', R.year)}${cell('All time', R.all)}</div>
+return head('Totals', '') + `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">${cell((R.periods && R.periods.week.label) || 'This week', R.week)}${cell((R.periods && R.periods.month.label) || 'This month', R.month)}${cell('This year', R.year)}${cell('All time', R.all)}</div>
 ${L ? `<div style="display:flex;justify-content:space-between;margin-top:12px;font-size:13px"><span style="color:${MUTED}">Longest run</span><b>${dist(L.m)} ${DU} · ${fdate(L.date)}</b></div>` : ''}
 ${R.fastest ? `<div style="display:flex;justify-content:space-between;margin-top:6px;font-size:13px"><span style="color:${MUTED}">Fastest average pace</span><b>${pace(R.fastest.s, R.fastest.m)} ${PU} · ${fdate(R.fastest.date)}</b></div>` : ''}`;""")
 
@@ -491,7 +491,8 @@ const water = n('{N}water'), waterGoal = n('{N}water_goal') || 2000;
 const prot = n('{N}protein'), protGoal = n('{N}protein_goal');
 const eaten = n('{N}calories_eaten'), kGoal = n('{N}calories_goal');
 const rideGoal = AW.ride_goal || 2, rides = (AW.rides && AW.rides.length) ? AW.rides[AW.rides.length - 1] : 0;
-const dow = (new Date().getDay() + 6) % 7, daysLeft = 7 - dow;          // Mon = 0; days left this week including today
+const rolling = AW.mode === 'rolling';                                  // the past 7 days (services/periods): no end of the week to count down to
+const daysLeft = AW.days_left != null ? AW.days_left : 7 - (new Date().getDay() + 6) % 7;      // days left this week including today
 const need = Math.max(0, rideGoal - rides);
 const late = new Date().getHours() >= 20;
 const box = (done, bad) => `<span style="flex:0 0 22px;width:22px;min-width:22px;box-sizing:border-box;height:22px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;${{done ? 'background:#34d399;color:#062b1f' : bad ? 'background:rgba(248,113,113,.25);color:#f87171;border:1.5px solid #f87171' : 'border:1.5px solid rgba(255,255,255,.4)'}}">${{done ? '✓' : bad ? '!' : ''}}</span>`;
@@ -503,12 +504,14 @@ const f = x => Math.round(x).toLocaleString('en-GB');
 const dSteps = steps >= stepGoal, dWater = water >= waterGoal, dProt = protGoal ? prot >= protGoal : false, dRides = rides >= rideGoal;
 const over = kGoal && eaten > kGoal, dCal = kGoal && !over && late;
 const ridePips = Array.from({{length: rideGoal}}, (_, i) => i < rides ? '●' : '○').join(' ');
-const rideBad = !dRides && daysLeft <= need;
-const rideSub = dRides ? 'Done for the week — anything extra is a bonus' : need + ' more to go · ' + daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' left this week' + (rideBad ? ' — you need to ride ' + (daysLeft === need ? 'every day left' : 'soon') : '');
+const rideBad = !rolling && !dRides && daysLeft <= need;
+const rideSub = dRides ? (rolling ? 'Done in the past 7 days' : 'Done for the week — anything extra is a bonus')
+  : rolling ? need + ' more to go in the past 7 days'
+  : need + ' more to go · ' + daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' left this week' + (rideBad ? ' — you need to ride ' + (daysLeft === need ? 'every day left' : 'soon') : '');
 const done = [dSteps, dWater, dProt, dRides, dCal].filter(Boolean).length;
 return `<div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:${{MUTED}}">Today's goals</div><b style="font-size:13px;color:${{done === 5 ? '#34d399' : '#fff'}}">${{done}} of 5 done</b></div>
 ${{row(dSteps, false, 'Walk ' + f(stepGoal) + ' steps', f(steps) + ' / ' + f(stepGoal), dSteps ? '' : f(stepGoal - steps) + ' to go', steps, stepGoal, '#34d399')}}
-${{row(dRides, rideBad, 'Ride ' + rideGoal + '× this week', ridePips + '  ' + rides + ' / ' + rideGoal, rideSub, null)}}
+${{row(dRides, rideBad, 'Ride ' + rideGoal + (rolling ? '× in 7 days' : '× this week'), ridePips + '  ' + rides + ' / ' + rideGoal, rideSub, null)}}
 ${{row(dWater, false, 'Drink ' + f(waterGoal) + ' ml', f(water) + ' / ' + f(waterGoal), '', water, waterGoal, '#38bdf8')}}
 ${{row(dProt, false, 'Hit ' + f(protGoal) + ' g protein', f(prot) + ' / ' + f(protGoal) + ' g', '', prot, protGoal, '#fbbf24')}}
 ${{row(dCal, over, 'Stay within ' + f(kGoal) + ' kcal', f(eaten) + ' / ' + f(kGoal), over ? f(eaten - kGoal) + ' over' : dCal ? '' : f(kGoal - eaten) + ' left · ticks off after 8 pm if you are under', eaten, kGoal, over ? '#f87171' : '#fc4c02')}}`;""", pad=16), 12)
@@ -643,7 +646,7 @@ return panel('Total sugar · last 3 weeks', fmt(last(su) || 0, 1) + ' g today', 
     activity_trend = chart_card(N + 'activity_weekly', """
 const d = A.d || [];
 if (d.length < 2) return panel('Activity trend', '', null, `<div style="color:${MUTED};font-size:13px;padding:8px 0">Needs a few weeks of data.</div>`);
-const cur = d.length - 1;                                   // last week is still in progress: drawn dim, left out of the averages
+const cur = A.mode === 'rolling' ? d.length : d.length - 1;   // a calendar week still in progress is drawn dim and left out of the averages; the past 7 days are whole
 const roll = v => v.map((_, i) => { if (i >= cur) return null; const w = v.slice(0, i + 1).filter(x => x != null); const t = w.slice(-4); return t.length >= 2 ? t.reduce((a, b) => a + b, 0) / t.length : null; });
 const cmp = v => { const done = v.slice(0, cur).filter(x => x != null); if (done.length < 8) return null;
   const a = done.slice(-4).reduce((x, y) => x + y, 0) / 4, b = done.slice(-8, -4).reduce((x, y) => x + y, 0) / 4; return b ? (a - b) / b * 100 : null; };

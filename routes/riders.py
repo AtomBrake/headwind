@@ -19,13 +19,15 @@ _BADGES_LOCK = threading.Lock()   # page threads and the MQTT heartbeat share it
 
 
 def _badge_key(rid, totals):
-    """What a rider's badges depend on: the database, the rider, the totals passed in, the units they're worded and counted in, and the version of the tables
-    they are counted from (services/data_version.py). None when the version can't be read: then nothing is kept."""
-    from services import data_version, units
+    """What a rider's badges depend on: the database, the rider, the totals passed in, the units they're worded and counted in, the day their
+    week starts on (services/periods), and the version of the tables they are counted from (services/data_version.py). None when the version
+    can't be read: then nothing is kept."""
+    from services import data_version, periods, units
     v = data_version.current(get_db())
     if v is None:
         return None
-    return (current_app.config.get('DATABASE'), rid, tuple(totals[k] for k in ('rides', 'dist', 'elev')), units.current(), units.temp_unit(), v)
+    return (current_app.config.get('DATABASE'), rid, tuple(totals[k] for k in ('rides', 'dist', 'elev')), units.current(), units.temp_unit(),
+            periods.prefs(rid).week_start, v)
 
 
 def _compute_badges(rid, totals):
@@ -514,14 +516,17 @@ def _sport_badges(rid, _b):
             return {'earned': False, 'earned_date': None, 'ride_id': None}
 
         def first_week(n):
+            """A calendar week, whichever way the rider counts this week, from the day theirs starts on (services/periods)."""
             seen, week, best = set(), None, 0
-            from datetime import date, timedelta
+            from datetime import date
+            from services import periods
+            week_start = periods.prefs(rid).week_start
             for a in acts:
                 try:
                     d = date.fromisoformat(a['day'])
                 except ValueError:
                     continue
-                w = d - timedelta(days=d.weekday())
+                w = periods.week_first(d, week_start)
                 if w != week:
                     seen, week = set(), w
                 seen.add(a['group'])

@@ -64,9 +64,9 @@ FRAME = ('FROM Rider r WHERE NOT EXISTS', 'FROM Rider WHERE isDefault=1 ORDER BY
 
 def test_a_page_pays_for_its_frame_with_one_statement(client, statements):
     client.get('/settings/')                    # the first request after start-up also checks a rider exists
-    for url, most in (('/settings/', 6), ('/friends', 6)):        # 7 and 9 before (2026-11-01); /friends lists the riders a code can share,
-        # /settings/ the sports a favourite can be (services/favourites.choices) and the contacts live links are emailed to
-        # (services/contacts.listing); both read the background worker's jobs (a backup being made, a friend being synced), which every
+    for url, most in (('/settings/', 7), ('/friends', 6)):        # 7 and 9 before (2026-11-01); /friends lists the riders a code can share,
+        # /settings/ the sports a favourite can be (services/favourites.choices), the contacts live links are emailed to
+        # (services/contacts.listing) and how the rider counts this week (services/periods.prefs); both read the background worker's jobs (a backup being made, a friend being synced), which every
         # process can see
         statements.clear()
         assert client.get(url).status_code == 200

@@ -5,23 +5,23 @@
 <div class="goal">
   <div class="goal-head">
     <span class="goal-title">{{ g.icon }} {{ g.title }}</span>
-    <span class="chip {{ 'ok' if g.status != 'behind' else 'soon' }}">{{ {'done': 'Done', 'ahead': 'On track', 'behind': 'Behind'}[g.status] }}</span>
+    <span class="chip {{ 'ok' if g.status != 'behind' else 'soon' }}">{{ {'done': 'Done', 'ahead': 'On track', 'behind': 'Not yet' if g.rolling else 'Behind'}[g.status] }}</span>
   </div>
-  <div class="goal-bar" title="The tick is where an even pace would be by the end of today">
+  <div class="goal-bar"{% if not g.rolling %} title="The tick is where an even pace would be by the end of today"{% endif %}>
     <div class="goal-fill {{ g.status }}" style="width:{{ g.pct }}%;"></div>
-    {% if g.status != 'done' %}<div class="goal-tick" style="left:{{ g.expected_pct }}%;"></div>{% endif %}
+    {% if g.status != 'done' and not g.rolling %}<div class="goal-tick" style="left:{{ g.expected_pct }}%;"></div>{% endif %}
   </div>
   <div class="hint">
-    {{ g.period_label }}: <strong>{{ g.done_fmt }}</strong> of {{ g.target_fmt }}
-    {%- if g.status != 'done' %} · {{ g.to_go_fmt }} to go{% if g.per_day_fmt and g.days_left > 1 %}, {{ g.per_day_fmt }} a day for {{ g.days_left }} days{% elif g.days_left == 1 %}, today{% endif %}{% endif %}
-    {%- if g.streak > 1 %} · hit {{ g.streak }} {{ g.period }}s in a row{% endif %}
+    <span title="{{ g.period_dates }}">{{ g.period_label }}</span>: <strong>{{ g.done_fmt }}</strong> of {{ g.target_fmt }}
+    {%- if g.status != 'done' %} · {{ g.to_go_fmt }} to go{% if g.rolling %}{% elif g.per_day_fmt and g.days_left > 1 %}, {{ g.per_day_fmt }} a day for {{ g.days_left }} days{% elif g.days_left == 1 %}, today{% endif %}{% endif %}
+    {%- if g.streak > 1 %} · hit {{ g.streak }} {{ ({'week': '7-day blocks', 'month': '28-day blocks'}[g.period]) if g.rolling else g.period ~ 's' }} in a row{% endif %}
   </div>
   {% if not compact and g.history %}
   <div class="goal-hist" aria-label="Earlier {{ g.period }}s">
     {% for h in g.history %}
     <div class="goal-hist-col" title="{{ h.label }}: {{ h.fmt }}{{ ' (hit)' if h.hit }}">
       <div class="goal-hist-bar"><div class="goal-hist-fill{{ ' hit' if h.hit }}" style="height:{{ [h.pct, 3] | max }}%;"></div></div>
-      <div class="goal-hist-label">{{ h.label }}</div>
+      <div class="goal-hist-label">{{ h.short }}</div>
     </div>
     {% endfor %}
   </div>

@@ -38,6 +38,7 @@ def index():
     db = get_db()
 
     if request.method == 'POST':
+        periods_changed = False
         # NULL columns render as the text 'None' in hidden form fields — never store that
         form = {k: ('' if v == 'None' else v) for k, v in request.form.items()}
         current      = query_db('SELECT * FROM Settings WHERE id=1', one=True)
@@ -129,6 +130,13 @@ def index():
         if 'favouritesShown' in form:                   # the Display card, the only form with it: no box ticked posts no favourite
             from services import favourites
             favourites.save(db, request.form.getlist('favourite'))
+        if 'periodsShown' in form:                      # the Display card: this week and this month, the rider's own (services/periods)
+            from services import periods, whose
+            rid = whose.rider_id()
+            if rid is not None:
+                before = periods.prefs(rid, db)
+                periods.save(db, rid, form.get('periodMode'), form.get('weekStart'))
+                periods_changed = periods.prefs(rid, db) != before
         if 'timeZone' in form:                          # blank = the server's zone
             from services import tz
             zone = form['timeZone'].strip()
@@ -140,6 +148,9 @@ def index():
             from services import sanity
             g.units = units
             sanity.scan_all(db)
+        if periods_changed:                             # the Home Assistant sensors' week totals and names follow it
+            from services import mqtt
+            mqtt.push_update(background=True)
         flash('Settings saved.', 'success')
         return redirect('/settings')
 
@@ -158,7 +169,7 @@ def index():
     from services import tz
     from services import backup, downloads, garmin, tasks
     last_backup = tasks.last(get_db(), f'download:{backup.KIND}')        # the size of the last one, said on the card
-    from services import contacts, favourites, features, mail, whose
+    from services import contacts, favourites, features, mail, periods, whose
     rid = whose.rider_id()
     default_off = features.instance_default()
     email_cfg = mail.config(get_db(), row=s)
@@ -173,7 +184,8 @@ def index():
                            email=email_cfg, email_problem=mail.problem(email_cfg), email_ports=mail.PORTS,
                            contacts=contacts.listing(get_db(), rid) if rid else [], max_contacts=contacts.MAX_CONTACTS,
                            feature_groups=features.groups(), features_set=features.stored(rid),
-                           features_default=default_off, features_default_labels=[features.BY_KEY[n].label for n in features.NAMES if n in default_off])
+                           features_default=default_off, features_default_labels=[features.BY_KEY[n].label for n in features.NAMES if n in default_off],
+                           period_prefs=periods.prefs(rid), week_days=periods.DAY_NAMES)
 
 
 @bp.route('/features', methods=['POST'])

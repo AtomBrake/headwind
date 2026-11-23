@@ -355,7 +355,8 @@ new Chart(document.getElementById('dowChart'), {
 (function () {
   const heatmap  = PAGE.heatmap;
   const MONTHS   = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const DAY_NAMES = ['', 'Mon', '', 'Wed', '', 'Fri', ''];
+  const WEEK_START = ((PAGE.weekStart || 0) + 1) % 7;                     // the rider's first day (services/periods: 0 Monday) as getDay() (0 Sunday)
+  const DAY_NAMES = Array.from({length: 7}, (_, i) => { const d = (WEEK_START + i) % 7; return [1, 3, 5].includes(d) ? ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d] : ''; });   // Mon, Wed and Fri, wherever they fall
   const today    = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -396,7 +397,7 @@ new Chart(document.getElementById('dowChart'), {
     const rangeEnd = new Date(Math.min(new Date(toYear, 11, 31), today));
     const jan1  = new Date(fromYear, 0, 1);
     const start = new Date(jan1);
-    start.setDate(jan1.getDate() - jan1.getDay());                       // back to the Sunday on or before 1 Jan
+    start.setDate(jan1.getDate() - (jan1.getDay() - WEEK_START + 7) % 7); // back to the first day of the week on or before 1 Jan
     const weeks = Math.ceil((rangeEnd - start) / (7 * 864e5)) + 1;
 
     const container = document.getElementById('heatmapContainer');

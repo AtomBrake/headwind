@@ -38,8 +38,9 @@
     render();
   }
   function render() {
-    const first = new Date(view.y, view.m - 1, 1), lead = (first.getDay() + 6) % 7, n = new Date(view.y, view.m, 0).getDate();
-    let h = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => `<div class="cal-dow">${d}</div>`).join('');
+    const ws = ((G.weekStart || 0) + 1) % 7;                              // the rider's first day (services/periods: 0 Monday) as getDay() (0 Sunday)
+    const first = new Date(view.y, view.m - 1, 1), lead = (first.getDay() - ws + 7) % 7, n = new Date(view.y, view.m, 0).getDate();
+    let h = Array.from({ length: 7 }, (_, i) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][(ws + i) % 7]).map((d) => `<div class="cal-dow">${d}</div>`).join('');
     for (let i = 0; i < lead; i++) h += '<div class="cal-day empty"></div>';
     let rides = 0, un = 0;
     for (let d = 1; d <= n; d++) {

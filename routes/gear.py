@@ -716,7 +716,8 @@ def assign_page():
     db = get_db()
     rid = _rider_id()
     bikes = gear.list_bikes(db, rid, include_archived=True)     # retired last: old rides may have been on them
-    return render_template('gear_assign.html', bikes=bikes, bike_names=[b['name'] + (' (retired)' if b['archived'] else '') for b in bikes], span=gear.ride_span(db, rid), rid=rid, today=gear.today().isoformat(), preselect=request.args.get('bike', type=int),
+    from services import periods
+    return render_template('gear_assign.html', week_start=periods.for_request().week_start, bikes=bikes, bike_names=[b['name'] + (' (retired)' if b['archived'] else '') for b in bikes], span=gear.ride_span(db, rid), rid=rid, today=gear.today().isoformat(), preselect=request.args.get('bike', type=int),
                            riders=_pickable())
 
 

@@ -96,6 +96,23 @@
         Cycling takes in every kind of ride (indoor, e-bike, mountain bike, gravel), On foot runs, walks and hikes, and a kind first recorded later joins in by itself.</p>
     </fieldset>
     {% endif %}
+    <fieldset>
+      <legend>Count this week and this month as</legend>
+      <input type="hidden" name="periodsShown" value="1">
+      <div class="checks">
+        <label class="check"><input type="radio" name="periodMode" value="rolling" {% if period_prefs.mode == 'rolling' %}checked{% endif %}> Past 7 and 28 days</label>
+        <label class="check"><input type="radio" name="periodMode" value="calendar" {% if period_prefs.mode == 'calendar' %}checked{% endif %}> Calendar weeks and months</label>
+      </div>
+      <p class="hint" style="margin:0.3rem 0 0;">Past 7 and 28 days: today and the 6 or 27 days before it, so a Monday or the 1st never starts you from nothing.
+        Calendar: the week starts on the day below, and the month on the 1st. For the dashboard's weekly bars, goals, the phone app and the Home Assistant sensors. The year is the calendar year either way.</p>
+      <div class="form-group" style="margin-top:0.6rem;">
+        <label for="weekStart">Week starts on</label>
+        <select name="weekStart" id="weekStart" style="max-width:12rem;">
+          {% for name in week_days %}<option value="{{ loop.index0 }}" {% if period_prefs.week_start == loop.index0 %}selected{% endif %}>{{ name }}</option>{% endfor %}
+        </select>
+        <p class="hint">For calendar weeks, and always for the Nutrition week diary and the badge for the most kinds of training in a week.</p>
+      </div>
+    </fieldset>
     <div class="form-group">
       <label for="timeZone">Time zone</label>
       <select name="timeZone" id="timeZone" style="max-width:22rem;">

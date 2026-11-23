@@ -50,7 +50,7 @@
     <div class="hint" id="result" style="margin-top:.6rem;"></div>
   </div>
 </div>
-<script type="application/json" id="gearAssign">{{ {'bikes': bikes | map(attribute='id') | list, 'names': bike_names, 'span': span, 'today': today, 'rider': rid} | tojson }}</script>
+<script type="application/json" id="gearAssign">{{ {'bikes': bikes | map(attribute='id') | list, 'names': bike_names, 'span': span, 'today': today, 'rider': rid, 'weekStart': week_start} | tojson }}</script>
 <script src="{{ url_for('static', filename='js/gear_assign.js') }}"></script>
 {% endif %}
 {% endblock %}

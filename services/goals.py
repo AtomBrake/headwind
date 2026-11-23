@@ -13,7 +13,7 @@ deleted the one they started) loses them on their next complete sync.
 """
 import re
 import secrets
-from datetime import date, timedelta
+from datetime import date
 
 from services import sports, units
 
@@ -21,6 +21,7 @@ METRICS = ('distance', 'climb', 'time', 'count')
 METRIC_LABELS = {'distance': 'Distance', 'climb': 'Climbing', 'time': 'Time', 'count': 'Activities'}
 PERIODS = ('week', 'month', 'year')
 PERIOD_LABELS = {'week': 'a week', 'month': 'a month', 'year': 'a year'}
+ROLLING_PERIOD_LABELS = {'month': 'every 28 days'}    # services/periods.ROLLING
 GROUPS = ('ride', 'foot', 'swim', 'all')        # services/sports.stat_group, plus every sport together
 GROUP_LABELS = {'ride': 'Rides', 'foot': 'On foot', 'swim': 'Swims', 'all': 'Every sport'}
 GROUP_ICONS = {'ride': '🚴', 'foot': '🏃', 'swim': '🏊', 'all': '🏅'}
@@ -112,13 +113,14 @@ def unit_label(metric):
     return {'distance': units.spec()['dist'], 'climb': units.spec()['elev'], 'time': 'hours', 'count': 'activities'}[metric]
 
 
-def describe(metric, sport, target=None, period=None):
-    """'100 mi of rides a week', 'The most climbing, every sport', ..."""
+def describe(metric, sport, target=None, period=None, mode=None):
+    """'100 mi of rides a week', 'The most climbing, every sport', ... mode 'rolling' (services/periods): a month goal is 'every 28 days'."""
     what = {'distance': 'distance', 'climb': 'climbing', 'time': 'time', 'count': 'activities'}[metric]
     on = '' if sport == 'all' else f" ({GROUP_LABELS[sport].lower()})"
     if target is None:
         return f'The most {what}{on}'
-    return f"{fmt(metric, target)} of {what}{on}" + (f' {PERIOD_LABELS[period]}' if period else '')
+    every = ROLLING_PERIOD_LABELS.get(period) if mode == 'rolling' else None    # a week is 7 days either way
+    return f"{fmt(metric, target)} of {what}{on}" + (f' {every or PERIOD_LABELS[period]}' if period else '')
 
 
 def check(metric, sport, period=None):
@@ -154,26 +156,6 @@ def total(db, rider_id, metric, sport, first, last):
     return sum(_value(metric, r) for r in _rows(db, rider_id, first, last) if _counts(sport, r[1]))
 
 
-def period_bounds(period, day):
-    """(first, last) day of the week (Monday to Sunday), month or year that `day` is in."""
-    if period == 'week':
-        first = day - timedelta(days=day.weekday())
-        return first, first + timedelta(days=6)
-    if period == 'month':
-        first = day.replace(day=1)
-        return first, (first.replace(year=first.year + 1, month=1) if first.month == 12 else first.replace(month=first.month + 1)) - timedelta(days=1)
-    return date(day.year, 1, 1), date(day.year, 12, 31)
-
-
-def _period_label(period, first):
-    from services.dates import day_month
-    if period == 'week':
-        return day_month(first)
-    if period == 'month':
-        return first.strftime('%b %Y')
-    return str(first.year)
-
-
 # ── Goals ──
 
 def add_goal(db, rider_id, metric, period, sport, target_text):
@@ -195,29 +177,33 @@ def delete_goal(db, rider_id, goal_id):
     db.commit()
 
 
-def goals(db, rider_id, today=None):
+def goals(db, rider_id, today=None, p=None):
     """Each of the rider's goals with where it stands: {id, metric, period, sport, target, title, icon, done, pct, expected (where an even pace
     would be by the end of today), status ('done', 'ahead', 'behind'), to_go, per_day (needed each day left, including today), days_left,
-    history [{label, value, pct, hit}] oldest first (the periods before this one), streak (periods hit in a row before this one), period_label}."""
-    today = today or date.today()
+    history [{label, value, pct, hit}] oldest first (the periods before this one), streak (periods hit in a row before this one), period_label}.
+    A week and a month are the viewer's (services/periods, p: their Prefs): the past 7 and 28 days, whose only day left is today, or calendar
+    ones; the history under a goal is the blocks before, of the same kind."""
+    from services import periods, tz
+    from services.dates import day_month
+    today = today or tz.today()
+    p = p or periods.resolve(rider_id)
     out = []
     for g in db.execute('SELECT * FROM Goal WHERE riderId=? ORDER BY period, sport, metric', [rider_id]).fetchall():
-        first, last = period_bounds(g['period'], today)
-        n_hist = HISTORY[g['period']]
-        starts = [first]
-        for _ in range(n_hist):
-            starts.insert(0, period_bounds(g['period'], starts[0] - timedelta(days=1))[0])
-        rows = _rows(db, rider_id, starts[0], last)
-        sums = dict.fromkeys(starts, 0)
+        blocks = periods.blocks(g['period'], HISTORY[g['period']] + 1, p, today)
+        now = blocks[-1]
+        first, last = now.first, now.last
+        rows = _rows(db, rider_id, blocks[0].first, last)
+        sums = [0] * len(blocks)
         for r in rows:
             if _counts(g['sport'], r[1]):
-                d = date.fromisoformat(r[0])
-                sums[period_bounds(g['period'], d)[0]] += _value(g['metric'], r)
-        done, target = sums[first], g['target']
-        days, days_left = (last - first).days + 1, (last - today).days + 1
+                i = periods.find(blocks, date.fromisoformat(r[0]))
+                if i is not None:
+                    sums[i] += _value(g['metric'], r)
+        done, target = sums[-1], g['target']
+        days, days_left = now.days, (last - today).days + 1
         expected = target * (days - days_left + 1) / days
-        history = [{'label': _period_label(g['period'], s), 'value': sums[s], 'fmt': fmt(g['metric'], sums[s]),
-                    'pct': min(100, round(100 * sums[s] / target)), 'hit': sums[s] >= target} for s in starts[:-1]]
+        history = [{'label': b.dates, 'short': day_month(b.first) if p.mode == periods.ROLLING and b.kind != 'year' else b.dates, 'value': v, 'fmt': fmt(g['metric'], v),
+                    'pct': min(100, round(100 * v / target)), 'hit': v >= target} for b, v in zip(blocks[:-1], sums[:-1])]
         streak = 0
         for h in reversed(history):
             if not h['hit']:
@@ -225,14 +211,14 @@ def goals(db, rider_id, today=None):
             streak += 1
         out.append({
             'id': g['id'], 'metric': g['metric'], 'period': g['period'], 'sport': g['sport'], 'target': target,
-            'title': describe(g['metric'], g['sport'], target, g['period']), 'icon': GROUP_ICONS[g['sport']],
+            'title': describe(g['metric'], g['sport'], target, g['period'], p.mode), 'icon': GROUP_ICONS[g['sport']],
             'done': done, 'done_fmt': fmt(g['metric'], done), 'target_fmt': fmt(g['metric'], target),
             'pct': min(100, round(100 * done / target)), 'expected_pct': min(100, round(100 * expected / target)),
             'status': 'done' if done >= target else ('ahead' if done >= expected else 'behind'),
             'to_go_fmt': fmt(g['metric'], max(0, target - done)),
             'per_day_fmt': fmt(g['metric'], max(0, target - done) / days_left) if g['metric'] != 'count' else None,
             'days_left': days_left, 'history': history, 'streak': streak,
-            'period_label': {'week': 'This week', 'month': first.strftime('%B'), 'year': str(first.year)}[g['period']],
+            'period_label': now.label, 'period_dates': now.dates, 'rolling': p.mode == periods.ROLLING and g['period'] != 'year',
         })
     return out
 

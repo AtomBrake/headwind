@@ -4,13 +4,6 @@ function isoDate(d) {   // local calendar date (toISOString is UTC and flips the
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
-function mondayOf(d) {
-  const m = new Date(d);
-  m.setHours(12, 0, 0, 0);
-  m.setDate(d.getDate() - ((d.getDay() + 6) % 7));   // Monday; getDay() is 0 on Sunday, which used to jump to NEXT week
-  return m;
-}
-
 function fmtDate(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   const date = new Date(y, m - 1, d);
@@ -18,8 +11,7 @@ function fmtDate(iso) {
 }
 
 async function loadWeek() {
-  const monday = mondayOf(currentDate);
-  const dateStr = isoDate(monday);
+  const dateStr = isoDate(currentDate);      // the server finds the week it's in, from the rider's chosen first day (services/periods)
 
   const r = await fetch(`/nutrition/api/week/${dateStr}`);
   if (!r.ok) {
@@ -33,8 +25,6 @@ async function loadWeek() {
   const goals = data.goals || {};
 
   // Week label
-  const weekEnd = new Date(monday);
-  weekEnd.setDate(weekEnd.getDate() + 6);
   const label = `w/c ${fmtDate(data.week_start)}`;
   document.getElementById('weekLabel').textContent = label;
 

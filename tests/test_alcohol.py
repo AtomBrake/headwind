@@ -27,7 +27,17 @@ def test_the_week_total_covers_seven_days_ending_on_the_day(ctx):
     from routes.nutrition import _alcohol_summary
     drink(ctx, '2026-10-11', 2.6); drink(ctx, '2026-10-11', 2.3); drink(ctx, '2026-10-09', 3.0); drink(ctx, '2026-10-05', 4.0); drink(ctx, '2026-10-04', 9.0)   # the 4th is 7 days back: outside
     s = _alcohol_summary(1, '2026-10-11', 14)
-    assert s == {'today': 4.9, 'week': 11.9, 'goal': 14, 'days': 3}
+    assert s == {'today': 4.9, 'week': 11.9, 'goal': 14, 'days': 3, 'label': 'Past 7 days'}
+
+
+def test_in_calendar_weeks_the_week_is_the_calendar_week_so_far(ctx):
+    from routes.nutrition import _alcohol_summary
+    from services import periods
+    drink(ctx, '2026-10-11', 2.0); drink(ctx, '2026-10-09', 3.0); drink(ctx, '2026-10-05', 4.0); drink(ctx, '2026-10-04', 9.0)
+    monday = _alcohol_summary(1, '2026-10-11', 14, periods.Prefs(periods.CALENDAR, 0))      # Sunday the 11th: Monday the 5th to it
+    assert (monday['week'], monday['days'], monday['label']) == (9.0, 3, 'This week')
+    sunday = _alcohol_summary(1, '2026-10-11', 14, periods.Prefs(periods.CALENDAR, 6))      # a week from Sunday: the 11th alone
+    assert (sunday['week'], sunday['days']) == (2.0, 1)
 
 
 def test_no_drinks_is_zero_not_an_error(ctx):

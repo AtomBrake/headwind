@@ -64,9 +64,22 @@ def test_deleting_a_ride_updates_every_dashboard_number_at_once(client, monkeypa
 
 def test_bars_link_to_their_week_and_speed_points_to_their_ride(client):
     _, weekly, speed = _page(client)
-    monday = date.today() - timedelta(days=date.today().weekday())
-    assert weekly[-1]['from'] == monday.isoformat() and weekly[-1]['to'] == (monday + timedelta(days=6)).isoformat()
+    today = date.today()                                # a new install counts the past 7 days (services/periods): the last bar ends today
+    assert weekly[-1]['from'] == (today - timedelta(days=6)).isoformat() and weekly[-1]['to'] == today.isoformat()
+    assert all((date.fromisoformat(b['from']) - date.fromisoformat(a['from'])).days == 7 for a, b in zip(weekly, weekly[1:]))
     assert {r['id'] for r in speed} >= {'good', 'huge'}
+
+
+def test_calendar_weeks_from_sunday_give_sunday_to_saturday_bars(client):
+    with client.application.app_context():
+        from services import periods
+        db = database.get_db()
+        periods.save(db, 1, periods.CALENDAR, 6)
+        db.commit()
+    _, weekly, _ = _page(client)
+    sunday = date.today() - timedelta(days=(date.today().weekday() + 1) % 7)
+    assert weekly[-1]['from'] == sunday.isoformat() and weekly[-1]['to'] == (sunday + timedelta(days=6)).isoformat()
+    assert date.fromisoformat(weekly[0]['from']).weekday() == 6 and len(weekly) == 12
 
 
 def _listed(html):

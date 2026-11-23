@@ -10,6 +10,7 @@ log = logging.getLogger(__name__)
 # Only sensors whose value changes get re-published; if nothing changes
 # the broker is not contacted at all, keeping HA recorder writes minimal.
 _last_state: dict = {}
+_last_name: dict = {}       # uid -> the name last published, which follows the rider's week (services/periods)
 
 # Outage tracking so the background heartbeat backs off instead of retrying
 # an unreachable broker every cycle. Event-driven pushes always attempt.
@@ -190,6 +191,23 @@ NO_VALUE = "None"
 # Assistant can show each in km, m or km/h: the entity's settings offer the units once it has a device class. Their unit never changes, so
 # nothing recorded under them is lost.
 DEVICE_CLASSES = {'mi': 'distance', 'ft': 'distance', 'm': 'distance', 'mph': 'speed'}
+
+
+_ROLLING_NAMES = (('This Week', 'Past 7 Days'), ('Alcohol Week', 'Alcohol Past 7 Days'))
+
+
+def _named(sensor_list, rid):
+    """sensor_list with each name saying what the rider's week is (services/periods): "Activities This Week", or "Activities Past 7 Days" when
+    they count the past 7 days. Only the name: the entity id comes from the uid, so automations keep working when the setting changes."""
+    from services import periods
+    if periods.prefs(rid).mode != periods.ROLLING:
+        return list(sensor_list)
+    out = []
+    for uid, name, icon, unit in sensor_list:
+        for a, b in _ROLLING_NAMES:
+            name = name.replace(a, b)
+        out.append((uid, name, icon, unit))
+    return out
 
 
 def _discovery(uid, name, icon, unit):
@@ -667,15 +685,21 @@ def _history_payloads(rid):
     except Exception as e:
         log.warning('goal projection failed: %s', e)
         out['nutrition_goal_projection'] = {'status': 'error'}
-    # activity trend: last 26 weeks (Mon-Sun) of riding and average daily steps, so the card can show when it flattens
+    # activity trend: last 26 weeks of riding and average daily steps, so the card can show when it flattens. A week is the rider's
+    # (services/periods): 7 days back to back ending today, every one complete, or calendar weeks, the last still going ('mode').
     try:
-        this_mon = today - timedelta(days=today.weekday())
-        mons = [this_mon - timedelta(weeks=k) for k in range(25, -1, -1)]
+        from services import periods
+        blocks = periods.blocks('week', 26, periods.prefs(rid), today)
+        mons = [b.first for b in blocks]
         first = mons[0].isoformat()
-        rides = {r['w']: r for r in query_db('''
-            SELECT date(startDateLocal, '-' || ((CAST(strftime('%w', startDateLocal) AS INTEGER) + 6) % 7) || ' days') w,
-                   COUNT(*) n, SUM(distance) d, SUM(movingTime) t
-            FROM Ride WHERE riderId=? AND date(startDateLocal)>=? GROUP BY w''', [rid, first])}
+        rides = {}
+        for r in query_db('''SELECT date(startDateLocal) d, COUNT(*) n, SUM(distance) d_m, SUM(movingTime) t
+                             FROM Ride WHERE riderId=? AND date(startDateLocal) BETWEEN ? AND ? GROUP BY date(startDateLocal)''',
+                          [rid, first, today.isoformat()]):
+            i = periods.find(blocks, date.fromisoformat(r['d']))
+            if i is not None:
+                w = rides.setdefault(mons[i].isoformat(), {'n': 0, 'd': 0, 't': 0})
+                w['n'] += r['n']; w['d'] += r['d_m'] or 0; w['t'] += r['t'] or 0
         steps_by_week = {}
         g_steps = {r['date']: r['steps'] for r in query_db('SELECT date, steps FROM GarminDaily WHERE date>=? AND date<=?', [first, today.isoformat()])}
         from services import steps as _steps
@@ -683,10 +707,13 @@ def _history_payloads(rid):
         for day_iso in sorted(set(g_steps) | {x for x in _step_days(rid, first) if x <= today.isoformat()}):
             d = date.fromisoformat(day_iso)
             v = _best_steps_for(rid, day_iso, g_steps.get(day_iso), step_src)
-            if v and v > 0:
-                steps_by_week.setdefault((d - timedelta(days=d.weekday())).isoformat(), []).append(v)
+            i = periods.find(blocks, d)
+            if v and v > 0 and i is not None:
+                steps_by_week.setdefault(mons[i].isoformat(), []).append(v)
+        week_now = blocks[-1]
         out['nutrition_activity_weekly'] = {
-            'd': [m.isoformat() for m in mons],
+            'd': [m.isoformat() for m in mons], 'mode': week_now.mode, 'label': week_now.label,
+            'days_left': (week_now.last - today).days + 1 if week_now.mode == periods.CALENDAR else None,     # rolling: no end to count down to
             'rides': [int((rides.get(m.isoformat()) or {'n': 0})['n']) for m in mons],
             'mi': [round(((rides.get(m.isoformat()) or {'d': 0})['d'] or 0) / 1609.344, 1) for m in mons],
             'h': [round(((rides.get(m.isoformat()) or {'t': 0})['t'] or 0) / 3600, 1) for m in mons],
@@ -855,18 +882,17 @@ def _state_values(stats):
 
 
 def _training_stats(rid):
-    """Every sport, for the owner: lifetime count and time, this week's (Monday to today) count, time, calories and distance by kind (a swim's
-    metres never add to a ride's miles: services/sports.stat_group), and the latest activity of any sport."""
+    """Every sport, for the owner: lifetime count and time, this week's count, time, calories and distance by kind (a swim's metres never add
+    to a ride's miles: services/sports.stat_group), and the latest activity of any sport. The week is the rider's (services/periods): the past
+    7 days, or the calendar week from their chosen day."""
     from database import query_db
-    from datetime import timedelta
-    from services import sports, tz
-    today = tz.today()
-    monday = (today - timedelta(days=today.weekday())).isoformat()
+    from services import periods, sports, tz
+    week_p = periods.current('week', periods.prefs(rid), tz.today())
     out = {}
     row = query_db('SELECT COUNT(*) n, SUM(movingTime) s FROM Activity WHERE riderId=?', [rid], one=True)
     out['all_n'], out['all_secs'] = row['n'], row['s']
     week = query_db('SELECT sportType, COUNT(*) n, SUM(movingTime) s, SUM(calories) k, SUM(distance) m FROM Activity '
-                    'WHERE riderId=? AND date(startDateLocal) >= ? GROUP BY sportType', [rid, monday])
+                    'WHERE riderId=? AND date(startDateLocal) BETWEEN ? AND ? GROUP BY sportType', [rid] + week_p.sql_range())
     out['week_n'] = sum(r['n'] for r in week)
     out['week_secs'] = sum(r['s'] or 0 for r in week)
     out['week_cals'] = sum(r['k'] or 0 for r in week)
@@ -879,20 +905,19 @@ def _training_stats(rid):
 
 
 def _training_weekly(rid, today, weeks=12):
-    """The last `weeks` weeks (Monday to Sunday) of every sport: activities, hours and calories a week, and each kind's hours and distance
-    (metres) on its own, for a stacked chart. Kinds are services/sports.stat_group: rides, on foot, swims, then each other sport."""
+    """The last `weeks` weeks of every sport: activities, hours and calories a week, and each kind's hours and distance (metres) on its own,
+    for a stacked chart. Kinds are services/sports.stat_group: rides, on foot, swims, then each other sport. A week is the rider's
+    (services/periods): 7 days back to back ending today, or calendar weeks from their chosen day; 'd' is each one's first day."""
     from database import query_db
-    from datetime import timedelta
-    from services import sports
-    this_mon = today - timedelta(days=today.weekday())
-    mons = [this_mon - timedelta(weeks=k) for k in range(weeks - 1, -1, -1)]
-    rows = query_db("""SELECT date(startDateLocal, '-' || ((CAST(strftime('%w', startDateLocal) AS INTEGER) + 6) % 7) || ' days') w, sportType,
-                              COUNT(*) n, SUM(movingTime) s, SUM(calories) k, SUM(distance) m
-                       FROM Activity WHERE riderId=? AND date(startDateLocal) >= ? GROUP BY w, sportType""", [rid, mons[0].isoformat()])
-    idx = {m.isoformat(): i for i, m in enumerate(mons)}
+    from services import periods, sports
+    from datetime import date
+    blocks = periods.blocks('week', weeks, periods.prefs(rid), today)
+    rows = query_db("""SELECT date(startDateLocal) d, sportType, COUNT(*) n, SUM(movingTime) s, SUM(calories) k, SUM(distance) m
+                       FROM Activity WHERE riderId=? AND date(startDateLocal) BETWEEN ? AND ? GROUP BY d, sportType""",
+                    [rid, blocks[0].first.isoformat(), blocks[-1].last.isoformat()])
     n, h, kcal, groups = [0] * weeks, [0.0] * weeks, [0] * weeks, {}
     for r in rows:
-        i = idx.get(r['w'])
+        i = periods.find(blocks, date.fromisoformat(r['d']))
         if i is None:
             continue
         g = sports.stat_group(r['sportType'])
@@ -905,7 +930,8 @@ def _training_weekly(rid, today, weeks=12):
     for grp in groups.values():
         grp['h'] = [round(v, 2) for v in grp['h']]
         grp['m'] = [round(v) for v in grp['m']]
-    return {'d': [m.isoformat() for m in mons], 'n': n, 'h': [round(v, 1) for v in h], 'kcal': [round(v) for v in kcal],
+    return {'d': [b.first.isoformat() for b in blocks], 'to': [b.last.isoformat() for b in blocks], 'mode': blocks[-1].mode,
+            'n': n, 'h': [round(v, 1) for v in h], 'kcal': [round(v) for v in kcal],
             'groups': sorted(groups.values(), key=lambda g: sports.stat_order(g['key']))}
 
 
@@ -1000,9 +1026,9 @@ def publish(settings, stats, rid):
     _taken_down.difference_update(set(_taken_down) - off)
 
     for sensor_list, state_map in [
-        (SENSORS,           states),
-        (GARMIN_SENSORS,    garmin_states),
-        (_nutrition_sensors(), nutrition_states),
+        (_named(SENSORS, rid),              states),
+        (GARMIN_SENSORS,                    garmin_states),
+        (_named(_nutrition_sensors(), rid), nutrition_states),
     ]:
         for uid, name, icon, unit in sensor_list:
             if uid in off:
@@ -1021,6 +1047,7 @@ def publish(settings, stats, rid):
     all_states.update(garmin_states)
     all_states.update(nutrition_states)
     _last_state.update({uid: v for uid, v in all_states.items() if uid not in off})
+    _last_name.update({uid: name for uid, name, _, _ in _named(SENSORS + GARMIN_SENSORS + _nutrition_sensors(), rid) if uid not in off})
     log.info("MQTT publish complete — %d sensors%s", len(SENSORS) + len(GARMIN_SENSORS) + len(_nutrition_sensors()) - len(off),
              f', {len(off)} taken down (turned off in Settings)' if off else '')
 
@@ -1047,11 +1074,12 @@ def push_update(activity=None, background=False):
         all_states.update(_nutrition_state_values(_gather_nutrition(rid), rid))
 
         sensor_lookup = {uid: (name, icon, unit)
-                         for uid, name, icon, unit in SENSORS + GARMIN_SENSORS + _nutrition_sensors()}
+                         for uid, name, icon, unit in _named(SENSORS + GARMIN_SENSORS + _nutrition_sensors(), rid)}
         off = _switched_off(rid, sensor_lookup)
         _taken_down.difference_update(set(_taken_down) - off)    # switched back on: published again below, as never seen
         all_states = {uid: val for uid, val in all_states.items() if uid in sensor_lookup and uid not in off}   # ride-only instances skip nutrition
-        changed = {uid for uid, val in all_states.items() if _last_state.get(uid) != val}
+        changed = {uid for uid, val in all_states.items()
+                   if _last_state.get(uid) != val or _last_name.get(uid, sensor_lookup[uid][0]) != sensor_lookup[uid][0]}   # or renamed (services/periods)
 
         msgs = _take_down(off)
         if changed:
@@ -1104,6 +1132,7 @@ def push_update(activity=None, background=False):
         if msgs:
             _broker_send(msgs, *conn)
             _last_state.update({uid: all_states[uid] for uid in changed})
+            _last_name.update({uid: sensor_lookup[uid][0] for uid in changed})
             log.info("MQTT push_update — %d sensor(s) changed%s",
                         len(changed), ", ride notification sent" if activity else "")
             # a failed send leaves the removals marked as sent; the Settings button (publish) sends them all again
@@ -1165,12 +1194,15 @@ def push_update_nutrition():
         off = _switched_off(rid, uids)
         _taken_down.difference_update(set(uids) - off)
         nutrition_states = {uid: v for uid, v in _nutrition_state_values(_gather_nutrition(rid), rid).items() if uid not in off}
-        changed = {uid for uid, val in nutrition_states.items() if _last_state.get(uid) != val}
+        sensors = _named(_nutrition_sensors(), rid)
+        names = {uid: name for uid, name, _, _ in sensors}
+        changed = {uid for uid, val in nutrition_states.items()
+                   if _last_state.get(uid) != val or (uid in names and _last_name.get(uid, names[uid]) != names[uid])}   # or renamed (services/periods)
         msgs = _take_down(off)
         if not changed and not msgs:
             return
 
-        for uid, name, icon, unit in _nutrition_sensors():
+        for uid, name, icon, unit in sensors:
             if uid not in changed:
                 continue
             config_topic, state_topic, config_json = _discovery(uid, name, icon, unit)
@@ -1181,6 +1213,7 @@ def push_update_nutrition():
 
         _broker_send(msgs, *conn)
         _last_state.update({uid: nutrition_states[uid] for uid in changed})
+        _last_name.update({uid: names[uid] for uid in changed if uid in names})
         log.info("MQTT nutrition push — %d sensor(s) changed", len(changed))
     except Exception as e:
         log.warning("MQTT push_update_nutrition failed (non-fatal): %s", e)
