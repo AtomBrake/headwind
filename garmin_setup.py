@@ -4,7 +4,7 @@ Run this once to authenticate with Garmin Connect and save tokens.
 After this, the app logs in silently using the saved tokens.
 
 Usage:
-    python3 /home/rob/bike-flask/garmin_setup.py your@email.com yourpassword [mfa_code]
+    python3 garmin_setup.py your@email.com yourpassword [mfa_code]
 """
 import sys
 from pathlib import Path

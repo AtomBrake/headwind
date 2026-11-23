@@ -5,12 +5,12 @@ token are read from Headwind's own `Settings` row (`haUrl`, `haToken`) by `hawss
 
 | File | What it does |
 |---|---|
-| `build_dashboard.py` | Builds the whole **Rob** dashboard (3 tabs: Today, Body, Riding) as a Lovelace config dict. **Edit this, not HA's editor** — a redeploy replaces UI edits. |
-| `deploy.py` | Validates every entity id in the config exists in HA, creates the dashboard `rob-health` if needed, saves the config. `python3 deploy.py` |
+| `build_dashboard.py` | Builds the whole **Headwind** dashboard (3 tabs: Today, Body, Riding) as a Lovelace config dict. **Edit this, not HA's editor** — a redeploy replaces UI edits. |
+| `deploy.py` | Validates every entity id in the config exists in HA, creates the dashboard `headwind-health` if needed, saves the config. `python3 deploy.py` |
 | `hawss.py` | Tiny HA websocket client (`hawss.call({...}, {...})`, `hawss.creds()`). Uses the `websockets` package already installed. |
 | `deploy_hydration.py` | Idempotent: helpers (`input_datetime.headwind_water_*`), scripts `script.headwind_add_water_150/250/500`, hydration prompt + button-handler automations. |
 | `deploy_protein_check.py` | The 20:00 evening protein-check automation. |
-| `shot_ha.js` | Headless-Chromium screenshots of the dashboard (`node shot_ha.js phone|desktop` → `shots/`). Needs a temporary `ha_auth.json` (`{"url":..,"token":..}`) — create it from `hawss.creds()`, run, **delete it**. Uses Playwright from `/home/rob/JukeOS/node_modules`. |
+| `shot_ha.js` | Headless-Chromium screenshots of the dashboard (`node shot_ha.js phone|desktop` → `shots/`). Needs a temporary `ha_auth.json` (`{"url":..,"token":..}`) — create it from `hawss.creds()`, run, **delete it**. Needs Playwright: `npm install playwright` in this directory, or point `NODE_PATH` at a `node_modules` that has it. |
 
 Run from this directory. Typical loop: edit `build_dashboard.py` → `python3 deploy.py` → screenshot → look.
 

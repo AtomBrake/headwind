@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 """Run once to backfill weather for all rides missing it."""
-import sys
-sys.path.insert(0, '/home/rob/bike-flask')
-
 from app import create_app
 from services.weather import fetch_weather, save_weather
 

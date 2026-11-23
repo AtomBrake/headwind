@@ -1,4 +1,4 @@
-const { chromium } = require('/home/rob/JukeOS/node_modules/playwright');
+const { chromium } = require('playwright');
 const fs = require('fs'); const D = __dirname + '/';
 const auth = JSON.parse(fs.readFileSync(D + 'ha_auth.json'));
 const views = process.argv.slice(2);

@@ -1,4 +1,4 @@
-"""Builds the "Rob" Home Assistant dashboard (nutrition + body + riding) as a Lovelace config dict.
+"""Builds the "Headwind" Home Assistant dashboard (nutrition + body + riding) as a Lovelace config dict.
 
 Look: Headwind's "dark ocean" palette on every hero/tile card (so it reads the same in light or dark HA themes),
 button-card for the bespoke cards, mini-graph-card for trends, mushroom for section titles.
@@ -921,7 +921,7 @@ def build():
     views = [view_today(), view_body(), view_running(), view_riding()] + live_views()
     for v in views:
         v['theme'] = THEME
-    return {'title': 'Rob', 'views': views}
+    return {'title': 'Headwind', 'views': views}
 
 
 if __name__ == '__main__':

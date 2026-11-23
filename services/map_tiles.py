@@ -17,7 +17,7 @@ import requests
 
 log = logging.getLogger(__name__)
 
-USER_AGENT = 'Headwind (self-hosted activity app; https://github.com/lordmaa/headwind)'
+USER_AGENT = 'Headwind (self-hosted activity app; https://github.com/AtomBrake/headwind)'
 
 _ESRI = 'https://server.arcgisonline.com/ArcGIS/rest/services/{}/MapServer/tile/{{z}}/{{y}}/{{x}}'
 # name -> (tile URL, native max zoom or None, min zoom, the key it needs (KEYS) or None). Past the native zoom the parent tile is

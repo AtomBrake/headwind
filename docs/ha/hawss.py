@@ -1,6 +1,6 @@
 """Tiny Home Assistant websocket client (uses Headwind's saved URL + token; nothing printed but results)."""
-import asyncio, json, sys
-sys.path.insert(0, '/home/rob/bike-flask')
+import asyncio, json, os, sys
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))  # the repo root, for app
 import websockets
 
 def creds():

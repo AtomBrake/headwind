@@ -1,4 +1,4 @@
-const { chromium } = require('/home/rob/JukeOS/node_modules/playwright');
+const { chromium } = require('playwright');
 const fs = require('fs');
 const D = __dirname + '/';
 const auth = JSON.parse(fs.readFileSync(D + 'ha_auth.json'));
@@ -15,7 +15,7 @@ const which = process.argv[2] || 'phone';
   const page = await ctx.newPage();
   page.on('pageerror', e => console.log('PAGEERR', e.message.slice(0, 120)));
   for (const v of (process.argv[3] || 'today,body,riding').split(',')) {
-    await page.goto(`${auth.url}/rob-health/${v}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${auth.url}/headwind-health/${v}`, { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(9000);
     await page.screenshot({ path: D + `shots/${which}_${v}.png`, fullPage: true });
     if (which === 'phone') {

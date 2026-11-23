@@ -37,7 +37,7 @@ def _device():
     return {
         "identifiers": [p],
         "name": os.environ.get('HEADWIND_MQTT_NAME') or ('Headwind' if p == _DEFAULT_PREFIX else 'Headwind ' + p.replace('headwind_', '').replace('_', ' ').title()),
-        "model": "bike-flask",
+        "model": "Headwind",
         "manufacturer": "Headwind",
     }
 

@@ -57,6 +57,11 @@ docs/ha/deploy_home.py
 docs/ha/build_leanne.py
 docs/ha/deploy_leanne.py
 docs/ha/deploy_leanne_notifications.py
+# docs/ha/shot_*.js: its Playwright install, the temporary HA token file and the screenshots
+docs/ha/node_modules/
+docs/ha/package*.json
+docs/ha/ha_auth.json
+docs/ha/shots/
 docs/pi/*.orig
 
 # demo build output (anonymised copy of real data): never commit
