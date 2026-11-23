@@ -140,9 +140,15 @@ def test_two_workers_run_each_job_once(app, monkeypatch):
     workers = [threading.Thread(target=worker.serve, args=(app, stop), daemon=True) for _ in range(2)]
     for w in workers:
         w.start()
+    # Wait for the jobs to be marked done, not for ran: a job's thread appends to ran and then records it done (jobs.finish), and serve
+    # doesn't wait for its job threads when stopped, so a slow runner could still be writing the last one when the count is read.
     deadline = time.monotonic() + 30
-    while len(ran) < 20 and time.monotonic() < deadline:
-        time.sleep(0.05)
+    with app.app_context():
+        db = database.get_db()
+        while time.monotonic() < deadline:
+            if db.execute("SELECT COUNT(*) FROM Job WHERE state='done'").fetchone()[0] == 20:
+                break
+            time.sleep(0.05)
     stop.set()
     for w in workers:
         w.join(5)
