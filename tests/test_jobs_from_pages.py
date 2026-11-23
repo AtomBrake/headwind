@@ -195,7 +195,7 @@ def test_an_import_asks_for_the_weather_before_it_writes(app, monkeypatch, tmp_p
         zf.writestr('activities/111.gpx', gpx)
         zf.writestr('other.gpx', gpx.replace('2026-10-01T08', '2026-10-02T08'))
     single = tmp_path / 'single.gpx'
-    single.write_text(gpx.replace('2026-10-01T08', '2026-10-03T08'))
+    single.write_text(gpx.replace('2026-10-01T08', '2026-10-03T08'), encoding='utf-8')
     with app.app_context():
         zf = zipfile.ZipFile(buf)
         list(import_rides._process_strava_export(zf, set(zf.namelist()), 1, photos=False))
