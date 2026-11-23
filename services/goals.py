@@ -360,9 +360,9 @@ def feed_lines(db, rider, token_id):
     return out
 
 
-def store_from_friend(db, friend_id, obj):
-    """One 'challenge' line from a friend's feed. A challenge we have gets the friend as a member; one we don't is an invitation for the
-    instance's own rider (the default one), but only from the friend who started it (`own`): a friend in someone else's challenge invites nobody.
+def store_from_friend(db, friend_id, obj, rider_id):
+    """One 'challenge' line from a friend's feed. A challenge we have gets the friend as a member; one we don't is an invitation for rider_id
+    (the friend sync gives the instance's owner), but only from the friend who started it (`own`): a friend in someone else's challenge invites nobody.
     Details follow the friend who started it. Returns its uid, or None for a line that isn't valid or isn't for us. Does not commit."""
     uid = str(obj.get('uid') or '')
     metric, sport = obj.get('metric'), obj.get('sport') or 'all'
@@ -381,9 +381,8 @@ def store_from_friend(db, friend_id, obj):
     if row is None and not obj.get('own'):
         return None
     if row is None:
-        owner = db.execute('SELECT id FROM Rider WHERE isDefault=1').fetchone()
         cur = db.execute('''INSERT INTO Challenge (uid, riderId, name, metric, sport, startDate, endDate, target, creatorName, viaFriendId)
-                            VALUES (?,?,?,?,?,?,?,?,?,?)''', [uid, owner[0] if owner else None, name, metric, sport, first, last, target, creator, friend_id])
+                            VALUES (?,?,?,?,?,?,?,?,?,?)''', [uid, rider_id, name, metric, sport, first, last, target, creator, friend_id])
         cid = cur.lastrowid
     else:
         cid = row['id']

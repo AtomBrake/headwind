@@ -30,7 +30,7 @@ def index():
     from database import query_db
     from services import reimport, strava_gear
     from services import strava_export
-    from services.rider_mode import owner_rider_id
+    from services import whose
     from services import garmin, garmin_changes, merged_sport, recently_deleted, sport_fix, sport_guess, tasks
     riders = query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name ASC')
     return render_template('import.html', riders=riders, changes=reimport.pending(get_db()), problems=reimport.problems(get_db()),
@@ -38,8 +38,8 @@ def index():
                            garmin_changes=garmin_changes.pending(get_db()), garmin_check=tasks.last(get_db(), garmin_changes.TASK),
                            garmin_missing=garmin_changes.not_here(get_db()), garmin_deleted=garmin_changes.not_here(get_db(), deleted=True),
                            garmin_full=bool(query_db("SELECT 1 FROM Settings WHERE id=1 AND garminSyncMode='full'", one=True)),
-                           strava_pending=strava_gear.pending(get_db(), owner_rider_id()),
-                           sport_groups=merged_sport.groups(merged_sport.conflicts(get_db())), sport_fixes=sport_fix.count(get_db(), owner_rider_id()),
+                           strava_pending=strava_gear.pending(get_db(), whose.rider_id()),
+                           sport_groups=merged_sport.groups(merged_sport.conflicts(get_db())), sport_fixes=sport_fix.count(get_db(), whose.rider_id()),
                            sport_guesses=sport_guess.pending(get_db()),
                            kept=strava_export.kept(get_db(), current_app.config['DATABASE']),
                            advice=strava_export.advice(get_db(), current_app.config['DATABASE']),
@@ -189,15 +189,13 @@ def upload():
     if _active(get_db()):
         return jsonify(error='An import is already running')
 
-    from database import query_db as _qdb
-    from services import strava_export
+    from services import strava_export, whose
     try:
         rider_id = int(request.form.get('riderId') or 0) or None
     except ValueError:
         rider_id = None
     if rider_id is None:
-        default = _qdb('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
-        rider_id = default['id'] if default else None
+        rider_id = whose.rider_id()
 
     name_lower = f.filename.lower()
     is_single = name_lower.endswith(ACTIVITY_EXTENSIONS)

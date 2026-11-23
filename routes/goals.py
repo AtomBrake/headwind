@@ -4,7 +4,7 @@ from urllib.parse import urlencode
 from flask import Blueprint, redirect, render_template, request, url_for
 
 from database import get_db, query_db
-from services import goals
+from services import goals, whose
 
 bp = Blueprint('goals', __name__)
 
@@ -17,13 +17,9 @@ def _back(rider_id, error=None, anchor=''):
 
 
 def _rider_id():
-    """The rider a form is for (its hidden `rider`), or the owner."""
-    try:
-        rid = int(request.form.get('rider') or 0)
-    except ValueError:
-        rid = 0
-    row = query_db('SELECT id FROM Rider WHERE id=?', [rid], one=True) or query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
-    return row['id'] if row else None
+    """The rider a form is for (its hidden `rider`) when whose.viewable allows it, or the request's own."""
+    view = whose.viewable(request.form.get('rider'))
+    return view.id if view else whose.rider_id()
 
 
 @bp.route('/goals')

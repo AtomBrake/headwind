@@ -3,7 +3,7 @@ import logging
 from flask import Blueprint, jsonify
 
 from database import query_db
-from services.mqtt import SENSORS, publish, _gather_stats
+from services.mqtt import SENSORS, publish, sensor_rider, _gather_stats
 
 log = logging.getLogger(__name__)
 
@@ -17,7 +17,8 @@ def do_publish():
         return jsonify({'error': 'MQTT host not configured'}), 400
 
     try:
-        publish(dict(s), _gather_stats())
+        rid = sensor_rider()
+        publish(dict(s), _gather_stats(rid), rid)
         return jsonify({'ok': True, 'sensors': len(SENSORS)})
     except Exception as e:
         log.error('MQTT publish failed: %s', e)

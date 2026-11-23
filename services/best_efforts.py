@@ -216,10 +216,11 @@ def scan_all_best_efforts(db):
     return len(activities)
 
 
-def rescan_clean(db):
+def rescan_clean(db, rider_id):
     """Run once (Settings.bestEffortsCleanDone): every ride's best times worked out again with the impossible stretches left out (effort_series),
     and every run's and swim's left to be worked out again (services/sport_records.ensure, which runs next). Commits.
-    Returns {'ran', 'scanned', 'changed': [(miles, old secs, new secs)]}: the rider records that moved, per bracket."""
+    Returns {'ran', 'scanned', 'changed': [(miles, old secs, new secs)]}: rider_id's records that moved, per bracket (the start-up step gives the
+    owner: friends' riders have their own records, not news here)."""
     s = db.execute('SELECT bestEffortsCleanDone FROM Settings WHERE id=1').fetchone()
     if not s or s['bestEffortsCleanDone']:
         return {'ran': False}
@@ -236,8 +237,7 @@ def rescan_clean(db):
     db.execute('DELETE FROM SportEffort')
     db.execute('UPDATE Settings SET bestEffortsCleanDone=1 WHERE id=1')
     db.commit()
-    owner = db.execute('SELECT id FROM Rider WHERE isDefault=1 ORDER BY id LIMIT 1').fetchone()   # friends' riders have their own records, not news here
     changed = sorted(((k[1], before.get(k), after.get(k)) for k in set(before) | set(after)
-                      if before.get(k) != after.get(k) and (not owner or k[0] == owner[0])),
+                      if before.get(k) != after.get(k) and (rider_id is None or k[0] == rider_id)),
                      key=lambda c: c[0])            # by distance alone: a bracket new to a rider has no old time, and None can't be compared
     return {'ran': True, 'scanned': len(ids), 'changed': changed}

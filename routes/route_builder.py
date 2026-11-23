@@ -6,7 +6,8 @@ import requests
 from flask import Blueprint, Response, abort, jsonify, redirect, render_template, request, url_for
 from database import get_db, query_db
 from services import planned_routes
-from services.rider_mode import multi_rider, owner_rider_id
+from services import whose
+from services.rider_mode import multi_rider
 
 log = logging.getLogger(__name__)
 bp = Blueprint('route_builder', __name__, url_prefix='/planner')
@@ -153,7 +154,7 @@ def save_route():
     except (TypeError, ValueError, KeyError):
         return jsonify({'error': 'Waypoints need a lat and lng'}), 400
     db = get_db()
-    route_id, _ = planned_routes.save(db, owner_rider_id(), data.get('name'), waypoints=waypoints)
+    route_id, _ = planned_routes.save(db, whose.rider_id(), data.get('name'), waypoints=waypoints)
     db.commit()
     row = query_db('SELECT name, distance FROM PlannedRoute WHERE id=?', [route_id], one=True)
     return jsonify({'id': route_id, 'name': row['name'], 'distM': row['distance'], 'count': len(waypoints)}), 201
@@ -164,7 +165,7 @@ def import_gpx():
     """GPX files (one route each) saved as routes, source 'gpx'. [{file, status, id, name}], status: saved, exists (the same name and points
     are here already), empty (no points) or unreadable."""
     db = get_db()
-    rider_id = owner_rider_id()
+    rider_id = whose.rider_id()
     out = []
     for f in request.files.getlist('files'):
         res = {'file': f.filename}
@@ -185,7 +186,7 @@ def import_gpx():
 
 @bp.route('/routes/from-activity/<rid>', methods=['POST'])
 def from_activity(rid):
-    """Save as route on an activity's page: a route from its own points, the activity's rider's (the owner's, for a friend's activity),
+    """Save as route on an activity's page: a route from its own points, the activity's rider's (yours, whose.rider_id, for a friend's activity),
     then the Routes page showing it (routes/saved_routes.py)."""
     db = get_db()
     act = db.execute('SELECT riderId, sportType FROM Activity WHERE id=?', [rid]).fetchone()
@@ -196,7 +197,7 @@ def from_activity(rid):
         abort(400)                                      # a game world, not a place
     rider_id = act['riderId']
     if rider_id is None or db.execute('SELECT 1 FROM Friend WHERE riderId=?', [rider_id]).fetchone():
-        rider_id = owner_rider_id()
+        rider_id = whose.rider_id()
     got = planned_routes.from_activity(db, rid, rider_id)
     if not got:
         abort(400)                                      # no GPS track

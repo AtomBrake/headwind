@@ -15,6 +15,7 @@ from services.segments import scan_activity_against_segments, scan_all_activitie
 from services.limits import LimitExceeded, bounded_lines
 from services.peer_http import open_peer
 from services import feed_tokens, jobs, logs, qr, sanity, sports, vault
+from services.rider_mode import owner_rider_id
 from services import streams as _streams
 
 bp = Blueprint('friends', __name__)
@@ -54,10 +55,12 @@ def foods_feed():
     from services import shared_foods
 
     def generate():
-        owner = query_db('SELECT name FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
+        # A friend's Headwind asking, so nobody here is signed in: the foods are the instance's owner's until each user has their own feed
+        # codes (release G)
+        owner = query_db('SELECT id, name FROM Rider WHERE id=?', [owner_rider_id()], one=True)
         yield json.dumps({'type': 'meta', 'name': owner['name'] if owner else 'Unknown'}) + '\n'
         n = 0
-        for rec in (shared_foods.feed_records() if share else ()):
+        for rec in (shared_foods.feed_records(owner['id'] if owner else None) if share else ()):
             n += 1
             yield json.dumps(rec) + '\n'
         yield json.dumps({'type': 'end', 'count': n}) + '\n'      # lets the receiver know the feed arrived whole
@@ -107,8 +110,8 @@ def feed():
 
         if rider_name:
             rider = db.execute(f'SELECT * FROM Rider WHERE name=? COLLATE NOCASE AND {OWN_RIDERS_SQL}', [rider_name]).fetchone()
-        else:
-            rider = db.execute('SELECT * FROM Rider WHERE isDefault=1').fetchone()
+        else:       # the instance's owner: a friend's Headwind asking, not someone signed in here (release G gives each user their own codes)
+            rider = db.execute('SELECT * FROM Rider WHERE id=?', [owner_rider_id()]).fetchone()
         shared = bool(rider) and feed_tokens.shares_rider(scope['id'], rider['id'])
         # No name for one not shared: the friend keeps calling them what they did, and learns nothing new
         yield json.dumps({'type': 'meta', 'name': rider['name'] if shared else None if rider else 'Unknown'}) + '\n'
@@ -568,6 +571,7 @@ class _Pull:
         self.manifest = None     # remote id -> updatedAt, every ride the friend shares (0.7.6 on)
         self.challenges = set()  # uids of the challenges the friend is in (0.7.20 on)
         self.complete = False    # the feed said 'end'
+        self.owner = owner_rider_id()   # whose a challenge invitation is: the instance's owner until each user has their own friends (release G)
 
 
 def _open_feed(friend, params):
@@ -619,7 +623,7 @@ def _read_feed(db, pull, resp):
 
             elif t == 'challenge':
                 from services import goals
-                uid = goals.store_from_friend(db, friend_id, obj)
+                uid = goals.store_from_friend(db, friend_id, obj, pull.owner)
                 if uid:
                     pull.challenges.add(uid)
 

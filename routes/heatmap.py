@@ -4,7 +4,7 @@ import logging
 from flask import Blueprint, Response, abort, render_template, request
 from database import get_db, query_db
 from services import map_tiles, sports, tracks as _tracks, zwift
-from services.rider_mode import owner_rider_id
+from services import whose
 
 log = logging.getLogger(__name__)
 
@@ -16,24 +16,24 @@ _WITH_LINE = 'FROM Ride a JOIN ActivityTrack t ON t.activityId = a.id WHERE t.li
 
 
 def _people():
-    """Whose lines the heatmap can show: the owner first, then this instance's other riders, then friends (their rides came in by friend
-    sync, routes/friends.py), each only once they have a line to draw."""
+    """Whose lines the heatmap can show: the request's own rider (whose.rider_id: the owner, today) first, then this instance's other riders,
+    then friends (their rides came in by friend sync, routes/friends.py), each but the first only once they have a line to draw."""
     return query_db(f'''
         SELECT r.id, r.name, r.isDefault, f.id IS NOT NULL AS isFriend
         FROM Rider r LEFT JOIN Friend f ON f.riderId = r.id
-        WHERE r.isDefault = 1 OR EXISTS (SELECT 1 {_WITH_LINE} AND a.riderId = r.id)
+        WHERE r.id = ? OR EXISTS (SELECT 1 {_WITH_LINE} AND a.riderId = r.id)
         ORDER BY isFriend, r.isDefault DESC, r.name COLLATE NOCASE
-    ''')
+    ''', [whose.rider_id()])
 
 
 def _who_sql(who):
-    """?who= as SQL on Ride a: '' (the default) the owner's rides, 'all' everyone's together, or one rider's id."""
+    """?who= as SQL on Ride a: '' (the default) the request's own rider's rides, 'all' everyone's together, or one rider's id."""
     if who == 'all':
         return '', []
     if who.isdigit():
         return ' AND a.riderId = ?', [int(who)]
-    owner = owner_rider_id()
-    return (' AND a.riderId = ?', [owner]) if owner is not None else ('', [])
+    own = whose.rider_id()
+    return (' AND a.riderId = ?', [own]) if own is not None else ('', [])
 
 
 @bp.route('/heatmap')

@@ -1,6 +1,6 @@
 # Multi-user support: plan
 
-**Status:** plan only, made 2026-11-23 at 0.7.52-beta, decisions agreed the same day. Nothing here is built yet. It turns **Proper multi-user support, with roles** (TODO.md, P3 → Users) into releases that can each ship on their own. It also adds two things the TODO doesn't have: bringing another Headwind in as a rider, and an import folder for each user. Line numbers drift; function names are the stable reference.
+**Status:** made 2026-11-23 at 0.7.52-beta, decisions agreed the same day. A1 and A2 are built (`services/whose.py`); the rest is plan. It turns **Proper multi-user support, with roles** (TODO.md, P3 → Users) into releases that can each ship on their own. It also adds two things the TODO doesn't have: bringing another Headwind in as a rider, and an import folder for each user. Line numbers drift; function names are the stable reference.
 
 ## Where things are today
 
@@ -40,6 +40,8 @@
 4. **Garmin is per user from the start.** Each user connects their own Garmin account, and the sync runs for every connected account. The account refactor is done as groundwork in release A (A7), so it's in place before a second user can exist.
 5. **Invite only**: a one-time link from the Users page, stored as a hash like `DeviceToken`, which expires after 7 days. There is no open sign-up.
 6. **An existing local rider gets a login through an invite tied to that rider.** Nothing is copied or moved.
+7. **Home Assistant entities (MQTT) are per user**, decided while building A1–A2. Each user can turn their own entities on or off, and every user who has them on gets their own set in Home Assistant (C7).
+8. **Gear is the rider's own**, decided while building A1–A2. A standard user changes only their own bikes, kit and parts; an admin can add and change gear for the other local riders. A friend's rider never has gear here: from A on, the gear pages don't offer friends' riders and refuse one in `?rider=` or a form.
 
 Still open, decided in the releases below:
 - **Friends.** Each user has their own friends and their own feed codes (release G). Until then, Friends is admin-only.
@@ -63,6 +65,8 @@ Large in line count but mechanical. It can go out as several small releases.
    - `viewable(want)`: whether `?rider=N` may be shown and how (own / editable / read-only friend / no). In A it gives exactly today's answers.
    - Replace all 33 `isDefault=1` request-path queries and the six local helpers with these. `page_facts.ownerId` stays for "is this the owner" display logic only.
 2. **Background work takes a rider id.** Garmin, MQTT, Home Assistant, live, `mqtt_commands`, `context` and the start-up jobs in `app.py` get the rider as an argument instead of looking it up. Their callers still pass the owner. Nothing outside a request may call `whose.rider_id()`: it raises there, so a missed caller fails loudly.
+   - **As built:** what really belongs to the instance asks for the owner by name, `rider_mode.owner_rider_id()`, never `whose`: the Garmin loops and history backfill (until A7), the goal auto-update (until A4), the friend sync's challenge invitations, and the feed and foods feed a friend's Headwind reads (until G). MQTT and the Home Assistant import each have one resolver, `mqtt.sensor_rider()` and `homeassistant.import_rider()`, which callers ask once and hand down; C7 turns the first into the list of users with their entities on.
+   - `tests/test_whose.py` fails if `isDefault=1`, or "the first rider by `isDefault DESC` … `LIMIT 1`", appears in `routes/` or `services/` outside `whose.py`, `rider_mode.py` and `page_facts.py`, or if a route other than `routes/friends.py` calls `owner_rider_id()`.
 3. **Every endpoint declares its access.** Add an `@access('public' | 'any' | 'admin' | 'own')` decorator, or a table in `routes/__init__.py`, and use it to replace `_PUBLIC` in `app.py`. A test walks `app.url_map` and fails on any endpoint without a declaration. In A, `check_login` treats every signed-in session as allowed everywhere, so behaviour is unchanged. This turns the 312 routes into a checklist the test enforces, including routes added later.
 4. **Personal settings move out of `Settings`.** Add a `RiderSettings` table (`riderId` primary key) with the columns from decision 3. A step copies the owner's values into it and gives each other local rider a copy too, which is what they see today. Readers go through `whose`: `page_facts`, `services/units.py`, `services/tz.py` (its `_cache` becomes per rider), `services/context.py`, `routes/nutrition.py`, `services/goals.py` and the rest (`units` alone is read in about 30 files). The old `Settings` columns are left in place for one release so a downgrade still works, then dropped.
 5. **Owners for the ownerless tables.** `GarminDaily` becomes `(riderId, date)`. That's a table rebuild in a step with `keep_copy=True`, because older code reads it by `date`. `SavedMeal` and `PlannedRoute` get `riderId`, set to the owner on upgrade. `Segment`, `FoodOverride` and `FoodImage` stay shared.
@@ -90,6 +94,8 @@ Large in line count but mechanical. It can go out as several small releases.
 ### C. Roles and scoping (the main release)
 
 1. **Switch it on.** `whose.rider_id()` returns `g.user.riderId`. `viewable` lets an admin see any local rider. For a standard user it allows their own rider only and gives 404 for any other `?rider=`.
+   - The display checks that still read `Rider.isDefault` to mean "the rider shown is the request's own" compare with `whose.rider_id()` instead: `dashboard._rider_args`, `goals._back`, the Data page's alcohol recovery ("Garmin data is the owner's", per account after A7) and the `owner_rider_id` the templates get from `app.py`.
+   - `activities.delete_blips` takes the form's rider without a check today; it goes through `whose.require` with the rest of C3.
 2. **Enforce `@access`.**
    - Admin-only: Tasks, logs and diagnostics; backup and restore; Settings' instance sections; Home Assistant; MQTT; Riders management; Users; Friends (until G).
    - `own`: everything per rider, including the user's own Garmin connection and sync.
@@ -107,7 +113,9 @@ Large in line count but mechanical. It can go out as several small releases.
 7. **Cross-user leaks outside routes.**
    - Context processors in `app.py`: the favourites, the Tasks badge (admin only) and the reimport badge (per rider).
    - The badge cache keyed on `data_version`: check it's keyed by rider.
-   - MQTT and Home Assistant publish the owner's sensors, as now. Per-rider sensors are a possible later addition.
+   - **MQTT per user** (decision 7). A per-user switch in `RiderSettings`, on for the owner on upgrade. `mqtt.sensor_rider()` becomes the list of riders with it on: the heartbeat and the Settings button publish each one's set, and a push after a change goes to the rider whose data changed. Each user's entities are their own Home Assistant device. Proposed: the owner's keep today's ids and topics, so existing dashboards and automations keep working, and other users' get their own prefix, including their own water-button topic (`mqtt_commands`).
+   - The Home Assistant import (weights and body figures read from HA) stays admin-only and goes into the owner's data (`homeassistant.import_rider()`).
+   - Gear (decision 8): a standard user's `?rider=` or form rider on the gear pages is their own; `viewable`'s `local` is admin-only.
 8. **README and CHANGELOG.** Rewrite "One person per instance" (e.g. "one household or club per instance, each person private by default") and the Beta status line, and document roles, invites, per-user Garmin and recovery.
 
 **Tests for C** (the release isn't done without them):

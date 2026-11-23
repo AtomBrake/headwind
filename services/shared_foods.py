@@ -26,16 +26,16 @@ def _norm(name):
     return ' '.join((name or '').lower().split())
 
 
-def feed_records():
-    """This instance's own user-made foods (what /api/foods-feed sends)."""
+def feed_records(rider_id):
+    """This instance's own user-made foods (what /api/foods-feed sends): the shared overrides, and rider_id's custom foods (the feed gives the
+    instance's owner)."""
     for r in query_db('SELECT * FROM FoodOverride ORDER BY barcode'):
         yield {'type': 'food', 'kind': 'override', 'key': r['barcode'], 'barcode': r['barcode'], 'name': r['name'],
                'brand': r['brand'], 'kcal100g': r['kcal100g'], 'protein100g': r['protein100g'], 'carbs100g': r['carbs100g'],
                'fat100g': r['fat100g'], 'fibre100g': r['fibre100g'], 'servingG': r['servingG'], 'imageUrl': r['imageUrl'],
                'nutriScoreGrade': r['nutriScoreGrade'], 'updatedAt': r['updatedAt']}
-    owner = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
-    if owner:
-        for r in query_db('SELECT * FROM CustomFood WHERE riderId=? ORDER BY name COLLATE NOCASE', [owner['id']]):
+    if rider_id is not None:
+        for r in query_db('SELECT * FROM CustomFood WHERE riderId=? ORDER BY name COLLATE NOCASE', [rider_id]):
             yield {'type': 'food', 'kind': 'custom', 'key': _norm(r['name']), 'barcode': None, 'name': r['name'], 'brand': r['brand'],
                    'kcal100g': r['calories'], 'protein100g': r['protein'], 'carbs100g': r['carbs'], 'fat100g': r['fat'],
                    'fibre100g': r['fibre100g'], 'servingG': r['servingG'], 'imageUrl': r['imageUrl'], 'updatedAt': r['createdAt']}

@@ -100,11 +100,8 @@ def _working(kg, p):
     return bmr, neat, ride_per_day, tdee, deficit, floor, goal
 
 
-def plan(rider_id=None):
-    """Returns the working, or {'error': ...} when a profile field is missing."""
-    if rider_id is None:
-        r = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
-        rider_id = r['id'] if r else None
+def plan(rider_id):
+    """Returns the working for this rider (their weight; the profile is still the instance's), or {'error': ...} when a profile field is missing."""
     p = profile()
     kg = current_weight_kg(rider_id)
     missing = [k for k, v in (('sex', p['sex']), ('age', p['age']), ('height', p['height_cm']), ('a weigh-in', kg)) if not v]
@@ -131,8 +128,8 @@ def apply(pl):
     db.commit()
 
 
-def auto_update():
-    """Daily: if 'adjust automatically' is on and the plan has drifted 20+ kcal from the saved goal, apply it."""
+def auto_update(rider_id):
+    """Daily: if 'adjust automatically' is on and the plan has drifted 20+ kcal from the saved goal, apply it. The heartbeat gives the rider."""
     s = query_db('SELECT goalAuto, goalAutoLast, nutritionCalGoal FROM Settings WHERE id=1', one=True)
     if not s or not s['goalAuto']:
         return None
@@ -142,7 +139,7 @@ def auto_update():
     db = get_db()
     db.execute('UPDATE Settings SET goalAutoLast=? WHERE id=1', [today])
     db.commit()
-    pl = plan()
+    pl = plan(rider_id)
     if 'error' in pl:
         return None
     if abs(pl['goal'] - (s['nutritionCalGoal'] or 0)) >= 20:
@@ -181,12 +178,9 @@ def activity_calories(rider_id, date_iso):
 APPLY_DRIFT = 20   # kcal — auto_update only rewrites the saved goal when the plan has moved this far
 
 
-def plan_status(rider_id=None):
+def plan_status(rider_id):
     """Everything the 'My plan' and 'Next calorie change' dashboard cards show: the saved goals, why they are what they are,
     and at which (7-day average) weights the goal will next step down — or up, since weight is the only trigger."""
-    if rider_id is None:
-        r = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
-        rider_id = r['id'] if r else None
     pl = plan(rider_id)
     if 'error' in pl:
         return {'status': 'error', 'error': pl['error']}

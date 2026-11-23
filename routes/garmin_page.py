@@ -2,7 +2,7 @@ import json
 
 from flask import Blueprint, render_template, request
 from database import query_db
-from services import health, tz
+from services import health, tz, whose
 
 bp = Blueprint('garmin_page', __name__)
 
@@ -11,9 +11,8 @@ bp = Blueprint('garmin_page', __name__)
 def index():
     days = int(request.args.get('days', 60))
 
-    # Garmin's figure for a day where it has one, else what the owner's iPhone sent from Apple Health (services/health)
-    owner = query_db('SELECT id FROM Rider ORDER BY isDefault DESC, id LIMIT 1', one=True)
-    rows = health.recovery_days(owner['id'] if owner else None, tz.today().isoformat(), days - 1)[::-1]
+    # Garmin's figure for a day where it has one, else what the rider's iPhone sent from Apple Health (services/health)
+    rows = health.recovery_days(whose.rider_id(), tz.today().isoformat(), days - 1)[::-1]
 
     # Dates that have a ride (for chart markers)
     ride_dates = {

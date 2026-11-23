@@ -6,7 +6,7 @@ from urllib.parse import urlencode
 from flask import Blueprint, redirect, render_template, request, session
 
 from database import get_db, query_db
-from services import friend_rides, sports, tz
+from services import friend_rides, sports, tz, whose
 from services.dates import day_month
 from services.sport_filter import SportFilter, chart_groups, speed_sql
 
@@ -164,26 +164,20 @@ def index():
     return redirect('/dashboard')
 
 
-FRIENDS = 'friends'     # ?rider=friends on the dashboard and Activities: every friend's activities together, newest first, read-only
+FRIENDS = whose.FRIENDS     # ?rider=friends on the dashboard and Activities: every friend's activities together, newest first, read-only
 
 
 def _riders(args, friends=False):
-    """(every rider, the rider shown, their id): ?rider= or the owner. With friends (the activity list's pages), ?rider=friends gives a stand-in
-    for every friend synced here together, {'id': 'friends', 'name': 'Friends', 'isDefault': 0, 'avatarPath': None, 'ids': [their rider ids]},
-    and no id: see _ids. Another rider who lives here is never one of them (services/friend_rides.friend_riders). With no friend synced it's
-    the owner, as for any rider that isn't there."""
+    """(every rider, the rider shown, their id): ?rider= as whose.viewable allows it, or the request's own rider. With friends (the activity
+    list's pages), ?rider=friends gives a stand-in for every friend synced here together, {'id': 'friends', 'name': 'Friends', 'isDefault': 0,
+    'avatarPath': None, 'ids': [their rider ids]}, and no id: see _ids. Another rider who lives here is never one of them
+    (services/friend_rides.friend_riders). With no friend synced it's the request's own rider, as for any rider that isn't there."""
     all_riders = query_db('SELECT * FROM Rider ORDER BY isDefault DESC, name')
-    owner      = next((r for r in all_riders if r['isDefault']), all_riders[0] if all_riders else None)
-    if friends and args.get('rider') == FRIENDS:
-        ids = list(friend_rides.friend_riders(get_db()))
-        if ids:
-            return all_riders, {'id': FRIENDS, 'name': 'Friends', 'isDefault': 0, 'avatarPath': None, 'ids': ids}, None
-    try:
-        rid = int(args.get('rider') or owner['id'])
-    except (TypeError, ValueError):
-        rid = owner['id'] if owner else None
-    active_rider = query_db('SELECT * FROM Rider WHERE id=?', [rid], one=True) or owner
-    return all_riders, active_rider, rid
+    view = whose.viewable(args.get('rider'), friends=friends) or whose.viewable(None)
+    if view.how == whose.FRIENDS:
+        return all_riders, {'id': FRIENDS, 'name': 'Friends', 'isDefault': 0, 'avatarPath': None, 'ids': list(view.ids)}, None
+    active_rider = query_db('SELECT * FROM Rider WHERE id=?', [view.id], one=True) if view.id is not None else None
+    return all_riders, active_rider, view.id
 
 
 def _rider_args(active_rider):

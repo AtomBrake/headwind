@@ -566,9 +566,10 @@ def _avatar_dir():
 
 @bp.route('/riders')
 def index():
-    from services.rider_mode import multi_rider, owner_rider_id
-    if not multi_rider() and owner_rider_id():       # one person per instance: this page is just your profile
-        return redirect(url_for('riders.detail', rid=owner_rider_id()))
+    from services import whose
+    from services.rider_mode import multi_rider
+    if not multi_rider() and whose.rider_id():       # one person per instance: this page is just your profile
+        return redirect(url_for('riders.detail', rid=whose.rider_id()))
     riders = query_db('''
         SELECT r.*,
                COUNT(a.id) AS ride_count,

@@ -99,7 +99,7 @@ def entities():
 def sync_now():
     try:
         days = int(request.form.get('days') or 0) or None
-        return jsonify({'ok': True, **ha.sync(days=days)})
+        return jsonify({'ok': True, **ha.sync(ha.import_rider(), days=days)})
     except ha.HAError as e:
         log.warning('Home Assistant sync failed: %s', e)
         return jsonify({'error': str(e)}), 400

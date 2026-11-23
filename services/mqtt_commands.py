@@ -40,7 +40,7 @@ def _apply_water(app, payload):
         log.warning('MQTT water command ignored (ml out of range): %s', ml)
         return
     with app.app_context():
-        from database import get_db, query_db
+        from database import get_db
         from services import tz
         db = get_db()
         db.execute('CREATE TABLE IF NOT EXISTS CmdSeen (id TEXT PRIMARY KEY, seenAt TEXT DEFAULT (datetime(\'now\')))')
@@ -50,11 +50,12 @@ def _apply_water(app, payload):
                 db.commit()
                 return  # already applied
             db.execute("DELETE FROM CmdSeen WHERE seenAt < datetime('now', '-2 days')")
-        rider = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
-        if not rider:
+        from services.mqtt import sensor_rider
+        rider_id = sensor_rider()           # the button belongs to the sensors, so to the rider they show (the owner)
+        if rider_id is None:
             return
         today = tz.today().isoformat()      # the home zone's date, as the diary uses
-        db.execute('INSERT INTO HydrationLog (riderId, logDate, ml) VALUES (?, ?, ?)', [rider['id'], today, ml])
+        db.execute('INSERT INTO HydrationLog (riderId, logDate, ml) VALUES (?, ?, ?)', [rider_id, today, ml])
         db.commit()
         log.warning('Water +%d ml logged from Home Assistant', ml)
         try:

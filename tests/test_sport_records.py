@@ -137,8 +137,8 @@ def test_a_rider_who_only_rides_gets_no_other_sport_badges(app):
 def test_home_assistant_sensors_for_every_sport(app):
     from services import mqtt
     with app.test_request_context():
-        vals = mqtt._state_values(mqtt._gather_stats())
-        weekly = json.loads(mqtt._history_payloads()['nutrition_training_weekly'])
+        vals = mqtt._state_values(mqtt._gather_stats(1))
+        weekly = json.loads(mqtt._history_payloads(1)['nutrition_training_weekly'])
     assert vals['total_rides'] == '1' and vals['total_activities'] == '7'
     assert vals['week_activities'] == '7' and vals['week_swim_distance_m'] == '1500'
     assert vals['week_foot_distance_mi'] == str(round((5400 + 4200 + 5040) / 1609.344, 1))
@@ -203,12 +203,12 @@ def test_start_up_repairs_put_right_what_is_saved(app):
         db.commit()
         res = moving_time.repair_paused(db)
         assert [f[0] for f in res['fixed']] == ['r1'] and db.execute("SELECT movingTime FROM Activity WHERE id='r1'").fetchone()[0] == 4000
-        res = best_efforts.rescan_clean(db)
+        res = best_efforts.rescan_clean(db, 1)
         five = next(c for c in res['changed'] if c[0] == 5)
         assert res['ran'] and five[1] == 215 and five[2] > 900                             # the rider's 5-mile record: 3:35 before, a real one now
         assert db.execute("SELECT MIN(elapsedSecs) FROM BestEffort WHERE activityId='bad' AND distanceMi=5").fetchone()[0] > 900
         assert db.execute('SELECT COUNT(*) FROM SportEffort').fetchone()[0] == 0          # runs and swims are worked out again on the next read
-        assert best_efforts.rescan_clean(db) == {'ran': False} and moving_time.repair_paused(db) == {'ran': False}
+        assert best_efforts.rescan_clean(db, 1) == {'ran': False} and moving_time.repair_paused(db) == {'ran': False}
 
 
 def test_best_times_rescan_with_a_friends_rider_reports_only_the_owners_records(app):
@@ -228,7 +228,7 @@ def test_best_times_rescan_with_a_friends_rider_reports_only_the_owners_records(
         db.execute('DELETE FROM BestEffort WHERE activityId=?', ['f1'])
         db.execute('UPDATE Settings SET bestEffortsCleanDone=0')
         db.commit()
-        res = best_efforts.rescan_clean(db)
+        res = best_efforts.rescan_clean(db, 1)
         assert res['ran'] and [c[0] for c in res['changed']] == sorted(c[0] for c in res['changed'])
         assert next(c for c in res['changed'] if c[0] == 5)[1] == 215 and len([c for c in res['changed'] if c[0] == 5]) == 1
         assert db.execute("SELECT COUNT(*) FROM BestEffort WHERE activityId='f1' AND distanceMi=5").fetchone()[0] == 1   # the friend's times are still worked out

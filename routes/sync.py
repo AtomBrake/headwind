@@ -3,6 +3,7 @@ import logging
 
 from flask import Blueprint, jsonify
 from database import get_db, query_db
+from services import whose
 
 bp = Blueprint('sync', __name__)
 log = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ def sync():
     if not connected(s):
         return jsonify({'error': 'Garmin is not configured — connect it on the Settings page'}), 400
 
-    rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'No default rider found'}), 400
 
@@ -33,7 +34,7 @@ def sync():
                     skipped = status['skipped']
         else:
             from services.garmin import sync_garmin
-            sync_garmin(days=14)
+            sync_garmin(rider['id'], days=14)
 
         if imported > 0:
             from services.mqtt import push_update
@@ -43,7 +44,7 @@ def sync():
         from services.garmin import sync_error
         return jsonify({'error': sync_error(e)}), 500
 
-    # Backfill HR/weather for the owner's recent rides that are missing it, whatever their source —
+    # Backfill HR/weather for the rider's recent rides that are missing it, whatever their source —
     # a file import or a phone-recorded ride can land without HR (GPX has none) or without weather
     # (the API can be briefly down at insert time).
     try:
@@ -52,13 +53,12 @@ def sync():
         missing = query_db(f'''
             SELECT a.id, a.startDate, a.elapsedTime, {_streams.sql('a')}
             FROM Ride a
-            JOIN Rider r ON r.id = a.riderId
-            WHERE r.isDefault = 1
+            WHERE a.riderId = ?
               AND a.averageHeartrate IS NULL
               AND a.startDate IS NOT NULL
               AND a.elapsedTime IS NOT NULL
               AND a.startDate >= datetime('now', '-7 days')
-        ''')
+        ''', [rider['id']])
         if missing:
             garmin_api = _client()
             db = get_db()

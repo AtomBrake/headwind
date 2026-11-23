@@ -34,13 +34,8 @@ SPEED_BOUNDS = {'speed': (1.0, 25), 'pace': (0.3, 7), 'swim': (0.2, 2.5)}
 
 @bp.route('/data')
 def index():
-    all_riders   = query_db('SELECT * FROM Rider ORDER BY isDefault DESC, name')
-    owner        = next((r for r in all_riders if r['isDefault']), all_riders[0] if all_riders else None)
-    try:
-        rid = int(request.args.get('rider') or owner['id'])
-    except (TypeError, ValueError):
-        rid = owner['id'] if owner else None
-    active_rider = query_db('SELECT * FROM Rider WHERE id=?', [rid], one=True) or owner
+    from routes.dashboard import _riders
+    all_riders, active_rider, rid = _riders(request.args)      # ?rider=, as whose.viewable allows it
     rider_args   = [] if not active_rider or active_rider['isDefault'] else [('rider', active_rider['id'])]
 
     from services import units

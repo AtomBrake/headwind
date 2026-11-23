@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 import requests
 from flask import Blueprint, Response, abort, jsonify, redirect, request, render_template
 from database import get_db, query_db
-from services import limits
+from services import limits, whose
 from services.food_lookup import name_key
 from services.food_quality import nutri_score_label, nutrient_tags
 from services.weight_trend import (
@@ -36,11 +36,6 @@ bp = Blueprint('nutrition', __name__, url_prefix='/nutrition')
 WEIGHT_PERIOD_DAYS = {'W': 7, 'M': 30, '3M': 90, '6M': 182, 'Y': 365}
 
 MEAL_KEYS = ['breakfast', 'lunch', 'dinner', 'snacks', 'ride_fuel', 'recovery']
-
-
-def _default_rider_id():
-    row = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
-    return row['id'] if row else None
 
 
 def _parse_serving_g(s):
@@ -210,7 +205,7 @@ def steps_page():
 
 @bp.route('/api/steps', methods=['GET'])
 def steps_list():
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     today = _london_today()
     goal = (query_db('SELECT stepGoal FROM Settings WHERE id=1', one=True) or {'stepGoal': None})['stepGoal'] or 8000
     from services import steps as _steps
@@ -256,7 +251,7 @@ def steps_set():
         return jsonify({'error': 'steps must be between 0 and 100,000'}), 400
     if day > today or (today - day).days > 120:
         return jsonify({'error': 'date must be within the last 120 days (not in the future)'}), 400
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     # An automatic sync (currently: the phone app's Health Connect) writes to a DIFFERENT metric slot than a value someone
     # typed by hand, so neither can silently overwrite the other. Which one counts is services/steps.py: a typed value wins
     # for its day, otherwise the chosen source.
@@ -277,7 +272,7 @@ def steps_delete(day):
     except ValueError:
         return jsonify({'error': 'bad date'}), 400
     db = get_db()
-    db.execute("DELETE FROM BodyMetric WHERE riderId=? AND logDate=? AND metric='steps_manual'", [_default_rider_id(), day])
+    db.execute("DELETE FROM BodyMetric WHERE riderId=? AND logDate=? AND metric='steps_manual'", [whose.rider_id(), day])
     db.commit()
     _mqtt_nutrition()
     return jsonify({'ok': True})
@@ -357,7 +352,7 @@ def estimate_meal_photo():
 @bp.route('/api/goal-plan', methods=['GET'])
 def goal_plan():
     from services import goal_model
-    return jsonify({'plan': goal_model.plan(), 'profile': goal_model.profile(), 'current': _get_goals(),
+    return jsonify({'plan': goal_model.plan(whose.rider_id()), 'profile': goal_model.profile(), 'current': _get_goals(),
                     'weight_unit': _weight_settings()['unit']})      # the loss rate is shown in kg a week when weights are
 
 
@@ -365,7 +360,7 @@ def goal_plan():
 def get_profile():
     """Everything the Settings 'Profile & goals' card shows: the body stats, the latest weight, the goal weight and what the smart plan still needs."""
     from services import goal_model
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     pl = goal_model.plan(rider_id)
     kg = goal_model.current_weight_kg(rider_id)
     ws = _weight_settings()
@@ -412,13 +407,13 @@ def save_goal_profile():
         db.execute('UPDATE Settings SET birthDate=?, birthDateGuessed=1, birthYear=? WHERE id=1', [f'{y:04d}-01-01', y])
     db.commit()
     _mqtt_nutrition()
-    return jsonify({'plan': goal_model.plan(), 'profile': goal_model.profile()})
+    return jsonify({'plan': goal_model.plan(whose.rider_id()), 'profile': goal_model.profile()})
 
 
 @bp.route('/api/goal-plan/apply', methods=['POST'])
 def apply_goal_plan():
     from services import goal_model
-    pl = goal_model.plan()
+    pl = goal_model.plan(whose.rider_id())
     if 'error' in pl:
         return jsonify({'error': pl['error']}), 400
     goal_model.apply(pl)
@@ -648,7 +643,7 @@ def save_food_nutrition():
         db.execute("""UPDATE FoodCache SET kcal100g=?, protein100g=?, carbs100g=?, fat100g=?, fibre100g=?
                       WHERE key=?""", [*vals, barcode])
     else:
-        rider_id = _default_rider_id()
+        rider_id = whose.rider_id()
         existing = query_db('SELECT id FROM CustomFood WHERE riderId=? AND lower(name)=lower(?)', [rider_id, name], one=True)
         if existing:
             db.execute("""UPDATE CustomFood SET brand=COALESCE(?, brand), calories=?, protein=?, carbs=?, fat=?, fibre100g=?,
@@ -900,7 +895,7 @@ def log_food():
     bad = _bad_numbers(d, ('calories', 'protein', 'carbs', 'fat', 'fibre', 'sugar', 'alcohol_units', 'abv', 'serving_g', 'quantity'))
     if bad:
         return jsonify({'error': f'{bad} must be a number between 0 and 100000'}), 400
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     cid = d.get('client_id') if not d.get('id') else None
     op_key = None
     if cid:                                    # a queued offline log being retried: apply once
@@ -966,7 +961,7 @@ def log_food_batch():
     items = d.get('items') or []
     if not items:
         return jsonify({'error': 'Nothing to log'}), 400
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     db = get_db()
     for it in items:
         db.execute('''
@@ -986,7 +981,7 @@ def log_food_batch():
 @bp.route('/api/recipes', methods=['GET'])
 def list_recipes():
     rows = query_db('SELECT id, name, calories, protein, carbs, fat FROM RecipeBook WHERE riderId=? ORDER BY name',
-                    [_default_rider_id()])
+                    [whose.rider_id()])
     return jsonify([dict(r) for r in rows])
 
 
@@ -997,7 +992,7 @@ def save_recipes():
     rows = [r for r in (d.get('recipes') or []) if r.get('name') and r.get('calories')]
     if not rows:
         return jsonify({'error': 'Nothing to save'}), 400
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     db = get_db()
     for rec in rows:
         db.execute('''
@@ -1015,7 +1010,7 @@ def save_recipes():
 @bp.route('/api/recipes/<int:recipe_id>', methods=['DELETE'])
 def delete_recipe(recipe_id):
     db = get_db()
-    db.execute('DELETE FROM RecipeBook WHERE id=? AND riderId=?', [recipe_id, _default_rider_id()])
+    db.execute('DELETE FROM RecipeBook WHERE id=? AND riderId=?', [recipe_id, whose.rider_id()])
     db.commit()
     return jsonify({'ok': True})
 
@@ -1092,7 +1087,7 @@ def import_screenshot():
                     from services.food_lookup import name_key
                     result = extract_recipes(images, progress=emit)
                     have = {x['nameKey'] for x in query_db(
-                        'SELECT nameKey FROM RecipeBook WHERE riderId=?', [_default_rider_id()])}
+                        'SELECT nameKey FROM RecipeBook WHERE riderId=?', [whose.rider_id()])}
                     for rec in result['recipes']:
                         rec['exists'] = name_key(rec['name']) in have
                     events.put({'type': 'result', **result})
@@ -1141,7 +1136,7 @@ def add_water():
     d = request.get_json(silent=True) or {}
     if not _valid_date(d.get('date')) or _bad_numbers(d, ('ml',), hi=10_000) or not d.get('ml'):
         return jsonify({'error': 'a valid date and ml (1-10000) are required'}), 400
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     cid = d.get('client_id')
     op_key = None
     if cid:
@@ -1189,7 +1184,7 @@ def _alcohol_summary(rider_id, date_str, week_goal):
 
 @bp.route('/api/day/<date_str>')
 def day_log(date_str):
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     entries = query_db('''
         SELECT id, foodName, calories, protein, carbs, fat, fibre, sugar, alcoholUnits, servingG, quantity,
                barcode, mealType, source, brand, imageUrl, nutriScoreGrade
@@ -1301,7 +1296,7 @@ def _annotate_food_rows(rows):
 
 @bp.route('/api/recent')
 def recent_foods():
-    rider_id  = _default_rider_id()
+    rider_id  = whose.rider_id()
     meal_type = request.args.get('meal_type')
     offset    = int(request.args.get('offset', 0))
     limit     = int(request.args.get('limit', 20))
@@ -1373,7 +1368,7 @@ def _favourite_dict(row):
 
 @bp.route('/api/favourites', methods=['GET'])
 def list_favourites():
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     rows = query_db(
         'SELECT * FROM FoodFavourite WHERE riderId=? ORDER BY foodName COLLATE NOCASE ASC',
         [rider_id],
@@ -1384,7 +1379,7 @@ def list_favourites():
 @bp.route('/api/favourites', methods=['POST'])
 def add_favourite():
     d = request.get_json()
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     name = (d.get('foodName') or '').strip()
     if not name:
         return jsonify({'error': 'foodName required'}), 400
@@ -1443,7 +1438,7 @@ def _custom_food_dict(row):
 
 @bp.route('/api/my-foods', methods=['GET'])
 def list_custom_foods():
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     rows = query_db(
         'SELECT * FROM CustomFood WHERE riderId=? ORDER BY name COLLATE NOCASE ASC',
         [rider_id],
@@ -1454,7 +1449,7 @@ def list_custom_foods():
 @bp.route('/api/my-foods', methods=['POST'])
 def create_custom_food():
     d = request.get_json()
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     name = (d.get('name') or '').strip()
     if not name:
         return jsonify({'error': 'name required'}), 400
@@ -1555,7 +1550,7 @@ def delete_saved_meal(meal_id):
 @bp.route('/api/saved-meals/<int:meal_id>/log', methods=['POST'])
 def log_saved_meal(meal_id):
     d         = request.get_json()
-    rider_id  = _default_rider_id()
+    rider_id  = whose.rider_id()
     date_str  = d.get('date')
     meal_type = d.get('meal_type', 'uncategorised')
     scale     = float(d.get('scale', 1.0))
@@ -1595,7 +1590,7 @@ def copy_day():
     from_date = d.get('from_date')
     to_date   = d.get('to_date')
     meal_type = d.get('meal_type')
-    rider_id  = _default_rider_id()
+    rider_id  = whose.rider_id()
     if meal_type:
         entries = query_db(
             'SELECT * FROM FoodLog WHERE riderId=? AND logDate=? AND mealType=?',
@@ -1668,7 +1663,7 @@ def week_index(date_str=None):
 @bp.route('/api/week/<date_str>')
 def week_log(date_str):
     from datetime import datetime, timedelta
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
 
     # Parse date and find Monday of that week
     d = datetime.fromisoformat(date_str)
@@ -1816,7 +1811,7 @@ def save_weight_settings():
 @bp.route('/api/weight', methods=['POST'])
 def log_weight():
     d = request.get_json()
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     date_str = d.get('date')
     if not _valid_date(date_str):
         return jsonify({'error': 'a valid date (YYYY-MM-DD) is required'}), 400
@@ -1870,14 +1865,14 @@ def delete_weight(entry_id):
 def weight_refresh():
     """Pull the latest scale readings from Home Assistant (throttled) — called when the app is opened."""
     from services import homeassistant
-    return jsonify({'changed': homeassistant.refresh()})
+    return jsonify({'changed': homeassistant.refresh(homeassistant.import_rider())})
 
 
 @bp.route('/api/metrics')
 def body_metrics():
     """Body-composition series (body fat, etc.) from Home Assistant for the same window as the weight graph."""
     from services.homeassistant import TARGETS
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     period = request.args.get('period', 'M').upper()
     end_date = date.fromisoformat(request.args['end']) if request.args.get('end') else date.today()
     if period == 'ALL':
@@ -1898,7 +1893,7 @@ def body_metrics():
 
 @bp.route('/api/weight/graph')
 def weight_graph_data():
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     period = request.args.get('period', 'M').upper()
     end_param = request.args.get('end')
     entries = _all_weight_entries(rider_id)
@@ -1997,7 +1992,7 @@ def weight_graph_data():
 
 @bp.route('/api/weight/backfill/preview', methods=['POST'])
 def weight_backfill_preview():
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     if 'file' in request.files:
         text = request.files['file'].read().decode('utf-8', errors='replace')
     else:
@@ -2015,7 +2010,7 @@ def weight_backfill_preview():
 @bp.route('/api/weight/backfill/confirm', methods=['POST'])
 def weight_backfill_confirm():
     d = request.get_json()
-    rider_id = _default_rider_id()
+    rider_id = whose.rider_id()
     rows = d.get('rows', [])
     db = get_db()
     imported, skipped = 0, 0

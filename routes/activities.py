@@ -3,7 +3,7 @@ import json
 import re
 from flask import Blueprint, abort, current_app, redirect, render_template, request, send_from_directory, session, url_for
 from database import query_db, get_db
-from services import sports
+from services import sports, whose
 from routes.riders import _compute_badges
 from services.ai import PERSONALITIES
 from services import streams as _streams
@@ -714,7 +714,7 @@ def delete_blips():
     from services.ingest import after_ride_removed
     db = get_db()
     rider = request.form.get('rider')
-    rid = int(rider) if rider and rider.isdigit() else (query_db('SELECT id FROM Rider WHERE isDefault=1', one=True) or {'id': -1})['id']
+    rid = int(rider) if rider and rider.isdigit() else whose.rider_id()
     res = _bulk.apply(db, 'delete', sanity.blip_ids(db, rid))
     db.commit()
     after_ride_removed()

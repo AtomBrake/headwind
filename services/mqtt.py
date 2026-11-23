@@ -272,6 +272,14 @@ def _fmt_duration(secs):
     return f'{h}:{m:02d}:{s:02d}' if h else f'{m}:{s:02d}'
 
 
+def sensor_rider():
+    """Whose figures the sensors show: the instance's owner (rider_mode.owner_rider_id), whoever is signed in. push_update,
+    push_update_nutrition and the Settings button ask once and hand it down; nothing below looks a rider up. Each user turning on a set of
+    entities of their own is planned (docs/MULTI-USER-PLAN.md, C7), and this is where the riders to publish for will come from."""
+    from services.rider_mode import owner_rider_id
+    return owner_rider_id()
+
+
 def _gather_garmin():
     from database import query_db
     row = query_db(
@@ -296,17 +304,15 @@ def _garmin_state_values(g):
     }
 
 
-def _gather_nutrition():
+def _gather_nutrition(rid):
     from database import query_db
     from datetime import date, datetime
     from services import tz
     # The box's own timezone may not be the user's; "today" (and so the midnight reset) must follow the diary's dates
     today_d = tz.today()
     today = today_d.isoformat()
-    rider = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
-    if not rider:
+    if rid is None:
         return {}
-    rid = rider['id']
     food = query_db('''
         SELECT COALESCE(SUM(calories),0) as cal, COALESCE(SUM(protein),0) as prot,
                COALESCE(SUM(carbs),0) as carbs, COALESCE(SUM(fat),0) as fat, COALESCE(SUM(fibre),0) as fibre, COALESCE(SUM(sugar),0) as sugar
@@ -398,7 +404,7 @@ def _gather_nutrition():
         'carbs_goal':   settings['nutritionCarbGoal']    if settings else None,
         'fat_goal':     settings['nutritionFatGoal']     if settings else None,
         'water_goal':   settings['nutritionWaterGoalMl'] if settings else None,
-        'history':      _history_payloads(),
+        'history':      _history_payloads(rid),
         'steps_goal':   steps_goal,
         'garmin_last_ok': gl['garminLastOk'] if gl else None,
         'garmin_watch_sync': gl['garminDeviceSync'] if gl else None,
@@ -415,15 +421,16 @@ def _attr_topic(uid):
     return f"homeassistant/sensor/{_prefix()}_{uid}/attributes"
 
 
-_hist_cache = {'t': 0.0, 'v': {}}
+_hist_cache = {'t': 0.0, 'v': {}, 'rid': None}
 
 
-def _hist_now():
-    """History payloads, computed once per publish burst (they are used for both hash and attributes)."""
+def _hist_now(rid):
+    """rid's history payloads, computed once per publish burst (they are used for both hash and attributes)."""
     import time
-    if time.time() - _hist_cache['t'] > 5:
-        _hist_cache['v'] = _history_payloads()
+    if time.time() - _hist_cache['t'] > 5 or _hist_cache['rid'] != rid:
+        _hist_cache['v'] = _history_payloads(rid)
         _hist_cache['t'] = time.time()
+        _hist_cache['rid'] = rid
     return _hist_cache['v']
 
 
@@ -505,16 +512,14 @@ def _ride_route_payloads(rid):
     return out
 
 
-def _history_payloads():
-    """{uid: compact JSON} — the series behind the dashboard charts (weight, diary, recovery)."""
+def _history_payloads(rid):
+    """{uid: compact JSON} — rider rid's series behind the dashboard charts (weight, diary, recovery)."""
     from database import query_db
     from datetime import date, datetime, timedelta
     from services import tz
     today = tz.today()
-    rider = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
-    if not rider:
+    if rid is None:
         return {}
-    rid = rider['id']
     out = {}
 
     # weight: every weigh-in (last 180) with its smoothed trend and that day's body fat
@@ -681,11 +686,11 @@ def _history_payloads():
     return {uid: json.dumps(v, separators=(',', ':')) for uid, v in out.items()}
 
 
-def _activity_status():
+def _activity_status(rid):
     """'ok' / 'stagnant' / 'unknown' from the weekly activity payload (drives the 'looking stagnant' push in HA)."""
     try:
         from services import insights
-        return insights.activity_status(json.loads(_hist_now().get('nutrition_activity_weekly') or '{}'))
+        return insights.activity_status(json.loads(_hist_now(rid).get('nutrition_activity_weekly') or '{}'))
     except Exception as e:
         log.warning('activity status failed: %s', e)
         return 'unknown'
@@ -700,7 +705,7 @@ def _alcohol(rid, today, goal):
         return {'today': 0, 'week': 0, 'goal': goal, 'days': 0}
 
 
-def _nutrition_state_values(n):
+def _nutrition_state_values(n, rid):
     def v(val):
         return str(val) if val is not None else 'unknown'
     cal_pct   = round(n['eaten']    / n['cal_goal']   * 100) if n.get('cal_goal')   and n['eaten']    else 0
@@ -731,7 +736,7 @@ def _nutrition_state_values(n):
         'nutrition_fat_goal':           v(n.get('fat_goal') or 0),
         'nutrition_fibre_goal':         v(FIBRE_GOAL_G),
         'nutrition_water_goal':         v(n.get('water_goal') or 0),
-        'nutrition_activity_status':    _activity_status(),
+        'nutrition_activity_status':    _activity_status(rid),
         'nutrition_steps_goal':         v(n.get('steps_goal') or 0),
         'nutrition_steps_today':        v(n.get('steps_today') or 0),
         'nutrition_steps_source':       n.get('steps_source') or 'unknown',
@@ -864,13 +869,12 @@ def _training_weekly(rid, today, weeks=12):
             'groups': sorted(groups.values(), key=lambda g: sports.stat_order(g['key']))}
 
 
-def _gather_stats():
+def _gather_stats(rid):
     from database import query_db
     from routes.riders import _compute_badges
-    # The HA sensors describe the owner only — other riders on this instance (a partner's rides, friends' synced rides)
-    # must not inflate the totals or become "last ride".
-    owner_row = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
-    who = ' WHERE riderId=%d' % owner_row['id'] if owner_row else ''
+    # The HA sensors describe one rider (sensor_rider: the owner) only — other riders on this instance (a partner's rides, friends' synced
+    # rides) must not inflate the totals or become "last ride".
+    who = ' WHERE riderId=%d' % rid if rid is not None else ''
     totals = query_db(
         'SELECT COUNT(*) as rides, SUM(distance) as dist, SUM(totalElevationGain) as elev, '
         'SUM(movingTime) as secs, SUM(calories) as cals FROM Ride' + who,
@@ -894,15 +898,14 @@ def _gather_stats():
         stats['last_hr']    = last['averageHeartrate']
         stats['last_watts'] = last['averageWatts']
         stats['last_cals']  = last['calories']
-    stats.update(_training_stats(owner_row['id']) if owner_row else {})
-    # Badge counts for default rider
-    owner = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
-    if owner:
+    stats.update(_training_stats(rid) if rid is not None else {})
+    # Badge counts for the same rider
+    if rid is not None:
         rtotals = query_db(
             'SELECT COUNT(*) as rides, SUM(distance) as dist, SUM(totalElevationGain) as elev '
-            'FROM Ride WHERE riderId=?', [owner['id']], one=True)
+            'FROM Ride WHERE riderId=?', [rid], one=True)
         if rtotals:
-            cats = _compute_badges(owner['id'], rtotals)
+            cats = _compute_badges(rid, rtotals)
             stats['badges_earned'] = sum(1 for cat in cats for b in cat['badges'] if b['earned'])
             stats['badges_total']  = sum(len(cat['badges']) for cat in cats)
     return stats
@@ -941,8 +944,8 @@ def _broker_send(msgs, host, port, auth, tls=None):
         socket.setdefaulttimeout(old)
 
 
-def publish(settings, stats):
-    """Force-publish all HA sensors. Called by the manual Settings button.
+def publish(settings, stats, rid):
+    """Force-publish all HA sensors: stats is _gather_stats(rid), rid is sensor_rider(). Called by the manual Settings button.
     Resets the change-detection cache so the next heartbeat sees a clean baseline."""
     global _last_state
     conn = connection(settings)
@@ -951,7 +954,7 @@ def publish(settings, stats):
 
     states = _state_values(stats)
     garmin_states    = _garmin_state_values(_gather_garmin())
-    nutrition_states = _nutrition_state_values(_gather_nutrition())
+    nutrition_states = _nutrition_state_values(_gather_nutrition(rid), rid)
     msgs   = []
 
     for sensor_list, state_map in [
@@ -964,7 +967,7 @@ def publish(settings, stats):
             msgs.append({'topic': config_topic, 'payload': config_json, 'retain': True, 'qos': 1})
             msgs.append({'topic': state_topic,  'payload': state_map[uid], 'retain': True, 'qos': 1})
             if uid in HISTORY_UIDS:
-                msgs.append({'topic': _attr_topic(uid), 'payload': _hist_now().get(uid, '{}'), 'retain': True, 'qos': 1})
+                msgs.append({'topic': _attr_topic(uid), 'payload': _hist_now(rid).get(uid, '{}'), 'retain': True, 'qos': 1})
             log.debug("MQTT queued %s = %s", uid, state_map[uid])
 
     _broker_send(msgs, *conn)
@@ -991,11 +994,12 @@ def push_update(activity=None, background=False):
         if not conn:
             return
 
-        stats = _gather_stats()
+        rid = sensor_rider()
+        stats = _gather_stats(rid)
         all_states = {}
         all_states.update(_state_values(stats))
         all_states.update(_garmin_state_values(_gather_garmin()))
-        all_states.update(_nutrition_state_values(_gather_nutrition()))
+        all_states.update(_nutrition_state_values(_gather_nutrition(rid), rid))
 
         sensor_lookup = {uid: (name, icon, unit)
                          for uid, name, icon, unit in SENSORS + GARMIN_SENSORS + _nutrition_sensors()}
@@ -1010,7 +1014,7 @@ def push_update(activity=None, background=False):
                 msgs.append({'topic': config_topic, 'payload': config_json, 'retain': True, 'qos': 1})
                 msgs.append({'topic': state_topic,  'payload': all_states[uid], 'retain': True, 'qos': 1})
                 if uid in HISTORY_UIDS:
-                    msgs.append({'topic': _attr_topic(uid), 'payload': _hist_now().get(uid, '{}'), 'retain': True, 'qos': 1})
+                    msgs.append({'topic': _attr_topic(uid), 'payload': _hist_now(rid).get(uid, '{}'), 'retain': True, 'qos': 1})
 
         if activity:
             act = dict(activity)
@@ -1108,7 +1112,8 @@ def push_update_nutrition():
         if not conn:
             return
 
-        nutrition_states = _nutrition_state_values(_gather_nutrition())
+        rid = sensor_rider()
+        nutrition_states = _nutrition_state_values(_gather_nutrition(rid), rid)
         changed = {uid for uid, val in nutrition_states.items() if _last_state.get(uid) != val}
         if not changed:
             return
@@ -1121,7 +1126,7 @@ def push_update_nutrition():
             msgs.append({'topic': config_topic, 'payload': config_json, 'retain': True, 'qos': 1})
             msgs.append({'topic': state_topic,  'payload': nutrition_states[uid], 'retain': True, 'qos': 1})
             if uid in HISTORY_UIDS:
-                msgs.append({'topic': _attr_topic(uid), 'payload': _hist_now().get(uid, '{}'), 'retain': True, 'qos': 1})
+                msgs.append({'topic': _attr_topic(uid), 'payload': _hist_now(rid).get(uid, '{}'), 'retain': True, 'qos': 1})
 
         _broker_send(msgs, *conn)
         _last_state.update({uid: nutrition_states[uid] for uid in changed})

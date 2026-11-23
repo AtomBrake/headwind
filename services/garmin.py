@@ -552,9 +552,9 @@ def device_upload(api):
         return None
 
 
-def sync_garmin(days=7, api=None, strict=False):
+def sync_garmin(rider_id, days=7, api=None, strict=False):
     """Fetch the last `days` days of Garmin daily metrics and upsert into GarminDaily. Weigh-ins (a scale uploads by itself, not through the
-    watch) are read for at least the last two days. `api`: a client already logged in. `strict`: raise when Garmin answered none of the
+    watch) are read for at least the last two days, into rider_id's weights. `api`: a client already logged in. `strict`: raise when Garmin answered none of the
     daily-metric calls (an outage), instead of passing it off as days with no data."""
     from database import get_db
 
@@ -572,10 +572,9 @@ def sync_garmin(days=7, api=None, strict=False):
 
     # Weigh-ins (Index scale or typed into Garmin Connect) feed the Nutrition weight trend
     weights = 0
-    rider = db.execute('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1').fetchone()
-    if rider:
+    if rider_id is not None:
         try:
-            _, weights = _sync_weigh_ins(api, db, rider['id'], (today - timedelta(days=max(days, 2) - 1)).isoformat(), today.isoformat())
+            _, weights = _sync_weigh_ins(api, db, rider_id, (today - timedelta(days=max(days, 2) - 1)).isoformat(), today.isoformat())
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning('Garmin weigh-in sync failed: %s', e)
@@ -623,8 +622,8 @@ def _history_status(db, **cols):
     db.commit()
 
 
-def backfill_history(today=None, pause=0.5):
-    """Pull older Garmin health history (daily metrics and weigh-ins) back to Settings.garminHistoryFrom, newest first.
+def backfill_history(rider_id, today=None, pause=0.5):
+    """Pull older Garmin health history (daily metrics and weigh-ins, the weigh-ins into rider_id's) back to Settings.garminHistoryFrom, newest first.
     Days already stored are skipped, and only days get_daily_steps() shows activity on get the full set of calls.
     Returns the status line it saved, or None when there was nothing to do."""
     import logging
@@ -645,7 +644,6 @@ def backfill_history(today=None, pause=0.5):
     today = today or date.today()
     floor = HISTORY_FLOOR if target == 'all' else max(date.fromisoformat(target), HISTORY_FLOOR)
     cursor = date.fromisoformat(s['garminHistoryCursor']) if s['garminHistoryCursor'] else today - timedelta(days=HISTORY_RECENT - 1)
-    rider = db.execute('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1').fetchone()
     call = _Calls(raise_rate_limit=True)
     empty_run, weights = 0, 0
 
@@ -663,8 +661,8 @@ def backfill_history(today=None, pause=0.5):
             call.ok = 0
             found = 0
             active = _days_with_steps(call(api.get_daily_steps, start.isoformat(), end.isoformat()))
-            if rider:
-                w = call(_sync_weigh_ins, api, db, rider['id'], start.isoformat(), end.isoformat())
+            if rider_id is not None:
+                w = call(_sync_weigh_ins, api, db, rider_id, start.isoformat(), end.isoformat())
                 if w is None and call.ok:           # Garmin answered, but not with the weigh-ins: don't move past this stretch, they'd never be asked for again
                     db.rollback()
                     return retry_later('Garmin did not send the weigh-ins.')
@@ -715,8 +713,8 @@ WEIGHT_WINDOW = 365            # days of weigh-ins asked for in one request
 WEIGHT_EMPTY_STOP = 3          # 'all': stop after this many years in a row with no weigh-ins
 
 
-def backfill_weigh_ins(today=None):
-    """Weigh-ins on their own, a year per request, back as far as the health-history choice (Settings.garminHistoryFrom) allows. The day-by-day history
+def backfill_weigh_ins(rider_id, today=None):
+    """rider_id's weigh-ins on their own, a year per request, back as far as the health-history choice (Settings.garminHistoryFrom) allows. The day-by-day history
     backfill also asks for them, but it used to move on past a stretch whose weigh-in request failed, so this pass (run once on every install,
     Settings.garminWeightsDone) fills in anything missed. Never overwrites a weight typed in Headwind or from Home Assistant. Stops and retries later
     on any failure. Returns the status line it saved, or None when there was nothing to do."""
@@ -725,8 +723,7 @@ def backfill_weigh_ins(today=None):
     from database import get_db
     db = get_db()
     s = db.execute('SELECT garminHistoryFrom, garminWeightsDone FROM Settings WHERE id=1').fetchone()
-    rider = db.execute('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1').fetchone()
-    if not s or not s['garminHistoryFrom'] or s['garminWeightsDone'] or not rider:
+    if not s or not s['garminHistoryFrom'] or s['garminWeightsDone'] or rider_id is None:
         return None
     today = today or date.today()
     target = s['garminHistoryFrom']
@@ -737,7 +734,7 @@ def backfill_weigh_ins(today=None):
         api = _client()
         while end >= floor and not (target == 'all' and empty >= WEIGHT_EMPTY_STOP):
             start = max(end - timedelta(days=WEIGHT_WINDOW - 1), floor)
-            n, changed = _sync_weigh_ins(api, db, rider['id'], start.isoformat(), end.isoformat())
+            n, changed = _sync_weigh_ins(api, db, rider_id, start.isoformat(), end.isoformat())
             db.commit()
             days, added = days + n, added + changed
             empty = 0 if n else empty + 1

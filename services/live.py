@@ -139,11 +139,6 @@ def _publish(c, sender=None, conn=None):
         return False
 
 
-def _rider_id(db):
-    r = db.execute('SELECT id FROM Rider WHERE isDefault=1 ORDER BY id LIMIT 1').fetchone()
-    return r[0] if r else 0
-
-
 def _save(db, rider_id, c, published_at):
     db.execute('INSERT INTO LiveReading (riderId, reading, state, ts, publishedAt) VALUES (?, ?, ?, ?, ?) ON CONFLICT(riderId) DO UPDATE SET '
                'reading=excluded.reading, state=excluded.state, ts=excluded.ts, publishedAt=excluded.publishedAt',
@@ -160,15 +155,14 @@ def announce(sender=None, conn=None):
     return _publish(clean({'state': 'idle'}), sender, conn)
 
 
-def update(payload, sender=None, conn=None, rider_id=None):
-    """Handle one POST from the phone, for the default rider (as /api/v1 is) unless told whose. Returns the cleaned reading. Publishes at
+def update(payload, rider_id, sender=None, conn=None):
+    """Handle one POST from the phone, for rider_id (the phone's rider: whose.rider_id(), as for the rest of /api/v1). Returns the cleaned reading. Publishes at
     most every MIN_PUBLISH_GAP_S, but always publishes idle and a change of state. The rider's live tracking link of this recording, if
     there is one, takes it too (services/live_share.py)."""
     from database import get_db
     from services import live_share
     c = clean(payload)
     db = get_db()
-    rider_id = _rider_id(db) if rider_id is None else rider_id
     prev = db.execute('SELECT state, publishedAt FROM LiveReading WHERE riderId=?', [rider_id]).fetchone()
     published_at = prev['publishedAt'] if prev else 0.0
     if c['state'] == 'idle' or prev is None or prev['state'] != c['state'] or time.time() - published_at >= MIN_PUBLISH_GAP_S:
@@ -194,9 +188,9 @@ def go_idle(db, sender=None, conn=None):
     return n
 
 
-def snapshot():
-    """The default rider's last reading, or None."""
+def snapshot(rider_id):
+    """This rider's last reading, or None."""
     from database import get_db
     db = get_db()
-    r = db.execute('SELECT reading FROM LiveReading WHERE riderId=?', [_rider_id(db)]).fetchone()
+    r = db.execute('SELECT reading FROM LiveReading WHERE riderId=?', [rider_id]).fetchone()
     return json.loads(r['reading']) if r else None

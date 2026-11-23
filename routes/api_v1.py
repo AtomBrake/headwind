@@ -35,7 +35,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, current_app, jsonify, request
 
 from database import get_db, query_db
-from services import external_url, friend_rides, tz
+from services import external_url, friend_rides, tz, whose
 from services.sports import KIND_SQL, kind as sport_kind, kind_of
 from services import streams as _streams
 
@@ -45,10 +45,6 @@ MAX_GPX = 25 * 1024 * 1024
 MAX_PHOTOS = 60                    # per activity, from the app
 OLD_KINDS = ('ride', 'workout')    # the kind in the older /rides/<kind>/<id> paths; the /activities/<id> ones have none (kind None)
 # A whole request is at most limits.MAX_PHONE_REQUEST (the size hook in app.py)
-
-
-def _rider():
-    return query_db('SELECT id, name FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
 
 
 def _today():
@@ -63,7 +59,7 @@ def _public(w):
 
 @bp.route('/ping')
 def ping():
-    r = _rider()
+    r = whose.rider()
     from services import favourites
     s = query_db('SELECT units, calorieAdjustPct, favouriteSports FROM Settings WHERE id=1', one=True)
     # 2: POST /activities takes every upload, and /activities/known is there. 3: GET /activities and /activities/<id>[/...], with no kind
@@ -115,7 +111,7 @@ def today():
     from routes import nutrition as nu
     from services import workouts
     from services.mqtt import _best_steps_for
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     d = _today()
@@ -163,7 +159,7 @@ def _period_start(kind, today):
 def overview():
     """The web Dashboard's numbers, shaped for the phone: lifetime + week/month/year ride totals, 12-week chart, walks/runs, latest recovery."""
     from routes.dashboard import _weekly_data
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     rid = rider['id']
@@ -252,7 +248,7 @@ def perform():
     reuses the same BestEffort/Segment/SegmentEffort tables the web page reads, no separate computation."""
     from services.best_efforts import BRACKETS_MI
     from services.sports import indoor_sql
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     rid = rider['id']
@@ -317,7 +313,7 @@ def perform():
 def upload_ride():
     """The older path for a phone-recorded ride with a track (multipart: file=GPX, optional bike_id, client_id, source): POST /activities with
     the kind decided, and the reply the released apps read. Kept until they all send to /activities."""
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     res, err = _upload(rider, kind='ride')
@@ -388,17 +384,15 @@ def _after_upload(res, rider):
 
 def _listed_riders(rider, which):
     """{riderId: name} for GET /api/v1/activities?rider=: empty for the phone's own rider, a friend's rider id, or 'all' for both. None for anything
-    else, another local rider's included: the app only ever sees its own and its friends'."""
+    else, another local rider's and the phone's own id included: the app only ever sees its own and its friends', and asks for its own with
+    nothing."""
     friends = friend_rides.friend_riders(get_db())
     if not which:
         return {rider['id']: rider['name']}
     if which == 'all':
         return {rider['id']: rider['name'], **friends}
-    try:
-        fid = int(which)
-    except ValueError:
-        return None
-    return {fid: friends[fid]} if fid in friends else None
+    view = whose.viewable(which)
+    return {view.id: friends[view.id]} if view and view.how == whose.FRIEND else None
 
 
 @bp.route('/activities', methods=['GET'])
@@ -407,7 +401,7 @@ def activity_list(old=False):
     """Every activity, rides and the rest, as one newest-first list, paged: ?offset=0&limit=30&sport=Ride&group=foot&q=text&rider=. group is a stat group
     (services/sports.stat_group: ride, foot, swim, or the sport itself); rider is a friend's rider id (GET /api/v1/friends) or 'all' for yours and
     every friend's, and each item says whose it is (rider, own). The older /rides gives each its kind as well."""
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     riders = _listed_riders(rider, (request.args.get('rider') or '').strip())
@@ -487,7 +481,7 @@ def post_sensors():
     """A phone's motion-sensor recording (JSON: client_id, fields, rows, mount, device, sensors_only): kept as a sidecar and attached to the ride that overlaps it in time.
     Idempotent per client_id. See services/sensors.py."""
     from services import sensors
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     payload = request.get_json(silent=True)
@@ -506,8 +500,8 @@ def live():
     recording's live tracking link if it has one. GET: the last reading (for debugging)."""
     from services import live as live_svc
     if request.method == 'GET':
-        return jsonify(live_svc.snapshot() or {})
-    c = live_svc.update(request.get_json(silent=True))
+        return jsonify(live_svc.snapshot(whose.rider_id()) or {})
+    c = live_svc.update(request.get_json(silent=True), whose.rider_id())
     return jsonify({'ok': True, 'state': c['state']})
 
 
@@ -524,7 +518,7 @@ def live_share():
     link ending at once. The rider is the default rider, as for the rest of /api/v1."""
     from flask import g
     from services import live_share as share_svc
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     body = request.get_json(silent=True)
@@ -553,7 +547,7 @@ def activity_detail(rid, kind=None):
     URL is what the app had in hand, and the answer carries the activity's own kind (services/sports), so a stale one still finds it."""
     import json as _json
     from services.friend_rides import FRIEND_RIDERS_SQL, friend_of
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     if kind is not None and kind not in OLD_KINDS:
@@ -651,7 +645,7 @@ def _photo_list(activity_id):
 
 def _own_activity(rid):
     """The rider's activity row (id, sportType), or None: another rider's, or a friend's synced one, isn't the phone's to change."""
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return None
     return get_db().execute('SELECT id, sportType FROM Activity WHERE id=? AND riderId=?', [rid, rider['id']]).fetchone()
@@ -749,7 +743,7 @@ def sync_nutrition():
     from routes import nutrition as nu
     from services import goal_model, workouts
     from services.mqtt import _best_steps_for
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     rid = rider['id']
@@ -793,7 +787,7 @@ def sync_nutrition():
 def post_workout():
     """The older path for a sport other than a ride with a track (multipart: file=GPX, sport, name, client_id, steps, calories, source):
     POST /activities with the kind decided, and the reply the released apps read. Kept until they all send to /activities."""
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     if request.files.get('file') is None:
@@ -808,7 +802,7 @@ def post_workout():
 
 @bp.route('/workouts', methods=['GET'])
 def list_workouts():
-    rider = _rider()
+    rider = whose.rider()
     from services import workouts
     try:
         days = max(0, min(int(request.args.get('days', 30)), 400))
@@ -819,7 +813,7 @@ def list_workouts():
 
 @bp.route('/workouts/<wid>', methods=['DELETE'])
 def delete_workout(wid):
-    rider = _rider()
+    rider = whose.rider()
     db = get_db()
     from services import workouts as _wk
     n = _wk.delete(db, wid, rider['id'] if rider else -1)
@@ -841,7 +835,7 @@ def post_activity():
     duration_s, distance_m (not for Strength, HIIT or Yoga), elev_m?, calories?, avg_hr?, name?, notes?, client_id?, source? (manual, ios or
     android), bike_id?}; its sports are services/manual_activity.SPORTS. A bike_id that isn't one of the rider's gets the default bike.
     Replies {status 'created'|'exists', kind, id, duplicate}."""
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     res, err = _upload(rider)
@@ -858,7 +852,7 @@ def known_activities():
     """Which of the phone's client ids the server has (JSON {client_ids: [...]}, at most services/uploads.MAX_KNOWN): live, set aside behind
     another recording, or deleted. Apple Health's sync asks before reading a workout's route, and leaves those out. Replies {known: [...]}."""
     from services import uploads
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     ids = (request.get_json(silent=True) or {}).get('client_ids')
@@ -887,7 +881,7 @@ def health_days():
     """Apple Health's daily figures from the iPhone: JSON {days: [{date: 'YYYY-MM-DD', metric, value}]}, up to health.MAX_ITEMS at once. The metrics
     are health.METRICS plus weight_kg. Sending a day again replaces it. Returns {saved, skipped, errors}."""
     from services import health
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     db = get_db()
@@ -905,7 +899,7 @@ def health_days():
 def health_summary():
     """GET: for each Apple Health metric, the last day stored and how many days there are. DELETE: forget all of it."""
     from services import health
-    rider = _rider()
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     if request.method == 'DELETE':
@@ -998,7 +992,7 @@ def change_sport(rid, kind=None):
     """Change what an activity is, e.g. a walk that was recorded as a ride: JSON {sport: Ride|VirtualRide|Walk|Run|Hike}. The response carries the
     new kind (and the id, which no longer changes; older apps read it from here)."""
     from services import convert
-    rider = _rider()
+    rider = whose.rider()
     db = get_db()
     row = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone() if kind in (None, *OLD_KINDS) else None
     if not rider or not row or row['riderId'] != rider['id']:
@@ -1021,7 +1015,7 @@ def set_bike(rid, kind=None):
     (services/gear.set_ride_bike)."""
     from services import gear
     from services.sports import is_ride
-    rider = _rider()
+    rider = whose.rider()
     db = get_db()
     row = db.execute('SELECT riderId, sportType FROM Activity WHERE id=?', [rid]).fetchone() if kind in (None, *OLD_KINDS) else None
     if not rider or not row or row['riderId'] != rider['id']:
@@ -1044,7 +1038,7 @@ def set_bike(rid, kind=None):
 @bp.route('/rides/<kind>/<rid>/commute', methods=['POST'])
 def set_commute(rid, kind=None):
     """Tick or untick 'Commute' on a ride or a workout: JSON {commute: true|false}. Unticked is stored as 0, as on the web (routes/activities.set_commute)."""
-    rider = _rider()
+    rider = whose.rider()
     db = get_db()
     row = db.execute('SELECT riderId FROM Activity WHERE id=?', [rid]).fetchone() if kind in (None, *OLD_KINDS) else None
     if not rider or not row or row['riderId'] != rider['id']:
@@ -1065,7 +1059,7 @@ def resolve_duplicate(rid, dup_id, action, old=False):
     """The same ride recorded twice: action = swap (use the other recording) | keep (both are real rides) | discard (delete the other one).
     Replies with the id of the one kept; the older path calls it ride_id."""
     from services import duplicates
-    rider = _rider()
+    rider = whose.rider()
     db = get_db()
     d = db.execute("SELECT primaryId, riderId FROM ActivityDuplicate WHERE id=? AND status='parked'", [dup_id]).fetchone()
     if not rider or not d or str(d['primaryId']) != str(rid) or d['riderId'] != rider['id']:
@@ -1089,7 +1083,7 @@ def resolve_duplicate(rid, dup_id, action, old=False):
 def delete_activity(rid, kind=None):
     """Delete an activity from the phone. A deleted ride is remembered so a Garmin re-sync does not bring it back."""
     from services import duplicates
-    rider = _rider()
+    rider = whose.rider()
     db = get_db()
     if kind is not None and kind not in OLD_KINDS:
         return jsonify({'error': 'kind must be ride or workout'}), 400

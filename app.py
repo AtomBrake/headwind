@@ -137,11 +137,12 @@ def _mqtt_heartbeat(app):
                 push_update(background=True)
                 from services import live
                 live.announce()                               # the live-ride entities exist from the start (idle), so the Live card can be shown before a first ride
-                from services.homeassistant import sync_if_due, sync_weather_if_due
-                sync_if_due()
+                from services.homeassistant import import_rider, sync_if_due, sync_weather_if_due
+                sync_if_due(import_rider())
                 sync_weather_if_due()
                 from services.goal_model import auto_update
-                auto_update()
+                from services.rider_mode import owner_rider_id
+                auto_update(owner_rider_id())                 # the nutrition goals are the owner's until each rider has their own (release A4)
         except Exception:
             log.warning('Home Assistant / goal sweep in the heartbeat failed', exc_info=True)
         time.sleep(300)  # MQTT safety net + Home Assistant import poll (HA honours its own interval)
@@ -167,6 +168,8 @@ def _garmin_heartbeat(app):
                     interval_hours = s['garminSyncHours'] or 0.5
                     from services import tasks
                     from services.garmin import sync_garmin, sync_garmin_activities, fetch_ride_hr, _client, health_days, device_upload
+                    from services.rider_mode import owner_rider_id
+                    rider_id = owner_rider_id()     # the one Garmin account is the owner's until each user connects their own (release A7)
                     task_id = tasks.start(get_db(), 'garmin_sync', 'Garmin sync')
                     result = []
                     api, dev_sync, days, sweep = None, None, 0, False
@@ -176,7 +179,7 @@ def _garmin_heartbeat(app):
                         # many days to read: none when nothing was uploaded since the last sync, all HISTORY_RECENT once a day.
                         dev_sync = device_upload(api)
                         days, sweep = health_days(s['garminDeviceSync'], dev_sync, s['garminSweepAt'])
-                        sync_garmin(days=days, api=api, strict=True)   # an outage must not count as read
+                        sync_garmin(rider_id, days=days, api=api, strict=True)   # an outage must not count as read
                         result.append(f"Health data synced ({days} day{'s' if days != 1 else ''})" if days else 'No new watch upload')
                         ok = True
                     except Exception as e:
@@ -184,11 +187,10 @@ def _garmin_heartbeat(app):
                         log.warning('Garmin sync failed (will retry soon): %s', e)
 
                     if ok and s['garminSyncMode'] == 'full':
-                        rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
-                        if rider:
+                        if rider_id is not None:
                             try:
                                 final = {}
-                                for final in sync_garmin_activities(rider['id'], api=api):
+                                for final in sync_garmin_activities(rider_id, api=api):
                                     pass
                                 if final.get('error'):
                                     result.append(f"activities failed: {final['error']}")
@@ -202,24 +204,23 @@ def _garmin_heartbeat(app):
                                 from services import garmin_changes
                                 try:
                                     with tasks.run(get_db(), garmin_changes.TASK, 'Garmin changes check') as t:
-                                        t.result = garmin_changes.describe(garmin_changes.run(get_db(), api, rider['id']))
+                                        t.result = garmin_changes.describe(garmin_changes.run(get_db(), api, rider_id))
                                 except Exception:
                                     pass                    # logged as failed by tasks.run; tomorrow's sweep tries again
                     tasks.finish(get_db(), task_id, '; '.join(result) + '.' if ok else None, None if ok else err)
 
-                    # Backfill HR for owner's recent rides that landed without it (a plain GPX import has none). Only after a new upload
+                    # Backfill HR for the rider's recent rides that landed without it (a plain GPX import has none). Only after a new upload
                     # (or in the daily sweep): with nothing uploaded, Garmin has no more heart rate than last time.
                     from services import streams as _streams
                     missing = query_db(f'''
                         SELECT a.id, a.startDate, a.elapsedTime, {_streams.sql('a')}
                         FROM Ride a
-                        JOIN Rider r ON r.id = a.riderId
-                        WHERE r.isDefault = 1
+                        WHERE a.riderId = ?
                           AND a.averageHeartrate IS NULL
                           AND a.startDate IS NOT NULL
                           AND a.elapsedTime IS NOT NULL
                           AND a.startDate >= datetime('now', '-7 days')
-                    ''') if ok and days else []
+                    ''', [rider_id]) if ok and days else []
                     if missing:
                         try:
                             garmin_api = api
@@ -287,16 +288,17 @@ def _garmin_history(app):
         try:
             with app.app_context():
                 from database import query_db
+                from services.rider_mode import owner_rider_id       # the Garmin account's rider: the owner's until release A7
                 s = query_db('SELECT garminEmail, garminPassword, garminHistoryFrom, garminHistoryDone, garminHistoryRetryAt, '
                              'garminWeightsDone, garminWeightsRetryAt FROM Settings WHERE id=1', one=True)
                 now = datetime.now(timezone.utc).isoformat(timespec='seconds')
                 on = garmin.connected(s)
                 if (on and s['garminHistoryFrom'] and not s['garminWeightsDone']
                         and (not s['garminWeightsRetryAt'] or s['garminWeightsRetryAt'] <= now)):
-                    garmin.backfill_weigh_ins()      # quick (a year per call), so before the long day-by-day pass
+                    garmin.backfill_weigh_ins(owner_rider_id())      # quick (a year per call), so before the long day-by-day pass
                 if (on and s['garminHistoryFrom'] and not s['garminHistoryDone']
                         and (not s['garminHistoryRetryAt'] or s['garminHistoryRetryAt'] <= now)):
-                    garmin.backfill_history()
+                    garmin.backfill_history(owner_rider_id())
         except Exception as e:
             log.warning('Garmin history backfill error: %s', e)
         garmin.HISTORY_WAKE.wait(600)

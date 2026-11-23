@@ -333,13 +333,10 @@ def _build_other_training_context(rider_id, exclude_id):
     return '\n'.join(lines)
 
 
-def _build_garmin_context(ride_date, rid=None):
-    """Return a recovery/readiness block for the 3 days up to and including ride_date: Garmin's, or Apple Health's for a day Garmin has nothing for
-    (services/health). Apple's HRV is SDNN, not Garmin's overnight RMSSD, so it's named as such and has no balance."""
+def _build_garmin_context(ride_date, rid):
+    """Return rider rid's recovery/readiness block for the 3 days up to and including ride_date: Garmin's, or Apple Health's for a day Garmin has
+    nothing for (services/health). Apple's HRV is SDNN, not Garmin's overnight RMSSD, so it's named as such and has no balance."""
     from services import health
-    if rid is None:
-        r = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
-        rid = r['id'] if r else None
     rows = health.recovery_days(rid, ride_date, 3)
 
     if not rows:

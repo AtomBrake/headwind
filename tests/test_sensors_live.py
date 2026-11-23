@@ -156,18 +156,18 @@ def _status(msgs):
 def test_live_update_publishes_and_idle_always_publishes(db):
     sent = []
     send = lambda m, *a: sent.append(m)
-    live.update({'state': 'riding', 'speed_mps': 5}, sender=send, conn=('h', 1883, None))
+    live.update({'state': 'riding', 'speed_mps': 5}, 1, sender=send, conn=('h', 1883, None))
     n1 = len(sent)
-    live.update({'state': 'riding', 'speed_mps': 6}, sender=send, conn=('h', 1883, None))   # inside the 2 s gap: not published
+    live.update({'state': 'riding', 'speed_mps': 6}, 1, sender=send, conn=('h', 1883, None))   # inside the 2 s gap: not published
     assert len(sent) == n1
-    assert live.snapshot()['speed_mph'] == 13.4                                            # but kept
-    live.update({'state': 'idle'}, sender=send, conn=('h', 1883, None))
+    assert live.snapshot(1)['speed_mph'] == 13.4                                            # but kept
+    live.update({'state': 'idle'}, 1, sender=send, conn=('h', 1883, None))
     assert len(sent) > n1 and _status(sent[-1]) == ['idle']
 
 
 def test_the_reading_is_kept_in_the_database_for_every_process(db, tmp_path):
     """A reading posted to one web process is what another serves and what the worker checks: nothing is in one process's memory."""
-    live.update({'state': 'riding', 'speed_mps': 5, 'lat': 51.5, 'lng': -0.12}, sender=lambda m, *a: None, conn=('h', 1883, None))
+    live.update({'state': 'riding', 'speed_mps': 5, 'lat': 51.5, 'lng': -0.12}, 1, sender=lambda m, *a: None, conn=('h', 1883, None))
     other = sqlite3.connect(str(tmp_path / 't.db'))
     reading, state = other.execute('SELECT reading, state FROM LiveReading WHERE riderId=1').fetchone()
     other.close()
@@ -177,13 +177,13 @@ def test_the_reading_is_kept_in_the_database_for_every_process(db, tmp_path):
 def test_live_goes_idle_if_the_phone_stops_talking(db, monkeypatch):
     sent = []
     send = lambda m, *a: sent.append(m)
-    live.update({'state': 'riding', 'speed_mps': 5, 'lat': 51.5, 'lng': -0.12}, sender=send, conn=('h', 1883, None))
+    live.update({'state': 'riding', 'speed_mps': 5, 'lat': 51.5, 'lng': -0.12}, 1, sender=send, conn=('h', 1883, None))
     assert live.go_idle(db, sender=send, conn=('h', 1883, None)) == 0                   # not yet
     later = live.time.time() + live.IDLE_AFTER_S + 1
     monkeypatch.setattr(live.time, 'time', lambda: later)
     assert live.go_idle(db, sender=send, conn=('h', 1883, None)) == 1
     assert _status(sent[-1]) == ['idle']
-    assert live.snapshot()['state'] == 'idle' and live.snapshot()['lat'] == 51.5        # the last position is kept
+    assert live.snapshot(1)['state'] == 'idle' and live.snapshot(1)['lat'] == 51.5        # the last position is kept
     assert live.go_idle(db, sender=send, conn=('h', 1883, None)) == 0                   # once
 
 
@@ -191,7 +191,7 @@ def test_announce_only_before_any_reading(db):
     sent = []
     send = lambda m, *a: sent.append(m)
     assert live.announce(sender=send, conn=('h', 1883, None)) and _status(sent[-1]) == ['idle']
-    live.update({'state': 'riding', 'speed_mps': 5}, sender=send, conn=('h', 1883, None))
+    live.update({'state': 'riding', 'speed_mps': 5}, 1, sender=send, conn=('h', 1883, None))
     assert not live.announce(sender=send, conn=('h', 1883, None))                       # the worker's heartbeat never sends idle over a ride
 
 

@@ -4,6 +4,7 @@ import logging
 from flask import Blueprint, abort, jsonify, redirect, render_template, request, url_for
 
 from database import get_db, query_db
+from services import whose
 from services.segments import (scan_all_activities, scan_activity_against_segments, _refresh_prs,
                                clean_polyline, lap_numbers, recover_polyline, seg_sport, valid_coord, MIN_SEGMENT_M)
 from services.sports import CLASS_ICONS, CLASS_LABELS, FAMILIES, FAMILY_ICONS, FAMILY_LABELS, class_sql, ebike_sql, family_of
@@ -120,7 +121,8 @@ def index():
         sport, only = 'ride', 'ebike'
     sport = 'foot' if sport == 'run' else (sport if sport in FAMILIES else 'ride')      # ?sport=run: a bookmark from before 0.7.3
     only = _only(sport, only)
-    # A segment is listed as before (no efforts yet, or some of the owner's); its numbers count the owner's efforts that the filter keeps.
+    # A segment is listed as before (no efforts yet, or some of the request's own rider's, whose.rider_id); its numbers count that rider's
+    # efforts that the filter keeps.
     keep = class_sql(only)
     segs = query_db(f'''
         SELECT s.*,
@@ -134,10 +136,10 @@ def index():
         LEFT JOIN Bike b ON b.id = a.bikeId
         LEFT JOIN Rider r ON r.id = a.riderId
         LEFT JOIN Friend f ON f.id = s.friendId
-        WHERE (e.id IS NULL OR r.isDefault = 1) AND COALESCE(s.sport, 'ride') = ?
+        WHERE (e.id IS NULL OR r.id = ?) AND COALESCE(s.sport, 'ride') = ?
         GROUP BY s.id
         ORDER BY s.createdAt DESC
-    ''', [sport])
+    ''', [whose.rider_id(), sport])
     # Fetch all KOM holders per segment (handles ties), among the efforts the filter keeps
     db = get_db()
     kom_map = {}

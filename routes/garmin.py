@@ -2,7 +2,7 @@ import logging
 
 from flask import Blueprint, jsonify, request
 from database import get_db, query_db
-from services import jobs, vault
+from services import jobs, vault, whose
 
 bp = Blueprint('garmin', __name__)
 log = logging.getLogger(__name__)
@@ -144,7 +144,7 @@ def sync():
     try:
         from services.garmin import sync_garmin
         from services.mqtt import push_update
-        days = sync_garmin(days=14)
+        days = sync_garmin(whose.rider_id(), days=14)
         push_update()
         return jsonify({'synced': days})
     except Exception as e:
@@ -163,7 +163,7 @@ def sync_activities():
     if s['garminSyncMode'] != 'full':
         return jsonify({'error': 'Garmin activity sync is not enabled'}), 403
 
-    rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
+    rider = whose.rider()
     if not rider:
         return jsonify({'error': 'No default rider found'}), 400
     db = get_db()
@@ -189,7 +189,7 @@ def sports_page():
     """Review what an older Garmin sync saved with the wrong sport (see services/sport_fix.py)."""
     from flask import render_template
     from services import sport_fix, tasks
-    rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
+    rider = whose.rider()
     fixes = sport_fix.pending(get_db(), rider['id']) if rider else []
     check = tasks.last(get_db(), sport_fix.TASK)
     # The start-up pass (sport_fix.from_seen) adds proposals after the check, from the type each had at its last sync, so the list can hold
@@ -204,7 +204,7 @@ def sports_check():
     """Queue the check for the worker (services/jobs.py): paging through Garmin can take minutes, and it must not stop when the browser leaves
     the page. Its progress and result are in TaskLog, shown here and on the Tasks page."""
     from flask import redirect, url_for
-    rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
+    rider = whose.rider()
     if not _garmin_on() or not rider:
         return redirect(url_for('garmin.sports_page', msg='Connect Garmin in Settings first.'))
     jobs.enqueue(get_db(), 'garmin_sports_check', {'rider': rider['id']})     # already queued or running: the page shows that one
@@ -232,7 +232,7 @@ def sports_apply():
     from flask import redirect, url_for
     from services import sport_fix
     from services.ingest import after_ride_removed
-    rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
+    rider = whose.rider()
     if not rider:
         return redirect(url_for('garmin.sports_page'))
     res = sport_fix.apply(get_db(), rider['id'], request.form.getlist('ride'))
@@ -256,7 +256,7 @@ def changes_check():
     ?whole=1 (Settings' Full re-sync): all of the history at once (garmin_changes.full). Its progress and result are in TaskLog, shown on the
     Import page and the Tasks page."""
     from flask import redirect, url_for
-    rider = query_db('SELECT id FROM Rider WHERE isDefault=1', one=True)
+    rider = whose.rider()
     whole = request.args.get('whole') == '1'
     if _garmin_on() and rider:                          # already queued or running: the page shows that one
         jobs.enqueue(get_db(), 'garmin_changes_check', {'rider': rider['id'], 'whole': whole}, also=_GARMIN_REVIEW)

@@ -190,8 +190,15 @@ def _daily_last(url, token, entity_id, since):
     return days
 
 
-def sync(days=None):
-    """Import everything new. Returns a summary dict; raises HAError on connection problems."""
+def import_rider():
+    """Whose weights and body figures the readings from Home Assistant become: the instance's owner (rider_mode.owner_rider_id), whoever
+    is signed in. Callers ask once and hand it to sync, sync_if_due and refresh; nothing here looks a rider up itself."""
+    from services.rider_mode import owner_rider_id
+    return owner_rider_id()
+
+
+def sync(rider_id, days=None):
+    """Import everything new, into rider_id's weights and body figures. Returns a summary dict; raises HAError on connection problems."""
     cfg = _cfg()
     if not cfg:
         raise HAError('Home Assistant is not configured yet.')
@@ -204,8 +211,6 @@ def sync(days=None):
     else:
         since = datetime.now(timezone.utc) - timedelta(days=FIRST_SYNC_DAYS)
 
-    rider = query_db('SELECT id FROM Rider WHERE isDefault=1 LIMIT 1', one=True)
-    rider_id = rider['id'] if rider else None
     db = get_db()
     summary = {'weights': 0, 'metrics': 0, 'replaced_manual': 0, 'errors': []}
     for m in cfg['mappings']:
@@ -262,15 +267,15 @@ def sync(days=None):
 _last_attempt = 0.0
 
 
-def sync_if_due():
-    """Called by the background heartbeat; honours the configured interval and never raises."""
+def sync_if_due(rider_id):
+    """Called by the background heartbeat, with import_rider(); honours the configured interval and never raises."""
     global _last_attempt
     cfg = _cfg()
     if not cfg or not cfg['mappings'] or time.time() - _last_attempt < cfg['minutes'] * 60:
         return
     _last_attempt = time.time()
     try:
-        sync()
+        sync(rider_id)
     except HAError as e:
         log.warning('Home Assistant sync failed: %s', e)
         db = get_db()
@@ -283,15 +288,16 @@ def sync_if_due():
 _last_refresh = 0.0
 
 
-def refresh(min_gap=45):
-    """Quick pull of the last couple of days, for when the app is opened. Throttled; returns True if anything was written."""
+def refresh(rider_id, min_gap=45):
+    """Quick pull of the last couple of days into rider_id's (import_rider()), for when the app is opened. Throttled; returns True if anything
+    was written."""
     global _last_refresh
     cfg = _cfg()
     if not cfg or not cfg['mappings'] or time.time() - _last_refresh < min_gap:
         return False
     _last_refresh = time.time()
     try:
-        r = sync(days=2)
+        r = sync(rider_id, days=2)
         return bool(r['weights'] or r['metrics'])
     except Exception as e:
         log.warning('Home Assistant refresh failed: %s', e)

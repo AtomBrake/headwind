@@ -1230,7 +1230,8 @@ def _every_start(db):
                       + ('…' if len(res) > 5 else '') + '.')
         db.commit()
     from services.best_efforts import rescan_clean as _rescan_clean
-    res = _rescan_clean(db)
+    owner = db.execute('SELECT id FROM Rider WHERE isDefault=1 ORDER BY id LIMIT 1').fetchone()
+    res = _rescan_clean(db, owner[0] if owner else None)
     if res.get('ran') and res['scanned']:
         from services import units as _units
         moved = '; '.join(f"{_units.localise(f'{mi:g} miles')}: {_mmss(old)} → {_mmss(new)}" for mi, old, new in res['changed'][:7])

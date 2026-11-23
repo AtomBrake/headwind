@@ -8,9 +8,9 @@ import re
 from flask import Blueprint, abort, current_app, jsonify, redirect, render_template, request, send_from_directory, url_for
 
 from database import get_db, query_db
-from services import gear, kit
+from services import bulk, gear, kit, whose
 from services.gear_catalog import CATALOG, GROUPS
-from services.rider_mode import multi_rider, owner_rider_id
+from services.rider_mode import multi_rider
 
 log = logging.getLogger(__name__)
 bp = Blueprint('gear', __name__)
@@ -22,11 +22,15 @@ def _units():
 
 
 def _rider_id():
-    """The rider whose gear we are looking at: the owner, or ?rider=N / form rider in a multi-rider install."""
-    want = request.values.get('rider', type=int)
-    if want and multi_rider() and query_db('SELECT 1 FROM Rider WHERE id=?', [want], one=True):
-        return want
-    return owner_rider_id()
+    """The rider whose gear we are looking at, or adding to: ?rider=N or the form's rider when whose.viewable says it's the request's own or,
+    in a multi-rider install, another rider who lives here; else the request's own. Never a friend's rider: their gear is theirs to keep."""
+    view = whose.viewable(request.values.get('rider'))
+    return view.id if view and view.how in (whose.OWN, whose.LOCAL) else whose.rider_id()
+
+
+def _pickable():
+    """The riders the gear pages' rider picker offers: in a multi-rider install, every one who lives here (not friends' riders)."""
+    return bulk.own_riders(get_db()) if multi_rider() else []
 
 
 def _bike_or_404(bike_id):
@@ -165,7 +169,7 @@ def index():
     items = [_item(db, 'kit', k, used.get(k['id'], {})) for k in kit.list_kit(db, rid, include_retired=request.args.get('retired') == '1')]
     return render_template('gear.html', bikes=bikes, kit_items=items, no_gear=_no_gear(db, rid), kit_due=kit.due_items(db, rid), show_retired=request.args.get('retired') == '1',
                            has_retired=bool(query_db('SELECT 1 FROM Kit WHERE riderId=? AND retiredOn IS NOT NULL', [rid], one=True)), strava=strava, due=gear.due_items(db, rid), span=gear.ride_span(db, rid), rid=rid,
-                           riders=query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name') if multi_rider() else [], error=request.args.get('error'), units=units,
+                           riders=_pickable(), error=request.args.get('error'), units=units,
                            show_archived=request.args.get('archived') == '1', has_archived=bool(query_db('SELECT 1 FROM Bike WHERE riderId=? AND archived=1', [rid], one=True)),
                            defaults=_defaults_card(db, rid), done=request.args.get('done'), merged=merged_gear.count(db, rid))
 
@@ -206,7 +210,7 @@ def _sport_label(sport):
 def defaults_save():
     """The Gear page's defaults: bike_<key> and kit_<key> = an id, or '' for none."""
     db = get_db()
-    rid = request.form.get('rider', type=int) or _rider_id()
+    rid = _rider_id()
     try:
         for name, value in request.form.items():
             gid = int(value) if value.isdigit() else None
@@ -226,7 +230,7 @@ def defaults_apply():
     """Put past activities on the gear the defaults give now: those with none or with what they were given automatically, and with
     include_chosen those on other gear too."""
     db = get_db()
-    rid = request.form.get('rider', type=int) or _rider_id()
+    rid = _rider_id()
     chosen = request.form.get('include_chosen') == '1'
     plans = [gear.apply_defaults(db, rid, include_chosen=chosen, dry_run=False), kit.apply_defaults(db, rid, include_chosen=chosen, dry_run=False)]
     n = sum(v['none'] + v['auto'] + (v['other'] if chosen else 0) for p in plans for v in p.values())
@@ -306,7 +310,7 @@ def bike_save():
             b = _bike_or_404(bike_id)
             gear.update_bike(db, bike_id, **fields)
         else:
-            bike_id = gear.create_bike(db, f.get('rider', type=int) or _rider_id(), f.get('name'), f.get('kind') or 'road', f.get('brand'), f.get('model'), f.get('year'), f.get('boughtOn') or None, start, f.get('notes'))
+            bike_id = gear.create_bike(db, _rider_id(), f.get('name'), f.get('kind') or 'road', f.get('brand'), f.get('model'), f.get('year'), f.get('boughtOn') or None, start, f.get('notes'))
         if f.get('defaults') and not gear.get_bike(db, bike_id)['archived']:          # the form had the "Default for" boxes
             gear.set_bike_defaults(db, bike_id, f.getlist('sport'))
         _photo_upload(db, 'bike', bike_id)
@@ -350,7 +354,7 @@ def strava_page():
     rid = _rider_id()
     rows = strava_gear.overview(db, rid)
     return render_template('gear_strava.html', rows=rows, bikes=gear.list_bikes(db, rid, include_archived=True), kinds=gear.BIKE_KINDS, rid=rid,
-                           riders=query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name') if multi_rider() else [], error=request.args.get('error'),
+                           riders=_pickable(), error=request.args.get('error'),
                            elsewhere=sum(r['elsewhere'] for r in rows), done=request.args.get('done'))
 
 
@@ -385,7 +389,7 @@ def merged_page():
     db = get_db()
     rid = _rider_id()
     return render_template('gear_merged.html', rows=merged_gear.conflicts(db, rid), rid=rid, done=request.args.get('done'), error=request.args.get('error'),
-                           riders=query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name') if multi_rider() else [])
+                           riders=_pickable())
 
 
 @bp.route('/merged/<dup_id>/<choice>', methods=['POST'])
@@ -425,7 +429,7 @@ def bike_default(bike_id):
 @bp.route('/default', methods=['POST'])
 def set_default():
     db = get_db()
-    rid = request.form.get('rider', type=int) or _rider_id()
+    rid = _rider_id()
     bid = request.form.get('bike', type=int)
     try:
         gear.set_default(db, rid, bid)
@@ -600,7 +604,7 @@ def kit_save():
             _kit_or_404(kit_id)
             kit.update(db, kit_id, **fields)
         else:
-            kit_id = kit.create(db, f.get('rider', type=int) or _rider_id(), f.get('name'), f.get('kind') or 'shoes', f.get('brand'), f.get('model'),
+            kit_id = kit.create(db, _rider_id(), f.get('name'), f.get('kind') or 'shoes', f.get('brand'), f.get('model'),
                                 f.get('boughtOn') or None, start, replace, f.get('notes'))
         if not kit.get(db, kit_id)['retiredOn']:
             kit.set_defaults(db, kit_id, f.getlist('sport'))
@@ -706,7 +710,7 @@ def assign_page():
     rid = _rider_id()
     bikes = gear.list_bikes(db, rid, include_archived=True)     # retired last: old rides may have been on them
     return render_template('gear_assign.html', bikes=bikes, bike_names=[b['name'] + (' (retired)' if b['archived'] else '') for b in bikes], span=gear.ride_span(db, rid), rid=rid, today=gear.today().isoformat(), preselect=request.args.get('bike', type=int),
-                           riders=query_db('SELECT id, name FROM Rider ORDER BY isDefault DESC, name') if multi_rider() else [])
+                           riders=_pickable())
 
 
 @bp.route('/api/calendar')

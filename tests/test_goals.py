@@ -194,7 +194,7 @@ def test_joining_a_friends_challenge_invites_nobody_else(pair):
     lines = [json.loads(x) for x in alex.test_client().get('/api/feed?manifest=1', headers={'X-Feed-Token': 'for-sam'}).get_data(as_text=True).splitlines()]
     line = next(x for x in lines if x['type'] == 'challenge')
     assert line['own'] is False and line['creator'] == 'Tom'           # Sam's instance sees Alex is in it...
-    assert on(tom, lambda d: goals.store_from_friend(d, 1, dict(line, uid='0123456789abcdef'))) is None    # ...but a challenge it hasn't got is no invitation
+    assert on(tom, lambda d: goals.store_from_friend(d, 1, dict(line, uid='0123456789abcdef'), 1)) is None    # ...but a challenge it hasn't got is no invitation
 
 
 def test_a_friends_bad_challenge_line_is_ignored(pair):
@@ -202,7 +202,7 @@ def test_a_friends_bad_challenge_line_is_ignored(pair):
     bad = [{'uid': 'x'}, {'uid': 'abcdef0123', 'metric': 'distance', 'sport': 'all', 'startDate': '2026-10-01', 'endDate': '2026-10-31'},
            {'uid': 'abcdef0123', 'metric': 'climb', 'sport': 'ride', 'startDate': 'soon', 'endDate': '2026-10-31'},
            {'uid': 'abcdef0123', 'metric': 'climb', 'sport': 'ride', 'startDate': '2026-10-01', 'endDate': '2026-10-31', 'target': 'lots'}]
-    assert on(alex, lambda d: [goals.store_from_friend(d, 1, dict(o, own=True)) for o in bad]) == [None] * 4
+    assert on(alex, lambda d: [goals.store_from_friend(d, 1, dict(o, own=True), 1) for o in bad]) == [None] * 4
     assert on(alex, lambda d: d.execute('SELECT COUNT(*) FROM Challenge').fetchone()[0]) == 0
 
 

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **The gear pages no longer offer a friend's rider.** With several riders on one Headwind, the rider picker on Gear, Kit and parts listed friends' riders too, and you could add a bike or shoes to one. A friend's gear is on their own Headwind, so the picker now lists only the riders who live here, and a link naming a friend's rider shows your own gear.
+
 ### Fixed
 - **An activity dated in the future no longer goes to your friends.** A device whose clock was reset can save an activity more than a day ahead, like the Avinox unit's 2106 dates. Your friends were sent it, and until then it sat at the top of their Friends page and their list of your activities. Now it stays off your feed until you give it its real date with **When did it really start?**. It then goes out as new. A friend who already has it loses it at their next sync. **It's right** doesn't share it, because a start that hasn't happened can't be right. The activity's page and the dashboard's list of activities that look wrong both say friends won't see it until its date is fixed. An activity that's only ahead of the clock here, like one recorded this evening in New Zealand, is shared as before: only a start more than a day ahead is held back.
 - **A friend's activity dated in the future no longer tops your lists.** A friend on an older version can still send one. It's no longer their newest activity or a new one on the Friends page, and it's left out of the lists of their activities on the web and in the iPhone app. It still opens on its own page.

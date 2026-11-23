@@ -10,7 +10,8 @@ import zipfile
 from flask import Blueprint, current_app, jsonify, render_template, request
 from database import get_db, query_db
 from services import jobs, planned_routes, sports
-from services.rider_mode import multi_rider, owner_rider_id
+from services import whose
+from services.rider_mode import multi_rider
 
 log = logging.getLogger(__name__)
 bp = Blueprint('saved_routes', __name__, url_prefix='/routes')
@@ -86,7 +87,7 @@ def import_strava():
             if not f or not f.filename:
                 return jsonify(error='Choose your Strava export, the .zip Strava emailed you'), 400
             zf = zipfile.ZipFile(f.stream)
-            rider = owner_rider_id()
+            rider = whose.rider_id()
         with zf:
             check_zip(zf)
             names = set(zf.namelist())
@@ -107,7 +108,7 @@ def import_garmin():
     if not _garmin_on():
         return jsonify(error='Connect Garmin in Settings first'), 400
     db = get_db()
-    job = jobs.enqueue(db, GARMIN_JOB, {'rider': owner_rider_id()})
+    job = jobs.enqueue(db, GARMIN_JOB, {'rider': whose.rider_id()})
     if job is None:
         running = jobs.last(db, GARMIN_JOB)
         job = running['id'] if running else None
