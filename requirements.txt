@@ -12,7 +12,7 @@ Pillow>=10.0.0
 gunicorn>=22.0.0
 gpxpy
 qrcode
-tzfpy==2.1.1   # the time zone at a position, offline (services/tz.zone_at): an activity's local time is where it happened
+tzfpy==2.1.2   # the time zone at a position, offline (services/tz.zone_at): an activity's local time is where it happened
 tzdata; sys_platform == "win32"   # Windows has no system timezone database (zoneinfo needs this)
 pystray; sys_platform == "win32"   # system-tray icon for the Windows app
 waitress; sys_platform == "win32"   # the Windows app's web server (windows_launcher.py); Docker and Linux use gunicorn
