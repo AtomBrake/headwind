@@ -38,7 +38,6 @@ Built on [lordmaa's original Headwind](https://github.com/lordmaa/headwind), and
 - [Backups, updates and your data](#backups-updates-and-your-data)
 - [Privacy](#privacy)
 - [Security notes](#security-notes)
-- [The Android app](#the-android-app)
 - [The iPhone and Apple Watch app](#the-iphone-and-apple-watch-app)
 - [Troubleshooting](#troubleshooting)
 - [How it works](#how-it-works) — stack, layout, data model
@@ -86,7 +85,6 @@ Headwind is a real, working application used daily by its maintainer. The first 
 - **Expect rough edges.** Report them — [open an issue](../../issues).
 - **Shared admin login.** There is one login for the whole instance. It is not a multi-user system. Don't give the login to people you don't trust with your data.
 - **Back up before you upgrade** and before you import years of history.
-- **The Android companion app is a work in progress** and not publicly released yet.
 - **The iPhone and Apple Watch app isn't on the App Store** — build it yourself with Xcode (see [ios/README.md](ios/README.md)). It hasn't yet been tried on every device it supports.
 - **The arm64 (Raspberry Pi) image and the Windows build are new** and have had little real-world testing.
 - **Don't expose it to the internet without HTTPS** — see [Putting it on the internet safely](#putting-it-on-the-internet-safely).
@@ -450,11 +448,11 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - **Recently deleted** — a deleted activity of any sport is kept whole for 30 days, listed under **Recently deleted** at the bottom of the **Import** page with its date, name, sport and distance. **Restore** puts it back as it was: notes, photos, gear, commute, the AI's analysis, and its segment and best times worked out again (a bike or shoes deleted meanwhile are replaced by your default; if another recording of the same session came in meanwhile, the better of the two is kept and the other set aside). **Delete now** doesn't wait. After 30 days only its id is kept, and its photo files are deleted. Either way no Garmin sync or Strava export imported again brings it back; uploading its file yourself does. Backups include it, photos and all.
 - **Commutes** and **photos** on any activity. Give a photo a caption and drag the photos into order on the activity page; the first is the cover.
 - **GPX export** of any activity.
-- **Phone and watch recording** — the iPhone and Apple Watch app records every sport and uploads it (see [The iPhone and Apple Watch app](#the-iphone-and-apple-watch-app)); the Android app records rides and workouts (work in progress; see [The Android app](#the-android-app)).
+- **Phone and watch recording** — the iPhone and Apple Watch app records every sport and uploads it (see [The iPhone and Apple Watch app](#the-iphone-and-apple-watch-app)).
 - **Upload endpoint** — `POST /import/api/upload-ride` with an `X-Upload-Token` header (set `RIDE_UPLOAD_TOKEN`) lets a script, a Pi attached to a bike computer, or an automation push GPX files in.
 
 ### Activity pages and analytics
-- Map, speed/elevation/heart-rate/power/cadence streams, wind overlay, co-rider badges. Hovering a chart marks the spot on the map, and the map's cursor on the track shows on the charts, the phone sensor charts included.
+- Map, speed/elevation/heart-rate/power/cadence streams, wind overlay, co-rider badges. Hovering a chart marks the spot on the map, and the map's cursor on the track shows on the charts.
 - **Map types** — every map (activities, segments, heatmap) has a picker: Esri satellite, satellite + labels, dark, light and topographic, OpenTopoMap (contours, paths and tracks) and CyclOSM (surfaces, MTB trail grades), with Waymarked Trails' mountain bike and cycle routes over any of them. Thunderforest's OpenCycleMap and Outdoors, and Ordnance Survey's Outdoor map of Great Britain, join it once you save your own free key under **Settings → Maps**. On an activity, direction arrows, distance markers every mile or km (fewer when zoomed out) and the wind arrows each have their own switch. Each kind of map remembers your choice in the browser.
 - **Pages that fit the sport** — pace and splits per mile or km on foot; pace per 100 m, sets, strokes and SWOLF for swims; each run of a ski day with vertical descent; no climb on the water; laps from your device for any sport.
 - **Same route** — the other times you've done this activity's route (same start, finish and roads, same way round, same kind of activity), ranked by moving time, compared with the last 20 and charted. The AI coach gets the same comparison.
@@ -482,10 +480,6 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - Rename a route, change its sport, download it as a GPX file with its own heights, or delete it. A route with the same points as one already here isn't saved again, whatever either is called, so importing the same file, export or courses twice makes no copies.
 - Routes can't be edited yet.
 
-### Phone sensors and live rides (Android app 0.18+)
-- The Android app can record the phone's motion sensors (shake, tilt, barometer) once a second and upload them as a **sidecar** that Headwind attaches to the ride it overlaps in time, so you can ride with a Garmin Edge as the main recorder and still get roughness, tilt and a barometric climb on the ride page ("Sensors only" mode), or record them with a phone-recorded ride.
-- **Share live with Home Assistant** streams position, speed and sensor readings every few seconds to Headwind, which publishes them as Live Ride sensors and a device tracker, so the example dashboard's **Live** tab can show the ride as it happens.
-
 ### A live tracking link (iPhone app)
 Switch on **Share live location** on the Record screen (or make it the default in Settings) and the phone makes a link when you start, or when you switch it on mid-recording, and opens the share sheet to send it by Messages, WhatsApp or mail. It opens in any browser with no account and shows where you are, your track so far, distance, time, speed or pace and the phone's battery, but nothing within 300 m of where you started. Anyone with the link can see where you are. It ends an hour after you finish, or at once with **Stop sharing**, and stays on the Record screen until then to send again or copy. Your server needs an https **Outside address**; without one, the app says why and records without the link. The Watch has the same switch on its start screen: it sends where you are every 30 s, through the phone or over Wi-Fi or cellular, and makes the link itself. As the Watch can't send it, your iPhone shows a notification saying the link is ready, and tapping it opens the share sheet; the link also waits on the Record screen.
 
@@ -504,7 +498,7 @@ Headwind can also email each new link itself to people you choose beforehand: ad
 - Hydration logging with a daily goal.
 - Weight tracking with a smoothed (EMA) trend, goal weight and projected finish, on its own **Weight** page under Health with a table of weigh-ins (Garmin weigh-ins count as scale readings). Lines at every stone or 5 kg lost can be switched off.
 - Optional **AI food-photo estimate** and **screenshot import** (e.g. from another food app) with your own key.
-- Installable as a PWA on iOS/Android.
+- Installable as a PWA on a phone.
 
 ### Gear and maintenance
 - **Bikes** with photos, type, brand/model/year and any mileage from before Headwind.
@@ -658,7 +652,6 @@ Set these in a `.env` file next to `docker-compose.yml` (Compose reads it automa
 | `RIDE_UPLOAD_TOKEN` | *(unset)* | Enables `POST /import/api/upload-ride` (authenticated by the `X-Upload-Token` header). Disabled when unset. |
 | `SESSION_COOKIE_SECURE` | `false` | Set to `true` when serving over HTTPS so the login cookie is never sent over plain HTTP. |
 | `TRUSTED_PROXIES` | private addresses | Where a reverse proxy may connect from for Headwind to believe its `X-Forwarded-*` headers: comma-separated addresses or networks (e.g. `203.0.113.7` or `10.8.0.0/24`), or `none`. Unset, any loopback or private address is trusted (a proxy on the same machine, LAN or Docker network, or a local tunnel), and the first forwarded request from a private address that isn't loopback is noted once in the log. Set it if your proxy reaches Headwind from a public address, or to your proxy's address to close the gap described under [Other reverse proxies](#other-reverse-proxies). |
-| `HEADWIND_APK` | `headwind.apk` in the data folder | The Android APK offered on **Phones → App**. A `version.txt` beside it is shown on that page. |
 | `HEADWIND_MQTT_PREFIX` / `HEADWIND_MQTT_NAME` | *(defaults)* | Give a second instance on the same MQTT broker its own entity prefix and device name so they don't collide. |
 | `HEADWIND_MQTT_NUTRITION` | `1` | `0` publishes only the ride sensors, not nutrition. |
 | `HEADWIND_ENV` | `./.env` | Point an instance at a different env file (useful for running two instances from one code folder). |
@@ -941,15 +934,9 @@ Known limits: one shared admin login; in the advanced multi-rider mode phone dev
 
 ---
 
-## The Android app
-
-A native Kotlin/Jetpack Compose companion — nutrition logging with barcode scan, ride recording, widgets and Health Connect — exists but is **a work in progress and not publicly released**. It pairs with your server via a QR code (**Phones** page) and a per-device token, and **requires HTTPS**. A token works until it's revoked: **Phones** shows when each was last used, flags those not used for 90 days, and revokes them with one button (a phone counts as used while its Watch is, and its Watch's token goes with it). Until it's released, everything works from the browser, and the nutrition tracker installs as a PWA.
-
----
-
 ## The iPhone and Apple Watch app
 
-A native SwiftUI app in [`ios/`](ios/README.md), using the same phone API and pairing as the Android app. It isn't on the App Store: build it onto your own iPhone with Xcode (a free Apple ID works, though its builds expire after 7 days). [ios/README.md](ios/README.md) has the steps.
+A native SwiftUI app in [`ios/`](ios/README.md), paired with your server through the phone API. It isn't on the App Store: build it onto your own iPhone with Xcode (a free Apple ID works, though its builds expire after 7 days). [ios/README.md](ios/README.md) has the steps.
 
 - **Record any sport** on the iPhone or the Watch: rides on the bike you pick, runs, walks and hikes, swims on the Watch, and timed sessions (indoor rides, treadmill runs, strength, HIIT, yoga). The phone reads Bluetooth heart rate straps, power meters, speed and cadence sensors and smart trainers; the Watch uses the sensors paired in its own settings. Recordings go through the normal import (best times, segments, weather), and the phone shares its position with Home Assistant while recording.
 - **A live tracking link** to send when you start recording (see [A live tracking link](#a-live-tracking-link-iphone-app)).
@@ -958,7 +945,7 @@ A native SwiftUI app in [`ios/`](ios/README.md), using the same phone API and pa
 - **Apple Health:** steps, resting heart rate, HRV, sleep, weight, body fat, calories and other apps' workouts, each switched on by itself. A workout already on the server, or deleted there, isn't read or sent again. A workout whose route is only a stale location (some apps save one) goes up timed, with Apple Health's own time, distance, calories and heart rate. If an older app sends that route anyway, the server refuses it rather than store an empty activity. Garmin's figure wins on a day it has one (steps follow the source chosen on the **Steps** page), a weigh-in never replaces a manual or Garmin one, and Apple's HRV (SDNN through the day) is kept apart from Garmin's (RMSSD overnight). **Remove Apple Health data from Headwind** deletes it from the server.
 - **Friends:** make a share code as a QR code, or add a friend by scanning theirs.
 
-Like the Android app it **requires HTTPS**. Pair it from **Phones**: name the phone, press **Create token**, then scan the QR code in the app or with the iPhone's Camera.
+It **requires HTTPS**. Pair it from **Phones**: name the phone, press **Create token**, then scan the QR code in the app or with the iPhone's Camera. A token works until it's revoked: **Phones** shows when each was last used, flags those not used for 90 days, and revokes them with one button (a phone counts as used while its Watch is, and its Watch's token goes with it).
 
 ---
 
@@ -1016,7 +1003,7 @@ docs/               Home Assistant builders, screenshots, notes
 - Dependencies aren't yet pinned to an exact lock file.
 
 **Roadmap (no promises)**
-- Public Android release; per-device scopes.
+- Per-device scopes.
 - Password hashing and optional multi-user.
 - Signed Windows build and an installer.
 - A proper job queue for imports and bulk AI.
