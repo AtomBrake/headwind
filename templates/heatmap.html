@@ -56,7 +56,8 @@
     #whoKey span { display: inline-flex; align-items: center; gap: 0.35rem; }
     #whoKey i { width: 0.65rem; height: 0.65rem; border-radius: 50%; flex-shrink: 0; }
     #zwiftWorlds { gap: 0.3rem; width: 0; min-width: 100%; }      /* wraps within the panel instead of widening it */
-    /* What's under a click on the map: the activities there, newest first */
+    /* What's under a click on the map: the activities there, newest first. A hand over a track, which can be clicked */
+    .leaflet-container.heat-hover { cursor: pointer; }
     .heat-pick .leaflet-popup-content-wrapper, .heat-pick .leaflet-popup-tip { background: var(--main-bg); color: var(--text); }
     .heat-pick .leaflet-popup-content { margin: 0.6rem 0.75rem; }
     .heat-pick a.leaflet-popup-close-button { color: var(--text-muted); }

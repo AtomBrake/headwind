@@ -102,6 +102,7 @@ function loadRange(from, to) {
       layerGroup.clearLayers();
       loaded = d;
       d.boxes = d.tracks.map(boxOf);
+      projected = []; projectedZoom = null;
       var opacity = opacityFor(d.count);
       var bounds  = [];                // where to zoom: the real rides, so Zwift's worlds don't pull the view out to sea
 
@@ -150,20 +151,27 @@ function boxOf(pts) {
   return b;
 }
 
-// The tracks within tol pixels of a point on the map (layer pixels), newest first
-function tracksNear(c, tol) {
-  var sw = map.layerPointToLatLng(L.point(c.x - tol, c.y + tol)), ne = map.layerPointToLatLng(L.point(c.x + tol, c.y - tol));
+// Each track's points in pixels at one zoom, worked out when first needed: the pointer is checked against them on every move
+var projected = [], projectedZoom = null;
+function pixelsOf(i, z) {
+  if (z !== projectedZoom) { projected = []; projectedZoom = z; }
+  return projected[i] || (projected[i] = loaded.tracks[i].map(function (p) { return map.project(p, z); }));
+}
+
+// The tracks within tol pixels of a place on the map, newest first; with first, just whether there's one (for the pointer)
+function tracksNear(latlng, tol, first) {
+  var z = map.getZoom(), c = map.project(latlng, z);
+  var sw = map.unproject(L.point(c.x - tol, c.y + tol), z), ne = map.unproject(L.point(c.x + tol, c.y - tol), z);
   var hits = [];
-  loaded.tracks.forEach(function (pts, i) {
+  for (var i = 0; i < loaded.tracks.length; i++) {
     var b = loaded.boxes[i];
-    if (!b || b[0] > ne.lat || b[1] < sw.lat || b[2] > ne.lng || b[3] < sw.lng) return;
-    var prev = map.latLngToLayerPoint(pts[0]);
-    for (var j = 1; j < pts.length; j++) {
-      var p = map.latLngToLayerPoint(pts[j]);
-      if (L.LineUtil.pointToSegmentDistance(c, prev, p) <= tol) { hits.push(i); return; }
-      prev = p;
+    if (!b || b[0] > ne.lat || b[1] < sw.lat || b[2] > ne.lng || b[3] < sw.lng) continue;
+    var px = pixelsOf(i, z);
+    for (var j = 1; j < px.length; j++) {
+      if (L.LineUtil.pointToSegmentDistance(c, px[j - 1], px[j]) <= tol) { hits.push(i); break; }
     }
-  });
+    if (first && hits.length) return hits;
+  }
   return hits.sort(function (a, b) { return (loaded.dates[b] || '').localeCompare(loaded.dates[a] || ''); });
 }
 
@@ -243,13 +251,30 @@ map.on('click', function (e) {
   if (!loaded) return;
   var pointer = e.originalEvent && e.originalEvent.pointerType;
   var tol = (pointer ? pointer !== 'mouse' : matchMedia('(pointer: coarse)').matches) ? 14 : 6;     // a finger is less exact than a mouse
-  var hits = tracksNear(e.layerPoint, tol);
+  var hits = tracksNear(e.latlng, tol);
   if (!hits.length) return;
   L.popup(L.extend({ className: 'heat-pick', maxWidth: 320, minWidth: 220, maxHeight: 300 }, clearOfPanel()))
    .setLatLng(e.latlng).setContent(pickList(hits)).openOn(map);
   highlight(hits);                     // after openOn, which closes the last popup and with it the last highlight
 });
 map.on('popupclose', function () { pickGroup.clearLayers(); picked = []; });
+
+// A mouse over a track turns into a hand, as over a link, so it's plain the line can be clicked. Checked once a frame at most, and not
+// while the map is being dragged (the grabbing hand stays) or over the popup.
+var hoverAt = null, dragging = false;
+function setHover(on) { map.getContainer().classList.toggle('heat-hover', on); }
+function hoverCheck() {
+  var at = hoverAt; hoverAt = null;
+  setHover(!!(at && loaded && !dragging && tracksNear(at, 6, true).length));
+}
+map.on('mousemove', function (e) {
+  if (e.originalEvent.target.closest('.leaflet-popup, .leaflet-control')) { hoverAt = null; setHover(false); return; }
+  if (hoverAt === null) requestAnimationFrame(hoverCheck);
+  hoverAt = e.latlng;
+});
+map.on('mouseout', function () { hoverAt = null; setHover(false); });
+map.on('dragstart zoomstart', function () { dragging = true; setHover(false); });
+map.on('dragend zoomend', function () { dragging = false; });
 
 function reload() { loadRange(currentFrom, currentTo); }
 function reloadAndFit() { fitNext = true; reload(); }

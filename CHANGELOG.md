@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **The pointer turns into a hand over a track on the heatmap.** Tracks can be clicked to open their activity since the last release, but nothing showed it: now the pointer changes over a track, as over a link, and goes back to the grab hand off one, so you can see where a click will find something.
+
 ### Fixed
 - **A friend's dashboard no longer asks you to fix their activities.** Picking a friend's rider showed their **Activities that look wrong** card, with **It's right**, the fixes and **Delete all blips**, though you can't change a friend's activities here; they're fixed on their own Headwind. The card is gone from a friend's dashboard, along with the other things to sort out there (gear due, activities recorded on different gear or as different sports, uploads that look like runs). Your own dashboard is unchanged.
 
