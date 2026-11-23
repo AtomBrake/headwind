@@ -26,7 +26,9 @@
                             GET /api/v1/friends lists them, for GET /api/v1/activities?rider=<their rider id>|all (a friend's activities, read-only)
   POST /api/v1/live        the phone's live reading while it records (services/live.py), with `recording`, the recording's id;
                             POST /api/v1/live/share {recording, sport, track} starts a live tracking link for it (or gives the running one),
-                            DELETE /api/v1/live/share {recording} stops it (services/live_share.py)
+                            DELETE /api/v1/live/share {recording} stops it (services/live_share.py). A new link is emailed to the
+                            rider's contacts: GET /api/v1/live/share?recording= says to whom and how it went
+  GET  /api/v1/contacts    the people live links are emailed to (services/contacts.py); POST adds one, PATCH/DELETE /api/v1/contacts/<id>
 The nutrition endpoints the app also uses (/nutrition/api/log, /water, /search, /lookup/<barcode> ...) accept the same token.
 """
 import logging
@@ -505,17 +507,20 @@ def live():
     return jsonify({'ok': True, 'state': c['state']})
 
 
-def _share_json(row, url):
+def _share_json(db, row, url):
+    from services import live_share as share_svc
     return {'id': row['id'], 'url': url, 'recording': row['recording'], 'expires_at': row['expiresAt'], 'ended': bool(row['endedAt']),
-            'send_every_s': 5}
+            'send_every_s': 5, 'contacts': share_svc.recipients(db, row['id'])}
 
 
-@bp.route('/live/share', methods=['POST', 'DELETE'])
+@bp.route('/live/share', methods=['GET', 'POST', 'DELETE'])
 def live_share():
     """POST {recording, sport, track: [[lat, lng, epoch s], ...]}: a live tracking link for the recording in progress, or the one it already
-    has: {id, url, expires_at, created}. `track` is what was recorded before sharing began, so the page has the track so far. 409 with
-    {error, settings_url} when there's no outside address anyone could open it on. DELETE {recording} (or ?recording=): stop sharing it, the
-    link ending at once. The rider is the default rider, as for the rest of /api/v1."""
+    has: {id, url, expires_at, created, contacts}. `track` is what was recorded before sharing began, so the page has the track so far. 409
+    with {error, settings_url} when there's no outside address anyone could open it on. A new link is emailed to the rider's contacts ticked
+    for live links, by the worker: `contacts` is [{name, state: sending|sent|failed, error}], and GET ?recording= gives the share again, for
+    the phone to ask until nobody is left at "sending". DELETE {recording} (or ?recording=): stop sharing it, the link ending at once. The
+    rider is the default rider, as for the rest of /api/v1."""
     from flask import g
     from services import live_share as share_svc
     rider = whose.rider()
@@ -527,6 +532,13 @@ def live_share():
     db = get_db()
     if request.method == 'DELETE':
         return jsonify({'stopped': share_svc.stop(db, rider['id'], recording)})
+    if request.method == 'GET':
+        row = share_svc.open_share(db, rider['id'], recording)
+        token = share_svc.token_of(row)
+        base, _ = share_svc.link_base()
+        if not row or not token or not base:
+            return jsonify({'error': 'This recording has no live link running.'}), 404
+        return jsonify(_share_json(db, row, share_svc.link(base, token)))
     base, why = share_svc.link_base()
     if not base:
         return jsonify({'error': why, 'settings_url': share_svc.SETTINGS_PATH}), 409
@@ -536,7 +548,57 @@ def live_share():
         share_svc.stop(db, rider['id'], share_id=row['id'])
         row, token, created = share_svc.start(db, rider['id'], recording, sport=body.get('sport'), device_id=getattr(g, 'device_id', None),
                                               track=body.get('track'))
-    return jsonify(dict(_share_json(row, share_svc.link(base, token)), created=created)), 201 if created else 200
+    if created:                     # once per share: the running one given again is not sent again
+        share_svc.send_to_contacts(db, row)
+    return jsonify(dict(_share_json(db, row, share_svc.link(base, token)), created=created)), 201 if created else 200
+
+
+@bp.route('/contacts', methods=['GET', 'POST'])
+def contacts_list():
+    """The rider's contacts (services/contacts.py), each emailed the live tracking link as it starts when ticked for it. GET: {contacts:
+    [{id, name, email, live_links}], email: {ready, error, settings_url}}, `email` saying whether the server can send any. POST {name, email,
+    live_links}: add one; 201 with it, or 400 {error} fit to show."""
+    from services import contacts, mail
+    rider = whose.rider()
+    if not rider:
+        return jsonify({'error': 'no rider'}), 409
+    db = get_db()
+    if request.method == 'GET':
+        ok, why = mail.ready(db)
+        return jsonify({'contacts': contacts.listing(db, rider['id']),
+                        'email': {'ready': ok, 'error': why, 'settings_url': mail.SETTINGS_PATH}})
+    body = request.get_json(silent=True)
+    body = body if isinstance(body, dict) else {}
+    try:
+        made = contacts.add(db, rider['id'], body.get('name'), body.get('email'), live_links=body.get('live_links', True) is not False)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify(made), 201
+
+
+@bp.route('/contacts/<int:contact_id>', methods=['PATCH', 'DELETE'])
+def contact_one(contact_id):
+    """PATCH {name, email, live_links} (any of them): change a contact; 400 {error} fit to show. DELETE: remove it."""
+    from services import contacts
+    rider = whose.rider()
+    if not rider:
+        return jsonify({'error': 'no rider'}), 409
+    db = get_db()
+    if request.method == 'DELETE':
+        if not contacts.remove(db, rider['id'], contact_id):
+            return jsonify({'error': 'not found'}), 404
+        return jsonify({'deleted': True})
+    body = request.get_json(silent=True)
+    body = body if isinstance(body, dict) else {}
+    links = body.get('live_links')
+    try:
+        made = contacts.update(db, rider['id'], contact_id, name=body.get('name'), email=body.get('email'),
+                               live_links=None if links is None else bool(links))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    if made is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(made)
 
 
 @bp.route('/activities/<rid>')

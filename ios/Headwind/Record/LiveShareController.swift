@@ -15,6 +15,10 @@ import Observation
 /// A Watch recording's link is started by the Watch, which has no share sheet, and handed over (WatchBridge, `LiveLinkMessage`): it's kept
 /// here like the phone's own, announced in a notification (LiveLinkNotifier) whose tap opens the share sheet, and shown as finished when
 /// the Watch says its recording has ended.
+///
+/// The server emails each new link to the rider's contacts chosen beforehand (Settings → Contacts), in the background: the link keeps who
+/// they are and how it went (`recipients`), asked for again until the server has finished, and the Record screen says "Sent to Sam and
+/// Alex". When someone is getting it, Start doesn't open the share sheet: Send is there for anyone else.
 @MainActor
 @Observable
 final class LiveShareController {
@@ -29,6 +33,8 @@ final class LiveShareController {
         var sport: String?
         /// Started by the Watch for its recording.
         var fromWatch: Bool?
+        /// The contacts the server emailed it to, and how it went; nil from an older server or Watch.
+        var recipients: [LiveShareRecipient]?
     }
 
     /// A link to show in the share sheet.
@@ -67,6 +73,8 @@ final class LiveShareController {
     @ObservationIgnored private let defaults: UserDefaults
     /// Set by the app: the notification for a link from the Watch. Nil in tests and previews.
     @ObservationIgnored var notifier: LiveLinkNotifier?
+    /// Asking the server how emailing the link to the contacts has gone.
+    @ObservationIgnored private var following: Task<Void, Never>?
     private static let defaultKey = "live-share-default", linkKey = "live-share-link"
     /// How long a link works after its recording ends (services/live_share.AFTER_END_S).
     static let afterEnd: TimeInterval = 3600
@@ -126,10 +134,31 @@ final class LiveShareController {
                 _ = try? await client.stopLiveShare(recording: id.uuidString)
                 return
             }
-            link = Link(recording: id.uuidString, url: reply.url, expiresAt: Date(timeIntervalSince1970: reply.expiresAt), ended: reply.ended)
+            link = Link(recording: id.uuidString, url: reply.url, expiresAt: Date(timeIntervalSince1970: reply.expiresAt), ended: reply.ended,
+                        recipients: reply.contacts)
             recorder.sharingEvery = reply.sendEveryS ?? LiveCadence.sharing
-            outgoing = Outgoing(url: reply.url, sport: sport)
+            if !LiveRecipients.anyReached(reply.contacts) {
+                outgoing = Outgoing(url: reply.url, sport: sport)       // nobody else is getting it: the share sheet, to send it
+            }
+            follow(recording: id.uuidString, client: client, now: reply.contacts ?? [])
         }
+    }
+
+    /// Ask the server again until it has finished emailing the link to the contacts, keeping each answer on the link.
+    private func follow(recording: String, client: APIClient, now recipients: [LiveShareRecipient]) {
+        following?.cancel()
+        guard !LiveRecipients.settled(recipients) else { return }
+        following = Task {
+            await client.followRecipients(recording: recording) { [weak self] recipients in
+                self?.update(recipients: recipients, recording: recording)
+            }
+        }
+    }
+
+    private func update(recipients: [LiveShareRecipient], recording: String) {
+        guard var l = link, l.recording == recording, l.recipients != recipients else { return }
+        l.recipients = recipients
+        link = l
     }
 
     /// Stop sharing: the link ends at once for everyone who has it.
@@ -147,6 +176,7 @@ final class LiveShareController {
         defer { busy = false }
         do throws(AppError) {
             try await APIClient(pairing: pairing).stopLiveShare(recording: link.recording)
+            following?.cancel()
             self.link = nil
             notifier?.withdraw(recording: link.recording)
             if recorder.recordingID?.uuidString == link.recording { recorder.sharingEvery = nil }
@@ -171,17 +201,23 @@ final class LiveShareController {
     }
 
     /// A link the Watch started for its recording, or word that the recording has ended. A new link is kept and announced; the share
-    /// sheet opens when the notification is tapped (`offer`). One sent again (the Watch's message delivered twice) isn't announced again.
+    /// sheet opens when the notification is tapped (`offer`). One sent again (the Watch's message delivered twice, or again once the server
+    /// has emailed the contacts) isn't announced again, but brings who it was sent to.
     func adopt(fromWatch message: LiveLinkMessage) {
         if message.ended {
             ended(message.recording)
             notifier?.withdraw(recording: message.recording)
             return
         }
-        guard let url = message.url, link?.recording != message.recording else { return }
+        if link?.recording == message.recording {
+            if let recipients = message.recipients { update(recipients: recipients, recording: message.recording) }
+            return
+        }
+        guard let url = message.url else { return }
         let expires = message.expiresAt.map(Date.init(timeIntervalSince1970:)) ?? Date().addingTimeInterval(6 * 3600)
         guard expires > .now else { return }
-        let new = Link(recording: message.recording, url: url, expiresAt: expires, sport: message.sport, fromWatch: true)
+        let new = Link(recording: message.recording, url: url, expiresAt: expires, sport: message.sport, fromWatch: true,
+                       recipients: message.recipients)
         link = new
         notifier?.askPermission()
         notifier?.announce(new)

@@ -1,5 +1,5 @@
-"""Secrets kept in the database (the AI keys, the Home Assistant token, the MQTT password, the feed tokens friends gave us, the Garmin
-sign-in) are encrypted with a key kept beside it, in `.secrets_key`, and never in it: a copy of bike.db or a backup shared for
+"""Secrets kept in the database (the AI keys, the Home Assistant token, the MQTT and mail server passwords, the feed tokens friends gave us,
+the Garmin sign-in) are encrypted with a key kept beside it, in `.secrets_key`, and never in it: a copy of bike.db or a backup shared for
 troubleshooting gives none of them away. Not Flask's SECRET_KEY, which can come from the environment and be changed: that would lose every
 secret.
 
@@ -24,7 +24,7 @@ COLUMNS = {
     # feedToken: the shared feed token from before per-friend tokens. services/feed_tokens.py moves it to a FeedToken row and the column is
     # dropped, so it's only ever found in an old copy of the database (seal_copies) or in a restore not yet migrated.
     'Settings': ('openaiKey', 'claudeKey', 'haToken', 'mqttPassword', 'garminEmail', 'garminPassword', 'feedToken', 'thunderforestKey',
-                 'osMapsKey'),
+                 'osMapsKey', 'smtpPassword'),
     'Friend':   ('token',),
 }
 # Secrets nothing reads any more: emptied wherever they're found, and dropped from the live database (database._drop_dead_secrets).
@@ -39,6 +39,7 @@ LABELS = {
     'mqttPassword':   'the MQTT password (Settings → MQTT)',
     'thunderforestKey': 'the Thunderforest API key (Settings → Maps)',
     'osMapsKey':      'the OS Maps API key (Settings → Maps)',
+    'smtpPassword':   'the mail server password (Settings → Email)',
     'garminEmail':    'the Garmin sign-in (Settings → Garmin Connect)',
     'garminPassword': 'the Garmin sign-in (Settings → Garmin Connect)',
     'feedToken':      'the shared feed token from before per-friend tokens (Friends: give each friend a code of their own)',

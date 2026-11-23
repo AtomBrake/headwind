@@ -71,6 +71,12 @@ struct LiveLinkCard: View {
                  : "Anyone with the link can see where you are, until an hour after you finish.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if let recipients = link.recipients, let said = LiveRecipients.summary(recipients) {
+                Label(said, systemImage: recipients.contains(where: \.isFailed) ? "exclamationmark.triangle" : "envelope")
+                    .font(.caption)
+                    .foregroundStyle(recipients.allSatisfy(\.isFailed) ? Color.orange : Color.secondary)
+                    .accessibilityIdentifier("live-link-recipients")
+            }
             HStack(spacing: 8) {
                 Button {
                     live.outgoing = .init(url: link.url, sport: link.sport.map { Sport(stored: $0) } ?? recorder.sport)

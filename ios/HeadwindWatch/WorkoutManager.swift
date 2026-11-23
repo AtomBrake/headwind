@@ -15,7 +15,9 @@ import WatchKit
 /// the recording's id, and once more, idle, when it ends. It posts whether the phone is with it or not: near the phone the request goes
 /// through the phone's connection, away from it over Wi-Fi or cellular. With the first post it asks the server for a link
 /// (POST /api/v1/live/share, again with each post until it has one or a refusal), and hands the link to the phone, which offers it in a
-/// notification to tap and send: the Watch has no share sheet. At the end it tells the phone the link is finishing.
+/// notification to tap and send: the Watch has no share sheet. The server emails a new link to the rider's contacts itself, so it gets out
+/// with the phone at home: the controls page says who it went to, asked for until the server has finished, and the phone is told too. At
+/// the end it tells the phone the link is finishing.
 @MainActor
 @Observable
 final class WorkoutManager: NSObject {
@@ -60,6 +62,8 @@ final class WorkoutManager: NSObject {
     /// Where the recording's live tracking link has got to.
     enum LiveLink: Equatable { case none, starting, sent, refused, failed }
     private(set) var liveLink = LiveLink.none
+    /// The contacts the server is emailing the link to, and how it's gone.
+    private(set) var liveRecipients: [LiveShareRecipient] = []
     @ObservationIgnored private var lastLinkTry = Date.distantPast
     @ObservationIgnored private var lastLivePost = Date.distantPast
     @ObservationIgnored private var lastLocation: CLLocation?
@@ -162,6 +166,7 @@ final class WorkoutManager: NSObject {
             bikeId = sport.isRide ? bike : nil
             postingLive = sharesLive && sport.usesGPS && phone.pairing != nil
             liveLink = .none
+            liveRecipients = []
             lastLinkTry = .distantPast
             lastLivePost = .distantPast
             lastLocation = nil
@@ -377,7 +382,16 @@ final class WorkoutManager: NSObject {
                     return
                 }
                 liveLink = .sent
+                liveRecipients = reply.contacts ?? []
                 phone.send(liveLink: .started(recording: id, reply: reply, sport: sport))
+                guard !LiveRecipients.settled(liveRecipients) else { return }
+                await client.followRecipients(recording: id.uuidString) { [weak self] recipients in
+                    guard let self, self.recordingID == id else { return }
+                    self.liveRecipients = recipients
+                    if LiveRecipients.settled(recipients) {         // once, with how it went: the phone shows it too
+                        self.phone.send(liveLink: .started(recording: id, reply: reply, sport: sport, recipients: recipients))
+                    }
+                }
             }
         }
     }

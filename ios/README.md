@@ -9,7 +9,7 @@ A native SwiftUI companion for a Headwind server. It uses the same phone API and
 | Record | Map (or a clock for a timed sport), live stats, start / pause / finish any sport the phone records, on a chosen bike; share a live tracking link; list of recordings, their upload status, bike and waiting photos (add, remove, reorder) | `POST /api/v1/activities` (older servers: `/rides`, `/workouts`), `/activities/<id>/bike`, `/activities/<id>/photos`, `/live`, `/live/share` |
 | Activities | Every activity of every sport, paged, searchable and filtered by sport, and by whose (Me, a friend, Everyone); each with its map (a Zwift ride's over its Zwift world), stats, charts and photos (add, delete, reorder, caption), and delete. A friend's is read-only | `GET /api/v1/activities` (`?rider=`), `/friends`, `/activities/<id>`, `/photos/<name>`, `/zwift/<slug>.png`, `/activities/<id>/photos…` (older servers, whose `/ping` says `api` below 3: `/rides`, `/rides/<kind>/<id>…`) |
 | Overview | A card per sport group for week / month / year / all time, a 12-week chart of one sport by distance or every sport by time, latest recovery (Garmin's or Apple Health's) | `GET /api/v1/overview` |
-| Settings | Paired server, rider, units, Bluetooth sensors (pair, forget, battery, wheel size), whether recordings share a live tracking link, Apple Health (what to send, how far back), friends (make a QR code for a friend with what they may see; add a friend by scanning or pasting their code), unpair | `GET /api/v1/ping`, `POST /api/v1/health/days`, `GET`/`DELETE /api/v1/health`, `POST /api/v1/friends/tokens`, `/friends/probe`, `/friends` |
+| Settings | Paired server, rider, units, Bluetooth sensors (pair, forget, battery, wheel size), whether recordings share a live tracking link and the contacts the server emails it to, Apple Health (what to send, how far back), friends (make a QR code for a friend with what they may see; add a friend by scanning or pasting their code), unpair | `GET /api/v1/ping`, `/contacts`, `POST /api/v1/health/days`, `GET`/`DELETE /api/v1/health`, `POST /api/v1/friends/tokens`, `/friends/probe`, `/friends` |
 
 **Apple Watch:** recording only. Start, pause and end any sport on the wrist with heart rate, calories and, where it has them, GPS,
 speed or pace, distance, climbing, power and cadence. On Apple Watch Ultra the Action button starts and pauses it.
@@ -47,6 +47,12 @@ minute to be kept.
   hour, and stays on the Record screen until then to send again, copy or stop (**Stop sharing**: `DELETE /api/v1/live/share`).
   A 409 (no outside https address) shows the server's reason with a button to its Settings page, and the recording goes on
   without the link. `Headwind/Record/LiveShareController.swift`, `Shared/LiveShare.swift`.
+- **Contacts for the live link:** Settings → Live tracking link → **Contacts to email it to** lists the people the server
+  emails each new link to (`GET/POST /api/v1/contacts`, `PATCH/DELETE /api/v1/contacts/<id>`; the same list as Settings on
+  the web), each with a switch. The reply to `POST /api/v1/live/share` names them (`contacts`: `sending`, `sent` or `failed`
+  with why), and the phone asks `GET /api/v1/live/share?recording=` every 3 s for up to a minute until none is left sending;
+  the Record screen's link card says "Sent to Sam and Alex." When someone is getting it, Start doesn't open the share sheet:
+  **Send** is there for anyone else. `Headwind/Settings/ContactsView.swift`.
 - **Live posts from the Watch:** with "Share live location" on at Start (its default comes from the phone's Settings) and a
   token of its own, a Watch recording with GPS posts `/api/v1/live` itself every 30 s with its recording's id, and idle when
   it ends: through the phone's connection when it's near, over Wi-Fi or cellular when not. With its first post it asks for
@@ -54,7 +60,9 @@ minute to be kept.
   it to the phone (`transferUserInfo`, `LiveLinkMessage`), which shows a notification ("Your live link is ready"; permission is
   asked when sharing is switched on in Settings) whose tap opens the share sheet, and keeps the link on the Record screen. At
   the end it tells the phone, which shows the link as finished. The phone posts nothing itself for a recording the Watch
-  makes. `HeadwindWatch/WorkoutManager.swift`, `Headwind/Record/LiveLinkNotifier.swift`.
+  makes. The server emails the link to the contacts itself, so it gets out with the phone left at home: the Watch's controls
+  page says who it went to, asking until the server has finished, then hands the phone the link once more with how it went
+  (`LiveLinkMessage.recipients`). `HeadwindWatch/WorkoutManager.swift`, `Headwind/Record/LiveLinkNotifier.swift`.
 - **Watch:** runs as a HealthKit workout of the chosen sport, which keeps the app running with the wrist down and supplies heart
   rate. The finished ride is saved to Apple Health with its route, and sent to the iPhone as GPX with heart rate
   on every point. The phone uploads it with its own pairing, so the Watch never needs pairing. Riding without the

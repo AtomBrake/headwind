@@ -139,6 +139,85 @@
   </form>
   <script src="{{ url_for('static', filename='js/address_check.js') }}"></script>
 
+  <!-- Contacts (services/contacts.py): who each live tracking link is emailed to as it starts -->
+  <div class="card" id="contacts">
+    <div class="card-title">Contacts for live links</div>
+    <p class="hint" style="margin:0 0 0.75rem;">People to email each live tracking link to as it starts. Headwind sends it, not your phone, so
+      a link from the Apple Watch on its own, or one nobody stops to send, still reaches them. The email says it's from you, and that the
+      link stops working an hour after you finish. The app's Settings has the same list.</p>
+    {% if email_problem %}<p class="hint" style="margin:0 0 0.75rem; color:var(--warning);">{{ email_problem }} Nothing is sent until then.</p>{% endif %}
+    {% for c in contacts %}
+    <form method="POST" action="{{ url_for('settings.save_contact', contact_id=c.id) }}"
+          style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; margin:0 0 0.5rem;">
+      <input type="text" name="name" value="{{ c.name }}" maxlength="60" required aria-label="Name" style="flex:1 1 9rem; width:auto;">
+      <input type="email" name="email" value="{{ c.email }}" required aria-label="Email address" style="flex:2 1 14rem; width:auto;">
+      <label class="check" style="margin:0;"><input type="checkbox" name="liveLinks" value="1" {{ 'checked' if c.live_links }}> Send my live links</label>
+      <button class="btn btn-secondary btn-sm">Save</button>
+      <button class="btn btn-danger-quiet btn-sm" formaction="{{ url_for('settings.delete_contact', contact_id=c.id) }}" formnovalidate>Remove</button>
+    </form>
+    {% else %}
+    <p class="hint" style="margin:0 0 0.5rem;">No contacts yet.</p>
+    {% endfor %}
+    {% if contacts|length < max_contacts %}
+    <form method="POST" action="{{ url_for('settings.add_contact') }}"
+          style="display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center; margin-top:0.75rem; padding-top:0.75rem; border-top:1px solid var(--border);">
+      <input type="text" name="name" maxlength="60" required placeholder="Name" aria-label="Name" style="flex:1 1 9rem; width:auto;">
+      <input type="email" name="email" required placeholder="name@example.com" aria-label="Email address" style="flex:2 1 14rem; width:auto;">
+      <label class="check" style="margin:0;"><input type="checkbox" name="liveLinks" value="1" checked> Send my live links</label>
+      <button class="btn btn-primary btn-sm">Add contact</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <!-- Email (services/mail.py): the mail server the live links go to contacts through -->
+  <form method="POST" action="{{ url_for('settings.save_email') }}" class="card" id="email">
+    <div class="card-title">Email</div>
+    <p class="hint" style="margin:0 0 0.75rem;">The mail server Headwind sends email through: for now, live tracking links to your contacts. Your
+      email provider's SMTP settings work (for Gmail, <code>smtp.gmail.com</code> with an app password), or a relay on your own network.</p>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="smtpHost">Mail server</label>
+        <input type="text" id="smtpHost" name="smtpHost" value="{{ email.host }}" autocomplete="off" placeholder="smtp.example.com">
+      </div>
+      <div class="form-group">
+        <label for="smtpSecurity">Security</label>
+        <select id="smtpSecurity" name="smtpSecurity">
+          {% for value, label in [('starttls', 'STARTTLS (usually port 587)'), ('ssl', 'TLS from the start (usually port 465)'), ('none', 'None: a relay on this network (port 25)')] %}
+          <option value="{{ value }}" {% if email.security == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="smtpPort">Port <span class="hint">(blank: the usual one)</span></label>
+        <input type="number" id="smtpPort" name="smtpPort" min="1" max="65535" value="{{ s.smtpPort if s and s.smtpPort else '' }}"
+               placeholder="{{ email_ports[email.security] }}">
+      </div>
+      <div class="form-group">
+        <label for="smtpFrom">Send from</label>
+        <input type="email" id="smtpFrom" name="smtpFrom" value="{{ email.sender }}" autocomplete="off" placeholder="headwind@example.com">
+      </div>
+      <div class="form-group">
+        <label for="smtpUser">User name <span class="hint">(optional)</span></label>
+        <input type="text" id="smtpUser" name="smtpUser" value="{{ email.user }}" autocomplete="off" placeholder="often the email address">
+      </div>
+      <div class="form-group">
+        <label for="smtpPassword">Password <span class="hint">(optional)</span></label>
+        <input type="password" id="smtpPassword" name="smtpPassword" value="" autocomplete="off"
+               placeholder="{{ 'Saved: leave blank to keep it' if email.password else '••••••••' }}">
+        {% if email.password %}<label class="check" style="margin-top:0.4rem;"><input type="checkbox" name="clear_smtpPassword"> Remove the saved password</label>{% endif %}
+      </div>
+      <div class="form-group">
+        <label for="smtpTestTo">Send the test to <span class="hint">(blank: the from address)</span></label>
+        <input type="email" id="smtpTestTo" name="smtpTestTo" autocomplete="off" placeholder="you@example.com">
+      </div>
+    </div>
+    <div style="display:flex; gap:0.75rem; margin-top:1rem; align-items:center; flex-wrap:wrap;">
+      <button type="submit" class="btn btn-primary">Save</button>
+      <button type="button" class="btn btn-secondary" data-click="testSetting('email', this)">Send a test email</button>
+      <span id="emailStatus" style="font-size:0.8125rem; color:var(--text-muted);"></span>
+    </div>
+  </form>
+
   <!-- Login Details -->
   <form method="POST" action="/settings/password" class="card">
     <div class="card-title">Login Details</div>
@@ -514,7 +593,7 @@
             <input type="checkbox" name="secrets" value="1" style="margin-top:0.2rem;">
             <span>Include the secrets key
               <span style="display:block; font-size:0.75rem; color:var(--text-muted);">Restoring on another server then keeps the saved AI keys,
-                Home Assistant token, MQTT password, Garmin email and friends' feed tokens. Anyone who gets the zip can read them too:
+                Home Assistant token, MQTT and mail server passwords, Garmin email and friends' feed tokens. Anyone who gets the zip can read them too:
                 keep it as safe as the passwords themselves.</span></span>
           </label>
         </form>

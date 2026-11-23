@@ -259,3 +259,256 @@ def test_one_address_asking_too_often_is_slowed(phone, monkeypatch):
     codes = [anyone.get('/live/hwl_unknown/data').status_code for _ in range(4)]
     assert codes == [404, 404, 404, 429]
     assert anyone.get('/live/hwl_unknown').status_code == 429
+
+
+# Sending the link to contacts chosen beforehand (services/contacts.py, services/mail.py)
+
+class _MailServer:
+    """Stands in for the SMTP connection (services/mail._connect): keeps what it's given, refusing the addresses in `refuse`."""
+    def __init__(self, refuse=()):
+        self.sent, self.refuse, self.quit_called = [], set(refuse), False
+
+    def send_message(self, m):
+        import smtplib
+        if m['To'] in self.refuse:
+            raise smtplib.SMTPRecipientsRefused({m['To']: (550, b'No such user')})
+        self.sent.append(m)
+
+    def quit(self):
+        self.quit_called = True
+
+
+def _email_on(phone, monkeypatch, server=None, fail=None):
+    """Settings → Email filled in, and the connection to it faked: `fail`, an exception the connection raises instead."""
+    from services import mail
+    with phone.app_.app_context():
+        d = database.get_db()
+        d.execute("UPDATE Settings SET smtpHost='smtp.example.com', smtpSecurity='starttls', smtpFrom='headwind@example.com' WHERE id=1")
+        d.commit()
+    server = server or _MailServer()
+
+    def connect(cfg):
+        if fail:
+            raise fail
+        return server
+    monkeypatch.setattr(mail, '_connect', connect)
+    return server
+
+
+def _contact(phone, name, email, live_links=True):
+    r = phone.post('/api/v1/contacts', json={'name': name, 'email': email, 'live_links': live_links}, headers=phone.H)
+    assert r.status_code == 201, r.get_json()
+    return r.get_json()
+
+
+def _run_jobs(phone):
+    from services import jobs
+    return jobs.run_queued(phone.app_)
+
+
+def _status(phone, recording='rec-1'):
+    return phone.get(f'/api/v1/live/share?recording={recording}', headers=phone.H)
+
+
+def test_a_new_link_is_emailed_to_the_chosen_contacts_in_the_background_and_once(phone, monkeypatch):
+    server = _email_on(phone, monkeypatch)
+    _contact(phone, 'Sam', 'sam@example.com')
+    _contact(phone, 'Alex', 'alex@example.com')
+    _contact(phone, 'Pat', 'pat@example.com', live_links=False)          # not ticked: not sent
+    r = start(phone)
+    share = r.get_json()
+    assert r.status_code == 201
+    # The phone's answer doesn't wait for the mail server: it says who it's going to
+    assert share['contacts'] == [{'name': 'Alex', 'state': 'sending', 'error': None}, {'name': 'Sam', 'state': 'sending', 'error': None}]
+    assert server.sent == []
+    assert _run_jobs(phone) == 1
+    assert sorted(m['To'] for m in server.sent) == ['alex@example.com', 'sam@example.com'] and server.quit_called
+    m = server.sent[0]
+    assert m['Subject'] == "Follow Tom's ride live" and m['From'] == 'Tom via Headwind <headwind@example.com>'
+    body = m.get_content()
+    assert share['url'] in body and 'an hour after the ride ends' in body and 'Baker' not in body
+    assert [c['state'] for c in _status(phone).get_json()['contacts']] == ['sent', 'sent']
+    # The running link given again is not sent again
+    again = start(phone)
+    assert again.status_code == 200 and again.get_json()['created'] is False
+    assert [c['state'] for c in again.get_json()['contacts']] == ['sent', 'sent']
+    assert _run_jobs(phone) == 0 and len(server.sent) == 2
+
+
+def test_each_contact_says_whether_it_reached_them(phone, monkeypatch):
+    server = _email_on(phone, monkeypatch, _MailServer(refuse={'nobody@example.com'}))
+    _contact(phone, 'Sam', 'sam@example.com')
+    _contact(phone, 'Nobody', 'nobody@example.com')
+    start(phone)
+    _run_jobs(phone)
+    got = {c['name']: c for c in _status(phone).get_json()['contacts']}
+    assert got['Sam']['state'] == 'sent' and got['Sam']['error'] is None
+    assert got['Nobody']['state'] == 'failed' and 'would not send to this address' in got['Nobody']['error']
+    assert [m['To'] for m in server.sent] == ['sam@example.com']
+
+
+def test_a_mail_server_that_doesnt_answer_fails_each_contact_saying_why(phone, monkeypatch):
+    import socket
+    _email_on(phone, monkeypatch, fail=socket.timeout('timed out'))
+    _contact(phone, 'Sam', 'sam@example.com')
+    start(phone)
+    _run_jobs(phone)                    # the job itself ends normally
+    (c,) = _status(phone).get_json()['contacts']
+    assert c['state'] == 'failed' and "didn't answer" in c['error'] and 'smtp.example.com' in c['error']
+
+
+def test_without_email_set_up_the_contacts_are_told_failed_at_once(phone):
+    _contact(phone, 'Sam', 'sam@example.com')
+    share = start(phone).get_json()
+    (c,) = share['contacts']
+    assert c['state'] == 'failed' and 'Settings → Email' in c['error']
+    assert _run_jobs(phone) == 0                                # nothing queued for the worker
+    assert start(phone, 'rec-2').status_code == 201             # and sharing goes on regardless
+
+
+def test_no_contacts_no_email(phone, monkeypatch):
+    server = _email_on(phone, monkeypatch)
+    share = start(phone).get_json()
+    assert share['contacts'] == [] and _run_jobs(phone) == 0 and server.sent == []
+
+
+def test_a_link_stopped_before_it_was_sent_is_not_sent(phone, monkeypatch):
+    server = _email_on(phone, monkeypatch)
+    _contact(phone, 'Sam', 'sam@example.com')
+    share = start(phone).get_json()
+    phone.delete('/api/v1/live/share', json={'recording': 'rec-1'}, headers=phone.H)
+    _run_jobs(phone)
+    assert server.sent == []
+    with phone.app_.app_context():
+        (c,) = live_share.recipients(database.get_db(), share['id'])
+    assert c['state'] == 'failed' and 'stopped' in c['error']
+
+
+def test_the_sport_and_name_in_the_email(phone, monkeypatch):
+    server = _email_on(phone, monkeypatch)
+    _contact(phone, 'Sam', 'sam@example.com')
+    start(phone, sport='TrailRun')
+    _run_jobs(phone)
+    m = server.sent[0]
+    assert m['Subject'] == "Follow Tom's trail run live"
+    assert 'Tom has started a trail run' in m.get_content() and 'distance, time and pace' in m.get_content()
+
+
+def test_asking_for_a_link_that_isnt_running(phone):
+    assert _status(phone, 'rec-none').status_code == 404
+
+
+def test_who_it_was_sent_to_goes_with_the_share(phone, monkeypatch):
+    _email_on(phone, monkeypatch)
+    _contact(phone, 'Sam', 'sam@example.com')
+    share = start(phone).get_json()
+    _run_jobs(phone)
+    with phone.app_.app_context():
+        db = database.get_db()
+        live_share.sweep(db, now=time.time() + live_share.SILENT_S + 86400 + 10)
+        assert db.execute('SELECT COUNT(*) FROM LiveShare').fetchone()[0] == 0
+        assert live_share.recipients(db, share['id']) == []
+
+
+def test_the_contacts_api(phone):
+    r = phone.get('/api/v1/contacts', headers=phone.H).get_json()
+    assert r['contacts'] == [] and r['email']['ready'] is False and r['email']['settings_url'] == '/settings#email'
+    sam = _contact(phone, '  Sam   Smith ', 'sam@example.com')
+    assert sam['name'] == 'Sam Smith' and sam['live_links'] is True
+    bad = phone.post('/api/v1/contacts', json={'name': 'X', 'email': 'not an address'}, headers=phone.H)
+    assert bad.status_code == 400 and 'not an email address' in bad.get_json()['error']
+    twice = phone.post('/api/v1/contacts', json={'name': 'Sam again', 'email': 'SAM@example.com'}, headers=phone.H)
+    assert twice.status_code == 400 and 'already a contact' in twice.get_json()['error']
+    nameless = phone.post('/api/v1/contacts', json={'name': ' ', 'email': 'x@example.com'}, headers=phone.H)
+    assert nameless.status_code == 400
+    off = phone.patch(f"/api/v1/contacts/{sam['id']}", json={'live_links': False}, headers=phone.H).get_json()
+    assert off['live_links'] is False and off['email'] == 'sam@example.com'
+    assert phone.patch('/api/v1/contacts/999', json={'name': 'X'}, headers=phone.H).status_code == 404
+    assert phone.delete(f"/api/v1/contacts/{sam['id']}", headers=phone.H).get_json() == {'deleted': True}
+    assert phone.get('/api/v1/contacts', headers=phone.H).get_json()['contacts'] == []
+
+
+def test_another_riders_contacts_are_not_sent_a_link(phone, monkeypatch):
+    from services import contacts
+    server = _email_on(phone, monkeypatch)
+    with phone.app_.app_context():
+        contacts.add(database.get_db(), 2, 'Mum', 'mum@example.com')
+    assert start(phone).get_json()['contacts'] == []
+    _run_jobs(phone)
+    assert server.sent == []
+
+
+def _web(phone):
+    from services import credentials
+    with phone.app_.app_context():
+        av = credentials.auth_version()
+    web = phone.app_.test_client()
+    with web.session_transaction() as s:
+        s['logged_in'] = True
+        s['av'] = av
+    return web
+
+
+def test_contacts_and_email_on_the_web_settings_page(phone):
+    from services import contacts, mail, vault
+    web = _web(phone)
+    page = web.get('/settings/').get_data(as_text=True)
+    assert 'Contacts for live links' in page and 'Email isn&#39;t set up' in page
+    assert web.post('/settings/email', data={'smtpHost': 'smtp.example.com', 'smtpSecurity': 'ssl', 'smtpPort': '',
+                                             'smtpUser': 'tom', 'smtpPassword': 'hunter22', 'smtpFrom': 'headwind@example.com'}).status_code == 302
+    with phone.app_.app_context():
+        db = database.get_db()
+        assert db.execute('SELECT smtpPassword AS v FROM Settings').fetchone()['v'].startswith(vault.PREFIX)     # sealed
+        cfg = mail.config(db)
+        assert (cfg['host'], cfg['port'], cfg['security'], cfg['password']) == ('smtp.example.com', 465, 'ssl', 'hunter22')
+    web.post('/settings/email', data={'smtpHost': 'smtp.example.com', 'smtpSecurity': 'ssl', 'smtpFrom': 'headwind@example.com',
+                                      'smtpPassword': ''})                                  # blank keeps the password
+    with phone.app_.app_context():
+        assert mail.config(database.get_db())['password'] == 'hunter22'
+    web.post('/settings/email', data={'smtpHost': 'smtp.example.com', 'smtpFrom': 'not an address'})       # refused: nothing changes
+    with phone.app_.app_context():
+        assert mail.config(database.get_db())['sender'] == 'headwind@example.com'
+    assert web.post('/settings/contacts', data={'name': 'Sam', 'email': 'sam@example.com', 'liveLinks': '1'}).status_code == 302
+    page = web.get('/settings/').get_data(as_text=True)
+    assert 'value="sam@example.com"' in page and 'Email isn&#39;t set up' not in page
+    with phone.app_.app_context():
+        (sam,) = contacts.listing(database.get_db(), 1)
+    web.post(f"/settings/contacts/{sam['id']}", data={'name': 'Sam S', 'email': 'sam@example.com'})        # unticked: posts nothing
+    got = phone.get('/api/v1/contacts', headers=phone.H).get_json()
+    assert got['contacts'][0]['name'] == 'Sam S' and got['contacts'][0]['live_links'] is False and got['email']['ready'] is True
+    web.post(f"/settings/contacts/{sam['id']}/delete")
+    assert phone.get('/api/v1/contacts', headers=phone.H).get_json()['contacts'] == []
+
+
+def test_the_test_email_uses_what_is_typed(phone, monkeypatch):
+    from services import mail
+    server = _MailServer()
+    seen = {}
+
+    def connect(cfg):
+        seen.update(cfg)
+        return server
+    monkeypatch.setattr(mail, '_connect', connect)
+    web = _web(phone)
+    r = web.post('/settings/test-email', data={'smtpHost': 'smtp.example.com', 'smtpSecurity': 'starttls', 'smtpFrom': 'headwind@example.com',
+                                               'smtpTestTo': 'tom@example.com'})
+    assert r.status_code == 200 and 'tom@example.com' in r.get_json()['message']
+    assert seen['port'] == 587 and [m['To'] for m in server.sent] == ['tom@example.com']
+    none = web.post('/settings/test-email', data={'smtpHost': ''})
+    assert none.status_code == 400 and 'Settings → Email' in none.get_json()['error']
+
+
+def test_the_troubleshooting_copy_leaves_out_the_contacts(phone, monkeypatch):
+    import sqlite3
+    from services import troubleshooting_copy
+    _email_on(phone, monkeypatch)
+    _contact(phone, 'Sam', 'sam@example.com')
+    start(phone)
+    copy = sqlite3.connect(':memory:')
+    src = sqlite3.connect(phone.app_.config['DATABASE'])
+    src.backup(copy)
+    src.close()
+    troubleshooting_copy.strip(copy)
+    assert copy.execute('SELECT COUNT(*) FROM Contact').fetchone()[0] == 0
+    assert copy.execute('SELECT COUNT(*) FROM ContactSend').fetchone()[0] == 0
+    assert copy.execute('SELECT smtpHost, smtpFrom, smtpPassword FROM Settings').fetchone() == (None, None, None)

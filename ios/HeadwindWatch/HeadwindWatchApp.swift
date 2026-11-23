@@ -213,13 +213,21 @@ private struct ControlsPage: View {
         }
     }
 
-    /// Where the live tracking link has got to: it goes to the iPhone to send, as the Watch has no share sheet.
+    /// Where the live tracking link has got to: the server emails it to the contacts chosen beforehand, and it goes to the iPhone to send to
+    /// anyone else, as the Watch has no share sheet.
     @ViewBuilder private var liveLink: some View {
         switch workout.liveLink {
         case .none, .starting:
             Text("Making the live link…").foregroundStyle(.secondary)
         case .sent:
-            Text("Live link sent to your iPhone to share").foregroundStyle(.green)
+            if let said = LiveRecipients.summary(workout.liveRecipients) {
+                Text(said)
+                    .foregroundStyle(workout.liveRecipients.allSatisfy(\.isFailed) ? Color.orange
+                                     : workout.liveRecipients.contains(where: \.isSent) ? Color.green : Color.secondary)
+                Text("Also on your iPhone to share").foregroundStyle(.secondary)
+            } else {
+                Text("Live link sent to your iPhone to share").foregroundStyle(.green)
+            }
         case .refused:
             Text("No live link: Headwind needs an https outside address").foregroundStyle(.orange)
         case .failed:

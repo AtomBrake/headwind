@@ -25,7 +25,10 @@ final class LiveLinkNotifier: NSObject, UNUserNotificationCenterDelegate {
         let content = UNMutableNotificationContent()
         let what = link.sport.map { Sport(stored: $0).title.lowercased() } ?? "recording"
         content.title = "Your live link is ready"
-        content.body = "Your Watch started a link for your \(what). Tap to send it. Anyone with the link can see where you are."
+        let emailed = (link.recipients ?? []).filter { !$0.isFailed }.map(\.name)
+        content.body = emailed.isEmpty
+            ? "Your Watch started a link for your \(what). Tap to send it. Anyone with the link can see where you are."
+            : "Your Watch started a link for your \(what), and Headwind is emailing it to \(LiveRecipients.names(emailed)). Tap to send it to anyone else."
         content.sound = .default
         content.userInfo = [Self.recordingKey: link.recording]
         let request = UNNotificationRequest(identifier: "live-link-\(link.recording)", content: content, trigger: nil)

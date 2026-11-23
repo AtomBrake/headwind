@@ -132,6 +132,30 @@ struct LiveShareBodyTests {
         #expect(reply.created == true)
     }
 
+    @Test func readsWhoTheServerIsEmailingItTo() throws {
+        let data = Data(#"{"id": 7, "url": "https://example.com/live/hwl_abc", "recording": "R1", "expires_at": 1760021600, "ended": false, "send_every_s": 5, "created": true, "contacts": [{"name": "Sam", "state": "sending", "error": null}, {"name": "Jo", "state": "failed", "error": "Email isn't set up."}]}"#.utf8)
+        let reply = try APIClient.reply(data, status: 201, as: LiveShareReply.self)
+        #expect(reply.contacts == [LiveShareRecipient(name: "Sam", state: "sending"), LiveShareRecipient(name: "Jo", state: "failed", error: "Email isn't set up.")])
+        #expect(!LiveRecipients.settled(try #require(reply.contacts)))
+        #expect(LiveRecipients.anyReached(reply.contacts))
+        let older = Data(#"{"id": 7, "url": "https://example.com/live/hwl_abc", "recording": "R1", "expires_at": 1760021600, "ended": false}"#.utf8)
+        #expect(try APIClient.reply(older, status: 200, as: LiveShareReply.self).contacts == nil)      // a server from before
+    }
+
+    @Test func saysWhoItWentTo() {
+        let sam = LiveShareRecipient(name: "Sam", state: "sent"), alex = LiveShareRecipient(name: "Alex", state: "sent")
+        let jo = LiveShareRecipient(name: "Jo", state: "failed", error: "The mail server would not send to this address.")
+        let pat = LiveShareRecipient(name: "Pat", state: "sending")
+        #expect(LiveRecipients.summary([]) == nil)
+        #expect(LiveRecipients.summary([sam, alex]) == "Sent to Sam and Alex.")
+        #expect(LiveRecipients.summary([pat]) == "Emailing Pat…")
+        #expect(LiveRecipients.summary([sam, jo]) == "Sent to Sam. Couldn't send to Jo: The mail server would not send to this address.")
+        #expect(LiveRecipients.names(["Sam", "Alex", "Jo"]) == "Sam, Alex and Jo")
+        #expect(LiveRecipients.settled([sam, jo]))
+        #expect(!LiveRecipients.anyReached([jo]))
+        #expect(!LiveRecipients.anyReached(nil))
+    }
+
     @Test func refusalPointsAtTheServersSettings() throws {
         let data = Data(#"{"error": "Headwind has no outside address.", "settings_url": "/settings#address"}"#.utf8)
         let refusal = try JSONDecoder.headwind.decode(LiveShareRefusal.self, from: data)
@@ -184,6 +208,14 @@ struct LiveLinkMessageTests {
         #expect(got.url == nil)
     }
 
+    @Test func whoTheServerEmailedItToTravelsWithIt() throws {
+        let recipients = [LiveShareRecipient(name: "Sam", state: "sent"), LiveShareRecipient(name: "Jo", state: "failed", error: "No.")]
+        let sent = LiveLinkMessage.started(recording: UUID(), reply: reply, sport: .ride, recipients: recipients)
+        let got = try #require(LiveLinkMessage(dictionary: sent.dictionary))
+        #expect(got.recipients == recipients)
+        #expect(LiveLinkMessage(dictionary: LiveLinkMessage.started(recording: UUID(), reply: reply, sport: .ride).dictionary)?.recipients == nil)
+    }
+
     @Test func anythingElseIsIgnored() {
         #expect(LiveLinkMessage(dictionary: [:]) == nil)
         #expect(LiveLinkMessage(dictionary: ["recording": "R"]) == nil)                    // a link with no address
@@ -220,6 +252,20 @@ struct WatchLinkOnThePhoneTests {
         let link = try #require(live.current())
         #expect(link.ended)
         #expect(link.expiresAt <= Date().addingTimeInterval(LiveShareController.afterEnd))
+    }
+
+    @Test func learnsWhoItWentToWhenTheWatchSaysAgain() throws {
+        let live = LiveShareController(defaults: tempDefaults())
+        var first = message("W5")
+        first.recipients = [LiveShareRecipient(name: "Sam", state: "sending")]
+        live.adopt(fromWatch: first)
+        #expect(live.current()?.recipients?.first?.isSending == true)
+        var settled = first
+        settled.recipients = [LiveShareRecipient(name: "Sam", state: "sent")]
+        live.adopt(fromWatch: settled)
+        let link = try #require(live.current())
+        #expect(link.recipients == [LiveShareRecipient(name: "Sam", state: "sent")])
+        #expect(link.url == first.url)
     }
 
     @Test func anExpiredOneOrAnotherRecordingsTapIsIgnored() {

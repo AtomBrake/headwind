@@ -158,8 +158,9 @@ def index():
     from services import tz
     from services import backup, downloads, garmin, tasks
     last_backup = tasks.last(get_db(), f'download:{backup.KIND}')        # the size of the last one, said on the card
-    from services import favourites, whose
+    from services import contacts, favourites, mail, whose
     rid = whose.rider_id()
+    email_cfg = mail.config(get_db(), row=s)
     return render_template('settings.html', s=s, openai_models=OPENAI_MODELS, zones=tz.names(), server_zone=tz.server_zone_name(),
                            claude_models=CLAUDE_MODELS, garmin_on=garmin.connected(s),
                            current_username=current_username, min_password=credentials.MIN_PASSWORD, build_time=build_time,
@@ -167,7 +168,9 @@ def index():
                            last_backup=last_backup if last_backup and last_backup['status'] == 'done' else None,
                            address=external_url.describe(s), browser_url=request.host_url.rstrip('/'),
                            favourite_choices=favourites.choices(get_db(), rid) if rid else [],
-                           favourites_on=favourites.parse(s['favouriteSports'] if s else None))
+                           favourites_on=favourites.parse(s['favouriteSports'] if s else None),
+                           email=email_cfg, email_problem=mail.problem(email_cfg), email_ports=mail.PORTS,
+                           contacts=contacts.listing(get_db(), rid) if rid else [], max_contacts=contacts.MAX_CONTACTS)
 
 
 @bp.route('/address', methods=['POST'])
@@ -188,6 +191,103 @@ def save_address():
     else:
         flash("Outside address saved, but it isn't https: the phone apps only pair over https, so they can't use it.", 'warning')
     return redirect('/settings#address')
+
+
+def _email_form(saved):
+    """The Email card's values, as services/mail.config gives them. A password left blank is the saved one."""
+    from services import mail
+    f = request.form
+    security = f.get('smtpSecurity') if f.get('smtpSecurity') in mail.SECURITY else 'starttls'
+    port = (f.get('smtpPort') or '').strip()
+    if port and (not port.isdigit() or not 0 < int(port) < 65536):
+        raise ValueError(f'"{port[:10]}" is not a port number')
+    sender = (f.get('smtpFrom') or '').strip()
+    if sender and not mail.clean_address(sender):
+        raise ValueError(f'"{sender[:80]}" is not an email address to send from')
+    return {'host': (f.get('smtpHost') or '').strip(), 'port': int(port) if port else mail.PORTS[security], 'security': security,
+            'user': (f.get('smtpUser') or '').strip(), 'password': (f.get('smtpPassword') or '').strip() or saved['password'],
+            'sender': sender, 'port_given': bool(port)}
+
+
+@bp.route('/email', methods=['POST'])
+def save_email():
+    """The mail server live links are emailed to contacts through (services/mail.py). A password left blank keeps the saved one; a ticked
+    "Remove" clears it."""
+    from services import mail
+    db = get_db()
+    try:
+        cfg = _email_form(mail.config(db))
+    except ValueError as e:
+        flash(f'Not saved: {e}.', 'error')
+        return redirect('/settings#email')
+    password = None if request.form.get('clear_smtpPassword') else cfg['password']
+    db.execute('UPDATE Settings SET smtpHost=?, smtpPort=?, smtpSecurity=?, smtpUser=?, smtpPassword=?, smtpFrom=? WHERE id=1',
+               [cfg['host'] or None, cfg['port'] if cfg['port_given'] else None, cfg['security'], cfg['user'] or None,
+                vault.seal(password) if password else None, cfg['sender'] or None])
+    db.commit()
+    why = mail.problem(cfg)
+    if cfg['host'] and why:                 # half set up; with no server at all, email is simply off
+        flash(f'Email settings saved. {why}', 'warning')
+    else:
+        flash('Email settings saved.', 'success')
+    return redirect('/settings#email')
+
+
+@bp.route('/test-email', methods=['POST'])
+def test_email():
+    """Send one email with the values typed into the card (saved or not), to the address in `smtpTestTo`, else the from address."""
+    from services import mail
+    try:
+        cfg = _email_form(mail.config(get_db()))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    why = mail.problem(cfg)
+    if why:
+        return jsonify({'error': why}), 400
+    to = mail.clean_address(request.form.get('smtpTestTo') or cfg['sender'])
+    if not to:
+        return jsonify({'error': 'That is not an email address to send the test to'}), 400
+    err = mail.send(cfg, [mail.message(cfg, to, 'Headwind: a test email',
+                                       'This is a test from Headwind. Live tracking links will reach your contacts this way.\n')])[0]
+    if err:
+        return jsonify({'error': err}), 400
+    return jsonify({'ok': True, 'message': f'Sent to {to}: check it arrived (and not in spam), then press Save to keep these settings'})
+
+
+@bp.route('/contacts', methods=['POST'])
+def add_contact():
+    """A person to email each live tracking link to as it starts (services/contacts.py)."""
+    from services import contacts, whose
+    try:
+        made = contacts.add(get_db(), whose.rider_id(), request.form.get('name'), request.form.get('email'),
+                            live_links=bool(request.form.get('liveLinks')))
+        flash(f"{made['name']} added.", 'success')
+    except ValueError as e:
+        flash(str(e), 'error')
+    return redirect('/settings#contacts')
+
+
+@bp.route('/contacts/<int:contact_id>', methods=['POST'])
+def save_contact(contact_id):
+    from services import contacts, whose
+    try:
+        made = contacts.update(get_db(), whose.rider_id(), contact_id, name=request.form.get('name'), email=request.form.get('email'),
+                               live_links=bool(request.form.get('liveLinks')))
+        if made is None:
+            abort(404)
+        flash(f"{made['name']} saved.", 'success')
+    except ValueError as e:
+        flash(str(e), 'error')
+    return redirect('/settings#contacts')
+
+
+@bp.route('/contacts/<int:contact_id>/delete', methods=['POST'])
+def delete_contact(contact_id):
+    from services import contacts, whose
+    if not contacts.remove(get_db(), whose.rider_id(), contact_id):
+        abort(404)
+    flash('Contact removed.', 'success')
+    return redirect('/settings#contacts')
 
 
 @bp.route('/test-ai', methods=['POST'])

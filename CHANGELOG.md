@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+- **Your live tracking link is emailed to contacts you choose beforehand.** Add the people who should get it under **Contacts for live links** in Settings, or in the iPhone app under Settings → Live tracking link → **Contacts to email it to**, and tick **Send my live links** for each. When a link starts, your server emails it to them itself, so it gets out from the Watch on its own, or when nobody stops to tap Send. The email says it's from you, what you're doing, and that the link stops working an hour after you finish. Each link is sent once: asking for the same link again doesn't send it again. The mail goes out in the background, so a slow mail server doesn't hold up the phone. The iPhone's Record screen and the Watch say who it was sent to ("Sent to Sam and Alex."), and who it couldn't be sent to and why. When someone is getting the link, the iPhone no longer opens the share sheet at Start; **Send** is still there for anyone else. Needs the updated iPhone and Watch apps to show who it went to; the email goes out with older apps too.
+- **Email settings.** A new **Email** card in Settings takes the mail server Headwind sends through (your email provider's SMTP settings, or a relay on your network): server, security, port, user name, password and the address to send from, with **Send a test email**. The password is kept encrypted like the other saved passwords. The troubleshooting copy leaves out the mail server, the contacts and who each link was sent to.
+
 ### Changed
 - **The gear pages no longer offer a friend's rider.** With several riders on one Headwind, the rider picker on Gear, Kit and parts listed friends' riders too, and you could add a bike or shoes to one. A friend's gear is on their own Headwind, so the picker now lists only the riders who live here, and a link naming a friend's rider shows your own gear.
 

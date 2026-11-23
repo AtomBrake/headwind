@@ -16,16 +16,22 @@ where the share's track began are never shown, nor the position while it's there
 usually) or where it came back to.
 
 The token is stored as a SHA-256 hash, for looking it up, and sealed (services/vault.py), for giving the link to the phone again when it
-asks for the share it already has."""
+asks for the share it already has.
+
+When a share starts, the link goes by email to each of the rider's contacts ticked for live links (services/contacts.py), from here rather
+than the phone: a Watch on its own has no way to send it, and nobody need tap anything. Once per share, never again when the phone is given
+the running one. It's sent by the worker (SEND_JOB), so a slow mail server doesn't hold up the phone's request; the phone reads how it went
+from the share (recipients), asking again until nobody is left at "sending"."""
 import hashlib
 import ipaddress
 import json
 import math
+import re
 import secrets
 import time
 from urllib.parse import urlsplit
 
-from services import vault
+from services import contacts, jobs, vault
 
 PREFIX = 'hwl_'
 AFTER_END_S = 3600          # the link works for an hour after the recording ends
@@ -244,7 +250,7 @@ def lookup(db, token, now=None):
 
 def sweep(db, now=None):
     """The points, last reading and sealed token of shares that have expired or been stopped: gone; and the shares themselves a day past
-    their end. The worker runs this with live.go_idle. Returns how many points went. Commits when it changed anything."""
+    their end, with the record of whom their link was emailed to. The worker runs this with live.go_idle. Returns how many points went. Commits when it changed anything."""
     now = time.time() if now is None else now
     ended = [r[0] for r in db.execute('SELECT id FROM LiveShare WHERE (revokedAt IS NOT NULL OR expiresAt <= ?) AND (reading IS NOT NULL OR '
                                       'sealedToken IS NOT NULL OR id IN (SELECT shareId FROM LivePoint))', [now]).fetchall()]
@@ -258,8 +264,73 @@ def sweep(db, now=None):
     for sid in old:
         db.execute('DELETE FROM LivePoint WHERE shareId=?', [sid])
         db.execute('DELETE FROM LiveShare WHERE id=?', [sid])
+    contacts.forget(db, [about(sid) for sid in old])        # who it was sent to goes with it
     db.commit()
     return n
+
+
+# Sending the link to the rider's contacts
+
+SEND_JOB = 'live_link_send'
+
+
+def about(share_id):
+    """The share, as the contacts' outbox names it (services/contacts.py)."""
+    return f'live:{share_id}'
+
+
+def send_to_contacts(db, share):
+    """A share has just started: its link to each of the rider's contacts ticked for live links, by the worker. Returns how many are waiting
+    to be sent. Commits."""
+    waiting = contacts.queue(db, share['riderId'], about(share['id']), 'live')
+    if waiting:
+        jobs.enqueue(db, SEND_JOB, {'share': share['id']}, once=False)
+    return waiting
+
+
+def recipients(db, share_id):
+    """Who the share's link was sent to and how it went, for the phone: [{name, state: sending|sent|failed, error}]."""
+    return contacts.report(db, about(share_id))
+
+
+def _with_article(words):
+    return ('an ' if words[:1] in 'aeiou' else 'a ') + words
+
+
+def link_message(db, share, url):
+    """(subject, text, sender name) of the email that sends a contact the link: who it's from, what it shows, and when it ends."""
+    from services import sports
+    name = first_name(db, share['riderId']) or 'Someone'
+    sport = share['sport'] or ''
+    words = _LABELS.get(sport) or (sports.label(sport) if sport else 'activity')
+    what = re.sub(r'(?<=[a-z])(?=[A-Z])', ' ', words).lower()       # a sport with no label of its own: 'TrailRun' -> 'trail run'
+    rate = 'pace' if sports.rate_style(sport) in ('pace', 'swim') else 'speed'
+    after = 'an hour' if AFTER_END_S == 3600 else f'{AFTER_END_S // 60} minutes'
+    text = (f"{name} has started {_with_article(what)} and chose you to follow along. This link shows where {name} is now, the track so "
+            f"far, and the distance, time and {rate}:\n\n{url}\n\n"
+            f"It opens in any browser, with no account to make. It stops working {after} after the {what} ends.\n\n"
+            f"{name} set this up in Headwind, which sent this email, so a reply to it may not reach {name}.\n")
+    return f"Follow {name}'s {what} live", text, f'{name} via Headwind'
+
+
+@jobs.handler(SEND_JOB, quick=True)
+def _send_link(job):
+    """Email the share's link to the contacts waiting for it. A share stopped (or ended) before this ran sends nothing: its link would
+    already be dead."""
+    from database import get_db
+    db = get_db()
+    sid = job['args']['share']
+    share = db.execute('SELECT * FROM LiveShare WHERE id=?', [sid]).fetchone()
+    token = token_of(share) if share and share['revokedAt'] is None and share['expiresAt'] > time.time() else None
+    if not token:
+        contacts.fail(db, about(sid), 'The link was stopped before it could be sent.')
+        return
+    base, why = link_base()
+    if not base:                            # the outside address was changed since the share started
+        contacts.fail(db, about(sid), why)
+        return
+    subject, text, sender = link_message(db, share, link(base, token))
+    contacts.deliver(db, about(sid), subject, text, sender_name=sender)
 
 
 def _hidden(share, lat, lng):

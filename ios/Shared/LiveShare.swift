@@ -63,7 +63,8 @@ extension LiveShareStart {
 }
 
 /// Watch → iPhone user info (`WatchLink.liveLinkKey`): a link the Watch started for its recording, for the phone to offer in a
-/// notification and the share sheet, or word that the recording has ended, so the phone shows the link as finished.
+/// notification and the share sheet, or word that the recording has ended, so the phone shows the link as finished. The link comes again,
+/// once, with `recipients` settled, when the server has finished emailing it to the rider's contacts.
 struct LiveLinkMessage: Equatable, Sendable {
     var recording: String
     var url: URL?
@@ -72,9 +73,12 @@ struct LiveLinkMessage: Equatable, Sendable {
     /// The Sport rawValue.
     var sport: String?
     var ended = false
+    /// Who the server is emailing the link to, and how it's gone; nil from a Watch app from before.
+    var recipients: [LiveShareRecipient]?
 
-    static func started(recording: UUID, reply: LiveShareReply, sport: Sport) -> LiveLinkMessage {
-        LiveLinkMessage(recording: recording.uuidString, url: reply.url, expiresAt: reply.expiresAt, sport: sport.rawValue)
+    static func started(recording: UUID, reply: LiveShareReply, sport: Sport, recipients: [LiveShareRecipient]? = nil) -> LiveLinkMessage {
+        LiveLinkMessage(recording: recording.uuidString, url: reply.url, expiresAt: reply.expiresAt, sport: sport.rawValue,
+                        recipients: recipients ?? reply.contacts)
     }
 
     static func ended(recording: UUID) -> LiveLinkMessage {
@@ -86,6 +90,7 @@ struct LiveLinkMessage: Equatable, Sendable {
         if let url { d["url"] = url.absoluteString }
         if let expiresAt { d["expires"] = expiresAt }
         if let sport { d["sport"] = sport }
+        if let recipients { d["recipients"] = recipients.map(\.dictionary) }
         return d
     }
 
@@ -95,15 +100,82 @@ struct LiveLinkMessage: Equatable, Sendable {
         let ended = d["ended"] as? Bool ?? false
         let url = (d["url"] as? String).flatMap(URL.init(string:))
         guard ended || url != nil else { return nil }
-        self.init(recording: recording, url: url, expiresAt: d["expires"] as? Double, sport: d["sport"] as? String, ended: ended)
+        let recipients = (d["recipients"] as? [[String: Any]]).map { $0.compactMap(LiveShareRecipient.init(dictionary:)) }
+        self.init(recording: recording, url: url, expiresAt: d["expires"] as? Double, sport: d["sport"] as? String, ended: ended,
+                  recipients: recipients)
     }
 
-    init(recording: String, url: URL? = nil, expiresAt: Double? = nil, sport: String? = nil, ended: Bool = false) {
+    init(recording: String, url: URL? = nil, expiresAt: Double? = nil, sport: String? = nil, ended: Bool = false,
+         recipients: [LiveShareRecipient]? = nil) {
         self.recording = recording
         self.url = url
         self.expiresAt = expiresAt
         self.sport = sport
         self.ended = ended
+        self.recipients = recipients
+    }
+}
+
+/// One of the rider's contacts the server emails a new link to (services/contacts.py on the server), and how it went.
+struct LiveShareRecipient: Codable, Sendable, Equatable {
+    var name: String
+    /// "sending" (the server's worker hasn't yet), "sent" or "failed".
+    var state: String
+    /// Why it failed, fit to show.
+    var error: String?
+
+    var isSending: Bool { state == "sending" }
+    var isSent: Bool { state == "sent" }
+    var isFailed: Bool { !isSending && !isSent }
+
+    init(name: String, state: String, error: String? = nil) {
+        self.name = name
+        self.state = state
+        self.error = error
+    }
+
+    var dictionary: [String: Any] {
+        var d: [String: Any] = ["name": name, "state": state]
+        if let error { d["error"] = error }
+        return d
+    }
+
+    init?(dictionary d: [String: Any]) {
+        guard let name = d["name"] as? String, let state = d["state"] as? String else { return nil }
+        self.init(name: name, state: state, error: d["error"] as? String)
+    }
+}
+
+/// What the phone and the Watch say about who a link was emailed to.
+enum LiveRecipients {
+    /// "Sam", "Sam and Alex", "Sam, Alex and Jo".
+    static func names(_ names: [String]) -> String {
+        guard names.count > 1 else { return names.first ?? "" }
+        return names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+    }
+
+    /// Whether the server has finished with every one of them.
+    static func settled(_ recipients: [LiveShareRecipient]) -> Bool {
+        !recipients.contains(where: \.isSending)
+    }
+
+    /// "Sent to Sam and Alex.", "Emailing Sam…", "Couldn't send to Jo: <why>.", together as they apply. Nil when there was nobody to send to.
+    static func summary(_ recipients: [LiveShareRecipient]) -> String? {
+        guard !recipients.isEmpty else { return nil }
+        var parts: [String] = []
+        let sent = recipients.filter(\.isSent), sending = recipients.filter(\.isSending), failed = recipients.filter(\.isFailed)
+        if !sent.isEmpty { parts.append("Sent to \(names(sent.map(\.name))).") }
+        if !sending.isEmpty { parts.append("Emailing \(names(sending.map(\.name)))…") }
+        if !failed.isEmpty {
+            let why = failed.compactMap(\.error).first.map { ": \($0)" } ?? "."
+            parts.append("Couldn't send to \(names(failed.map(\.name)))\(why.hasSuffix(".") ? why : why + ".")")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    /// Someone is getting the link (or has it): the phone needn't open the share sheet at Start.
+    static func anyReached(_ recipients: [LiveShareRecipient]?) -> Bool {
+        (recipients ?? []).contains { !$0.isFailed }
     }
 }
 
@@ -112,7 +184,7 @@ struct LiveShareStop: Encodable, Sendable {
     var recording: String
 }
 
-/// POST /api/v1/live/share reply: the link, and how often to post while it runs.
+/// POST /api/v1/live/share reply (and GET's): the link, how often to post while it runs, and who the server is emailing it to.
 struct LiveShareReply: Decodable, Sendable, Equatable {
     var id: Int
     var url: URL
@@ -122,6 +194,8 @@ struct LiveShareReply: Decodable, Sendable, Equatable {
     var ended: Bool
     var sendEveryS: Double?
     var created: Bool?
+    /// The rider's contacts the link is emailed to (none from an older server).
+    var contacts: [LiveShareRecipient]? = nil
 }
 
 /// DELETE /api/v1/live/share reply.
@@ -191,5 +265,35 @@ extension APIClient {
     @discardableResult
     func stopLiveShare(recording: String) async throws(AppError) -> Int {
         try await send(jsonRequest("live/share", method: "DELETE", json: LiveShareStop(recording: recording)), as: LiveShareStopped.self).stopped
+    }
+
+    /// The recording's running link as the server has it now (GET /api/v1/live/share), or nil when it has none running.
+    func liveShare(recording: String) async throws(AppError) -> LiveShareReply? {
+        do throws(AppError) {
+            return try await get("live/share", query: [URLQueryItem(name: "recording", value: recording)], as: LiveShareReply.self)
+        } catch {
+            if case .serverError(404, _) = error { return nil }
+            throw error
+        }
+    }
+
+    /// The server emails a new link to the rider's contacts in the background: ask how it's going every `every` until nobody is left at
+    /// "sending", the link has gone, or `tries` asks (a minute). Each answer goes to `update`.
+    func followRecipients(recording: String, every: Duration = .seconds(3), tries: Int = 20,
+                          update: @escaping @MainActor @Sendable ([LiveShareRecipient]) -> Void) async {
+        for _ in 0..<tries {
+            try? await Task.sleep(for: every)
+            if Task.isCancelled { return }
+            let reply: LiveShareReply?
+            do throws(AppError) {
+                reply = try await liveShare(recording: recording)
+            } catch {
+                continue                    // no signal: ask again
+            }
+            guard let reply else { return }
+            let recipients = reply.contacts ?? []
+            await update(recipients)
+            if LiveRecipients.settled(recipients) { return }
+        }
     }
 }

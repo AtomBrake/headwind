@@ -908,10 +908,10 @@ def _step_1(db):
 def _ensure_service_tables(db):
     """The tables each service keeps for itself, made or brought up to date by its own ensure_schema (as the services also do before using them).
     Every start, after the steps: a service's new column goes in its ensure_schema, as before. Does not commit."""
-    from services import (best_efforts, duplicates, feed_tokens, garmin_changes, garmin_failures, gear, goals, jobs, kit, live_share, photos,
-                          reimport, sport_fix, sport_guess, sport_records, strava_export, strava_gear, streams, tasks)
+    from services import (best_efforts, contacts, duplicates, feed_tokens, garmin_changes, garmin_failures, gear, goals, jobs, kit, live_share,
+                          photos, reimport, sport_fix, sport_guess, sport_records, strava_export, strava_gear, streams, tasks)
     for mod in (streams, sport_records, best_efforts, duplicates, gear, kit, strava_gear, photos, feed_tokens, tasks, garmin_failures, reimport,
-                strava_export, sport_fix, sport_guess, garmin_changes, goals, jobs, live_share):
+                strava_export, sport_fix, sport_guess, garmin_changes, goals, jobs, live_share, contacts):
         mod.ensure_schema(db)
 
 
@@ -1508,6 +1508,26 @@ def _step_11(db):
             except sqlite3.OperationalError as e:
                 logging.getLogger(__name__).info('Left Settings.%s in place, not dropped: %s', col, e)
 
+
+_STEP_12_COLUMNS = (
+    ('smtpHost',     'TEXT'),       # the mail server
+    ('smtpPort',     'INTEGER'),    # NULL: the usual one for smtpSecurity
+    ('smtpSecurity', 'TEXT'),       # starttls | ssl | none
+    ('smtpUser',     'TEXT'),
+    ('smtpPassword', 'TEXT'),       # sealed (services/vault.py)
+    ('smtpFrom',     'TEXT'),       # the address the emails come from
+)
+
+
+def _step_12(db):
+    """Settings → Email: the mail server Headwind sends through (services/mail.py), for the live tracking link emailed to the rider's
+    contacts (services/contacts.py, whose tables its ensure_schema makes)."""
+    have = {r[1] for r in db.execute('PRAGMA table_info(Settings)').fetchall()}
+    for col, defn in _STEP_12_COLUMNS:
+        if col not in have:
+            db.execute(f'ALTER TABLE Settings ADD COLUMN {col} {defn}')
+
+
 def _compact(db):
     """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
     a temporary file and once through the WAL. Logged either way. Commits."""
@@ -1561,6 +1581,7 @@ STEPS = (
     (_step_9, False),
     (_step_10, True),        # an older Headwind reads RideMemory, RideSensor and the rideId columns
     (_step_11, False),
+    (_step_12, False),
 )
 LATEST = len(STEPS)
 

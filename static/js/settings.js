@@ -66,7 +66,8 @@ function testSetting(kind, btn) {
         status.textContent = '✗ ' + d.error;
         status.style.color = 'var(--danger)';
       } else {
-        status.textContent = kind === 'ai' ? '✓ ' + d.model + ' responded in ' + d.ms + ' ms — now press Save to keep it' : '✓ Connected to broker — press Save to keep it';
+        status.textContent = kind === 'ai' ? '✓ ' + d.model + ' responded in ' + d.ms + ' ms — now press Save to keep it'
+          : '✓ ' + (d.message || 'Connected to broker — press Save to keep it');
         status.style.color = 'var(--success)';
       }
     })
