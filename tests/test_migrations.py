@@ -213,8 +213,9 @@ def test_a_backup_from_a_newer_headwind_is_not_restored(fresh):
 
 def test_one_process_migrates_at_a_time(tmp_path):
     """Every process migrates at its start (each web worker and the background worker), and _every_start's once-only repairs read a flag and
-    then act: a second waits on <database>.lock until the first is done."""
-    import fcntl
+    then act: a second waits on <database>.lock until the first is done. Not on Windows: no fcntl there, and the Windows app is one process,
+    so database._one_at_a_time holds nothing."""
+    fcntl = pytest.importorskip('fcntl')
     import threading
     path = tmp_path / 'locked.db'
     _migrate(path)
