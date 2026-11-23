@@ -381,12 +381,15 @@ def _headline(k, st, level):
     return f"{k['name']} {state} replacement ({units.fmt_dist(st['meters'], places=0)} of {units.fmt_dist(k['replaceAtM'], places=0)})"
 
 
-def evaluate_alerts(db, rider_id=None):
+def evaluate_alerts(db, rider_id=None, skip=()):
     """Items that have newly passed a level, remembered so each fires once per item (KitAlert). Returns them in gear.evaluate_alerts' shape
-    ({'kitId', 'riderId', 'what', 'level', 'text'}); gear.evaluate_alerts sends them with the bike parts'. Does not commit."""
+    ({'kitId', 'riderId', 'what', 'level', 'text'}); gear.evaluate_alerts sends them with the bike parts'. skip: riders left out (Gear
+    maintenance off, services/features.py). Does not commit."""
     q, args = 'SELECT * FROM Kit WHERE retiredOn IS NULL AND replaceAtM > 0', []
     if rider_id:
         q += ' AND riderId=?'; args.append(rider_id)
+    if skip:
+        q += f" AND riderId NOT IN ({','.join('?' * len(skip))})"; args += sorted(skip)
     new = []
     for k in db.execute(q, args).fetchall():
         st = status(db, k)

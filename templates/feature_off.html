@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{# A page of a feature switched off in Settings → Features (services/features.py): its data is kept, and switching it on brings it back. #}
+{% block title %}{{ off_feature.label }}{% endblock %}
+{% block page_title %}{{ off_feature.label }}{% endblock %}
+{% block content %}
+<div class="card">
+  <div class="empty-state" id="featureOff" data-feature="{{ off_feature.key }}">
+    <h3>{{ off_feature.label }} is turned off in Settings</h3>
+    <p>{% if off_feature.parent and not feature(off_feature.parent) %}It's part of {{ off_feature.parent | title }}, which is off.{% else %}{{ off_feature.hint }}{% endif %}
+      Nothing has been deleted: turn it back on and everything is where it was.</p>
+    <p style="margin-top:1rem;"><a class="btn btn-primary" href="{{ url_for('settings.index') }}#features">Open Settings</a></p>
+  </div>
+</div>
+{% endblock %}

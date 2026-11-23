@@ -158,8 +158,9 @@ def index():
     from services import tz
     from services import backup, downloads, garmin, tasks
     last_backup = tasks.last(get_db(), f'download:{backup.KIND}')        # the size of the last one, said on the card
-    from services import contacts, favourites, mail, whose
+    from services import contacts, favourites, features, mail, whose
     rid = whose.rider_id()
+    default_off = features.instance_default()
     email_cfg = mail.config(get_db(), row=s)
     return render_template('settings.html', s=s, openai_models=OPENAI_MODELS, zones=tz.names(), server_zone=tz.server_zone_name(),
                            claude_models=CLAUDE_MODELS, garmin_on=garmin.connected(s),
@@ -170,7 +171,34 @@ def index():
                            favourite_choices=favourites.choices(get_db(), rid) if rid else [],
                            favourites_on=favourites.parse(s['favouriteSports'] if s else None),
                            email=email_cfg, email_problem=mail.problem(email_cfg), email_ports=mail.PORTS,
-                           contacts=contacts.listing(get_db(), rid) if rid else [], max_contacts=contacts.MAX_CONTACTS)
+                           contacts=contacts.listing(get_db(), rid) if rid else [], max_contacts=contacts.MAX_CONTACTS,
+                           feature_groups=features.groups(), features_set=features.stored(rid),
+                           features_default=default_off, features_default_labels=[features.BY_KEY[n].label for n in features.NAMES if n in default_off])
+
+
+@bp.route('/features', methods=['POST'])
+def save_features():
+    """Settings → Features (services/features.py): the request's rider's switches, from the boxes ticked (name=on). An upper switch's parts are
+    sent whether it's on or off, so they keep their own setting. With default=1, also what a new rider starts with."""
+    from services import features, whose
+    rid = whose.rider_id()
+    if rid is None:
+        return redirect('/settings#features')
+    off = set(features.NAMES) - set(request.form.getlist('on'))
+    db = get_db()
+    features.save(db, rid, off)
+    if request.form.get('default') == '1':
+        features.save_default(db, off)
+    db.commit()
+    try:
+        from services.mqtt import push_update           # Home Assistant: a switched-off feature's entities go, one switched on comes back
+        push_update()
+    except Exception:
+        log.warning('Home Assistant update after the feature switches changed failed', exc_info=True)
+    eff = features.off(rid)
+    flash('Features saved: ' + ('everything is on.' if not eff else ', '.join(features.BY_KEY[n].label for n in features.NAMES if n in eff)
+                                + ' turned off.') + (' New riders start with these.' if request.form.get('default') == '1' else ''), 'success')
+    return redirect('/settings#features')
 
 
 @bp.route('/address', methods=['POST'])

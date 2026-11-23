@@ -273,6 +273,9 @@ def sync_if_due(rider_id):
     cfg = _cfg()
     if not cfg or not cfg['mappings'] or time.time() - _last_attempt < cfg['minutes'] * 60:
         return
+    from services import features
+    if rider_id is not None and not features.any_on(('weight', 'nutrition'), rider_id):
+        return                                          # weights and body figures feed Weight and Nutrition: with both off, nothing is read
     _last_attempt = time.time()
     try:
         sync(rider_id)

@@ -6,7 +6,7 @@
 {% block page_title %}Dashboard{% endblock %}
 
 {% block topbar_actions %}
-  <a href="{{ url_for('friends.index') }}" class="btn btn-secondary">Friends</a>
+  {% if feature('friends') %}<a href="{{ url_for('friends.index') }}" class="btn btn-secondary">Friends</a>{% endif %}
   <button class="btn btn-primary" id="syncBtn" data-click="doSync()">Sync</button>
 {% endblock %}
 
@@ -252,7 +252,7 @@
     {% endif %}
   </div>
 
-  {% if recovery and (recovery.bodyBattery or recovery.sleepHours or recovery.hrv or recovery.restingHR) %}
+  {% if feature('recovery') and recovery and (recovery.bodyBattery or recovery.sleepHours or recovery.hrv or recovery.restingHR) %}
   <div class="card">
     <div class="recovery-panel-head">
       <div class="card-title">Recovery Today</div>

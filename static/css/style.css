@@ -531,6 +531,13 @@ legend { padding: 0; margin-bottom: 0.375rem; font-size: 0.875rem; font-weight: 
 .form-grid > fieldset { margin: 0; }
 .checks { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; }
 .checks > .check { margin: 0; }
+/* Settings → Features: a switch with what it covers under it; an upper one's parts indented, and dimmed while it's off (they keep their ticks) */
+.feature-switches { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: 0.6rem 1.5rem; }
+.feature-hint { display: block; font-size: 0.8rem; }
+.feature-parts { margin: 0.25rem 0 0 1.6rem; }
+.feature-parts.is-dimmed > .check { opacity: 0.5; }
+.feature-off-note { display: none; margin: 0.25rem 0 0; font-size: 0.8rem; }
+.feature-parts.is-dimmed > .feature-off-note { display: block; }
 
 input:not([type]),
 input[type="text"],

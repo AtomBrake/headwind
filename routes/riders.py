@@ -761,6 +761,8 @@ def delete(rid):
     feed_tokens.forget_rider(db, rid)
     db.execute('DELETE FROM PlannedRoute WHERE riderId=?', [rid])                # their routes in the planner
     db.execute('DELETE FROM Activity WHERE riderId=?', [rid])
+    from services import features
+    features.forget_rider(db, rid)                                               # their feature switches (RiderSettings)
     db.execute('DELETE FROM Rider WHERE id=?', [rid])
     for sid in seg_ids:
         _refresh_prs(db, sid)

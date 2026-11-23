@@ -6,7 +6,8 @@
 {% block content %}
 <div style="display:flex; flex-direction:column; gap:1.5rem;">
 
-  <!-- Profile & goals: the stats the smart goals work from -->
+  <!-- Profile & goals: the stats the smart goals work from (Nutrition's, so it goes with Nutrition) -->
+  {% if feature('nutrition') %}
   <div class="card" id="profileCard">
     <div class="card-title">Profile &amp; goals</div>
     <p class="hint" style="margin:0 0 0.8rem;">Your body stats and targets. Headwind uses them to work out your daily calorie, protein, carb and fat goals, and to project your road to goal weight. Everything here is saved to this Headwind only.</p>
@@ -42,6 +43,7 @@
     <div id="pfPlan" style="font-size:0.85rem; line-height:1.55; margin-top:0.8rem;"></div>
     <p style="color:var(--text-muted); font-size:0.75rem; margin:0.8rem 0 0;">Fine-tune the calorie and macro goals themselves on the Nutrition page (Goals).</p>
   </div>
+  {% endif %}
 
   <!-- Measurement Units -->
   <form method="POST" class="card">
@@ -114,6 +116,35 @@
     <button type="submit" class="btn btn-primary" style="margin-top:1.25rem;">Save Preferences</button>
   </form>
 
+  <!-- Features (services/features.py): what this rider has switched off. An upper switch (Health, Gear) overrides its parts without
+       changing them, so they keep their own ticks; static/js/settings.js dims them while it's off. -->
+  <form method="POST" action="{{ url_for('settings.save_features') }}" class="card" id="features">
+    <div class="card-title">Features</div>
+    <p class="hint" style="margin:0 0 0.75rem;">Turn off what you don't use. It leaves the sidebar and the dashboard, its pages say it's turned off,
+      and anything it does in the background stops. Nothing is deleted: turn it back on and everything is where it was.</p>
+    <div class="feature-switches">
+      {% for top, parts in feature_groups %}
+      <div class="feature-group">
+        <label class="check"><input type="checkbox" name="on" value="{{ top.key }}" {{ 'checked' if top.key not in features_set }}
+               {% if parts %}data-change="featureGroup(this)"{% endif %}> <span><strong>{{ top.label }}</strong><span class="hint feature-hint">{{ top.hint }}</span></span></label>
+        {% if parts %}
+        <div class="feature-parts{% if top.key in features_set %} is-dimmed{% endif %}" id="featureParts-{{ top.key }}">
+          {% for f in parts %}
+          <label class="check"><input type="checkbox" name="on" value="{{ f.key }}" {{ 'checked' if f.key not in features_set }}> <span>{{ f.label }}<span class="hint feature-hint">{{ f.hint }}</span></span></label>
+          {% endfor %}
+          <p class="hint feature-off-note">Off with {{ top.label }}. These keep their ticks for when it's back on.</p>
+        </div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; margin-top:1rem;">
+      <button type="submit" class="btn btn-primary">Save features</button>
+      <button type="submit" class="btn btn-secondary" name="default" value="1">Save, and start new riders with these</button>
+    </div>
+    <p class="hint" style="margin:0.5rem 0 0;">A rider added later starts with {{ 'everything on' if not features_default else (features_default_labels | join(', ') ~ ' off') }}; riders already here keep their own.</p>
+  </form>
+
   <!-- Outside address (services/external_url.py) -->
   <form method="POST" action="{{ url_for('settings.save_address') }}" class="card" id="address">
     <div class="card-title">Outside address</div>
@@ -139,7 +170,8 @@
   </form>
   <script src="{{ url_for('static', filename='js/address_check.js') }}"></script>
 
-  <!-- Contacts (services/contacts.py): who each live tracking link is emailed to as it starts -->
+  <!-- Contacts (services/contacts.py): who each live tracking link is emailed to as it starts (Live tracking's, so it goes with it) -->
+  {% if feature('live') %}
   <div class="card" id="contacts">
     <div class="card-title">Contacts for live links</div>
     <p class="hint" style="margin:0 0 0.75rem;">People to email each live tracking link to as it starts. Headwind sends it, not your phone, so
@@ -168,6 +200,7 @@
     </form>
     {% endif %}
   </div>
+  {% endif %}
 
   <!-- Email (services/mail.py): the mail server the live links go to contacts through -->
   <form method="POST" action="{{ url_for('settings.save_email') }}" class="card" id="email">

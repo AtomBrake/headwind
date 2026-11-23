@@ -1528,6 +1528,28 @@ def _step_12(db):
             db.execute(f'ALTER TABLE Settings ADD COLUMN {col} {defn}')
 
 
+def _step_13(db):
+    """RiderSettings: each rider's own preferences (docs/MULTI-USER-PLAN.md, decision 3 and A4), one row per rider, made when one is first
+    saved. A rider with no row, or a NULL column, takes the instance's default from the Settings column of the same name.
+    featuresOff: the features switched off (services/features.py), a JSON list of names (NULL in Settings: everything on).
+    periodMode and weekStart: whether "this week" and "this month" are the past 7 and 28 days ('rolling') or calendar weeks and months
+    ('calendar'), and the day a calendar week starts on, 0 Monday to 6 Sunday (services/periods.py). An install from before this keeps
+    calendar weeks from Monday; a new one starts rolling (NULL)."""
+    db.execute('''CREATE TABLE IF NOT EXISTS RiderSettings (
+        riderId     INTEGER PRIMARY KEY REFERENCES Rider(id) ON DELETE CASCADE,
+        featuresOff TEXT,
+        periodMode  TEXT,
+        weekStart   INTEGER)''')
+    cols = (('featuresOff', 'TEXT'), ('periodMode', 'TEXT'), ('weekStart', 'INTEGER'))
+    for table in ('RiderSettings', 'Settings'):
+        have = {r[1] for r in db.execute(f'PRAGMA table_info({table})').fetchall()}
+        for col, defn in cols:
+            if col not in have:
+                db.execute(f'ALTER TABLE {table} ADD COLUMN {col} {defn}')
+    if db.execute('SELECT 1 FROM Rider LIMIT 1').fetchone():          # an install from before this: keeps its calendar weeks starting on Monday
+        db.execute("UPDATE Settings SET periodMode='calendar', weekStart=0 WHERE id=1")
+
+
 def _compact(db):
     """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
     a temporary file and once through the WAL. Logged either way. Commits."""
@@ -1582,6 +1604,7 @@ STEPS = (
     (_step_10, True),        # an older Headwind reads RideMemory, RideSensor and the rideId columns
     (_step_11, False),
     (_step_12, False),
+    (_step_13, False),
 )
 LATEST = len(STEPS)
 

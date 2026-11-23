@@ -36,7 +36,11 @@ def _friends_autosync(app):
             time.sleep(interval * 60)
             with app.app_context():
                 from database import get_db
-                from services import jobs
+                from services import features, jobs
+                from services.rider_mode import owner_rider_id
+                owner = owner_rider_id()                         # friends are the instance's until each user has their own (release G)
+                if owner is not None and not features.on('friends', owner):
+                    continue                                     # Friends turned off in Settings: no sync until it's back on
                 jobs.enqueue(get_db(), 'friends_autosync')      # routes/friends._autosync_job; not while the last is still going
         except Exception as e:
             log.warning('Friends autosync loop error: %s', e)
@@ -179,8 +183,12 @@ def _garmin_heartbeat(app):
                         # many days to read: none when nothing was uploaded since the last sync, all HISTORY_RECENT once a day.
                         dev_sync = device_upload(api)
                         days, sweep = health_days(s['garminDeviceSync'], dev_sync, s['garminSweepAt'])
-                        sync_garmin(rider_id, days=days, api=api, strict=True)   # an outage must not count as read
-                        result.append(f"Health data synced ({days} day{'s' if days != 1 else ''})" if days else 'No new watch upload')
+                        read = sync_garmin(rider_id, days=days, api=api, strict=True)   # an outage must not count as read
+                        if days and not read:                # Recovery, Steps and Nutrition all off (services/garmin.health_reads)
+                            result.append('Health data not read: turned off in Settings')
+                            dev_sync = None                  # not read, so not marked as read: switched on again, it's read then
+                        else:
+                            result.append(f"Health data synced ({days} day{'s' if days != 1 else ''})" if days else 'No new watch upload')
                         ok = True
                     except Exception as e:
                         ok, err = False, str(e)[:200]
@@ -293,10 +301,11 @@ def _garmin_history(app):
                              'garminWeightsDone, garminWeightsRetryAt FROM Settings WHERE id=1', one=True)
                 now = datetime.now(timezone.utc).isoformat(timespec='seconds')
                 on = garmin.connected(s)
-                if (on and s['garminHistoryFrom'] and not s['garminWeightsDone']
+                daily, weigh_ins = garmin.health_reads(owner_rider_id())     # switched off: waits, and carries on once it's on again
+                if (on and weigh_ins and s['garminHistoryFrom'] and not s['garminWeightsDone']
                         and (not s['garminWeightsRetryAt'] or s['garminWeightsRetryAt'] <= now)):
                     garmin.backfill_weigh_ins(owner_rider_id())      # quick (a year per call), so before the long day-by-day pass
-                if (on and s['garminHistoryFrom'] and not s['garminHistoryDone']
+                if (on and daily and s['garminHistoryFrom'] and not s['garminHistoryDone']
                         and (not s['garminHistoryRetryAt'] or s['garminHistoryRetryAt'] <= now)):
                     garmin.backfill_history(owner_rider_id())
         except Exception as e:
@@ -567,6 +576,12 @@ def create_app():
                 return redirect('/setup')
             riders_found.append(True)
 
+    @app.before_request
+    def feature_gate():
+        """After the login check: a feature switched off in Settings answers with its note or a JSON error (services/features.py)."""
+        from services import features      # runs only once check_login has let the request through
+        return features.gate()
+
     app.permanent_session_lifetime = timedelta(days=30)
 
     @app.context_processor
@@ -623,6 +638,12 @@ def create_app():
     @app.context_processor
     def inject_demo():
         return {'demo_mode': DEMO}
+
+    @app.context_processor
+    def inject_features():
+        """feature('nutrition'): whether a switch in Settings → Features is on for the request's rider (services/features.py)."""
+        from services import features
+        return {'feature': features.Checker()}
 
     @app.context_processor
     def inject_rider_mode():

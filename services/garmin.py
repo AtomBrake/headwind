@@ -552,12 +552,29 @@ def device_upload(api):
         return None
 
 
+def health_reads(rider_id):
+    """(daily, weigh_ins): whether the sync reads Garmin's daily figures and the weigh-ins, from rider_id's feature switches
+    (services/features.py). The daily figures (GarminDaily) feed Recovery, Steps and Nutrition's calorie burn, so they're read while any of
+    those is on; the weigh-ins feed Weight and Nutrition's calorie goals. Health off turns all of them off, so neither is read. No rider yet:
+    both, as before there were switches."""
+    if rider_id is None:
+        return True, True
+    from services import features
+    return features.any_on(('recovery', 'steps', 'nutrition'), rider_id), features.any_on(('weight', 'nutrition'), rider_id)
+
+
 def sync_garmin(rider_id, days=7, api=None, strict=False):
     """Fetch the last `days` days of Garmin daily metrics and upsert into GarminDaily. Weigh-ins (a scale uploads by itself, not through the
     watch) are read for at least the last two days, into rider_id's weights. `api`: a client already logged in. `strict`: raise when Garmin answered none of the
-    daily-metric calls (an outage), instead of passing it off as days with no data."""
+    daily-metric calls (an outage), instead of passing it off as days with no data. Either is skipped when the rider's switches don't need it
+    (health_reads). Returns the days of daily figures read: 0 when they're switched off."""
     from database import get_db
 
+    daily, weigh_ins = health_reads(rider_id)
+    if not daily:
+        days = 0
+    if not daily and not weigh_ins:
+        return 0
     api = api or _client()
     db  = get_db()
     call = _Calls()
@@ -572,7 +589,7 @@ def sync_garmin(rider_id, days=7, api=None, strict=False):
 
     # Weigh-ins (Index scale or typed into Garmin Connect) feed the Nutrition weight trend
     weights = 0
-    if rider_id is not None:
+    if rider_id is not None and weigh_ins:
         try:
             _, weights = _sync_weigh_ins(api, db, rider_id, (today - timedelta(days=max(days, 2) - 1)).isoformat(), today.isoformat())
         except Exception as e:

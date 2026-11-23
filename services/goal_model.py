@@ -54,9 +54,19 @@ def _or_default(v, default):
     return default if v is None else v
 
 
-def profile():
+SEDENTARY = 1.2                  # the everyday-movement multiplier with no steps counted (activity_from_steps' floor)
+
+
+def profile(rider_id=None):
+    """The figures the calorie goals are worked out from. With rider_id, that rider's feature switches count: with Steps off
+    (services/features.py) the goals count rides only, so everyday movement is the sedentary multiplier, not one from the step goal, and
+    steps_counted is False."""
     s = query_db('SELECT sex, birthDate, birthDateGuessed, birthYear, heightCm, lossLbPerWeek, stepGoal, goalAuto, rideKcalWeek, rideGoalWeek FROM Settings WHERE id=1', one=True)
     s = dict(s) if s else {}
+    steps = True
+    if rider_id is not None:
+        from services import features
+        steps = features.on('steps', rider_id)
     born = parse_birth_date(s.get('birthDate'))
     by = s.get('birthYear')
     return {
@@ -65,7 +75,8 @@ def profile():
         'birth_date': born.isoformat() if born else None,
         'birth_date_guessed': bool(born and s.get('birthDateGuessed')),     # 1 January of the year the old age field gave: ask for the real date
         'height_cm': s.get('heightCm'),
-        'activity': activity_from_steps(s.get('stepGoal') or 8000),
+        'activity': activity_from_steps(s.get('stepGoal') or 8000) if steps else SEDENTARY,
+        'steps_counted': steps,
         'loss_lb_week': _or_default(s.get('lossLbPerWeek'), 1.5),
         'step_goal': s.get('stepGoal') or 8000,
         'ride_kcal_week': _or_default(s.get('rideKcalWeek'), DEFAULT_RIDE_KCAL_WEEK),
@@ -102,7 +113,7 @@ def _working(kg, p):
 
 def plan(rider_id):
     """Returns the working for this rider (their weight; the profile is still the instance's), or {'error': ...} when a profile field is missing."""
-    p = profile()
+    p = profile(rider_id)
     kg = current_weight_kg(rider_id)
     missing = [k for k, v in (('sex', p['sex']), ('age', p['age']), ('height', p['height_cm']), ('a weigh-in', kg)) if not v]
     if missing:
@@ -133,6 +144,9 @@ def auto_update(rider_id):
     s = query_db('SELECT goalAuto, goalAutoLast, nutritionCalGoal FROM Settings WHERE id=1', one=True)
     if not s or not s['goalAuto']:
         return None
+    from services import features
+    if rider_id is not None and not features.on('nutrition', rider_id):
+        return None                                     # Nutrition off: the goal is left as it is until it's back on
     today = _today().isoformat()
     if s['goalAutoLast'] == today:
         return None
@@ -157,7 +171,7 @@ def day_burn(rider_id, date_iso):
     """Estimated calories burned on a day: everyday movement (BMR x activity) plus that day's activities of every sport
     (rides, walks, runs, ...), net of the resting burn during them. Returns (kcal, source_label) or None if the
     profile isn't filled in yet (callers then fall back to the old BMR/Garmin rules)."""
-    p = profile()
+    p = profile(rider_id)
     kg = current_weight_kg(rider_id)
     if not (p['sex'] and p['age'] and p['height_cm'] and kg):
         return None

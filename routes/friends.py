@@ -494,6 +494,7 @@ def delete(fid):
         best_efforts.delete_for(db, 'activityId IN (SELECT id FROM Activity WHERE riderId=?)', [friend['riderId']])
         db.execute('DELETE FROM ActivityMemory WHERE activityId IN (SELECT id FROM Activity WHERE riderId=?)', [friend['riderId']])
         db.execute('DELETE FROM Activity WHERE riderId=?', [friend['riderId']])
+        db.execute('DELETE FROM RiderSettings WHERE riderId=?', [friend['riderId']])    # none is made for one, but a rider's row goes with it
         db.execute('DELETE FROM Rider WHERE id=?', [friend['riderId']])
     from services import goals
     goals.forget_friend(db, fid)

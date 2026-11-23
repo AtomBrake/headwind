@@ -29,10 +29,12 @@
          class="nav-item {% if request.endpoint == 'dashboard.dashboard' %}active{% endif %}">
         {% include 'icons/_grid.svg' %} Dashboard
       </a>
+      {% if feature('recovery') %}
       <a href="{{ url_for('garmin_page.index') }}"
          class="nav-item {% if request.blueprint == 'garmin_page' %}active{% endif %}">
         {% include 'icons/_heart.svg' %} Recovery
       </a>
+      {% endif %}
 
       <div class="nav-section-label">Activity</div>
       <a href="{{ url_for('dashboard.activities_page') }}"
@@ -48,27 +50,37 @@
          class="nav-item {% if request.blueprint == 'data' %}active{% endif %}">
         {% include 'icons/_bars.svg' %} Analytics
       </a>
+      {% if feature('goals') %}
       <a href="{{ url_for('goals.index') }}"
          class="nav-item {% if request.blueprint == 'goals' %}active{% endif %}">
         {% include 'icons/_target.svg' %} Goals
       </a>
+      {% endif %}
+      {% if feature('segments') %}
       <a href="{{ url_for('segments.index') }}"
          class="nav-item {% if request.blueprint == 'segments' %}active{% endif %}">
         {% include 'icons/_flag.svg' %} Segments
       </a>
+      {% endif %}
+      {% if feature('routes') %}
       <a href="{{ url_for('saved_routes.index') }}"
          class="nav-item {% if request.blueprint == 'saved_routes' %}active{% endif %}">
         {% include 'icons/_route.svg' %} Routes
       </a>
+      {% endif %}
+      {% if feature('gear') %}
       <a href="{{ url_for('gear.index') }}"
          class="nav-item {% if request.blueprint == 'gear' %}active{% endif %}">
         {% include 'icons/_gear.svg' %} Gear
       </a>
+      {% endif %}
+      {% if feature('heatmap') %}
       <a href="{{ url_for('heatmap.index') }}"
          class="nav-item {% if request.blueprint == 'heatmap' %}active{% endif %}">
         {% include 'icons/_pin.svg' %} Heatmap
       </a>
-      {# Roughness and the route planner are hidden until they work; their pages are still at /roughness and /planner (routes are on Routes).
+      {% endif %}
+      {# Roughness and the route planner are hidden until they work (they have feature switches too, 'roughness' and 'planner'); their pages are still at /roughness and /planner (routes are on Routes).
       <a href="{{ url_for('roughness.index') }}"
          class="nav-item {% if request.blueprint == 'roughness' %}active{% endif %}">
         {% include 'icons/_road.svg' %} Roughness
@@ -78,24 +90,34 @@
         {% include 'icons/_route.svg' %} Planner
       </a>
       #}
+      {% if feature('coach') %}
       <a href="{{ url_for('ai_page.index') }}"
          class="nav-item {% if request.blueprint == 'ai_page' %}active{% endif %}">
         {% include 'icons/_spark.svg' %} AI Coach
       </a>
+      {% endif %}
 
+      {% if feature.any('nutrition', 'steps', 'weight') %}
       <div class="nav-section-label">Health</div>
+      {% endif %}
+      {% if feature('nutrition') %}
       <a href="{{ url_for('nutrition.index') }}"
          class="nav-item {% if request.blueprint == 'nutrition' and request.endpoint not in ('nutrition.steps_page', 'nutrition.weight_graph_page', 'nutrition.weight_backfill_page') %}active{% endif %}">
         {% include 'icons/_leaf.svg' %} Nutrition
       </a>
+      {% endif %}
+      {% if feature('steps') %}
       <a href="{{ url_for('nutrition.steps_page') }}"
          class="nav-item {% if request.endpoint == 'nutrition.steps_page' %}active{% endif %}">
         {% include 'icons/_footprint.svg' %} Steps
       </a>
+      {% endif %}
+      {% if feature('weight') %}
       <a href="{{ url_for('nutrition.weight_graph_page') }}"
          class="nav-item {% if request.endpoint in ('nutrition.weight_graph_page', 'nutrition.weight_backfill_page') %}active{% endif %}">
         {% include 'icons/_scale.svg' %} Weight
       </a>
+      {% endif %}
 
       <div class="nav-section-label">System</div>
       <a href="{{ url_for('riders.index') }}"
