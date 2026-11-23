@@ -34,6 +34,24 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
 
 ## P2, soon
 
+### Users
+
+- [ ] **Turn features on and off** (asked 2026-11-01, and again by friends 2026-11-23: "kill off all the maintenance and health" for people who only want their activities). A Settings section to switch off the parts someone doesn't use. A switched-off feature leaves the sidebar (`templates/base.html`) and the dashboard, and its background work stops. Its data is kept, so switching it back on brings everything back.
+  - [ ] The switches, each named for what the rider sees:
+    - **Health**, one switch for each part (asked 2026-11-23), so someone can keep weight but drop the food diary:
+      - **Nutrition**: the Nutrition page and its food diary, water and calorie goals.
+      - **Steps**: the Steps page.
+      - **Weight**: the Weight page and its backfill page.
+      - **Recovery**: the Recovery page under Overview (`garmin_page`), the dashboard's "Recovery Today" card (`templates/dashboard.html` ~255) and the Garmin health sync.
+      - A **Health** switch above them turns the whole lot off at once, and the Health heading leaves the sidebar. It overrides the four switches without changing them, so turning Health back on brings back the same choices as before. With Health on, the heading shows if any of Nutrition, Steps or Weight is on. The helper checks both, e.g. `features.on('steps')` is false when Health is off.
+    - **Gear maintenance**: the parts, wear and service log on a bike's page (`templates/_gear_parts.html`), kit's "replace at", the part alerts (`evaluate_alerts` and `PartAlert` in `services/gear.py`) and the dashboard's due list (`gear_due`, `templates/dashboard.html` ~21). Bikes and kit themselves stay, so rides still get a bike and its distance. A separate **Gear** switch turns off the whole lot.
+    - The rest: segments, routes, heatmap, goals, AI coach, friends, live tracking, roughness and the route planner (both already hidden from the sidebar).
+  - [ ] Where to keep them: multi-user is next (**Proper multi-user support, with roles**, P1), and a friend on a shared instance wants their own switches, not the owner's. So store them per rider or user (e.g. a JSON list of what's off), not one `Settings` column, with an instance-wide default an admin can set. Add one helper (e.g. `features.on(name)`) that the templates (via a context processor), routes and background threads all check. A switched-off feature's pages show a "turned off in Settings" note instead of a 404.
+  - [ ] Decide what depends on what. For example, the calorie goals use steps and rides (with Steps off but Nutrition on, the goal counts rides only), and the AI coach uses recovery and nutrition (with either off, the coach just leaves it out).
+  - [ ] The phone app and `/api/v1` should hide those features too: see **The iPhone and Watch apps follow the web's feature switches**.
+  - [ ] Tests: with a feature off, its sidebar link and dashboard card are gone, its page shows the note, and its background job doesn't run. Switching it back on shows the old data.
+  - [ ] README: list the switches.
+
 ### Friends
 
 - [ ] **A live tracking link while recording** (asked for 2026-11-01). An option, when you start recording any sport, to share a link that friends and family open in any browser, with no account, to see where you are, the track so far, and distance, time and speed or pace, as Garmin LiveTrack or Strava Beacon do. On the iPhone, Apple Watch and Android. **The server side is built** (`services/live_share.py`, `routes/live_share.py`, `templates/live.html`, `static/js/live.js`, `tests/test_live_share.py`): `POST /api/v1/live/share {recording, sport, track}` starts a link for the recording (or gives the running one, its token kept hashed and sealed) and refuses with a 409 and `settings_url` when the outside address is missing, not https, or one that only works at home; `DELETE` stops it. `/api/v1/live` now takes `recording`, and a share takes only its own recording's readings, thinned to a point every 10 s or 25 m in `LivePoint`. `GET /live/<token>` is public, rate-limited per address, polls `/data?since=` every 10 s, and shows the first name, sport, distance, time, speed or pace now and on average, battery, "No signal since" and "Finished", but no position or track within 300 m of where the track began. A link ends an hour after an idle reading, 6 h after its last reading, or at once when stopped; an unknown token gets the same 404 page. The worker's `live.go_idle` loop runs `live_share.sweep`, which deletes an ended share's points. The iPhone app sends `recording` with every live post (the recording's id from Start, also its upload's `client_id`) and starts, sends and stops links (`ios/Headwind/Record/LiveShareController.swift`, `ios/Shared/LiveShare.swift`). The Watch posts its own readings every 30 s, starts its recording's link with its own token and hands it to the iPhone (`LiveLinkMessage`), which offers it in a notification to tap and send (`LiveLinkNotifier`). A new link is emailed by the server to the contacts chosen beforehand (`services/contacts.py`, `services/mail.py`, Settings → Contacts and Email on the web, `/api/v1/contacts` and the iPhone's Settings), once per share and by the worker; the phone and the Watch say who it went to. What's left:
@@ -59,6 +77,13 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
 - [ ] **Check the Windows build on its lock.** `requirements-windows.lock` (made by `.github/workflows/windows-lock.yml`) is committed, and `windows.yml` now installs from it with `--require-hashes`. Run the next Windows build (a `v*` tag, or **Windows build** from the Actions tab) and check its smoke test passes; if PyInstaller or a newer package breaks it, pin that one in `requirements-windows-build.txt` or `requirements.txt` and run **Windows lock** again.
 
 ### Routes and maps
+
+- [ ] **Pick an activity on the heatmap** (asked by friends 2026-11-23). Click or tap a track to open that activity's page (`/activities/<id>`).
+  - [ ] `/heatmap/data` (`routes/heatmap.py` `data()`) sends only each track's line, rider and Zwift world. Add the activity's id, plus its name, date, sport and distance for the popup, in arrays beside `riders` and `worlds`, so the lines are still joined as stored JSON.
+  - [ ] In `static/js/heatmap.js` (~107) the polylines are `interactive: false` and drawn with Leaflet's SVG renderer, and a heatmap can hold thousands of them. Rather than making each one clickable (with a wider hit line for thin tracks on a phone, that doubles the paths), handle `map.on('click')`: find every track that passes within a few pixels of the point (distance to each segment, at screen scale), skipping tracks whose bounding box is too far away.
+  - [ ] Show what's under the click in a popup: one activity opens its page from the popup, and where tracks overlap (a regular commute can stack dozens) list them all, newest first, with name, date, sport and distance, each linking to its page. Friends' activities link to their own pages too.
+  - [ ] Highlight the picked track or tracks over the others while the popup is open.
+  - [ ] The HD lines (`hd=1`, `t.lineHd`) and the canvas used for the PNG export (~282) are unaffected. Test that `/heatmap/data`'s arrays line up with `tracks`.
 
 - [ ] **Try From Garmin on the Routes page against a real Garmin account.** It's built (`planned_routes.import_garmin`, the `garmin_courses` job in `routes/saved_routes.py`) and tested with a stand-in only: no test instance has Garmin connected. garminconnect's `get_courses()` (`/course-service/course/owner/<displayName>`) is read as a list of courses (or an object holding one) with `courseId`, `courseName` and `activityType.typeKey`, and each course's `download_course(id, 'gpx')` through `from_gpx`. Check what the list really holds (whether courses saved from other people are in it), that the GPX has heights, and that the sport comes through; fix the field names in `_garmin_courses` / `_garmin_sport` if they differ.
 
@@ -154,13 +179,6 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
   - [ ] **Words on the pages** that say "ride" for any activity. The About page (`templates/about.html`) still describes a cycling app throughout ("Ride Tracking", "Ride Detail", best efforts at 5 to 100 miles, "17 MQTT sensors"): rewrite it for every sport. `sports.label(None)` gives "Ride" for an activity with no sport. Then go through the templates for the rest.
 
 ## P3, later
-
-### Users
-
-- [ ] **Turn features on and off** (asked again 2026-11-01). A Settings section to switch off the parts someone doesn't use, e.g. nutrition, steps, roughness, gear, recovery, segments, route builder, heatmap, AI. A switched-off feature leaves the sidebar and the dashboard, and its background work stops (Garmin health sync for recovery, gear alerts, roughness processing). Its data is kept, so switching it back on brings everything back.
-  - [ ] One `Settings` column (e.g. a JSON list of disabled features) and a helper the templates, routes and background threads all check. A disabled feature's pages show a "turned off in Settings" note instead of a 404.
-  - [ ] Decide what depends on what. For example, the calorie goals use steps and rides, and the AI coach uses recovery and nutrition.
-  - [ ] The phone app and `/api/v1` should hide those features too: see **The iPhone and Watch apps follow the web's feature switches**.
 
 ### Health and training
 
@@ -300,12 +318,6 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
 - [ ] **Ride photos for friends.** Photos are on the activity page with EXIF stripped (`services/photos.py`), but the friends feed (`/api/feed`, `routes/friends.py`) doesn't carry them. Send each photo's id and caption with the ride, and serve the thumbnail and full size with the `X-Feed-Token` check, for rides that token can see.
 
 ### Routes and maps
-
-- [ ] **Clickable heatmap** — click a track on the heatmap to go straight to that ride's page (`/activities/<id>`).
-  - [ ] `/heatmap/data` (`routes/heatmap.py`) selects only `streams` and returns bare point lists, so send each track's ride ID, name and date with it.
-  - [ ] In `templates/heatmap.html` the polylines are `interactive: false`. Make them clickable, with a wider invisible hit line so thin tracks are easy to tap on a phone.
-  - [ ] Where tracks overlap (a regular commute can stack dozens), show a popup listing every ride under the click (name, date, distance), newest first, each linking to its page, instead of picking one.
-  - [ ] Optionally highlight the hovered or picked track over the others.
 
 - [ ] **Zwift: routes and a world filter.** A virtual ride is matched to its Zwift world and drawn over its map (`services/zwift.py`), and the heatmap leaves Zwift rides out by default.
   - [ ] Show the route on the ride page, where it can be found: zwift-data's `routes.js` has each route's world, distance and climb, and ZwiftMap matches a ride to a route by its track.
