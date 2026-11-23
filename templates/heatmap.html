@@ -56,6 +56,16 @@
     #whoKey span { display: inline-flex; align-items: center; gap: 0.35rem; }
     #whoKey i { width: 0.65rem; height: 0.65rem; border-radius: 50%; flex-shrink: 0; }
     #zwiftWorlds { gap: 0.3rem; width: 0; min-width: 100%; }      /* wraps within the panel instead of widening it */
+    /* What's under a click on the map: the activities there, newest first */
+    .heat-pick .leaflet-popup-content-wrapper, .heat-pick .leaflet-popup-tip { background: var(--main-bg); color: var(--text); }
+    .heat-pick .leaflet-popup-content { margin: 0.6rem 0.75rem; }
+    .heat-pick a.leaflet-popup-close-button { color: var(--text-muted); }
+    .pick-head { font-size: 0.75rem; color: var(--text-muted); margin: 0 1rem 0.35rem 0; }
+    .pick-item { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.35rem 0.4rem; margin: 0 -0.4rem; border-radius: 6px; text-decoration: none; }
+    .pick-item:hover, .pick-item:focus-visible { background: var(--raised-bg); }
+    .pick-name { color: var(--accent); font-weight: 600; font-size: 0.875rem; display: flex; align-items: center; gap: 0.35rem; margin-right: 1rem; }
+    .pick-name i { width: 0.6rem; height: 0.6rem; border-radius: 50%; flex-shrink: 0; }
+    .pick-sub { color: var(--text-muted); font-size: 0.75rem; }
   </style>
 {% endblock %}
 

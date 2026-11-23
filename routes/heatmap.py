@@ -109,13 +109,19 @@ def data():
     params.extend(who_params)
 
     _tracks.fill(get_db())                     # anything new since start-up
-    rows = query_db(f"SELECT a.riderId, {col}, a.sportType, t.minLat, t.maxLat, t.minLng, t.maxLng "
+    rows = query_db(f"SELECT a.riderId, {col}, a.sportType, t.minLat, t.maxLat, t.minLng, t.maxLng, a.id, a.name, a.startDateLocal, a.distance "
                     f"FROM Ride a JOIN ActivityTrack t ON t.activityId = a.id {where}", params)
     worlds = []                                # the Zwift world each virtual ride is in, so the page can draw its map; null for the rest
     for r in rows:
         w = zwift.world_of(*r[3:7]) if sports.is_virtual(r[2]) else None
         worlds.append(w['slug'] if w else None)
-    # Each line is stored as JSON already: joined as they are, rather than parsed and written out again. `riders` is whose each track is.
-    return Response('{"count":%d,"tracks":[%s],"riders":%s,"worlds":%s}' % (
-                        len(rows), ','.join(r[1] for r in rows), json.dumps([r[0] for r in rows]), json.dumps(worlds)),
+    # Each line is stored as JSON already: joined as they are, rather than parsed and written out again. `riders` is whose each track is;
+    # `ids`, `names`, `dates`, `sports` and `distances` (metres) are what a click on a track shows and opens, in the same order.
+    return Response('{"count":%d,"tracks":[%s],"riders":%s,"worlds":%s,"ids":%s,"names":%s,"dates":%s,"sports":%s,"distances":%s}' % (
+                        len(rows), ','.join(r[1] for r in rows), json.dumps([r[0] for r in rows]), json.dumps(worlds),
+                        json.dumps([r[7] for r in rows]),
+                        json.dumps([r[8] or sports.label(r[2]) for r in rows]),
+                        json.dumps([r[9] for r in rows]),
+                        json.dumps([sports.label(r[2]) for r in rows]),
+                        json.dumps([round(r[10]) if r[10] is not None else None for r in rows])),
                     mimetype='application/json')

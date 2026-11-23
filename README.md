@@ -102,7 +102,7 @@ A map with a picker for its type (satellite, grey, topographic, cycling) and swi
 <img src="docs/screenshots/ride-detail.jpg" alt="Ride detail" width="900">
 
 ### Heatmap
-Everywhere you've been, filterable by date range and sport, on any of the map types, with HD export (3440×1440). Show your own activities, one friend's, or everyone's together, each in their own colour; Zwift rides and runs are left out unless you include them, and drawn over their Zwift world's map.
+Everywhere you've been, filterable by date range and sport, on any of the map types, with HD export (3440×1440). Click or tap a track to see which activity it is and open it; where tracks overlap, such as a regular commute, you get a list of all of them, newest first. Show your own activities, one friend's, or everyone's together, each in their own colour; Zwift rides and runs are left out unless you include them, and drawn over their Zwift world's map.
 
 <img src="docs/screenshots/heatmap.jpg" alt="Heatmap" width="900">
 

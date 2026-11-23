@@ -50,6 +50,8 @@ def client(tmp_path, monkeypatch):
 def _data(client, **args):
     d = client.get('/heatmap/data', query_string=args).get_json()
     assert d['count'] == len(d['tracks']) == len(d['riders'])
+    for k in ('worlds', 'ids', 'names', 'dates', 'sports', 'distances'):      # what a click on a track shows, in the tracks' order
+        assert len(d[k]) == d['count'], k
     return d
 
 
@@ -78,3 +80,24 @@ def test_no_picker_without_anyone_else(client):
         db.execute("DELETE FROM Activity WHERE riderId = 2")
         db.commit()
     assert 'id="whoFilter"' not in client.get('/heatmap').get_data(as_text=True)
+
+
+def test_each_track_says_which_activity_it_is(client):
+    """A click on the heatmap lists the activities under it and opens their pages, from these arrays beside the tracks."""
+    with client.application.app_context():
+        db = database.get_db()
+        db.execute("UPDATE Activity SET name = NULL, startDateLocal = '2026-10-02T07:30:00', distance = 12345.6 WHERE id = 'f2_b'")
+        db.commit()
+    for hd in ('', '1'):
+        d = _data(client, who='all', hd=hd)
+        by_id = {aid: i for i, aid in enumerate(d['ids'])}
+        assert set(by_id) == {'mine1', 'mine2', 'f2_a', 'f2_b'}
+        for aid, i in by_id.items():
+            assert d['tracks'][i][0][0] == pytest.approx({'mine1': 51.5, 'mine2': 51.6, 'f2_a': 52.5, 'f2_b': 52.6}[aid], abs=1e-3)
+            assert d['riders'][i] == (1 if aid.startswith('mine') else 2)
+        i = by_id['f2_b']
+        assert d['names'][i] == d['sports'][i] == 'E-bike ride'                # no name: the sport, as people read it
+        assert d['dates'][i] == '2026-10-02T07:30:00' and d['distances'][i] == 12346
+        i = by_id['mine1']
+        assert (d['names'][i], d['sports'][i], d['distances'][i]) == ('mine1', 'Ride', 20000)
+    assert client.get('/activities/f2_b').status_code == 200                   # a friend's activity opens on its own page

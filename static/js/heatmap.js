@@ -98,7 +98,10 @@ function loadRange(from, to) {
   fetch('/heatmap/data?' + filterParams().toString())
     .then(r => r.json())
     .then(function(d) {
+      map.closePopup();
       layerGroup.clearLayers();
+      loaded = d;
+      d.boxes = d.tracks.map(boxOf);
       var opacity = opacityFor(d.count);
       var bounds  = [];                // where to zoom: the real rides, so Zwift's worlds don't pull the view out to sea
 
@@ -127,6 +130,126 @@ function loadRange(from, to) {
       document.getElementById('loadingMsg').style.display = 'none';
     });
 }
+
+// ── Picking a track ─────────────────────────────────────────────
+// A click or tap lists the activities whose tracks pass within a few pixels of it, each linking to its page. The thousands of lines stay
+// non-interactive (a clickable line, with a wider hit line for a finger, would double them): the click is checked against the lines
+// already loaded, skipping each track whose bounding box is nowhere near.
+var loaded = null;                     // the last /heatmap/data, with each track's box [minLat, maxLat, minLng, maxLng]
+var pickGroup = L.layerGroup().addTo(map);      // the picked tracks, over the others while the popup is open
+var picked = [];                       // [{i, halo, line}] for each of them
+
+function boxOf(pts) {
+  if (!pts || pts.length < 2) return null;
+  var b = [pts[0][0], pts[0][0], pts[0][1], pts[0][1]];
+  for (var j = 1; j < pts.length; j++) {
+    var p = pts[j];
+    if (p[0] < b[0]) b[0] = p[0]; else if (p[0] > b[1]) b[1] = p[0];
+    if (p[1] < b[2]) b[2] = p[1]; else if (p[1] > b[3]) b[3] = p[1];
+  }
+  return b;
+}
+
+// The tracks within tol pixels of a point on the map (layer pixels), newest first
+function tracksNear(c, tol) {
+  var sw = map.layerPointToLatLng(L.point(c.x - tol, c.y + tol)), ne = map.layerPointToLatLng(L.point(c.x + tol, c.y - tol));
+  var hits = [];
+  loaded.tracks.forEach(function (pts, i) {
+    var b = loaded.boxes[i];
+    if (!b || b[0] > ne.lat || b[1] < sw.lat || b[2] > ne.lng || b[3] < sw.lng) return;
+    var prev = map.latLngToLayerPoint(pts[0]);
+    for (var j = 1; j < pts.length; j++) {
+      var p = map.latLngToLayerPoint(pts[j]);
+      if (L.LineUtil.pointToSegmentDistance(c, prev, p) <= tol) { hits.push(i); return; }
+      prev = p;
+    }
+  });
+  return hits.sort(function (a, b) { return (loaded.dates[b] || '').localeCompare(loaded.dates[a] || ''); });
+}
+
+function personName(id) {
+  for (var k = 0; k < PEOPLE.length; k++) if (PEOPLE[k].id === id) return PEOPLE[k].name;
+  return '';
+}
+
+function pickList(hits) {
+  var box = document.createElement('div');
+  box.className = 'pick-list';
+  if (hits.length > 1) {
+    var head = document.createElement('div');
+    head.className = 'pick-head';
+    head.textContent = hits.length + ' activities here';
+    box.appendChild(head);
+  }
+  var everyone = whoValue() === 'all';
+  hits.forEach(function (i) {
+    var a = document.createElement('a'), name = document.createElement('span'), sub = document.createElement('span');
+    a.className = 'pick-item';
+    a.href = '/activities/' + encodeURIComponent(loaded.ids[i]);
+    name.className = 'pick-name';
+    if (everyone) {                    // whose it is, in their colour on the map
+      var dot = document.createElement('i');
+      dot.style.background = 'var(' + personVar(loaded.riders[i]) + ')';
+      dot.title = personName(loaded.riders[i]);
+      name.appendChild(dot);
+    }
+    name.appendChild(document.createTextNode(loaded.names[i]));
+    var bits = [];
+    if (everyone && personName(loaded.riders[i])) bits.push(personName(loaded.riders[i]));
+    if (loaded.dates[i]) bits.push(fmtDate(loaded.dates[i].slice(0, 10)));
+    bits.push(loaded.sports[i]);
+    if (loaded.distances[i] != null) bits.push(UNITS.toDist(loaded.distances[i]).toFixed(1) + ' ' + UNITS.dist);
+    sub.className = 'pick-sub';
+    sub.textContent = bits.join(' · ');
+    a.append(name, sub);
+    a.addEventListener('mouseenter', function () { emphasise(i); });
+    a.addEventListener('mouseleave', function () { emphasise(null); });
+    box.appendChild(a);
+  });
+  return box;
+}
+
+// Draw the picked tracks again on top, solid and edged in the text colour (dark on a light page, light on a dark one), so they stand out
+// from the others in the same colour on any map type
+function highlight(hits) {
+  pickGroup.clearLayers();
+  picked = hits.slice().reverse().map(function (i) {      // the newest drawn last, on top
+    var pts = loaded.tracks[i];
+    return { i: i,
+             halo: L.polyline(pts, { color: cssVar('--text'), weight: 6, opacity: 0.7, interactive: false }).addTo(pickGroup),
+             line: L.polyline(pts, { color: cssVar(personVar(loaded.riders[i])), weight: 3, opacity: 1, interactive: false }).addTo(pickGroup) };
+  });
+}
+
+// Hovering one in the list brings it forward and fades the rest; null puts them all back
+function emphasise(i) {
+  picked.forEach(function (p) {
+    var on = i === null || p.i === i;
+    p.halo.setStyle({ opacity: on ? 0.7 : 0 });
+    p.line.setStyle({ opacity: on ? 1 : 0.3 });
+    if (p.i === i) { p.halo.bringToFront(); p.line.bringToFront(); }
+  });
+}
+
+// The filter panel floats over the map (above its popups): pan a popup clear of it, below it on a phone, where it spans the map, and
+// to its left on a wider screen
+function clearOfPanel() {
+  var o = document.getElementById('mapOverlay').getBoundingClientRect(), m = map.getContainer().getBoundingClientRect();
+  if (o.width > m.width / 2) return { autoPanPaddingTopLeft: [20, o.bottom - m.top + 10], autoPanPaddingBottomRight: [20, 20] };
+  return { autoPanPaddingTopLeft: [20, 20], autoPanPaddingBottomRight: [m.right - o.left + 10, 20] };
+}
+
+map.on('click', function (e) {
+  if (!loaded) return;
+  var pointer = e.originalEvent && e.originalEvent.pointerType;
+  var tol = (pointer ? pointer !== 'mouse' : matchMedia('(pointer: coarse)').matches) ? 14 : 6;     // a finger is less exact than a mouse
+  var hits = tracksNear(e.layerPoint, tol);
+  if (!hits.length) return;
+  L.popup(L.extend({ className: 'heat-pick', maxWidth: 320, minWidth: 220, maxHeight: 300 }, clearOfPanel()))
+   .setLatLng(e.latlng).setContent(pickList(hits)).openOn(map);
+  highlight(hits);                     // after openOn, which closes the last popup and with it the last highlight
+});
+map.on('popupclose', function () { pickGroup.clearLayers(); picked = []; });
 
 function reload() { loadRange(currentFrom, currentTo); }
 function reloadAndFit() { fitNext = true; reload(); }
