@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.58-beta] - 2026-11-23
+
+### Changed
+- **The heatmap shows every sport, not only rides.** Runs, walks, hikes, swims, paddling, skiing and every other activity with a GPS track are now drawn alongside your rides. Before, "All Sports" meant every kind of ride, and nothing else could be picked. The Sport list now offers each sport you have a track for, the count under the filters says "activities", and the page is called Heatmap instead of Ride Heatmap. Zwift and other virtual runs are left out by default along with virtual rides, as before.
+
 ## [0.7.57-beta] - 2026-11-23
 
 ### Fixed
