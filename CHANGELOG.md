@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.57-beta] - 2026-11-23
 
 ### Fixed
 - **The Tasks page no longer takes 2 to 3 seconds to open while the heatmap tracks are worked out again.** After updating to 0.7.56, the background work that redraws every track kept the database locked for a second or more at a time. Each time the Tasks page opened, it waited for that lock so it could mark the start-up notice as read. The work now only takes the lock to save its results, and the page writes nothing once the notice has been read. On 3,400 activities the page opened in about 20 ms throughout.
@@ -14,6 +14,7 @@
 
 ### Changed
 - **Segment matching and the best-efforts scan run in the background.** Creating a segment, changing its sport, **Rescan all activities** on the Segments page and the best-efforts scan on the Data page now come straight back. On a few thousand activities the page waited up to 25 seconds. The work goes to the background worker, and the Tasks page shows how far it has got, as does the indicator at the top of every page. A new segment's page says its efforts are being found, then shows them when they're ready. During a rescan, every segment keeps its efforts until it has been matched again.
+- **Newer libraries.** The image and the Windows app install the AI coach's libraries at their latest versions (anthropic 2.13, openai 3.58), and the image is built with the current releases of Docker's build tools.
 
 ## [0.7.56-beta] - 2026-11-23
 
