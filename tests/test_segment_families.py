@@ -259,6 +259,11 @@ def test_a_segment_takes_its_family_from_the_activity_it_was_made_on(client):
     with client.app_.app_context():
         seg = database.get_db().execute('SELECT id, sport FROM Segment').fetchone()
         assert seg['sport'] == 'foot'
+    waiting = client.get(f"/segments/{seg['id']}").get_data(as_text=True)                                         # matched by the worker
+    assert 'id="segmentMatching"' in waiting and 'No efforts found yet.' in waiting
+    from services import jobs
+    assert jobs.run_queued(client.app_) == 1
+    with client.app_.app_context():
         assert [r[0] for r in database.get_db().execute('SELECT activityId FROM SegmentEffort WHERE segmentId=?', [seg['id']])] == ['walk']
     page = client.get('/segments?sport=foot').get_data(as_text=True)
     assert 'Lane' in page and 'On foot' in page and 'E-bike' not in page          # no pedal / e-bike filter on foot
@@ -278,6 +283,8 @@ def test_the_ride_leaderboards_show_every_bike_or_one_kind(client):
     d = 1 / 111_320.0
     form = {'name': 'Climb', 'startLat': 51.5 + 100 * d, 'startLng': -0.12, 'endLat': 51.5 + 1000 * d, 'endLng': -0.12, 'distanceM': 900}
     assert client.post('/segments/create', data=dict(form, activityId='turbo')).status_code == 302                   # made on an e-bike: a ride segment
+    from services import jobs
+    jobs.run_queued(client.app_)                                                                                    # its efforts: found by the worker
     with client.app_.app_context():
         seg = database.get_db().execute('SELECT id, sport FROM Segment').fetchone()
         assert seg['sport'] == 'ride'

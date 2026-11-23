@@ -26,6 +26,13 @@
 
 {% block content %}
 
+{% if matching %}
+<!-- Being matched against the activities in the background (routes/segments._scan_job): static/js/segment.js reloads the page when it's done -->
+<div class="card" id="segmentMatching" data-job="{{ matching.id }}" style="margin-bottom:1rem;">
+  Finding this segment's efforts on your activities. This page updates when it's done; <a href="{{ url_for('tasks.index') }}">Tasks</a> shows how far it's got.
+</div>
+{% endif %}
+
 {% if only_links %}
 <!-- Pedal / e-bike: the stats, the trend and the leaderboard below all follow it (routes/segments.detail) -->
 <div style="display:flex; gap:.35rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem;" title="Bike and e-bike rides share this segment; each keeps its own PRs">
@@ -217,7 +224,7 @@
 </div>
 {% else %}
 <div class="card" style="text-align:center; padding:2rem; color:var(--text-muted);">
-  {% if only %}No {{ 'e-bike' if only == 'ebike' else 'bike' }} efforts on this segment yet.{% else %}No efforts recorded yet — try rescanning rides from the Segments page.{% endif %}
+  {% if matching %}No efforts found yet.{% elif only %}No {{ 'e-bike' if only == 'ebike' else 'bike' }} efforts on this segment yet.{% else %}No efforts recorded yet — try rescanning rides from the Segments page.{% endif %}
 </div>
 {% endif %}
 

@@ -4,7 +4,7 @@ import logging
 from flask import Blueprint, abort, jsonify, redirect, render_template, request, url_for
 
 from database import get_db, query_db
-from services import whose
+from services import jobs, whose
 from services.segments import (scan_all_activities, scan_activity_against_segments, _refresh_prs,
                                clean_polyline, lap_numbers, recover_polyline, seg_sport, valid_coord, MIN_SEGMENT_M)
 from services.sports import CLASS_ICONS, CLASS_LABELS, FAMILIES, FAMILY_ICONS, FAMILY_LABELS, class_sql, ebike_sql, family_of
@@ -12,6 +12,44 @@ from services.sports import CLASS_ICONS, CLASS_LABELS, FAMILIES, FAMILY_ICONS, F
 log = logging.getLogger(__name__)
 
 bp = Blueprint('segments', __name__)
+
+SCAN_JOB = 'segment_scan'
+
+
+def queue_scan(db, ids=None):
+    """Match segments (ids, or every one) against the activities in the worker (_scan_job), so the page that asked comes straight back: a big
+    history takes seconds to minutes. Each new or changed segment gets a job of its own; all of them only once at a time. Returns the job id,
+    or None when every segment is already being matched."""
+    return jobs.enqueue(db, SCAN_JOB, {'segments': list(ids)} if ids else {}, once=not ids)
+
+
+def scanning(db, sid):
+    """The job matching segment sid (or every segment), queued or running, as a dict; None when there is none."""
+    for job in (jobs._row(r) for r in db.execute("SELECT * FROM Job WHERE kind=? AND state IN ('queued', 'running') ORDER BY id", [SCAN_JOB])):
+        if not job['args'].get('segments') or sid in job['args']['segments']:
+            return job
+    return None
+
+
+@jobs.handler(SCAN_JOB)
+def _scan_job(job):
+    """services/segments.scan_all_activities for the segments in args (all when none), with its progress on the Tasks page."""
+    from services import tasks
+    db = get_db()
+    ids = job['args'].get('segments')
+    if ids:
+        rows = db.execute(f"SELECT id, name FROM Segment WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()
+        if not rows:
+            return                                      # deleted before its turn came
+        ids = [r['id'] for r in rows]
+        label = f'Matching the segment "{rows[0]["name"]}"' if len(rows) == 1 else f'Matching {len(rows)} segments'
+    else:
+        label = 'Matching every segment'
+    with tasks.run(db, 'segment_scan', label) as t:
+        scan_all_activities(db, ids or None, on_batch=lambda done, total: tasks.progress(db, t.id, done, total))
+        where = f" WHERE segmentId IN ({','.join('?' * len(ids))})" if ids else ''
+        n = db.execute(f'SELECT COUNT(*) FROM SegmentEffort{where}', ids or []).fetchone()[0]
+        t.result = f"{n:,} effort{'' if n == 1 else 's'} found"
 
 
 import math as _math
@@ -208,9 +246,7 @@ def create():
     db.commit()
 
     seg_id = db.execute('SELECT last_insert_rowid()').fetchone()[0]
-
-    # Retroactively scan all activities for this new segment
-    scan_all_activities(db, segment_ids=[seg_id])
+    queue_scan(db, [seg_id])                            # its efforts on the activities already here, found in the background
 
     return redirect(url_for('segments.detail', sid=seg_id))
 
@@ -315,7 +351,7 @@ def detail(sid):
                            trend=trend, trend_rolling=trend_rolling, family=family, family_label=FAMILY_LABELS[family],
                            stats=stats, diff_label=diff_label, on_foot=(family == 'foot'), laps=lap_numbers(efforts),
                            only=only, only_links=_only_links('segments.detail', only, class_counts, sid=sid) if family == 'ride' else [],
-                           diff_colour=diff_colour, sub_segs=sub_segs)
+                           diff_colour=diff_colour, sub_segs=sub_segs, matching=scanning(db, sid))
 
 
 @bp.route('/segments/<int:sid>/delete', methods=['POST'])
@@ -340,7 +376,7 @@ def set_sport(sid):
     if fam != seg['sport']:
         db.execute('UPDATE Segment SET sport=? WHERE id=?', [fam, sid])
         db.commit()
-        scan_all_activities(db, segment_ids=[sid])           # clears its efforts, matches the new family's activities, picks PRs
+        queue_scan(db, [sid])                            # clears its efforts, matches the new family's activities, picks PRs
     return redirect(url_for('segments.detail', sid=sid))
 
 
@@ -356,6 +392,7 @@ def delete_effort(sid, eid):
 
 @bp.route('/segments/scan', methods=['POST'])
 def scan():
+    """Rescan all activities: queued for the worker (_scan_job). {job}: the one now matching every segment, or the one already doing it."""
     db = get_db()
-    n = scan_all_activities(db)
-    return jsonify({'ok': True, 'scanned': n})
+    job = queue_scan(db) or (scanning(db, None) or {}).get('id')
+    return jsonify({'ok': True, 'job': job})

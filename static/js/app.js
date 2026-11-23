@@ -230,8 +230,9 @@ function fmtMonth(ym) {
   return _MONTHS[parseInt(p[1])-1] + ' ' + p[0];
 }
 
-// What runs in the background, from every page (/tasks/background): an import started on the Import page, and a backup or other file
-// being made to download, with a link to it when it's ready. The Import page shows its own import, so not here.
+// What runs in the background, from every page (/tasks/background): an import started on the Import page, a backup or other file being
+// made to download, with a link to it when it's ready, and a long job such as a segment scan while it runs. The Import page shows its own
+// import, so not here.
 (function () {
   var box = document.getElementById('taskPills'), onImport = box.hasAttribute('data-hide-import');
   function dismiss(id, pill) {

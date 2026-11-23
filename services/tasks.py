@@ -33,8 +33,12 @@ def ensure_schema(db):
         seen       INTEGER DEFAULT 0            -- start-up repairs: shown in a notice until the Tasks page has been opened
     )''')
     db.execute('CREATE INDEX IF NOT EXISTS idx_tasklog_task ON TaskLog(task, id)')
-    if 'logId' not in {r[1] for r in db.execute('PRAGMA table_info(TaskLog)')}:
-        db.execute('ALTER TABLE TaskLog ADD COLUMN logId TEXT')      # the log id its lines carry
+    have = {r[1] for r in db.execute('PRAGMA table_info(TaskLog)')}
+    for col, kind in (('logId', 'TEXT'),        # the log id its lines carry
+                      ('done', 'INTEGER'),      # a long run's progress (progress()): done of total, for the Tasks page's bar
+                      ('total', 'INTEGER')):
+        if col not in have:
+            db.execute(f'ALTER TABLE TaskLog ADD COLUMN {col} {kind}')
 
 
 def _prune(db):
@@ -105,6 +109,16 @@ def start(db, task, label):
         return None
 
 
+def progress(db, row_id, done, total):
+    """How far a running row has got, for the Tasks page's progress bar. Does not commit: the job commits it with the work it describes."""
+    if row_id is None:
+        return
+    try:
+        db.execute('UPDATE TaskLog SET done=?, total=? WHERE id=?', [done, total, row_id])
+    except Exception as e:
+        log.warning('Task log write failed: %s', e)
+
+
 def finish(db, row_id, result=None, error=None):
     """Done, or failed when there is an error. Commits."""
     _finish(db, row_id, 'failed' if error else 'done', result, error)
@@ -136,6 +150,11 @@ def overview(db):
     from services import garmin
     garmin_on = garmin.connected(s)
     jobs = []
+
+    # One-off runs after an update that report how far they've got (progress()): the map summaries, best efforts in km
+    for r in db.execute("SELECT label, done, total FROM TaskLog WHERE status='running' AND total IS NOT NULL ORDER BY id"):
+        jobs.append(_card(r['label'], 'running', f"{r['done'] or 0:,} of {r['total']:,} done.",
+                          progress=(r['done'] or 0, r['total'])))
 
     # The worker (services/worker.py), which runs everything below: a stopped one leaves queued jobs waiting and timed ones not running
     from services import jobs as _jobs
@@ -230,7 +249,8 @@ def overview(db):
         from services import weather
         wx = weather.backfill_state(db)
         if wx['running']:
-            jobs.append(_card('Weather for older activities', 'running', f"{wx['done']:,} fetched, {wx['remaining']:,} to go."))
+            jobs.append(_card('Weather for older activities', 'running', f"{wx['done']:,} fetched, {wx['remaining']:,} to go.",
+                              progress=(wx['done'], wx['done'] + wx['remaining'])))
         elif not wx['remaining']:
             jobs.append(_card('Weather for older activities', 'done', 'Every activity with a place to ask about has its weather.', wx['finishedAt']))
         elif not weather.backfill_offered(wx):
@@ -250,7 +270,8 @@ def overview(db):
         if job is not None and (job['state'] in ('queued', 'running') or (job['finishedAt'] or '') >= (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec='seconds')):
             st = job['progress'] or {}
             if job['state'] in ('queued', 'running'):
-                jobs.append(_card('Import', 'running', f"{st.get('done', 0)} / {st.get('total', '?')} files", None, {'url': '/import', 'label': 'Open'}))
+                jobs.append(_card('Import', 'running', f"{st.get('done', 0)} / {st.get('total', '?')} files", None, {'url': '/import', 'label': 'Open'},
+                                  progress=(st.get('done', 0), st['total']) if isinstance(st.get('total'), int) else None))
             elif st.get('error') or job['state'] == 'failed':
                 jobs.append(_card('Import', 'failed', st.get('error') or job['error'], None, {'url': '/import', 'label': 'Open'}))
             else:
@@ -274,8 +295,12 @@ def overview(db):
     return {'jobs': jobs, 'startup': startup, 'history': history}
 
 
-def _card(name, state, detail, when=None, action=None):
-    return {'name': name, 'state': state, 'detail': detail, 'when': when, 'action': action}
+def _card(name, state, detail, when=None, action=None, progress=None):
+    """progress: (done, total) for a bar under the detail, or None. 'percent' is what the template draws."""
+    percent = None
+    if progress and progress[1]:
+        percent = max(0, min(100, round(100 * progress[0] / progress[1])))
+    return {'name': name, 'state': state, 'detail': detail, 'when': when, 'action': action, 'percent': percent}
 
 
 def _hours(h):

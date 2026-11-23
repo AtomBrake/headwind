@@ -24,6 +24,10 @@
     <div style="flex:1 1 16rem; min-width:0;">
       <div style="font-weight:600;">{{ j.name }}</div>
       <div class="hint">{{ j.detail }}{% if j.when %} · <span data-when="{{ j.when }}">{{ j.when }}</span>{% endif %}</div>
+      {% if j.percent is not none and j.state == 'running' %}
+      <div class="progress-bar-wrap" role="progressbar" aria-label="{{ j.name }}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ j.percent }}"
+           style="margin:0.35rem 0 0; max-width:24rem;"><div class="progress-bar-fill" style="width:{{ j.percent }}%"></div></div>
+      {% endif %}
     </div>
     {% if j.action %}
       {% if j.action.url.startswith('/tasks/run/') %}
@@ -45,7 +49,7 @@
     <span style="color:{{ badge[r.status][1] }}; min-width:4.5rem;">● {{ badge[r.status][0] }}</span>
     <span style="min-width:7rem;">{{ r.label }}</span>
     <span style="color:var(--text-muted); min-width:9rem;" data-when="{{ r.startedAt }}">{{ r.startedAt }}</span>
-    <span style="color:var(--text-muted); flex:1 1 14rem;">{{ r.error or r.result or '' }}{% if r.status == 'failed' and r.logId %} · <a href="?log={{ r.logId }}#logs" data-click="showLogId('{{ r.logId }}')">log lines marked <code>[{{ r.logId }}]</code></a>{% endif %}</span>
+    <span style="color:var(--text-muted); flex:1 1 14rem;">{{ r.error or r.result or ('{:,} of {:,} done'.format(r.done or 0, r.total) if r.status == 'running' and r.total is not none else '') }}{% if r.status == 'failed' and r.logId %} · <a href="?log={{ r.logId }}#logs" data-click="showLogId('{{ r.logId }}')">log lines marked <code>[{{ r.logId }}]</code></a>{% endif %}</span>
   </div>
   {% else %}
   <p class="hint">No runs recorded yet.</p>
@@ -144,5 +148,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/tasks.js') }}"{% if jobs | selectattr('state', 'in', ['running', 'waiting']) | list %} data-refresh{% endif %}></script>
+<script src="{{ url_for('static', filename='js/tasks.js') }}"{% if jobs | selectattr('state', 'in', ['running', 'waiting']) | list %} data-refresh="{{ 5 if jobs | selectattr('state', 'eq', 'running') | selectattr('percent', 'ne', none) | list else 20 }}"{% endif %}></script>
 {% endblock %}

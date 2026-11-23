@@ -4,6 +4,7 @@ from urllib.parse import urlencode
 from flask import Blueprint, g, jsonify, render_template, request, url_for
 
 from database import get_db, query_db
+from services import jobs
 from services.best_efforts import effort_set, scan_all_best_efforts
 from services.sanity import SANE_SQL
 
@@ -405,8 +406,23 @@ def _sport_records(rows):
     return dict(out)
 
 
+EFFORTS_JOB = 'best_efforts_scan'
+
+
 @bp.route('/data/scan-efforts', methods=['POST'])
 def scan_efforts():
+    """Every ride's best efforts worked out again, queued for the worker (_scan_efforts_job): 16 s for 2,300 rides on a laptop, longer on a Pi. {job}: the
+    one now doing it, or the one already doing it."""
     db = get_db()
-    n = scan_all_best_efforts(db)
-    return jsonify({'ok': True, 'scanned': n})
+    job = jobs.enqueue(db, EFFORTS_JOB) or (jobs.active(db, EFFORTS_JOB) or {}).get('id')
+    return jsonify({'ok': True, 'job': job})
+
+
+@jobs.handler(EFFORTS_JOB)
+def _scan_efforts_job(job):
+    """services/best_efforts.scan_all_best_efforts, with its progress on the Tasks page."""
+    from services import tasks
+    db = get_db()
+    with tasks.run(db, EFFORTS_JOB, 'Best efforts of every ride') as t:
+        n = scan_all_best_efforts(db, on_batch=lambda done, total: tasks.progress(db, t.id, done, total))
+        t.result = f"Worked out again for {n:,} ride{'' if n == 1 else 's'}"

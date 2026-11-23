@@ -98,12 +98,14 @@ function showLogId(id) {
   loadLogs();
   if (p.get('log') && location.hash === '#logs') document.getElementById('logs').scrollIntoView();
 })();
-// Refresh while something runs (data-refresh), but not under someone reading or typing in the Logs card
+// Refresh while something runs (data-refresh: every that many seconds, 5 while a progress bar moves), but not under someone reading or typing
+// in the Logs card
+var REFRESH_MS = (parseInt(document.currentScript.dataset.refresh, 10) || 20) * 1000;
 if (document.currentScript.hasAttribute('data-refresh')) setTimeout(function reload() {
   var busy = document.activeElement && document.activeElement.closest && document.activeElement.closest('#logs');
-  if (busy || document.querySelector('#logs details[open]')) { setTimeout(reload, 20000); return; }
+  if (busy || document.querySelector('#logs details[open]')) { setTimeout(reload, REFRESH_MS); return; }
   location.reload();
-}, 20000);
+}, REFRESH_MS);
 
 // The troubleshooting copy being made: the page reloads when it's ready
 document.querySelectorAll('[data-poll]').forEach(function (el) {

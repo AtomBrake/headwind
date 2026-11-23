@@ -357,21 +357,23 @@ def set_weather(rid):
     db = get_db()
     if not db.execute('SELECT 1 FROM Activity WHERE id=?', [rid]).fetchone():
         return jsonify(error='not found'), 404
-    if label == 'notstorm':           # it was not a storm ride after all: back to the lookup's own condition, and never claimed again
-        weather.set_condition(db, rid, None)
+
+    def asked():                      # the weather service, asked before anything is written: no write lock held across it
         row = db.execute(f'SELECT sportType, startLat, startLng, startDateLocal, {_streams.sql()} FROM Activity WHERE id=?', [rid]).fetchone()
         lat, lng = weather.origin(row)
-        w = weather.fetch_weather(lat, lng, row['startDateLocal'], row['streams'], row['sportType']) if lat is not None else None
+        return weather.fetch_weather(lat, lng, row['startDateLocal'], row['streams'], row['sportType']) if lat is not None else None
+
+    if label == 'notstorm':           # it was not a storm ride after all: back to the lookup's own condition, and never claimed again
+        w = asked()
+        weather.set_condition(db, rid, None)
         if w:
             weather.save_weather(db, rid, w, claim=False)
         weather.set_condition(db, rid, 'keep')
     elif label == 'keep':
         weather.set_condition(db, rid, 'keep')
     elif label == 'auto':
+        w = asked()
         weather.set_condition(db, rid, None)
-        row = db.execute(f'SELECT sportType, startLat, startLng, startDateLocal, {_streams.sql()} FROM Activity WHERE id=?', [rid]).fetchone()
-        lat, lng = weather.origin(row)
-        w = weather.fetch_weather(lat, lng, row['startDateLocal'], row['streams'], row['sportType']) if lat is not None else None
         if w:
             weather.save_weather(db, rid, w, claim=False)
         elif db.execute('SELECT weatherTempC FROM Activity WHERE id=?', [rid]).fetchone()[0] is None:      # nothing automatic to fall back on: forget the hand-picked word

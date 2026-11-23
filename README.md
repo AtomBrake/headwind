@@ -468,7 +468,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - Tables sort by clicking a column heading.
 
 ### Segments
-- Define a segment by clicking start and end on an activity's map; Headwind **retroactively scans** every activity of that kind.
+- Define a segment by clicking start and end on an activity's map; Headwind **retroactively scans** every activity of that kind in the background, and the segment's page shows the efforts when it's done.
 - Per-effort history, PRs, trend chart, difficulty rating, rolling average. Each lap of a segment on one activity is an effort of its own, as on Strava.
 - If a segment's stored route shape is missing, Headwind rebuilds it from the activity it was drawn on (or a matching effort) — and says "route shape unavailable" instead of drawing a misleading straight line.
 - Segments are shared both ways with linked friends.
@@ -526,7 +526,7 @@ Headwind can also email each new link itself to people you choose beforehand: ad
 - **Notifications** — activity-synced alerts through Home Assistant's companion app (an ntfy hook exists in the code but has no settings screen yet).
 
 ### Running it
-- **Tasks page** — in two sections. **Background work**: the Garmin sync, health history, friend sync, the MQTT link, imports in progress, the weather for older activities (with **Fetch now**), the Garmin activities the sync gave up on (with **Try again**), the recent runs, and the one-off repairs an update runs and what each changed. **When something goes wrong**: the Logs card, which searches the log (an activity named in a line links to it), and the diagnostics and troubleshooting copy to send to whoever is helping.
+- **Tasks page** — in two sections. **Background work**: the Garmin sync, health history, friend sync, the MQTT link, imports in progress, the weather for older activities (with **Fetch now**), the one-off work an update starts in the background (such as working out the heatmap tracks again), with a progress bar for each long job (also shown at the top of every page while it runs), the Garmin activities the sync gave up on (with **Try again**), the recent runs, and the one-off repairs an update runs and what each changed. **When something goes wrong**: the Logs card, which searches the log (an activity named in a line links to it), and the diagnostics and troubleshooting copy to send to whoever is helping.
 - **Light, dark or auto** — follows each device's setting by default; charts and maps change with the page.
 - Works on a phone: the layout and each page's top-bar actions fit a small screen.
 

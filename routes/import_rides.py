@@ -486,6 +486,8 @@ def _process_single_file(path, original_name, rider_id=None, bike_id=None, clien
         act_summary = {'id': act.get('id'), 'name': act.get('name'), 'distance': act.get('distance')}
 
         from services import duplicates
+        if not duplicates.exists_anywhere(db, act['id']):
+            _weather_first(act)                         # before the first write: the weather service is slow
         _retime_file_copies(db, rider_id, act)
         if duplicates.exists_anywhere(db, act['id']):
             differs = _offer_change(db, act, original_name)
@@ -728,12 +730,6 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
         act['sportType'] = canonical(row.get('Activity Type', 'Ride').strip() or 'Ride')     # Headwind's VirtualRide, not Strava's "Virtual Ride"
         if not filename:
             act['source'] = 'manual'
-        if read_ok:
-            reimport.problem_solved(db, act_id)
-        else:
-            reimport.note_problem(db, act_id, rider_id, act['name'], filename, 'saved from activities.csv only: no track')
-            unread.append({'id': act_id, 'name': act['name'], 'file': filename})
-
         def csv_num(key):
             v = row.get(key, '').strip()
             try:
@@ -753,6 +749,14 @@ def _process_strava_export(zf, names, rider_id=None, segments=False, photos=True
                 act = crop(act, start_dt, csv_num('Elapsed Time (2)') or csv_num('Elapsed Time'), _strava_csv_distance_m(row))
             act['startDateLocal'] = start_dt.isoformat()
         cropped = act.get('cropped', False)              # kept on the act: accepting it on the Import page takes Strava's 0 m climb as a figure
+        if not already and not db.execute("SELECT 1 FROM ActivityDuplicate WHERE id=? AND status IN ('parked', 'discarded', 'deleted')",
+                                          [act_id]).fetchone():
+            _weather_first(act)                         # a new one, before its first write (below): the weather service is slow
+        if read_ok:
+            reimport.problem_solved(db, act_id)
+        else:
+            reimport.note_problem(db, act_id, rider_id, act['name'], filename, 'saved from activities.csv only: no track')
+            unread.append({'id': act_id, 'name': act['name'], 'file': filename})
         if not already and not filename and _unpark_manual(db, act_id):
             already = True                              # a manual entry set aside behind a ride it isn't a copy of: back as its own activity
         if not already and db.execute("SELECT 1 FROM ActivityDuplicate WHERE id=? AND status IN ('parked', 'discarded', 'deleted')", [act_id]).fetchone():
@@ -1025,6 +1029,8 @@ def _process_generic_zip(zf, names, rider_id=None):
             act = parse_activity_file(name, data)
             if act and act.get('startDateLocal'):
                 from services import duplicates as _d
+                if not _d.exists_anywhere(db, act['id']):
+                    _weather_first(act)                 # before the first write: the weather service is slow
                 _retime_file_copies(db, rider_id, act)
                 if _d.exists_anywhere(db, act['id']):
                     differs = _offer_change(db, act, name)
@@ -1171,13 +1177,24 @@ def _insert(db, act, rider_id=None):
         _streams.save(db, act.get('id'), act.get('streams'))
         from services.garmin import save_laps
         save_laps(db, act.get('id'), act.get('laps'))
-    if result.rowcount and act.get('startLat') and act.get('startLng'):
+    if '_weather' not in act:                           # a caller that didn't ask first: asked now, inside its transaction
+        _weather_first(act)
+    w = act.pop('_weather')
+    if result.rowcount and w:
+        from services.weather import save_weather
+        save_weather(db, act['id'], w)
+
+
+def _weather_first(act):
+    """Ask the weather service about a new activity before anything of it is written, into act['_weather'] (None when there's nothing), for
+    _insert to store. The service takes a fifth of a second or more an activity, and holding an import's write lock across it made every
+    page's save wait behind the import."""
+    act['_weather'] = None
+    if act.get('startLat') and act.get('startLng'):
         try:
-            from services.weather import fetch_weather, save_weather
-            w = fetch_weather(act['startLat'], act['startLng'],
-                              start_local, act.get('streams'), sport)
-            if w:
-                save_weather(db, act['id'], w)
+            from services.weather import fetch_weather
+            act['_weather'] = fetch_weather(act['startLat'], act['startLng'], _split_start(act)[1], act.get('streams'),
+                                            act.get('sportType') or 'Ride')
         except Exception:
             log.warning('Weather for an imported activity failed', exc_info=True)
 

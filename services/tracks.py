@@ -173,25 +173,39 @@ def out_of_step(streams):
     return len(tm) - len(ll) if ll and tm else 0
 
 
-def store(db, activity_id, streams):
-    """Summarize streams (JSON text, parsed, or None) we already have in hand for an activity. Does not commit."""
+def _row(activity_id, streams):
+    """The ActivityTrack values for streams (JSON text, parsed, or None), in _INSERT's order."""
     if isinstance(streams, (str, bytes)):
         try:
             streams = json.loads(streams or '{}')
         except Exception:
             streams = {}
-    db.execute('INSERT OR REPLACE INTO ActivityTrack (activityId, minLat, maxLat, minLng, maxLng, line, lineHd, cells, outOfStep, version) '
-               'VALUES (?,?,?,?,?,?,?,?,?,?)', [activity_id, *summarize(latlng_of(streams)), out_of_step(streams), VERSION])
+    return [activity_id, *summarize(latlng_of(streams)), out_of_step(streams), VERSION]
 
 
-def fill(db):
-    """Make the missing summaries, reading those activities' streams once. Returns how many it made. Commits."""
+_INSERT = ('INSERT OR REPLACE INTO ActivityTrack (activityId, minLat, maxLat, minLng, maxLng, line, lineHd, cells, outOfStep, version) '
+           'VALUES (?,?,?,?,?,?,?,?,?,?)')
+
+
+def store(db, activity_id, streams):
+    """Summarize streams (JSON text, parsed, or None) we already have in hand for an activity. Does not commit."""
+    db.execute(_INSERT, _row(activity_id, streams))
+
+
+def fill(db, on_batch=None):
+    """Make the missing summaries, reading those activities' streams once. Returns how many it made. Commits. on_batch(done, total) is called
+    before each batch's commit (app._track_summaries: the Tasks page's progress bar).
+    Each batch is worked out before anything is written (about 12 ms a track), so the write lock is held only for the
+    inserts: holding it through the work made every other write, a page's included, wait up to seconds while all were made again."""
     from services.streams import sql as streams_sql
     todo = [r[0] for r in db.execute('SELECT a.id FROM Activity a LEFT JOIN ActivityTrack t ON t.activityId = a.id WHERE t.activityId IS NULL')]
     for i in range(0, len(todo), _BATCH):
         ids = todo[i:i + _BATCH]
-        for aid, streams in db.execute(f"SELECT id, {streams_sql()} FROM Activity WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall():
-            store(db, aid, streams)
+        rows = [_row(aid, streams) for aid, streams in
+                db.execute(f"SELECT id, {streams_sql()} FROM Activity WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()]
+        db.executemany(_INSERT, rows)
+        if on_batch:
+            on_batch(i + len(ids), len(todo))
         db.commit()
     return len(todo)
 

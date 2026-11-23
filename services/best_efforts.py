@@ -165,55 +165,71 @@ def compute_best_efforts(streams_json, sets='imperial'):
 def save_best_efforts(db, activity_id, activity_date, streams_json, sets=tuple(SETS)):
     """Compute and store one activity's best efforts, in miles and in kilometres (or the `sets` given). Does not commit. Returns how many there
     are in miles (in km when only those were asked for)."""
+    return write_best_efforts(db, activity_id, activity_date, compute_best_efforts(streams_json, tuple(sets)))
+
+
+def write_best_efforts(db, activity_id, activity_date, found):
+    """Store what compute_best_efforts found for one activity ({system: [...]}): only writes, so a caller working through many can work them
+    all out first and hold the write lock just for this. Does not commit. Returns how many there are in miles (in km when only those)."""
     date_str = str(activity_date or '')[:10]
-    found = compute_best_efforts(streams_json, tuple(sets))
     for k, efforts in found.items():
         es = SETS[k]
         db.execute(f'DELETE FROM {es.table} WHERE activityId=?', [activity_id])      # a bracket it no longer reaches must not keep an old time
-        for e in efforts:
-            db.execute(f'''
-                INSERT INTO {es.table} (activityId, activityDate, {es.col}, elapsedSecs, avgSpeedMps)
-                VALUES (?,?,?,?,?)
-                ON CONFLICT(activityId, {es.col}) DO UPDATE SET
-                    elapsedSecs=excluded.elapsedSecs,
-                    avgSpeedMps=excluded.avgSpeedMps,
-                    activityDate=excluded.activityDate
-            ''', [activity_id, date_str, e['distance'], e['elapsedSecs'], e['avgSpeedMps']])
+        db.executemany(f'''
+            INSERT INTO {es.table} (activityId, activityDate, {es.col}, elapsedSecs, avgSpeedMps)
+            VALUES (?,?,?,?,?)
+            ON CONFLICT(activityId, {es.col}) DO UPDATE SET
+                elapsedSecs=excluded.elapsedSecs,
+                avgSpeedMps=excluded.avgSpeedMps,
+                activityDate=excluded.activityDate
+        ''', [(activity_id, date_str, e['distance'], e['elapsedSecs'], e['avgSpeedMps']) for e in efforts])
     return len(found.get('imperial', found.get('metric', [])))
 
 
-def fill_km(db):
+_BATCH = 50
+
+
+def _in_batches(db, ids, sets, on_batch=None):
+    """Every ride in ids worked out again in `sets`, _BATCH at a time: each batch's streams read and its efforts worked out before anything is
+    written, then written and committed at once, so the write lock is held for the writes alone (holding it through the work made a page's
+    save wait seconds). on_batch(done, total) before each commit. Returns how many efforts there are in miles (km when only those)."""
+    total = 0
+    if on_batch:
+        on_batch(0, len(ids))
+        db.commit()
+    for i in range(0, len(ids), _BATCH):
+        chunk = ids[i:i + _BATCH]
+        found = [(r['id'], r['startDateLocal'], compute_best_efforts(r['streams'], tuple(sets))) for r in
+                 db.execute(f"SELECT id, startDateLocal, {_streams.sql()} FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall()]
+        for aid, day, f in found:
+            total += write_best_efforts(db, aid, day, f)
+        if on_batch:
+            on_batch(i + len(chunk), len(ids))
+        db.commit()
+    return total
+
+
+def fill_km(db, on_batch=None):
     """Once (Settings.bestEffortsKmDone), in the background after start-up: every ride's best efforts in kilometres, which rides saved before
-    there were any lack. Commits every 50, so no write is held open across the whole history. Returns how many rides were read, or None when
-    it has been done."""
+    there were any lack (_in_batches). Returns how many rides were read, or None when it has been done. on_batch(done, total) is called before
+    each commit (the Tasks page's progress bar)."""
     s = db.execute('SELECT bestEffortsKmDone FROM Settings WHERE id=1').fetchone()
     if not s or s['bestEffortsKmDone']:
         return None
     ids = [r[0] for r in db.execute(f"SELECT id FROM Ride WHERE {_streams.has_sql('Ride')}")]
-    for i in range(0, len(ids), 50):
-        chunk = ids[i:i + 50]
-        for r in db.execute(f"SELECT id, startDateLocal, {_streams.sql()} FROM Activity WHERE id IN ({','.join('?' * len(chunk))})", chunk).fetchall():
-            save_best_efforts(db, r['id'], r['startDateLocal'], r['streams'], sets=('metric',))
-        db.commit()
+    _in_batches(db, ids, ('metric',), on_batch)
     db.execute('UPDATE Settings SET bestEffortsKmDone=1 WHERE id=1')
     db.commit()
     return len(ids)
 
 
-def scan_all_best_efforts(db):
-    """Backfill every activity. Commits every 50, so a big history never holds the write lock long enough for another writer to give up."""
-    activities = db.execute(
-        f"SELECT id, startDateLocal, {_streams.sql('Ride')} FROM Ride "
-        f"WHERE {_streams.has_sql('Ride')}"
-    ).fetchall()
-    total = 0
-    for i, act in enumerate(activities, 1):
-        total += save_best_efforts(db, act['id'], act['startDateLocal'], act['streams'])
-        if i % 50 == 0:
-            db.commit()
-    db.commit()
-    log.warning('Best efforts scan — %d efforts across %d activities', total, len(activities))
-    return len(activities)
+def scan_all_best_efforts(db, on_batch=None):
+    """Every ride's best efforts worked out again (_in_batches; the Data page's button queues it for the worker, routes/data.py). Returns how
+    many rides were read."""
+    ids = [r[0] for r in db.execute(f"SELECT id FROM Ride WHERE {_streams.has_sql('Ride')}")]
+    total = _in_batches(db, ids, tuple(SETS), on_batch)
+    log.warning('Best efforts scan — %d efforts across %d activities', total, len(ids))
+    return len(ids)
 
 
 def rescan_clean(db, rider_id):

@@ -61,7 +61,9 @@ def _track_summaries(app):
                                  'WHERE t.activityId IS NULL').fetchone()[0]
             if missing:
                 task_id = tasks.start(db, 'track_summaries', 'Map summaries of activities')
-                n = tracks.fill(db)
+                tasks.progress(db, task_id, 0, missing)
+                db.commit()
+                n = tracks.fill(db, on_batch=lambda done, total: tasks.progress(db, task_id, done, total))
                 tasks.finish(db, task_id, f"{n:,} activit{'y' if n == 1 else 'ies'} summarised for the heatmap and new segments")
     except Exception as e:
         log.warning('Track summaries: %s', e)
@@ -72,7 +74,7 @@ def _track_summaries(app):
             db = get_db()
             if not db.execute('SELECT bestEffortsKmDone FROM Settings WHERE id=1').fetchone()[0]:
                 task_id = tasks.start(db, 'best_efforts_km', 'Best efforts in kilometres')
-                n = best_efforts.fill_km(db)
+                n = best_efforts.fill_km(db, on_batch=lambda done, total: tasks.progress(db, task_id, done, total))
                 tasks.finish(db, task_id, f"Worked out for {n:,} ride{'' if n == 1 else 's'}: 5 to 160 km, shown when the units are metric")
     except Exception as e:
         log.warning('Best efforts in km: %s', e)

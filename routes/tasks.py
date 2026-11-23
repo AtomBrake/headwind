@@ -15,8 +15,9 @@ def index():
     from services import tasks
     db = get_db()
     view = tasks.overview(db)
-    db.execute("UPDATE TaskLog SET seen=1 WHERE task LIKE 'startup:%' AND seen=0")      # the notice has done its job
-    db.commit()
+    if tasks.unseen_startup(db):
+        db.execute("UPDATE TaskLog SET seen=1 WHERE task LIKE 'startup:%' AND seen=0")  # the notice has done its job
+        db.commit()                     # only then: a write waits behind any the worker is making
     from services import downloads, logs, troubleshooting_copy
     return render_template('tasks.html', log_file=logs.file_path(), copy=downloads.status(troubleshooting_copy.KIND), **view)
 
@@ -119,7 +120,8 @@ def troubleshooting_copy_delete():
 @bp.route('/tasks/background')
 def background():
     """What the pill at the top of every page shows (templates/base.html): an import started on the Import page, and the files being made
-    to download (services/downloads.py), while they run and until their outcome is dismissed."""
+    to download (services/downloads.py), while they run and until their outcome is dismissed; and a long background run (services/tasks.progress)
+    while it runs."""
     from routes import import_rides
     from services import downloads
     items = []
@@ -131,6 +133,9 @@ def background():
                       else (f"Importing {imp.get('done') or 0} / {imp['total']}" if imp.get('total') else 'Importing…') if state == 'running'
                       else f"✓ Import done · {imp.get('imported') or 0} imported",
                       'pct': round((imp.get('done') or 0) / imp['total'] * 100) if state == 'running' and imp.get('total') else None})
+    for r in get_db().execute("SELECT label, done, total FROM TaskLog WHERE status='running' AND total IS NOT NULL ORDER BY id"):
+        items.append({'id': 'task', 'state': 'running', 'url': url_for('tasks.index'),      # a long run's progress (services/tasks.progress)
+                      'text': f"{r['label']} · {r['done'] or 0:,} / {r['total']:,}", 'pct': round(100 * (r['done'] or 0) / r['total']) if r['total'] else 0})
     for kind, d in downloads.notices().items():
         state = {'ready': 'done'}.get(d['state'], d['state'])
         items.append({'id': f'download:{kind}', 'state': state, 'url': d['url'] if state == 'done' else d['page'] if state == 'running' else url_for('tasks.index'),

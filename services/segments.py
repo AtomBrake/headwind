@@ -690,16 +690,22 @@ def _refresh_prs(db, segment_id):
 
 
 def scan_activity_against_segments(db, activity, segments, track=None, pool=None):
-    """Scan one activity against a list of segments. Commits nothing. The streams are parsed once, and a segment the track doesn't reach
-    (seg_reach) is skipped without looking at a single point. `track`: (box, cells) when the caller already has them (ActivityTrack). `pool`:
-    every segment, when `segments` is only some of them, for their siblings (siblings_of); a dict of segment id to siblings_of will do."""
-    matched = 0
+    """Scan one activity against a list of segments (match_activity, then write_matches). Commits nothing. Returns how many segments it is on."""
+    return write_matches(db, activity, match_activity(db, activity, segments, track, pool))
+
+
+def match_activity(db, activity, segments, track=None, pool=None):
+    """One activity's laps of each of the segments it rode, as [(segment, [(elapsed, i0, approx), ...], times)], without writing anything (it
+    reads the activity's family): write_matches stores them. The streams are parsed once, and a segment the track doesn't reach (seg_reach) is
+    skipped without looking at a single point. `track`: (box, cells) when the caller already has them (ActivityTrack). `pool`: every segment,
+    when `segments` is only some of them, for their siblings (siblings_of); a dict of segment id to siblings_of will do."""
+    found = []
     fam = _activity_family(db, activity)
     if fam is None:                                     # an indoor ride, a swim, ...: no segments
-        return 0
+        return found
     segments = [s for s in segments if seg_sport(s) == fam]    # rides (pedal and e-bike) only match ride segments, walks, runs and hikes foot ones
     if not segments:
-        return 0
+        return found
     streams = _parsed(activity['streams'])
     if track:
         box, cells = track
@@ -722,34 +728,35 @@ def scan_activity_against_segments(db, activity, segments, track=None, pool=None
             continue
         if times is None:
             times = _track(streams)[1]
+        found.append((seg, laps, times))
+    return found
+
+
+def write_matches(db, activity, found):
+    """Store what match_activity found for one activity: each segment's laps replace the ones it had. Does not commit. Returns how many
+    segments."""
+    for seg, laps, times in found:
         dist_m = seg['distanceM'] or 0
         db.execute('DELETE FROM SegmentEffort WHERE segmentId=? AND activityId=?', [seg['id'], activity['id']])   # its laps as they are now
-        for elapsed, i0, approx in laps:
-            db.execute('''
-                INSERT INTO SegmentEffort
-                  (segmentId, activityId, activityDate, elapsedSecs, avgSpeedMps, approx, startSecs)
-                VALUES (?,?,?,?,?,?,?)
-            ''', [
-                seg['id'],
-                activity['id'],
-                str(activity['startDateLocal'] or '')[:10],
-                elapsed,
-                dist_m / elapsed if dist_m and elapsed else None,
-                approx,
-                times[i0],
-            ])
-        matched += 1
-    return matched
+        db.executemany('''
+            INSERT INTO SegmentEffort
+              (segmentId, activityId, activityDate, elapsedSecs, avgSpeedMps, approx, startSecs)
+            VALUES (?,?,?,?,?,?,?)
+        ''', [(seg['id'], activity['id'], str(activity['startDateLocal'] or '')[:10], elapsed,
+               dist_m / elapsed if dist_m and elapsed else None, approx, times[i0]) for elapsed, i0, approx in laps])
+    return len(found)
 
 
-def scan_all_activities(db, segment_ids=None):
+def scan_all_activities(db, segment_ids=None, on_batch=None):
     """
     Scan every activity against all (or specific) segments.
     Returns the number of activities with a GPS track (all of them were considered).
 
     Only the activities whose track box (services/tracks.py) reaches one of the segments, and of a family that has segments among them, have their
-    streams read, _BATCH at a time: a new segment on a big history reads a few dozen rides, not all of them. Commits each batch, so a full scan
-    (seconds to minutes) never holds the write lock long enough for another writer to give up; the PRs are picked at the end.
+    streams read, _BATCH at a time: a new segment on a big history reads a few dozen rides, not all of them. Each batch is matched before anything
+    is written (match_activity), then written and committed at once, so the write lock is held for the writes alone: holding it through the
+    matching made a page's save wait seconds behind a full scan. The PRs are picked at the end, a segment at a time. on_batch(done, total), with
+    the activities read so far of those near enough, before each batch's commit (the Tasks page's progress bar).
     """
     if segment_ids:
         placeholders = ','.join('?' * len(segment_ids))
@@ -762,13 +769,10 @@ def scan_all_activities(db, segment_ids=None):
     if not segments:
         return 0
 
-    # Clear existing efforts for these segments so stale rows (e.g. from
-    # previously looser matching) don't survive a rescan.
     seg_ids = [s['id'] for s in segments]
-    placeholders = ','.join('?' * len(seg_ids))
-    db.execute(f'DELETE FROM SegmentEffort WHERE segmentId IN ({placeholders})', seg_ids)
-
     db.commit()
+    marks = ','.join('?' * len(seg_ids))
+    had = {(r[0], r[1]) for r in db.execute(f'SELECT segmentId, activityId FROM SegmentEffort WHERE segmentId IN ({marks})', seg_ids)}
     tracks.fill(db)                                       # every sport: rides and runs alike are Activity rows
     by_fam = {}
     for seg in segments:
@@ -788,16 +792,29 @@ def scan_all_activities(db, segment_ids=None):
     every = db.execute('SELECT * FROM Segment').fetchall() if segment_ids else segments
     sibs = {seg['id']: siblings_of(seg, every) for seg in segments}
     ids_all = list(todo)
+    if on_batch:
+        on_batch(0, len(ids_all))
+        db.commit()
+    # Each activity's laps replace its old ones as its batch is written, and the efforts it had that the scan didn't find again (an activity no
+    # longer near enough, of another sport since the segment's changed, or matched by looser rules once) go at the end: the leaderboards stay
+    # whole while it runs, which a page can now see, as the scan is in the background. Efforts an import adds meanwhile aren't in `had`: kept.
+    found_again = set()
     for i in range(0, len(ids_all), _BATCH):
         ids = ids_all[i:i + _BATCH]
-        for act in db.execute(f"SELECT id, startDateLocal, {_streams.sql()}, sportType FROM Activity WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall():
-            scan_activity_against_segments(db, act, segments, track=todo[act['id']], pool=sibs)
+        acts = db.execute(f"SELECT id, startDateLocal, {_streams.sql()}, sportType FROM Activity WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()
+        found = [(act, match_activity(db, act, segments, track=todo[act['id']], pool=sibs)) for act in acts]
+        for act, f in found:
+            write_matches(db, act, f)
+            found_again.update((seg['id'], act['id']) for seg, _laps, _times in f)
+        if on_batch:
+            on_batch(i + len(ids), len(ids_all))
         db.commit()
 
-    for seg in segments:
-        _refresh_prs(db, seg['id'])
-
-    db.commit()
+    gone = had - found_again
+    for sid in seg_ids:
+        db.executemany('DELETE FROM SegmentEffort WHERE segmentId=? AND activityId=?', [g for g in gone if g[0] == sid])
+        _refresh_prs(db, sid)
+        db.commit()
     log.info('Segment scan complete — %d activities with GPS, %d near enough to read, %d segments', with_gps, len(todo), len(segments))
     return with_gps
 

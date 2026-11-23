@@ -363,6 +363,8 @@ def test_a_segments_sport_can_be_changed_and_it_is_matched_again(db, tmp_path):
     c = app.test_client()
     assert c.post('/segments/5/sport', data={'sport': 'foot'}).status_code == 302
     assert db.execute('SELECT sport FROM Segment WHERE id=5').fetchone()[0] == 'foot'
+    from services import jobs
+    assert jobs.run_queued(app) == 1                                                  # matched again by the worker
     assert db.execute('SELECT activityId FROM SegmentEffort WHERE segmentId=5').fetchone()[0] == 'run1'
     assert c.post('/segments/6/sport', data={'sport': 'foot'}).status_code == 400      # a friend's segment keeps its family
 
@@ -427,3 +429,30 @@ def test_stored_moving_times_of_seconds_are_put_right(db):
     row = db.execute("SELECT movingTime, averageSpeed FROM Activity WHERE id='flat'").fetchone()
     assert 950 <= row['movingTime'] <= 1010 and 2.9 < row['averageSpeed'] < 3.2
     assert db.execute("SELECT movingTime FROM Activity WHERE id='fine'").fetchone()[0] == 1000
+
+
+# ── A rescan in the background ───────────────────────────────────
+
+def test_a_rescan_keeps_the_leaderboard_while_it_runs_and_drops_what_it_did_not_find_again(db, monkeypatch):
+    monkeypatch.setattr(S, '_BATCH', 1)
+    add(db, 'r1', walk([(-100, 0), (1100, 0)], speed=6))
+    add(db, 'r2', walk([(-100, 0), (1100, 0)], speed=5), day='2026-10-02')
+    db.execute("INSERT INTO Segment (id, name, startLat, startLng, endLat, endLng, distanceM, sport) VALUES (1, 'Lane', ?, ?, ?, ?, 1000, 'ride')",
+               [*at(0, 0), *at(1000, 0)])
+    db.execute("INSERT INTO SegmentEffort (segmentId, activityId, activityDate, elapsedSecs) VALUES (1, 'ghost', '2020-01-01', 99)")  # matched once
+    db.commit()
+    S.scan_all_activities(db)
+    assert {r[0] for r in db.execute('SELECT activityId FROM SegmentEffort')} == {'r1', 'r2'}
+
+    seen = []
+
+    def midway(done, total):
+        seen.append(sorted(r[0] for r in db.execute('SELECT activityId FROM SegmentEffort')))
+        if done == 1:                                   # a ride imported while the scan runs: its own scan gives it an effort
+            db.execute("INSERT INTO SegmentEffort (segmentId, activityId, activityDate, elapsedSecs) VALUES (1, 'new', '2026-11-01', 150)")
+    db.execute("INSERT INTO SegmentEffort (segmentId, activityId, activityDate, elapsedSecs) VALUES (1, 'ghost', '2020-01-01', 99)")
+    db.commit()
+    S.scan_all_activities(db, on_batch=midway)
+    assert seen[0] == ['ghost', 'r1', 'r2']                                         # nothing cleared before it starts
+    assert {r[0] for r in db.execute('SELECT activityId FROM SegmentEffort')} == {'r1', 'r2', 'new'}      # the stale one gone, the new one kept
+    assert len(seen) == 3                                                           # 0 of 2 at the start, then after each ride

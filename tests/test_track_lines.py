@@ -105,3 +105,15 @@ def test_lines_made_the_old_way_are_made_again(db):
     tracks.ensure_schema(db)
     assert db.execute('SELECT COUNT(*) FROM ActivityTrack').fetchone()[0] == 0
     assert tracks.fill(db) == 1 and json.loads(db.execute("SELECT line FROM ActivityTrack").fetchone()[0]) == line
+
+
+def test_fill_reports_each_batch(db, monkeypatch):
+    monkeypatch.setattr(tracks, '_BATCH', 2)
+    for i in range(5):
+        db.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, movingTime, elapsedTime, rawData, riderId) "
+                   f"VALUES ('a{i}', 'a{i}', 'Ride', 'Ride', '2026-11-01T10:00:00', '2026-11-01T10:00:00', 5000, 900, 900, '{{}}', 1)")
+        _streams.save(db, f'a{i}', json.dumps({'latlng': {'data': walk([(0, 1000 + i)])}}))
+    db.commit()
+    seen = []
+    assert tracks.fill(db, on_batch=lambda done, total: seen.append((done, total))) == 5
+    assert seen == [(2, 5), (4, 5), (5, 5)] and db.execute('SELECT COUNT(*) FROM ActivityTrack').fetchone()[0] == 5

@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **The Tasks page no longer takes 2 to 3 seconds to open while the heatmap tracks are worked out again.** After updating to 0.7.56, the background work that redraws every track kept the database locked for a second or more at a time. Each time the Tasks page opened, it waited for that lock so it could mark the start-up notice as read. The work now only takes the lock to save its results, and the page writes nothing once the notice has been read. On 3,400 activities the page opened in about 20 ms throughout.
+- **Pages no longer wait behind an import, a segment scan or a best-efforts scan to save.** Several kinds of background work kept the database locked while they worked, so anything a page saved meanwhile had to wait. On 3,400 activities:
+  - An import asked the weather service about each new activity while it held the lock. It now asks first. A save that waited up to 0.7 s waits at most 0.15 s, and the import takes as long as it did.
+  - The best-efforts scan, the best efforts in kilometres and segment matching held the lock while they worked through each batch of 50 activities. They now work a batch out first and lock the database only to save it. A save waited up to 6 seconds during the best-efforts scan and up to 2.5 s during the others. It now waits a millisecond or less.
+  - Setting a ride's weather back to automatic asked the weather service while the lock was held. It now asks first.
+
+### Added
+- **Progress bars on the Tasks page.** Working out the heatmap tracks again and the best efforts in kilometres after an update now each show as a job with a count and a bar ("1,450 of 3,425 done"). The weather for older activities and an import in progress have bars too. While a bar is moving, the page refreshes every 5 seconds instead of every 20.
+
+### Changed
+- **Segment matching and the best-efforts scan run in the background.** Creating a segment, changing its sport, **Rescan all activities** on the Segments page and the best-efforts scan on the Data page now come straight back. On a few thousand activities the page waited up to 25 seconds. The work goes to the background worker, and the Tasks page shows how far it has got, as does the indicator at the top of every page. A new segment's page says its efforts are being found, then shows them when they're ready. During a rescan, every segment keeps its efforts until it has been matched again.
+
 ## [0.7.56-beta] - 2026-11-23
 
 ### Fixed

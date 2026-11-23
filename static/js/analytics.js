@@ -135,11 +135,16 @@ function computeEfforts() {
   const st  = document.getElementById('effortsStatus');
   if (btn) btn.disabled = true;
   st.style.display = 'block';
-  st.textContent = 'Scanning rides… this may take a moment.';
+  st.textContent = 'Scanning rides in the background: you can leave this page, and Tasks shows how far it has got.';
   fetch('/data/scan-efforts', { method: 'POST' })
     .then(r => r.json())
-    .then(d => { st.textContent = `✓ Scanned ${d.scanned} rides — reload to see records.`; })
-    .catch(() => { st.textContent = 'Scan failed.'; });
+    .then(d => followJob(d.job, () => {}, (state, error) => {
+      st.textContent = state === 'done' ? '✓ Scanned every ride — reload to see records.'
+                     : state === 'lost' ? 'Lost touch with Headwind: the scan carries on, and Tasks shows how it went.'
+                     : `Scan failed: ${error}`;
+      if (btn) btn.disabled = false;
+    }))
+    .catch(() => { st.textContent = 'Scan failed.'; if (btn) btn.disabled = false; });
 }
 
 // ── Global defaults ──────────────────────────────────────────────

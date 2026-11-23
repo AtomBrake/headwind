@@ -56,7 +56,7 @@ def test_job_cards_show_their_state_and_actions(client):
     assert 'Garmin sync' in html and 'Failing (2 in a row): HTTP 503' in html and 'action="/tasks/run/garmin"' in html
     assert 'Health history complete.' in html
     assert 'Weight history: could not reach Garmin' in html and 'action="/tasks/run/weights"' in html
-    assert 'tasks.js' in html and ' data-refresh>' in html                            # something is waiting: the page refreshes itself
+    assert 'tasks.js' in html and ' data-refresh="20"' in html                        # something is waiting: the page refreshes itself
 
 
 def test_run_now_wakes_the_jobs(client):
@@ -89,6 +89,37 @@ def test_task_log_runs_failures_orphans_and_pruning(client):
             tasks.record(db, 'x', 'x', 'x')
         db.commit()
         assert db.execute('SELECT COUNT(*) FROM TaskLog').fetchone()[0] <= tasks.KEEP + 1
+
+
+def test_a_long_run_shows_its_progress(client):
+    with client.application.app_context():
+        db = database.get_db()
+        tid = tasks.start(db, 'track_summaries', 'Map summaries of activities')
+        tasks.progress(db, tid, 1250, 5000)
+        db.commit()
+    html = client.get('/tasks').get_data(as_text=True)
+    assert '1,250 of 5,000 done' in html and 'role="progressbar"' in html and 'aria-valuenow="25"' in html
+    assert ' data-refresh="5"' in html                                                # a moving bar: refreshed more often
+    with client.application.app_context():
+        tasks.finish(database.get_db(), tid, '5,000 activities summarised')
+    html = client.get('/tasks').get_data(as_text=True)
+    assert 'role="progressbar"' not in html and '5,000 activities summarised' in html
+
+
+def test_opening_tasks_waits_for_no_write(client):
+    """The page marks the start-up notice seen once; after that it only reads, so a long write by the worker can't hold it up."""
+    import _thread                                                                    # threading.Thread is stubbed out by the fixture
+    import sqlite3
+    import threading
+    client.get('/tasks')                                                              # the notice is seen
+    other = sqlite3.connect(client.application.config['DATABASE'], isolation_level=None)
+    other.execute('BEGIN IMMEDIATE')                                                  # the worker in the middle of a write
+    got, done = [], threading.Event()
+    _thread.start_new_thread(lambda: (got.append(client.get('/tasks').status_code), done.set()), ())
+    in_time = done.wait(5)
+    other.execute('ROLLBACK')
+    done.wait()
+    assert in_time and got == [200]
 
 
 class _NowThread:

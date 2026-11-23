@@ -1,4 +1,10 @@
 const PAGE = JSON.parse(document.getElementById('segmentData').textContent);
+// Being matched in the background (the notice routes/segments.detail shows while a job is): reload once it's done, to show the efforts
+(function () {
+  var note = document.getElementById('segmentMatching');
+  if (note) followJob(note.dataset.job, function () {}, function (state) { if (state !== 'lost') location.reload(); });
+})();
+
 function rankLabel(n) { return ['🥇','🥈','🥉'][n-1] || String(n); }
 
 function filterEfforts() {
