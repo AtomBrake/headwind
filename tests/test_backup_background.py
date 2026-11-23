@@ -101,10 +101,32 @@ def test_the_button_returns_at_once_and_the_zip_restores(setup, tmp_path):
     out.write_bytes(z.read('headwind.db'))
     assert backup.validate(str(out)) == 1
     assert sqlite3.connect(out).execute('SELECT name FROM Activity').fetchall() == [('Morning ride',)]
+    r.close()                                                    # the download is done: Windows won't delete a file still open
 
     c.post('/settings/backup/delete')
     assert _made(path) == [] and c.get('/settings/backup/status').get_json()['state'] == 'none'
     assert 'The last one, <span data-backup-when=' in c.get('/settings/').get_data(as_text=True)      # and how big it was
+
+
+def test_deleting_a_backup_still_downloading_is_no_error_and_it_goes_at_the_next_start(setup, monkeypatch):
+    """Windows won't remove a file that's still open (its download still running): Delete mustn't fail on that, and the worker's start
+    removes it once nothing has it open."""
+    path, app = setup
+    c = _client(app)
+    c.post('/settings/backup/export')
+    jobs.run_queued(app)
+    real = os.remove
+
+    def still_open(p):
+        raise PermissionError(32, 'The process cannot access the file because it is being used by another process', p)
+    monkeypatch.setattr(downloads.os, 'remove', still_open)
+    r = c.post('/settings/backup/delete')
+    assert r.status_code == 302 and c.get('/settings/backup/status').get_json()['state'] == 'none'
+    assert len(_made(path)) == 1                                 # still there, and no longer offered
+    monkeypatch.setattr(downloads.os, 'remove', real)
+    with app.app_context():
+        downloads.clear(database.get_db(), path)
+    assert _made(path) == []
 
 
 def test_a_second_press_while_one_runs_starts_nothing(setup):
