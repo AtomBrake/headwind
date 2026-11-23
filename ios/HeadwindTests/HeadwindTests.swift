@@ -85,6 +85,21 @@ struct DecodingTests {
         #expect(o.weekly.last?.current == true)
         #expect(o.workouts?["week"]?.count == 0)
         #expect(o.recovery?.restingHR == 48)
+        #expect(o.title(for: .week) == "Week")             // an older server sends no periods: the app's own words
+        #expect(o.caption(for: .week) == nil)
+    }
+
+    @Test func overviewSaysWhatTheServerCountsAsAWeek() throws {
+        let t = #"{"rides":0,"distance_m":0,"elev_m":0,"moving_s":0,"calories":0}"#
+        let json = #"{"all":\#(t),"week":\#(t),"month":\#(t),"year":\#(t),"weekly":[],"periods":{"#
+            + #""week":{"label":"Past 7 days","short":"7 days","dates":"17–23 Nov","from":"2026-11-17","to":"2026-11-23","days":7,"mode":"rolling"},"#
+            + #""month":{"label":"November","short":"Month","dates":"Nov 2026","from":"2026-11-01","to":"2026-11-30","days":30,"mode":"calendar"},"#
+            + #""year":{"label":"2026","short":"Year","dates":"2026","from":"2026-01-01","to":"2026-12-31","days":365,"mode":"rolling"}}}"#
+        let o = try JSONDecoder.headwind.decode(Overview.self, from: Data(json.utf8))
+        #expect(o.title(for: .week) == "7 days")
+        #expect(o.caption(for: .week) == "Past 7 days · 17–23 Nov")
+        #expect(o.caption(for: .year) == "2026")
+        #expect(o.title(for: .all) == "All time" && o.caption(for: .all) == nil)
     }
 
     @Test func decodesAFreshInstallWithNothingSet() throws {

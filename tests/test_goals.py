@@ -10,7 +10,9 @@ from flask import Flask
 
 import database
 from routes import friends
-from services import feed_tokens, goals
+from services import feed_tokens, goals, periods
+
+CAL = periods.Prefs(periods.CALENDAR, 0)              # calendar weeks from Monday: what every install had before the setting
 
 
 def make_app(path, rider, other, token_in, token_out, url):
@@ -66,14 +68,6 @@ def sync(app):
 
 # ── Goals ───────────────────────────────────────────────────────
 
-def test_period_bounds():
-    wed = date(2026, 10, 21)
-    assert goals.period_bounds('week', wed) == (date(2026, 10, 19), date(2026, 10, 25))
-    assert goals.period_bounds('month', wed) == (date(2026, 10, 1), date(2026, 10, 31))
-    assert goals.period_bounds('month', date(2026, 12, 5)) == (date(2026, 12, 1), date(2026, 12, 31))
-    assert goals.period_bounds('year', wed) == (date(2026, 1, 1), date(2026, 12, 31))
-
-
 def test_a_weekly_distance_goal_counts_only_its_sport_and_week(pair):
     tom, _ = pair
 
@@ -83,7 +77,7 @@ def test_a_weekly_distance_goal_counts_only_its_sport_and_week(pair):
         ride(d, 'tue', '2026-10-20', dist=20000)
         ride(d, 'run', '2026-10-20', dist=10000, sport='Run')                              # not a ride
         ride(d, 'last', '2026-10-12', dist=90000)                                          # last week: hit it
-        return goals.goals(d, 1, today=date(2026, 10, 21))[0]
+        return goals.goals(d, 1, today=date(2026, 10, 21), p=CAL)[0]
     g = on(tom, go)
     assert round(g['done']) == 40000 and g['pct'] == round(100 * 40000 / (50 * 1609.344))
     assert g['status'] == 'ahead'                      # by Wednesday night an even pace is 3/7 of 50 = 21.4 mi; 24.9 done
@@ -97,11 +91,43 @@ def test_on_track_against_an_even_pace(pair):
         goals.add_goal(d, 1, 'climb', 'week', 'all', '1000')                              # feet, every sport
         ride(d, 'a', '2026-10-19', climb=150)                                              # 492 ft by Tuesday night: 2/7 of 1000 is 286
         ride(d, 'swim', '2026-10-20', climb=500, sport='Swim')                             # no climbing in the water
-        return goals.goals(d, 1, today=date(2026, 10, 20))[0]
+        return goals.goals(d, 1, today=date(2026, 10, 20), p=CAL)[0]
     g = on(tom, go)
     assert round(g['done']) == 150 and g['status'] == 'ahead' and g['expected_pct'] == 29
-    g = on(tom, lambda d: goals.goals(d, 1, today=date(2026, 10, 24))[0])                 # Saturday: 6/7 is 857 ft, still 492
+    g = on(tom, lambda d: goals.goals(d, 1, today=date(2026, 10, 24), p=CAL)[0])         # Saturday: 6/7 is 857 ft, still 492
     assert g['status'] == 'behind' and g['days_left'] == 2
+
+
+def test_a_rolling_weekly_goal_counts_the_past_7_days(pair):
+    """On a Monday the week is last Tuesday to today, not today alone; the history is the 7-day blocks before it."""
+    tom, _ = pair
+
+    def go(d):
+        goals.add_goal(d, 1, 'distance', 'week', 'ride', '50')
+        ride(d, 'last-mon', '2026-10-12', dist=90000)                                     # 8 days back: the block before
+        ride(d, 'tue', '2026-10-13', dist=30000)                                          # 6 days back: in
+        ride(d, 'sun', '2026-10-18', dist=20000)                                          # yesterday: in
+        ride(d, 'mon', '2026-10-19', dist=10000)                                          # today, a Monday: in
+        return goals.goals(d, 1, today=date(2026, 10, 19), p=periods.Prefs(periods.ROLLING, 0))[0]
+    g = on(tom, go)
+    assert round(g['done']) == 60000 and g['period_label'] == 'Past 7 days' and g['period_dates'] == '13–19 Oct'
+    assert g['days_left'] == 1 and g['rolling'] and g['status'] == 'behind'              # 37.3 mi of 50: no even pace to be ahead of
+    assert g['history'][-1]['label'] == '6–12 Oct' and g['history'][-1]['hit'] and g['streak'] == 1
+
+
+def test_a_rolling_monthly_goal_on_the_1st_includes_last_months_days(pair):
+    tom, _ = pair
+
+    def go(d):
+        goals.add_goal(d, 1, 'count', 'month', 'all', '3')
+        for i, day in enumerate(('2026-10-04', '2026-10-05', '2026-10-20', '2026-10-31', '2026-11-01')):
+            ride(d, f'r{i}', day)
+        return goals.goals(d, 1, today=date(2026, 11, 1), p=periods.Prefs(periods.ROLLING, 0))[0]
+    g = on(tom, go)
+    assert g['done'] == 4 and g['status'] == 'done'                                       # 5 Oct to 1 Nov: the 4th is 29 days back
+    assert g['period_label'] == 'Past 28 days' and g['title'].endswith('every 28 days')
+    g = on(tom, lambda d: goals.goals(d, 1, today=date(2026, 11, 1), p=CAL)[0])
+    assert g['done'] == 1 and g['period_label'] == 'November' and g['days_left'] == 30   # the calendar month: the 1st alone
 
 
 def test_goals_that_cant_be_measured_are_refused(pair):

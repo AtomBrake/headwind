@@ -104,9 +104,12 @@ def index():
         f"FROM Activity WHERE {act_where} GROUP BY dow",
         act_params
     )
-    dow_map    = {r['dow']: r['n'] for r in dow_rows}
-    dow_labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-    dow_values = [dow_map.get(i, 0) for i in range(7)]
+    from services import periods
+    week_start = periods.for_request().week_start           # the bars start on the rider's first day of the week (services/periods)
+    dow_map    = {(r['dow'] + 6) % 7: r['n'] for r in dow_rows}           # %w is 0 on Sunday; Python's weekday() 0 on Monday
+    days       = [(week_start + i) % 7 for i in range(7)]
+    dow_labels = [periods.DAY_NAMES[d][:3] for d in days]
+    dow_values = [dow_map.get(d, 0) for d in days]
 
     # ── Calories over time ────────────────────────────────────────
     cal_rows = query_db(
@@ -279,6 +282,7 @@ def index():
     wx_cond_counts = [len(v) for v in wx_cond_buckets.values()]
 
     return render_template('data.html',
+        week_start=week_start,
         speed_labels=speed_labels,
         speed_values=speed_values,
         speed_rolling=speed_rolling,

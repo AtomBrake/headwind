@@ -156,14 +156,6 @@ def _labelled(w):
     return {**w, 'label': sp.label(w.get('sport')), 'group': sp.stat_group(w.get('sport'))}
 
 
-def _period_start(kind, today):
-    if kind == 'week':
-        return today - timedelta(days=today.weekday())
-    if kind == 'month':
-        return today.replace(day=1)
-    return today.replace(month=1, day=1)
-
-
 @bp.route('/overview')
 def overview():
     """The web Dashboard's numbers, shaped for the phone: lifetime + week/month/year ride totals, 12-week chart, walks/runs, latest recovery."""
@@ -172,14 +164,16 @@ def overview():
     if not rider:
         return jsonify({'error': 'no rider'}), 409
     rid = rider['id']
-    today = tz.today()
+    from services import periods as _periods
+    p = _periods.for_request()
+    now = _periods.currents(p, tz.today())                 # the rider's week and month: the past 7 and 28 days, or calendar ones
 
-    def sums(since=None):
-        """{'ride': row, 'workout': row} over every activity since a date: one query, split by services/sports."""
+    def sums(period=None):
+        """{'ride': row, 'workout': row} over every activity in a services/periods Period (all time when None): one query, split by services/sports."""
         q = f'SELECT {KIND_SQL} kind, COUNT(*) n, SUM(distance) d, SUM(totalElevationGain) e, SUM(movingTime) t, SUM(calories) c FROM Activity WHERE riderId=?'
         a = [rid]
-        if since:
-            q += ' AND date(startDateLocal)>=?'; a.append(since.isoformat())
+        if period:
+            q += ' AND date(startDateLocal) BETWEEN ? AND ?'; a += period.sql_range()
         got = {r['kind']: r for r in query_db(q + ' GROUP BY kind', a)}
         return {k: got.get(k) or {'n': 0, 'd': 0, 'e': 0, 't': 0, 'c': 0} for k in ('ride', 'workout')}
 
@@ -189,12 +183,13 @@ def overview():
     def wk(r):
         return {'count': r['n'] or 0, 'distance_m': round(r['d'] or 0), 'calories': round(r['c'] or 0)}
 
-    period = {k: sums(_period_start(k, today)) for k in ('week', 'month', 'year')}
+    period = {k: sums(now[k]) for k in ('week', 'month', 'year')}
 
-    weekly = [{'label': w['label'], 'distance_m': w['dist_m'], 'elev_m': w['elev_m'], 'calories': w['cals'], 'current': w['current']} for w in _weekly_data(rid)]
-    every = _weekly_data(rid, _EverySport())
-    groups = _group_totals(rid, {k: _period_start(k, today) for k in ('week', 'month', 'year')})
-    weekly_all = [{'label': w['label'], 'current': w['current'],
+    weekly = [{'label': w['label'], 'from': w['from'], 'to': w['to'], 'distance_m': w['dist_m'], 'elev_m': w['elev_m'], 'calories': w['cals'],
+               'current': w['current']} for w in _weekly_data(rid, p=p)]
+    every = _weekly_data(rid, _EverySport(), p)
+    groups = _group_totals(rid, now)
+    weekly_all = [{'label': w['label'], 'from': w['from'], 'to': w['to'], 'current': w['current'],
                    'by': {g: {'distance_m': v['dist_m'], 'moving_s': v['secs'], 'elev_m': v['elev_m'], 'calories': v['cals']} for g, v in w['by'].items()}}
                   for w in every]
     from services import health
@@ -205,6 +200,7 @@ def overview():
         'workouts': {k: wk(period[k]['workout']) for k in ('week', 'month', 'year')},
         'weekly': weekly, 'sports': sports, 'recovery': health.latest_recovery(rid) if features.on('recovery') else None,
         'groups': groups, 'weekly_all': weekly_all,
+        'periods': {k: now[k].as_json() for k in ('week', 'month', 'year')},    # what week, month and year mean here: label, from, to, days
     })
 
 
@@ -216,18 +212,18 @@ class _EverySport:
         return '1=1', []
 
 
-def _group_totals(rid, starts):
+def _group_totals(rid, periods):
     """Every stat group the rider has (services/sports.stat_group), with its totals for the week, month, year and all time: count, distance, time,
     climbing and calories, and how its speed reads ('speed', 'pace', 'swim', or 'time' for the sports with no distance). Rides first, then on foot,
     swims and the rest by name, as on the dashboard. A distance is only ever added up within one group."""
     from services import sports as sp
     out = {}
-    for key, since in [('all', None)] + list(starts.items()):
+    for key, period in [('all', None)] + list(periods.items()):
         q = (f'SELECT sportType, COUNT(*) n, SUM(distance) d, SUM({sp.climb_sql()}) e, SUM(movingTime) t, SUM(calories) c '
              'FROM Activity WHERE riderId=?')
         a = [rid]
-        if since:
-            q += ' AND date(startDateLocal)>=?'; a.append(since.isoformat())
+        if period:
+            q += ' AND date(startDateLocal) BETWEEN ? AND ?'; a += period.sql_range()
         for r in query_db(q + ' GROUP BY sportType', a):
             g = sp.stat_group(r['sportType'])
             if g not in out:

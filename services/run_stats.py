@@ -6,10 +6,9 @@ export. Its best times are the ones services/sport_records keeps for every run a
 outdoor ones (a treadmill's or Zwift's 5 km is no run's best), though indoor runs count in the totals.
 """
 import json
-from datetime import timedelta
 
 from database import get_db, query_db
-from services import sport_records, tz
+from services import periods, sport_records, tz
 from services import streams as _streams
 
 DISTANCES = sport_records.RUN_DISTANCES
@@ -32,28 +31,27 @@ def _thin(points, n):
     return [[round(float(p[0]), 5), round(float(p[1]), 5)] for p in pts]
 
 
-def payloads(rid):
-    """{'nutrition_run_stats': {...}, 'nutrition_run_route': {...}} for the rider (empty-but-valid when they have no runs)."""
+def payloads(rid, p=None):
+    """{'nutrition_run_stats': {...}, 'nutrition_run_route': {...}} for the rider (empty-but-valid when they have no runs). The week and month
+    are the rider's (services/periods; p: their Prefs, read for rid when None), and each comes with its label, first and last day."""
     runs = _runs(rid)
     s = query_db('SELECT units FROM Settings WHERE id=1', one=True)
     units = (s['units'] if s and s['units'] else 'imperial')
     if not runs:
         return {'nutrition_run_stats': {'runs': 0, 'units': units}, 'nutrition_run_route': {'pts': []}, 'nutrition_run_segments': {'efforts': []}}
     today = tz.today()
-    mon = today - timedelta(days=today.weekday())
-    month0, year0 = today.replace(day=1), today.replace(month=1, day=1)
+    p = p or periods.prefs(rid)
+    now = periods.currents(p, today)
 
-    def tot(since):
-        sel = [r for r in runs if since is None or (r['d'] or '')[:10] >= since.isoformat()]
+    def tot(period):
+        sel = [r for r in runs if period is None or period.first.isoformat() <= (r['d'] or '')[:10] <= period.last.isoformat()]
         return {'n': len(sel), 'm': round(sum(r['distance'] or 0 for r in sel)), 's': int(sum(r['movingTime'] or 0 for r in sel)),
                 'gain': round(sum(r['gain'] or 0 for r in sel))}
 
     weeks = []
-    for k in range(11, -1, -1):
-        w0 = mon - timedelta(weeks=k)
-        w1 = w0 + timedelta(days=7)
-        sel = [r for r in runs if w0.isoformat() <= (r['d'] or '')[:10] < w1.isoformat()]
-        weeks.append({'d': w0.isoformat(), 'm': round(sum(r['distance'] or 0 for r in sel)), 'n': len(sel)})
+    for b in periods.blocks('week', 12, p, today):
+        sel = [r for r in runs if b.first.isoformat() <= (r['d'] or '')[:10] <= b.last.isoformat()]
+        weeks.append({'d': b.first.isoformat(), 'to': b.last.isoformat(), 'm': round(sum(r['distance'] or 0 for r in sel)), 'n': len(sel)})
 
     sport_records.ensure(get_db(), rid)
     ids = {r['id'] for r in runs}
@@ -81,7 +79,8 @@ def payloads(rid):
         ll = (json.loads(latest['streams'] or '{}').get('latlng') or {}).get('data') or []
     except Exception:
         ll = []
-    stats = {'runs': len(runs), 'units': units, 'week': tot(mon), 'month': tot(month0), 'year': tot(year0), 'all': tot(None), 'weeks': weeks, 'bests': bests,
+    stats = {'runs': len(runs), 'units': units, 'week': tot(now['week']), 'month': tot(now['month']), 'year': tot(now['year']), 'all': tot(None),
+             'periods': {k: v.as_json() for k, v in now.items()}, 'weeks': weeks, 'bests': bests,
              'recent': [card(r) for r in runs[:10]], 'longest': card(longest), 'fastest': card(fastest) if fastest else None}
     efforts, segs = _segment_efforts(rid, latest)
     route = {'id': latest['id'], 'name': latest['name'] or 'Run', 'date': (latest['d'] or '')[:10], 'm': round(latest['distance'] or 0), 'pts': _thin(ll, 140), 'segs': segs}

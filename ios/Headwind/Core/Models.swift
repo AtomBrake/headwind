@@ -111,6 +111,28 @@ struct Overview: Decodable {
     var groups: [SportGroup]?
     /// The last 12 weeks with each group's figures.
     var weeklyAll: [WeekAll]?
+    /// What week, month and year mean for this rider (services/periods.py): the past 7 and 28 days, or calendar ones, keyed by
+    /// Period.rawValue. Newer servers only; without it the picker says Week and Month.
+    var periods: [String: PeriodInfo]?
+
+    /// The picker's word for a period: the server's ("7 days", "Week", ...), else the app's own.
+    func title(for period: Period) -> String {
+        periods?[period.rawValue]?.short ?? period.title
+    }
+
+    /// The line under the picker: "Past 7 days · 17–23 Nov", "November · Nov 2026", or nil (all time, an older server).
+    func caption(for period: Period) -> String? {
+        guard let p = periods?[period.rawValue] else { return nil }
+        return p.label == p.dates ? p.label : "\(p.label) · \(p.dates)"
+    }
+
+    struct PeriodInfo: Decodable {
+        var label: String
+        var short: String
+        var dates: String
+        var from: String
+        var to: String
+    }
 
     func totals(for period: Period) -> RideTotals {
         switch period {

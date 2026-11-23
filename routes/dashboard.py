@@ -1,40 +1,37 @@
 from calendar import month_name, monthrange
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 from urllib.parse import urlencode
 
 from flask import Blueprint, redirect, render_template, request, session
 
 from database import get_db, query_db
-from services import features, friend_rides, sports, tz, whose
+from services import features, friend_rides, periods, sports, tz, whose
 from services.dates import day_month
 from services.sport_filter import SportFilter, chart_groups, speed_sql
 
 bp = Blueprint('dashboard', __name__)
 
 
-def _weekly_data(rider_id, sf=None):
+def _weekly_data(rider_id, sf=None, p=None):
     """The last 12 weeks of the sports the filter leaves in: totals, and the same per stat group ('by') for the stacked bars. Without a filter, rides
     only (the phone app's weekly bars). The week's own distance is None when the sports don't share one: a swim's doesn't add to a ride's.
-    rider_id is one rider's id or a list of them (the Friends list)."""
+    rider_id is one rider's id or a list of them (the Friends list). A week is the viewer's (services/periods, p: their Prefs): 7 days back to
+    back ending today, so the last bar is the past 7 days, or calendar weeks from their chosen day."""
     ids = rider_id if isinstance(rider_id, (list, tuple)) else [rider_id]
-    today  = tz.today()                                  # the server's home zone, as every other date here
-    monday = today - timedelta(days=today.weekday())
-    first  = monday - timedelta(weeks=11)
+    blocks = periods.blocks('week', 12, p or periods.resolve(ids[0]), tz.today())
+    first, last = blocks[0].first, blocks[-1].last
     clause, cparams = sf.sql() if sf else (sports.RIDE_SQL, [])
     rows = query_db(
         f"SELECT date(startDateLocal) AS d, sportType, distance, movingTime, {sports.climb_sql()} AS totalElevationGain, calories FROM Activity "
-        f"WHERE riderId IN ({','.join('?' * len(ids))}) AND date(startDateLocal) >= ? AND date(startDateLocal) < ? AND {clause}",
-        ids + [first.isoformat(), (monday + timedelta(days=7)).isoformat()] + cparams,
+        f"WHERE riderId IN ({','.join('?' * len(ids))}) AND date(startDateLocal) BETWEEN ? AND ? AND {clause}",
+        ids + [first.isoformat(), last.isoformat()] + cparams,
     )
     keys = ('dist_m', 'secs', 'elev_m', 'cals')
-    weeks = []
-    for i in range(11, -1, -1):
-        ws = monday - timedelta(weeks=i)
-        weeks.append({'label': day_month(ws), 'from': ws.isoformat(), 'to': (ws + timedelta(days=6)).isoformat(),   # metres: the page shows them in the rider's units
-                      'current': i == 0, 'by': {}, **dict.fromkeys(keys, 0)})
+    weeks = [{'label': b.dates, 'from': b.first.isoformat(), 'to': b.last.isoformat(),   # metres: the page shows them in the rider's units
+              'current': i == len(blocks) - 1, 'by': {}, **dict.fromkeys(keys, 0)} for i, b in enumerate(blocks)]
     for r in rows:
-        w = weeks[(date.fromisoformat(r['d']) - first).days // 7]
+        w = weeks[(date.fromisoformat(r['d']) - first).days // 7]           # every block is 7 days, back to back
         g = w['by'].setdefault(sports.stat_group(r['sportType']), dict.fromkeys(keys, 0))
         for k, v in zip(keys, (r['distance'], r['movingTime'], r['totalElevationGain'], r['calories'])):
             g[k] += v or 0

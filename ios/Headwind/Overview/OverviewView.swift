@@ -13,9 +13,15 @@ struct OverviewView: View {
                 ScrollView {
                     VStack(spacing: 16) {
                         Picker("Period", selection: $period) {
-                            ForEach(Overview.Period.allCases) { Text($0.title).tag($0) }
+                            ForEach(Overview.Period.allCases) { Text(overview.title(for: $0)).tag($0) }
                         }
                         .pickerStyle(.segmented)
+                        if let caption = overview.caption(for: period) {
+                            Text(caption)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
 
                         CardColumns {
                             if let groups = overview.groups, !groups.isEmpty {

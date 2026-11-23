@@ -42,7 +42,7 @@
     {{ rider_field() }}
     <label>What{{ metric_select('goalMetric') }}</label>
     <label>Sport{{ sport_select() }}</label>
-    <label>How often<select name="period">{% for p in periods %}<option value="{{ p }}"{{ ' selected' if p == 'week' }}>Every {{ p }}</option>{% endfor %}</select></label>
+    <label>How often<select name="period">{% for p in periods %}<option value="{{ p }}"{{ ' selected' if p == 'week' }}>{{ every[p][:1] | upper }}{{ every[p][1:] }}</option>{% endfor %}</select></label>
     <label>Target (<span data-unit-for="goalMetric">{{ units_of.distance }}</span>)<input type="number" name="target" min="0" step="any" required></label>
     <div class="wide form-actions"><button class="btn btn-primary" type="submit">Add goal</button>
       <span class="hint">Weeks run Monday to Sunday. A distance goal is for one kind of sport; climbing, time and activities can count every sport.</span></div>
