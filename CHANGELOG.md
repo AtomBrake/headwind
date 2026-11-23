@@ -18,7 +18,7 @@
 ## [0.7.56-beta] - 2026-11-23
 
 ### Fixed
-- **Heatmap tracks follow the roads.** Each track on the heatmap was cut down to about 50 points taken at even intervals through the recording, a point every 360 m on a typical ride and every kilometre or more on a long one, so bends, roundabouts and winding lanes were drawn as straight lines. Tracks now keep every point needed to stay within 10 m of where you went, and a straight road takes only a few. The HD export keeps them within 5 m. The download is a little over three times the size, about 2 MB for 2,000 activities. Existing activities' tracks are worked out again in the background on the first start after updating, which takes about a minute for a few thousand activities.
+- **Heatmap tracks follow the roads.** Each track on the heatmap was cut down to about 50 points taken at even intervals through the recording, a point every 360 m on a typical ride and every kilometre or more on a long one, so bends, roundabouts and winding lanes were drawn as straight lines. Tracks now keep every point needed to stay within 10 m of where you went, and a straight road takes only a few. The HD export keeps them within 5 m. The download is about three and a half times the size, about 2 MB compressed for 2,000 activities. Existing activities' tracks are worked out again in the background on the first start after updating, which takes about a minute for a few thousand activities.
 - **"Same route" finds more of your repeated routes.** It compared the same cut-down tracks, which often left out an activity's last point, so two rides that finished in the same place could fail the check that they did. It now compares points spread evenly along each route.
 
 ### Changed
