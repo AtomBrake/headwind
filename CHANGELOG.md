@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.53-beta] - 2026-11-23
 
 ### Added
 - **Click a track on the heatmap to open its activity.** Click or tap a line and a popup shows the activity's name, date, sport and distance, linking to its page. Where tracks overlap, as a regular commute's do, it lists every one under the click, newest first, and pointing at one in the list picks it out on the map. The tracks you picked are drawn over the rest while the popup is open. With everyone's activities shown together, each says whose it is, and a friend's opens on its own page too.
