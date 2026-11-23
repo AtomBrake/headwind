@@ -1080,4 +1080,4 @@ Headwind began as [lordmaa's original Headwind](https://github.com/lordmaa/headw
 Released under the [MIT licence](LICENSE), which keeps the original's copyright notice alongside this project's.
 
 ## Public demo
-A locked-down read-mostly demo mode (`HEADWIND_DEMO=1`) with anonymised data is described in [demo/README.md](demo/README.md).
+Demo mode (`HEADWIND_DEMO=1`) runs a Headwind anyone can try: every page and action is shut unless it's been checked as safe to show, it connects to nothing on the network around it, visitors press **Enter the demo** to sign in, and the data resets every night. [demo/README.md](demo/README.md) says how to run it behind a Cloudflare tunnel. The data for this repo's own demo, with generated tracks, isn't built yet.

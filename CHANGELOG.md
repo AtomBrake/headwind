@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- **Demo mode is safe to run on a home network.** With `HEADWIND_DEMO=1`, pages and APIs are shut unless they've been checked as safe to show anyone, as writes already were, so a page added later stays closed in the demo until someone has looked at what it shows. The server's logs and diagnostics, the update check, contacts, live tracking links and Garmin's course list never open. The app refuses every connection to a private address, `demo/docker-compose.demo.yml` puts the demo on a network with no way out that only its Cloudflare tunnel reaches, the nightly reset brings the clean copy up to the running version before swapping it in, and the sign-in page has **Enter the demo**. [demo/README.md](demo/README.md) says how to run it.
+
 ## [0.7.63-beta] - 2026-11-28
 
 ### Added

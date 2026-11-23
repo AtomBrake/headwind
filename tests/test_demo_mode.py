@@ -83,6 +83,21 @@ def test_reset_restores_the_pristine_database_and_bike_pictures(tmp_path):
     assert demo.reset_now(live, str(tmp_path / 'missing.db')) is False
 
 
+def test_reset_brings_an_older_clean_copy_up_to_this_version_and_leaves_nothing_behind(tmp_path):
+    """A clean copy built by an older Headwind is migrated before it goes live, in a folder that's then removed (with the copy migrating keeps)."""
+    import database
+    pristine, live = str(tmp_path / 'pristine.db'), str(tmp_path / 'live.db')
+    for path in (pristine, live):
+        c = sqlite3.connect(path); c.execute('CREATE TABLE t (v TEXT)'); c.commit(); c.close()
+    assert demo.reset_now(live, pristine) is True
+    c = sqlite3.connect(live)
+    assert c.execute('PRAGMA user_version').fetchone()[0] == len(database.STEPS)
+    assert c.execute("SELECT 1 FROM sqlite_master WHERE name='Activity'").fetchone()
+    c.close()
+    assert sorted(f for f in os.listdir(tmp_path) if not f.startswith('live.db')) == ['pristine.db']
+    assert sqlite3.connect(pristine).execute('PRAGMA user_version').fetchone()[0] == 0      # the clean copy itself is never changed
+
+
 def test_demo_is_off_unless_asked_for(monkeypatch):
     monkeypatch.delenv('HEADWIND_DEMO', raising=False)
     assert demo.enabled() is False
@@ -146,3 +161,128 @@ def test_rebase_if_needed_only_moves_when_a_week_has_passed_and_remembers_it(tmp
     assert c.execute("SELECT value FROM DemoMeta WHERE key='built_on'").fetchone()[0] == '2026-03-24'
     assert demo.rebase_if_needed(path, today=date(2026, 3, 27)) == 0                                            # and not again
     assert c.execute("SELECT startDateLocal FROM Activity").fetchone()[0] == '2026-03-15T09:00:00'
+
+
+# ---------------------------------------------------------------- every endpoint has a decision; the one-click way in
+class _NoThread:
+    def __init__(self, *a, **kw): pass
+    def start(self): pass
+
+
+def _make_app(tmp_path, monkeypatch, demo_on):
+    from flask import Flask
+    import app as app_module
+    import config
+    import database
+    if demo_on:
+        monkeypatch.setenv('HEADWIND_DEMO', '1')
+    else:
+        monkeypatch.delenv('HEADWIND_DEMO', raising=False)
+    path = str(tmp_path / 't.db')
+    pre = Flask('pre')
+    pre.config['DATABASE'] = path
+    with pre.app_context():
+        database.migrate_db()
+        db = database.get_db()
+        db.execute("INSERT OR IGNORE INTO Settings (id) VALUES (1)")
+        db.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Alex', 1)")
+        db.commit()
+    monkeypatch.setattr(config.Config, 'DATABASE', path)
+    monkeypatch.setattr(app_module.threading, 'Thread', _NoThread)
+    _keep_socket(monkeypatch)                           # demo mode guards the socket for the whole process: give the other tests theirs back
+    return app_module.create_app()
+
+
+def _keep_socket(monkeypatch):
+    import socket
+    monkeypatch.setattr(socket.socket, 'connect', socket.socket.connect)
+    monkeypatch.setattr(socket.socket, 'connect_ex', socket.socket.connect_ex)
+
+
+@pytest.fixture
+def demo_app(tmp_path, monkeypatch):
+    return _make_app(tmp_path, monkeypatch, True)
+
+
+def test_every_endpoint_has_a_demo_decision(demo_app):
+    """A new page or API is shut in the demo until it's on one of the lists: this says which ones need a look, so the demo doesn't just show 'switched off'.
+    Endpoints that only take writes are refused unless allowed, which is what they should be, so only those that answer GET need a decision."""
+    known = demo.ALLOWED_WRITES | demo.DENIED_ENDPOINTS | demo.SAFE_READS | set(demo._STATIC) | {'demo.counter', 'demo.health'}
+    reads = {r.endpoint for r in demo_app.url_map.iter_rules() if 'GET' in r.methods}
+    endpoints = {r.endpoint for r in demo_app.url_map.iter_rules()}
+    assert sorted(reads - known) == [], 'add these to SAFE_READS (after checking what they show), ALLOWED_WRITES or DENIED_ENDPOINTS in services/demo.py'
+    assert sorted(known - endpoints - {'avatar_files'}) == [], 'these names in services/demo.py match no endpoint any more'
+    assert not demo.SAFE_READS & demo.DENIED_ENDPOINTS and not demo.ALLOWED_WRITES & demo.DENIED_ENDPOINTS
+
+
+def test_reads_are_refused_unless_checked_as_safe():
+    assert demo.decide('GET', 'totally.new.page')
+    for ep in ('tasks.index', 'tasks.logs_json', 'tasks.diagnostics', 'tasks.troubleshooting_copy_download', 'settings.version_check', 'api_v1.contacts_list',
+               'live_share.page', 'live_share.data', 'setup.wizard', 'saved_routes.garmin_courses'):
+        assert demo.decide('GET', ep), ep
+    for ep in ('dashboard.dashboard', 'activities.detail', 'nutrition.search_food', 'heatmap.index', 'settings.index', 'saved_routes.route'):
+        assert demo.decide('GET', ep) is None, ep
+
+
+def test_one_click_enter_signs_in_without_a_password(demo_app):
+    c = demo_app.test_client()
+    page = c.get('/login').get_data(as_text=True)
+    assert 'name="enter" value="demo"' in page and 'Enter the demo' in page
+    r = c.post('/login', data={'enter': 'demo'})
+    assert r.status_code == 302 and r.headers['Location'].endswith('/dashboard')
+    assert c.get('/tasks').status_code == 403            # signed in, and the server's logs stay shut
+    with c.session_transaction() as s:
+        assert s.get('logged_in') is True
+
+
+def test_one_click_enter_does_nothing_outside_the_demo(tmp_path, monkeypatch):
+    c = _make_app(tmp_path, monkeypatch, False).test_client()
+    assert 'Enter the demo' not in c.get('/login').get_data(as_text=True)
+    r = c.post('/login', data={'enter': 'demo'})
+    assert r.status_code == 200 and 'Invalid username or password' in r.get_data(as_text=True)
+    with c.session_transaction() as s:
+        assert not s.get('logged_in')
+
+
+# ---------------------------------------------------------------- nothing on the network around it
+def test_private_addresses_are_recognised():
+    for a in ('192.168.1.20', '10.0.0.5', '172.20.0.3', '169.254.1.1', '100.64.0.1', 'fd12::1', 'fe80::1', '::ffff:192.168.1.1'):
+        assert demo._private(a), a
+    for a in ('8.8.8.8', '1.1.1.1', '127.0.0.1', '::1', '2606:4700::1111', '172.32.0.1'):
+        assert not demo._private(a), a
+
+
+def test_demo_refuses_connections_to_the_home_network_but_not_to_itself(monkeypatch):
+    import socket
+    _keep_socket(monkeypatch)
+    demo.block_private_networks()
+    demo.block_private_networks()                       # twice is harmless
+    for target in (('192.168.1.1', 1883), ('10.0.0.2', 8123)):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            with pytest.raises(PermissionError):
+                s.connect(target)
+            with pytest.raises(PermissionError):
+                s.connect_ex(target)
+        finally:
+            s.close()
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(('127.0.0.1', 0))
+    server.listen(1)
+    try:
+        c = socket.create_connection(server.getsockname(), timeout=2)
+        c.close()
+    finally:
+        server.close()
+
+
+def test_demo_app_guards_the_socket(demo_app):
+    import socket
+    assert getattr(socket.socket.connect, '_demo_guard', False)
+
+
+def test_the_demo_has_no_link_to_the_shut_tasks_page(demo_app):
+    c = demo_app.test_client()
+    c.post('/login', data={'enter': 'demo'})
+    page = c.get('/dashboard').get_data(as_text=True)
+    assert 'href="/tasks"' not in page and 'href="/settings/"' in page

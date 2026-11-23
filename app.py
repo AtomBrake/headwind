@@ -492,6 +492,7 @@ def create_app():
     from services import demo as _demo
     DEMO = _demo.enabled()
     if DEMO:
+        _demo.block_private_networks()             # the web processes and the worker (it builds its app here too) reach nothing on the network around them
         _limiter = _demo.RateLimiter(limit=int(os.environ.get('DEMO_RATE_PER_MIN', '300')), window=60)
 
         @app.before_request

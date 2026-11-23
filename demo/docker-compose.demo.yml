@@ -1,26 +1,30 @@
-# Public Headwind demo. Build on the host that runs it (arm64 on the Pi):
-#   docker compose -f demo/docker-compose.demo.yml up -d --build
+# Public Headwind demo, for a machine on a home network, reached only through a Cloudflare tunnel. See demo/README.md.
+#   docker compose -f demo/docker-compose.demo.yml up -d
+# The demo sits on a network with no way out (internal: true): it can reach neither the internet nor anything on the home network, and nothing
+# reaches it but cloudflared, which is on that network and an ordinary one. In demo mode the app also refuses connections to private addresses
+# itself (services/demo.block_private_networks), in case it is ever run without this file. Settings come from demo/.env (never committed).
 services:
   headwind-demo:
-    build: ..
+    image: ${DEMO_IMAGE:-ghcr.io/atombrake/headwind:beta}
     container_name: headwind-demo
     entrypoint: ["/app/demo/docker-entrypoint.sh"]
-    ports:
-      - "5003:5001"
     environment:
       - HEADWIND_DEMO=1
       - APP_USERNAME=test
       - APP_PASSWORD=test
-      - SECRET_KEY=${DEMO_SECRET_KEY:-change-me-demo-secret}
+      - SECRET_KEY=${DEMO_SECRET_KEY:?set DEMO_SECRET_KEY in demo/.env (python3 -c "import secrets; print(secrets.token_hex(32))")}
       - DATABASE_URL=/data/bike.db
       - DEMO_PRISTINE_DB=/demo/pristine.db
       - DEMO_PRISTINE_BIKEIMG=/demo/bikeimg
-      - APP_URL=${DEMO_APP_URL:-http://localhost:5003}
+      - APP_URL=${DEMO_APP_URL:-http://localhost:5001}
+      - WEB_WORKERS=${DEMO_WEB_WORKERS:-2}
     volumes:
       - demo-data:/data
       - ./out:/demo:ro
+    networks:
+      - demo
     restart: unless-stopped
-    mem_limit: 512m
+    mem_limit: 768m
     cpus: 1.5
     labels:
       - com.centurylinklabs.watchtower.enable=false
@@ -29,5 +33,24 @@ services:
       interval: 60s
       timeout: 10s
       retries: 3
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: headwind-demo-tunnel
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN:?set TUNNEL_TOKEN in demo/.env (Cloudflare Zero Trust, Networks, Tunnels)}
+    networks:
+      - demo
+      - outside
+    depends_on:
+      - headwind-demo
+    restart: unless-stopped
+
+networks:
+  demo:
+    internal: true
+  outside: {}
+
 volumes:
   demo-data:

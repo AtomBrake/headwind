@@ -1,20 +1,26 @@
 """Public demo mode (HEADWIND_DEMO=1): a Headwind that is safe to leave on the internet with a published login (test / test).
 
-* WRITES are default-deny: only a short allow-list of harmless, interesting actions (log food, add water, assign bikes...) works; anything that could reach the
-  network, read or replace files, change credentials, or burn CPU (imports, restores, settings, friends, Garmin, segments scans...) is refused with a friendly message.
-* A few GETs that proxy to third parties or download the whole database are refused too.
+* Everything is default-deny. WRITES: only a short allow-list of harmless, interesting actions (log food, add water, assign bikes...) works; anything that could
+  reach the network, read or replace files, change credentials, or burn CPU (imports, restores, settings, friends, Garmin, segments scans...) is refused with a
+  friendly message. READS: only the pages and APIs in SAFE_READS open, so a page added later stays shut until someone has looked at what it shows; the server's
+  logs and diagnostics, update checks, contacts and live-tracking links never do. tests/test_demo_mode.py fails while any endpoint is on none of the lists.
 * Per-IP rate limiting, security headers, no background network threads.
+* No connections to private addresses (block_private_networks): the demo may run on someone's home network, and must not reach the rest of it (MQTT, Home
+  Assistant, a NAS, the router) whatever a setting or a bug says. Public services (food search, weather, map images) still work.
 * Everything resets every night from a pristine copy, so vandalism is short-lived.
 * An old-school hit counter (a generated GIF with LED digits) that only counts real browsers: bots don't load images.
 """
 import hashlib
 import io
+import ipaddress
 import logging
 import os
 import re
 import secrets
 import shutil
+import socket
 import sqlite3
+import tempfile
 import threading
 import time
 from collections import defaultdict, deque
@@ -53,7 +59,44 @@ ALLOWED_WRITES = {
 DENIED_ENDPOINTS = {
     'ai_page.bulk_analyse', 'friends.feed', 'friends.food_image', 'friends.foods_feed', 'friends.riders_list', 'garmin.sync_activities', 'heatmap.tile_proxy',
     'nutrition.image_search', 'nutrition.stock_image', 'settings.backup_export', 'settings.backup_download', 'route_builder.export_saved', 'import_rides.api_upload_ride',
-    'api_v1.sync_nutrition',
+    'api_v1.sync_nutrition', 'saved_routes.garmin_courses',
+    # the server's own logs, jobs and diagnostics (they hold visitors' addresses), the update check (calls GitHub on every visit), contacts, live-tracking links
+    'tasks.index', 'tasks.background', 'tasks.diagnostics', 'tasks.job_events', 'tasks.logs_json', 'tasks.troubleshooting_copy_download',
+    'tasks.troubleshooting_copy_status', 'settings.version_check', 'settings.backup_status', 'api_v1.contacts_list', 'api_v1.friend_list', 'api_v1.live_share',
+    'live_share.page', 'live_share.data', 'setup.wizard',
+}
+# reads checked as safe to show anyone: pages and APIs over the demo's own made-up data. Add a new page here only after looking at what it shows.
+SAFE_READS = {
+    'about.index',
+    'activities.bulk_options', 'activities.detail', 'activities.export_gpx', 'activities.photo', 'activities.view_duplicate',
+    'ai_page.count', 'ai_page.index',
+    'api_v1.activity_detail', 'api_v1.activity_list', 'api_v1.health_summary', 'api_v1.live', 'api_v1.overview', 'api_v1.perform',
+    'api_v1.photo_file', 'api_v1.ping', 'api_v1.today', 'api_v1.zwift_map',
+    'dashboard.activities_page', 'dashboard.dashboard', 'dashboard.history', 'dashboard.index', 'dashboard.workouts_page',
+    'data.index',
+    'friends.index', 'friends.sync_status',
+    'garmin.history_status', 'garmin.sports_page',
+    'garmin_page.index',
+    'gear.api_calendar', 'gear.api_day_rides', 'gear.assign_page', 'gear.bike', 'gear.bike_form', 'gear.index', 'gear.kit_form', 'gear.kit_page', 'gear.merged_page',
+    'gear.photo', 'gear.strava_page',
+    'goals.index',
+    'heatmap.data', 'heatmap.index', 'heatmap.zwift_map',
+    'homeassistant.index',
+    'import_rides.index', 'import_rides.progress', 'import_rides.status',
+    'kudos.kudos_status',
+    'matched.card',
+    'nutrition.body_metrics', 'nutrition.day_log', 'nutrition.get_goals', 'nutrition.get_profile', 'nutrition.get_weight_settings', 'nutrition.goal_plan',
+    'nutrition.image_proxy', 'nutrition.index', 'nutrition.list_custom_foods', 'nutrition.list_favourites', 'nutrition.list_recipes', 'nutrition.list_saved_meals',
+    'nutrition.lookup', 'nutrition.recent_foods', 'nutrition.search_food', 'nutrition.steps_list', 'nutrition.steps_page', 'nutrition.week_index', 'nutrition.week_log',
+    'nutrition.weight_backfill_page', 'nutrition.weight_graph_data', 'nutrition.weight_graph_page',
+    'old_rides.moved',
+    'phones.index',
+    'riders.detail', 'riders.index',
+    'roughness.data', 'roughness.index',
+    'route_builder.get_route', 'route_builder.index', 'route_builder.list_routes', 'route_builder.route_waypoints',
+    'saved_routes.activities', 'saved_routes.garmin_status', 'saved_routes.index', 'saved_routes.lines', 'saved_routes.route', 'saved_routes.segments',
+    'segments.detail', 'segments.index',
+    'settings.index',
 }
 WRITE_METHODS = ('POST', 'PUT', 'PATCH', 'DELETE')
 _STATIC = ('static', 'avatar_files')
@@ -65,9 +108,59 @@ def decide(method, endpoint):
         return None
     if endpoint in DENIED_ENDPOINTS:
         return 'This is switched off in the demo.'
-    if method in WRITE_METHODS and endpoint not in ALLOWED_WRITES:
+    if endpoint in ALLOWED_WRITES:
+        return None
+    if method in WRITE_METHODS:
         return 'That is switched off in the demo (it could change settings, reach other servers or touch files). Everything resets every night.'
-    return None
+    if endpoint in SAFE_READS:
+        return None
+    return 'This is switched off in the demo.'
+
+
+# ---------------------------------------------------------------- nothing on the network around it
+_PRIVATE = [ipaddress.ip_network(n) for n in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '100.64.0.0/10', '0.0.0.0/8',
+                                              'fc00::/7', 'fe80::/10')]
+
+
+def _private(host):
+    """True if `host` (an address, or a name resolved here) is or resolves to a private, link-local or shared address. Loopback is this container itself."""
+    try:
+        addrs = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            addrs = [ipaddress.ip_address(ai[4][0].split('%')[0]) for ai in socket.getaddrinfo(host, None)]
+        except (OSError, ValueError):
+            return False                                            # can't resolve: the connect fails on its own
+    for a in addrs:
+        if a.version == 6 and a.ipv4_mapped:
+            a = a.ipv4_mapped
+        if any(a in n for n in _PRIVATE):
+            return True
+    return False
+
+
+def block_private_networks():
+    """Refuse, in this process, every outgoing connection to a private address. Called at start-up in demo mode, so it covers every library
+    (requests, paho-mqtt, smtplib) and anything added later. Refused with PermissionError, an OSError, which callers already treat as a network failure."""
+    if getattr(socket.socket.connect, '_demo_guard', False):
+        return
+    orig_connect, orig_connect_ex = socket.socket.connect, socket.socket.connect_ex
+
+    def _check(sock, address):
+        if sock.family in (socket.AF_INET, socket.AF_INET6) and isinstance(address, tuple) and _private(address[0]):
+            log.warning('Demo: refused a connection to a private address (%s)', address[0])
+            raise PermissionError(13, 'the demo does not connect to private networks')
+
+    def connect(sock, address):
+        _check(sock, address)
+        return orig_connect(sock, address)
+
+    def connect_ex(sock, address):
+        _check(sock, address)
+        return orig_connect_ex(sock, address)
+
+    connect._demo_guard = connect_ex._demo_guard = True
+    socket.socket.connect, socket.socket.connect_ex = connect, connect_ex
 
 
 # ---------------------------------------------------------------- rate limiting
@@ -275,19 +368,45 @@ def rebase_if_needed(db_path, today=None):
 
 
 # ---------------------------------------------------------------- nightly reset
+def migrate(db_path):
+    """Bring a demo database up to this version's schema (database.STEPS), as Docker does before Gunicorn starts."""
+    from flask import Flask
+    import database
+    app = Flask(__name__)
+    app.config['DATABASE'] = db_path
+    with app.app_context():
+        database.migrate_db()
+
+
 def reset_now(live_db, pristine, bike_src=None, bike_dst=None):
-    """Replace the live database with the pristine copy (SQLite backup API: atomic, WAL-aware, other connections just see the new data) and restore bike pictures."""
+    """Replace the live database with the pristine copy and restore bike pictures. The copy is migrated to this version and its dates moved on in a
+    folder of its own first (a clean copy built by an older Headwind would otherwise leave the demo on an old schema until the next restart), then
+    swapped in with SQLite's backup API: atomic, WAL-aware, other connections just see the new data."""
     if not pristine or not os.path.isfile(pristine):
         log.warning('Demo reset skipped: no pristine database at %s', pristine)
         return False
-    src = sqlite3.connect(f'file:{pristine}?mode=ro', uri=True)
-    dst = sqlite3.connect(live_db, timeout=60)
+    work = tempfile.mkdtemp(prefix='demo-reset-', dir=os.path.dirname(os.path.abspath(live_db)))
     try:
-        src.backup(dst)
-        dst.commit()
+        fresh = os.path.join(work, 'bike.db')
+        src = sqlite3.connect(f'file:{pristine}?mode=ro', uri=True)
+        out = sqlite3.connect(fresh)
+        try:
+            src.backup(out)
+        finally:
+            src.close()
+            out.close()
+        migrate(fresh)                                              # leaves its .pre-<version> copy in `work`, which goes below
+        rebase_if_needed(fresh)
+        src = sqlite3.connect(fresh, timeout=60)
+        dst = sqlite3.connect(live_db, timeout=60)
+        try:
+            src.backup(dst)
+            dst.commit()
+        finally:
+            src.close()
+            dst.close()
     finally:
-        src.close()
-        dst.close()
+        shutil.rmtree(work, ignore_errors=True)
     if bike_src and bike_dst and os.path.isdir(bike_src):
         os.makedirs(bike_dst, exist_ok=True)
         for f in os.listdir(bike_dst):
@@ -321,8 +440,7 @@ def reset_loop(app, hour=4):
             if due:
                 if os.path.exists(flag):
                     os.remove(flag)
-                if reset_now(live, pristine, bike_src, os.path.join(data_dir, 'bikeimg')):
-                    rebase_if_needed(live)
+                reset_now(live, pristine, bike_src, os.path.join(data_dir, 'bikeimg'))     # migrated and brought up to date before it goes live
                 done_for = now.date()
         except Exception as e:                                              # pragma: no cover
             log.warning('Demo reset failed: %s', e)

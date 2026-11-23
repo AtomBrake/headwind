@@ -5,7 +5,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from database import get_db
-from services import credentials
+from services import credentials, demo
 from flask import Blueprint, redirect, render_template, request, session, url_for
 
 load_dotenv(os.environ.get('HEADWIND_ENV') or Path(__file__).parent.parent / '.env', override=True)
@@ -46,7 +46,8 @@ def login_page():
         db = get_db()
         if _locked_out(db, ip):
             return render_template('login.html', error='Too many attempts — try again in a few minutes'), 429
-        if credentials.check(request.form.get('username', ''), request.form.get('password', '')):
+        if (demo.enabled() and request.form.get('enter') == 'demo') or \
+                credentials.check(request.form.get('username', ''), request.form.get('password', '')):     # the public demo's one-click way in
             session.permanent = True
             session['logged_in'] = True
             session['av'] = credentials.auth_version()
