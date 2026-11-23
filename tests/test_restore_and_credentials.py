@@ -69,7 +69,8 @@ def test_only_a_hash_is_saved(creds, tmp_path):
     assert set(d) == {'username', 'password_hash', 'env_sig'}
     assert d['username'] == 'rob' and d['password_hash'].startswith('scrypt:')
     assert 'a-long-password' not in (tmp_path / '.admin_login').read_text(encoding='utf-8')
-    assert oct((tmp_path / '.admin_login').stat().st_mode & 0o777) == '0o600'
+    if os.name != 'nt':                 # Windows has no such mode bits: the file is private by the ACL of %LOCALAPPDATA%\Headwind (the user's own)
+        assert oct((tmp_path / '.admin_login').stat().st_mode & 0o777) == '0o600'
 
 
 def test_env_sig_is_a_salted_slow_hash(creds, tmp_path):

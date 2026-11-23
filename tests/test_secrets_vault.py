@@ -99,7 +99,8 @@ def test_old_plain_secrets_are_encrypted_at_start_and_gone_from_the_file(setup):
 def test_the_key_is_private_beside_the_database_and_a_second_start_changes_nothing(setup, monkeypatch):
     path, app = setup
     key = os.path.join(os.path.dirname(path), '.secrets_key')
-    assert stat.S_IMODE(os.stat(key).st_mode) == 0o600
+    if os.name != 'nt':                 # Windows has no such mode bits: the key is private by the ACL of %LOCALAPPDATA%\Headwind (the user's own)
+        assert stat.S_IMODE(os.stat(key).st_mode) == 0o600
     before = sqlite3.connect(path).execute('SELECT openaiKey FROM Settings').fetchone()
     with app.app_context():
         assert vault.seal_plain(database.get_db()) == 0
