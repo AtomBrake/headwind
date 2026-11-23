@@ -1,0 +1,48 @@
+name: Feature request
+description: Something you'd like Headwind to do, or do better.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Headwind grows from what people ask for, so small requests are welcome. A sport or a device that isn't handled well counts too.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to do?
+      description: The thing you want to get done, and what gets in the way today. This matters more than a particular solution.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: sport
+    attributes:
+      label: Which sport is it for?
+      multiple: true
+      options:
+        - All sports
+        - Cycling
+        - Running
+        - Walking or hiking
+        - Swimming
+        - Winter sports
+        - Paddling or rowing
+        - Strength or gym
+        - Not about a sport (nutrition, gear, setup...)
+        - Other (say below)
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: How might it work?
+      description: Optional. A sketch, a screenshot of another app that does it well, or where on which page you'd expect it.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version you're on
+      description: Optional. **Settings → This server**, beside **Check for update**.
+      placeholder: e.g. 0.7.56-beta

@@ -1,0 +1,68 @@
+name: Bug report
+description: Something is broken, wrong or confusing.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Small things are welcome too, including "this works but it's annoying".
+
+        Please don't paste anything you wouldn't want public: activity names, places, your server's address, tokens or passwords.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "**Settings → This server**, beside **Check for update**."
+      placeholder: e.g. 0.7.56-beta
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run Headwind?
+      options:
+        - Docker
+        - Raspberry Pi
+        - Windows
+        - From source
+        - Other (say below)
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you did, step by step, and what you saw. If a page said "Headwind hit an error", quote the reference it gave.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: input
+    id: sport-device
+    attributes:
+      label: Sport, device or import (if it matters)
+      description: e.g. a run from a Garmin watch, a Strava export, a FIT file from a bike computer, the iPhone app.
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics, screenshots or logs
+      description: |
+        The **Tasks** page has a **Download diagnostics** button for the logs. Look through it before attaching it: it can hold activity names and places. Drag files or screenshots here.
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Before submitting
+      options:
+        - label: I've checked what I attached for names, places and anything else I don't want public.
+          required: true

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/AtomBrake/headwind/security/advisories/new
+    about: Please report security problems privately here, not in a public issue.
+  - name: Troubleshooting
+    url: https://github.com/AtomBrake/headwind#troubleshooting
+    about: Common problems and their fixes, in the README.

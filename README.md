@@ -97,7 +97,7 @@ Headwind is a real, working application used daily by its maintainer. The first 
 
 Please [open an issue](../../issues) for anything: a bug, something confusing, a sport or a device that isn't handled well, an import that went wrong, or a feature you'd like. Small requests are welcome too, and so are "this works but it's annoying". Headwind grows from what people ask for.
 
-For a bug, it helps to include the version (**Settings → This server**, beside **Check for update**), how you run it (Docker, Raspberry Pi, Windows or from source), what you did and what you expected. The **Tasks** page has a **Download diagnostics** button for the logs; look through it before attaching it, as it can hold activity names and places.
+**New issue** offers a form for a bug and one for a feature request, which ask for what's below. For a bug, it helps to include the version (**Settings → This server**, beside **Check for update**), how you run it (Docker, Raspberry Pi, Windows or from source), what you did and what you expected. The **Tasks** page has a **Download diagnostics** button for the logs; look through it before attaching it, as it can hold activity names and places.
 
 ---
 
@@ -937,7 +937,7 @@ Since then:
 - **Pictures over 50 megapixels are refused** before they're decoded (activity, gear, avatar and food photos), so one upload can't take half a gigabyte of memory.
 - **Only Headwind's own script files run** — the Content-Security-Policy allows scripts from the server's own files and nothing inline, so text that slipped into a page unescaped still couldn't run as script. Pages can't be framed by other sites (`frame-ancestors 'none'`).
 
-Known limits: one shared admin login; in the advanced multi-rider mode phone devices aren't scoped per rider. See [Known limitations](#known-limitations-and-roadmap). To report a vulnerability, please open a private security advisory on GitHub rather than a public issue.
+Known limits: one shared admin login; in the advanced multi-rider mode phone devices aren't scoped per rider. See [Known limitations](#known-limitations-and-roadmap). To report a vulnerability, please [open a private security advisory](../../security/advisories/new) on GitHub rather than a public issue.
 
 ---
 
