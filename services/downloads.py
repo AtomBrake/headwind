@@ -96,10 +96,18 @@ def _all(db, kind):
 def _remove(job):
     path = ((job or {}).get('progress') or {}).get('path')
     if path:
-        try:
-            os.remove(path)
-        except FileNotFoundError:
-            pass
+        _delete(path)
+
+
+def _delete(path):
+    """Remove a made file. Windows won't remove one that's still open (its download still running, say): that one is left, not an error page
+    or a worker that doesn't start, and clear() takes it at the next start, as no finished job offers it any more."""
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        log.warning('Could not remove %s (%s): it goes at the next start', path, e)
 
 
 def _notify(job):
@@ -210,4 +218,4 @@ def clear(db, database):
     for name in os.listdir(path):
         full = os.path.join(path, name)
         if full not in keep:
-            shutil.rmtree(full, ignore_errors=True) if os.path.isdir(full) else os.remove(full)
+            shutil.rmtree(full, ignore_errors=True) if os.path.isdir(full) else _delete(full)

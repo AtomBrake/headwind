@@ -28,7 +28,7 @@ for sub in ('', 'avatars', 'garmin_tokens'):
 LOG = DATA / 'headwind.log'
 if sys.stdout is None or sys.stderr is None or os.environ.get('HEADWIND_LOG_TO_FILE'):
     if LOG.exists() and LOG.stat().st_size > 1_000_000:
-        LOG.write_text('')
+        LOG.write_text('', encoding='utf-8')
     sys.stdout = sys.stderr = open(LOG, 'a', buffering=1, encoding='utf-8')
 
 PORT = int(os.environ.get('PORT', 5001))

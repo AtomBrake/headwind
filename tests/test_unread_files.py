@@ -147,7 +147,7 @@ CSV_HEAD = ('Activity ID,Activity Date,Activity Name,Activity Type,Elapsed Time,
 
 
 def csv_row(act_id, filename, start=START, name='Tour', sport='Ride', elapsed=600, km=2.0, moving=None, climb=60, media=''):
-    when = start.strftime('%b %-d, %Y, %-I:%M:%S %p')
+    when = f"{start:%b} {start.day}, {start:%Y}, {start.hour % 12 or 12}:{start:%M:%S %p}"     # Strava's 'Oct 5, 2026, 8:03:00 AM'
     return f'{act_id},"{when}",{name},{sport},{elapsed},{km},{filename},{moving or elapsed},{km * 1000},{climb},{media}\n'
 
 

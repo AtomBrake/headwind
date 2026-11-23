@@ -620,7 +620,7 @@ def main():
     from services.sports import RIDE_SQL
     counts['Workout'] = chk.execute(f'SELECT COUNT(*) FROM Activity WHERE NOT {RIDE_SQL}').fetchone()[0]       # walks, runs, ... (rows of Activity)
     size = os.path.getsize(out_db) / 1e6
-    with open(os.path.join(args.out, 'REPORT.txt'), 'w') as f:
+    with open(os.path.join(args.out, 'REPORT.txt'), 'w', encoding='utf-8') as f:
         f.write(f'built {datetime.now().isoformat(timespec="seconds")}\nprivacy zones: {len(zones)} (radius {args.zone_radius} m)\nrides kept {len(kept)}; dropped {dict(dropped)}\n'
                 f'segments copied {len(segments)}, left out {seg_drop}\n{json.dumps(counts)}\ndatabase {size:.0f} MB\nAUDIT PASSED\n')
     print(f'AUDIT PASSED. {json.dumps(counts)}  ({size:.0f} MB) -> {out_db}')

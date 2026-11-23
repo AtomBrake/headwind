@@ -88,7 +88,7 @@ def _set(app, sql, args=()):
 
 def _sign_in():
     garmin.TOKEN_DIR.mkdir(exist_ok=True)
-    (garmin.TOKEN_DIR / garmin.TOKEN_FILE).write_text('{}')
+    (garmin.TOKEN_DIR / garmin.TOKEN_FILE).write_text('{}', encoding='utf-8')
 
 
 def test_connected_means_tokens_or_an_older_installs_password(app):
@@ -258,7 +258,7 @@ def test_the_token_file_is_encrypted_with_the_databases_key(app):
     garmin.TOKEN_DIR.mkdir(exist_ok=True)
     with app.app_context():
         _real(TOKENS).client.dump(str(garmin.TOKEN_DIR))         # as garminconnect does at sign-in and after each refresh
-        text = (garmin.TOKEN_DIR / garmin.TOKEN_FILE).read_text()
+        text = (garmin.TOKEN_DIR / garmin.TOKEN_FILE).read_text(encoding='utf-8')
         assert text.startswith(vault.PREFIX) and 'refresh-token-kept-secret' not in text
         again = _real()
         again.client.load(str(garmin.TOKEN_DIR))
@@ -270,18 +270,18 @@ def test_the_token_file_is_encrypted_with_the_databases_key(app):
 def test_a_plain_token_file_from_before_is_read_and_encrypted_by_the_next_sync(app):
     garmin.TOKEN_DIR.mkdir(exist_ok=True)
     plain = json.dumps(dict(zip(('di_token', 'di_refresh_token', 'di_client_id'), TOKENS)))
-    (garmin.TOKEN_DIR / garmin.TOKEN_FILE).write_text(plain)
+    (garmin.TOKEN_DIR / garmin.TOKEN_FILE).write_text(plain, encoding='utf-8')
     with app.app_context():
         api = _real()
         api.client.load(str(garmin.TOKEN_DIR))
         assert api.client.di_refresh_token == TOKENS[1]
         garmin._client()
-    assert (garmin.TOKEN_DIR / garmin.TOKEN_FILE).read_text().startswith(vault.PREFIX)
+    assert (garmin.TOKEN_DIR / garmin.TOKEN_FILE).read_text(encoding='utf-8').startswith(vault.PREFIX)
 
 
 def test_a_token_file_another_key_made_asks_to_sign_in_again(app):
     garmin.TOKEN_DIR.mkdir(exist_ok=True)
     other = 'enc:v1:' + vault.Fernet(vault.Fernet.generate_key()).encrypt(b'{"di_token": "x"}').decode()
-    (garmin.TOKEN_DIR / garmin.TOKEN_FILE).write_text(other)
+    (garmin.TOKEN_DIR / garmin.TOKEN_FILE).write_text(other, encoding='utf-8')
     with app.app_context(), pytest.raises(garminconnect.GarminConnectConnectionError):
         _real().client.load(str(garmin.TOKEN_DIR))      # garminconnect's login() then falls back to a password it hasn't got: SignInNeeded

@@ -240,7 +240,7 @@ def _saved(client):
 
 def test_settings_card_saves_tls(client, tmp_path):
     ca = tmp_path / 'ca.crt'
-    ca.write_text('x')
+    ca.write_text('x', encoding='utf-8')
     card = {'mqttHost': 'ha.local', 'mqttPort': '', 'mqttUser': '', 'mqttPassword': '', 'mqttTls': '1', 'mqttCaFile': str(ca)}
     client.post('/settings/', data=card)
     assert _saved(client) == {'mqttHost': 'ha.local', 'mqttPort': 8883, 'mqttTls': 1, 'mqttCaFile': str(ca)}

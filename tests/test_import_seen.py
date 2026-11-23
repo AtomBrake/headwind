@@ -167,7 +167,7 @@ def test_reader_version_covers_the_code_the_parser_uses():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     def services_imported(mod):
-        tree = ast.parse(open(os.path.join(root, *mod.split('.')) + '.py').read())
+        tree = ast.parse(open(os.path.join(root, *mod.split('.')) + '.py', encoding='utf-8').read())
         out = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith('services'):

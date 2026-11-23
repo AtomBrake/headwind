@@ -1647,7 +1647,7 @@ def _one_at_a_time(db):
 
     @contextlib.contextmanager
     def held():
-        with open(f'{path}.lock', 'a') as f:
+        with open(f'{path}.lock', 'a', encoding='utf-8') as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             try:
                 yield

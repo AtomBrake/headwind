@@ -260,7 +260,7 @@ def app_client(tmp_path, monkeypatch):
     for k in ('APP_USERNAME', 'APP_PASSWORD'):
         monkeypatch.delenv(k, raising=False)
     env = tmp_path / 'env'
-    env.write_text('SECRET_KEY=x\n')
+    env.write_text('SECRET_KEY=x\n', encoding='utf-8')
     monkeypatch.setenv('HEADWIND_ENV', str(env))
     a = app_module.create_app()
     c = a.test_client()

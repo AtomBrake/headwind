@@ -14,7 +14,7 @@ ALLOWED = (
 
 
 def _code(f):
-    return re.sub(r'(?m)^\s*//.*$', '', f.read_text())                        # a JS comment line may name a colour or a variable
+    return re.sub(r'(?m)^\s*//.*$', '', f.read_text(encoding='utf-8'))                        # a JS comment line may name a colour or a variable
 
 
 def _colours(text):
@@ -29,7 +29,7 @@ def test_no_colour_is_written_outside_style_css():
 
 
 def test_every_variable_used_is_defined():
-    defined = set(re.findall(r'^\s*(--[\w-]+)\s*:', (ROOT / 'static/css/style.css').read_text(), re.M))
+    defined = set(re.findall(r'^\s*(--[\w-]+)\s*:', (ROOT / 'static/css/style.css').read_text(encoding='utf-8'), re.M))
     used = set()
     for f in [*FILES, ROOT / 'static/css/style.css']:
         code = _code(f)
@@ -39,7 +39,7 @@ def test_every_variable_used_is_defined():
 
 
 # ---------- light and dark ----------
-CSS = (ROOT / 'static/css/style.css').read_text()
+CSS = (ROOT / 'static/css/style.css').read_text(encoding='utf-8')
 NOT_COLOURS = {'--sidebar-w', '--font'}
 SAME_IN_BOTH = {'--strava'}                                                 # brands: dark only, the light block leaves them be
 

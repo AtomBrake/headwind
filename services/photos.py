@@ -5,11 +5,14 @@ portrait shot doesn't come out on its side. Each gets a full-size copy (`act_<he
 A picture that came from somewhere else keeps where it came from in sourceKey (a Strava export's 'media/<uuid>.jpg'), so importing the same
 export again adds nothing twice."""
 import io
+import logging
 import os
 import re
 import secrets
 
 from services import limits
+
+log = logging.getLogger(__name__)
 
 _NAME_RE = re.compile(r'^act_[a-f0-9]{12}(_t)?\.jpg$')
 MAX_BYTES = 25 * 1024 * 1024
@@ -110,8 +113,10 @@ def _remove_files(db_path, names):
             for f in (name, thumb_name(name)):
                 try:
                     os.remove(os.path.join(d, f))
-                except OSError:
+                except FileNotFoundError:
                     pass
+                except OSError as e:                # Windows won't remove a file still open (being served this moment): say so, not silently
+                    log.warning('Could not remove the photo %s (%s): it is no longer on any activity, the file stays', f, e)
 
 
 def delete(db, photo_id, activity_id, db_path):

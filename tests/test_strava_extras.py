@@ -276,11 +276,12 @@ def test_the_photos_card_serves_and_removes_a_photo(client):
     page = client.get('/activities/r1').get_data(as_text=True)
     assert 'id="photosCard"' in page and 'Café stop' in page and photos.thumb_name(client.photo) in page
     assert 'No photos yet' in client.get('/activities/w1').get_data(as_text=True)          # a card with only "Add photos"
-    r = client.get(f'/activities/photo/{client.photo}')
-    assert r.status_code == 200 and r.mimetype == 'image/jpeg'
+    with client.get(f'/activities/photo/{client.photo}') as r:                               # closed after: Windows won't delete a file still open
+        assert r.status_code == 200 and r.mimetype == 'image/jpeg'
     assert client.get('/activities/photo/..%2Fapp.db').status_code == 404
     assert client.post(f'/activities/w1/photos/{client.pid}/delete').status_code == 302      # not that activity's photo: nothing happens
-    assert client.get(f'/activities/photo/{client.photo}').status_code == 200
+    with client.get(f'/activities/photo/{client.photo}') as r:
+        assert r.status_code == 200
     client.post(f'/activities/r1/photos/{client.pid}/delete')
     assert client.get(f'/activities/photo/{client.photo}').status_code == 404
     assert 'No photos yet' in client.get('/activities/r1').get_data(as_text=True)

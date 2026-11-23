@@ -53,7 +53,7 @@ def app_page():
     apk = _apk_path()
     info = ''
     try:
-        info = open(os.path.join(os.path.dirname(apk), 'version.txt')).read().strip()
+        info = open(os.path.join(os.path.dirname(apk), 'version.txt'), encoding='utf-8').read().strip()
     except OSError:
         pass
     available = os.path.exists(apk)

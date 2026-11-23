@@ -971,10 +971,16 @@ docs/               Home Assistant builders, screenshots, notes
 
 ## Development
 
-```bash
-pip install -r requirements-dev.txt
-python3 -m pytest tests -q -n auto            # unit tests, spread across every core
+The same on Windows, macOS and Linux, with [uv](https://docs.astral.sh/uv/). It reads `.python-version` (3.14, as in the Docker image and CI) and fetches that Python if the machine doesn't have it:
 
+```bash
+uv venv && uv pip install -r requirements-dev.txt   # once, and again after requirements*.txt change
+uv run python -m pytest tests -q -n auto            # unit tests, spread across every core
+```
+
+Without uv: make a Python 3.14 virtual environment, `pip install -r requirements-dev.txt` in it, then `python -m pytest tests -q -n auto`. CI runs the tests on Linux, Windows and macOS. Text opened without `encoding=` fails a test on all three (`pytest.ini`), because Windows would otherwise read it as cp1252.
+
+```bash
 # End-to-end smoke tests — throwaway instance only (they write data):
 d=$(mktemp -d); printf "DATABASE_URL=$d/t.db\nSECRET_KEY=x\nAPP_USERNAME=t\nAPP_PASSWORD=t\n" > $d/env
 HEADWIND_ENV=$d/env PYTHONPATH=. python3 scripts/smoke_setup_wizard.py
@@ -983,7 +989,7 @@ HEADWIND_ENV=$d/env PYTHONPATH=. python3 scripts/smoke_setup_wizard.py
 Other smoke scripts: `smoke_client_ops`, `smoke_api_v1`, `smoke_recipes_sync`, `smoke_ride_upload`, `smoke_single_rider`.
 
 - Schema changes are numbered steps: a new function at the end of `database.STEPS`, never an edit to an earlier one (a database that has had a step never runs it again; `tests/test_migrations.py` checks). A service's own tables stay in its `ensure_schema`, which runs at every start. Docker runs the steps before Gunicorn (`python -m database migrate`).
-- Dates are UK format everywhere (`%-d %b %Y`); the UI uses CSS custom properties (no hard-coded colours).
+- Dates are UK format everywhere ("15 May 2026", from `services/dates.py`: never `strftime('%-d')`, which Windows rejects); the UI uses CSS custom properties (no hard-coded colours).
 - **Dependencies:** `requirements.txt` lists what the app needs, loosely (`>=`). The Docker image installs the exact versions and hashes in `requirements.lock`, so a rebuild gets the same packages. The lock is made with pip-tools inside the image's base image (Linux; amd64 and arm64 resolve the same, and the hashes cover every platform's wheels). After changing `requirements.txt`, or to take newer versions, refresh it:
   ```bash
   docker run --rm -v "$PWD":/src -w /src python:3.14-slim sh -c "pip install -q pip-tools && pip-compile --upgrade --generate-hashes --allow-unsafe --strip-extras --output-file=requirements.lock requirements.txt"

@@ -22,7 +22,7 @@ def server_zone_name():
     except OSError:
         pass
     try:
-        with open('/etc/timezone') as f:
+        with open('/etc/timezone', encoding='utf-8') as f:
             cands.append(f.read().strip())
     except OSError:
         pass
