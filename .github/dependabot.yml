@@ -14,3 +14,5 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # the >= floors move only when a newer version is needed; the locks, not requirements.txt, pin what's installed
+    versioning-strategy: increase-if-necessary
