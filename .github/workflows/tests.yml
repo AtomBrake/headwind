@@ -15,9 +15,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Linux is what Docker runs; Windows is the Headwind.exe build; the app is developed on Windows and a Mac
   pytest:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    strategy:
+      fail-fast: false            # one OS failing still shows how the others did
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      PYTHONWARNDEFAULTENCODING: '1'   # text opened without encoding= warns, and pytest.ini makes that fail the test: cp1252 on Windows otherwise
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
