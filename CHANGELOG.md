@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.61-beta] - 2026-11-24
 
 ### Fixed
 - **Moving from the original Headwind's rewrite keeps your photos and faults.** Its 0.8 onwards is a rewrite of its own, and moving from its newest release, 0.9.1, has now been tried: activities, gear, weigh-ins, food, goals and settings all come across. The photos on each activity didn't show, though, and the faults you'd logged (a puncture, a snapped chain) were nowhere to be seen unless the activity had a bike. Photos now show on their activities, and each fault goes into its activity's notes, as there's no list of faults here. The **Tasks** page says what was brought over. If you'd imported a Strava export into the original, the **Import** page asks you to import it again, as Headwind reads more of it: tracks the original couldn't read, Strava's own figures, photos, and your bikes and shoes.
