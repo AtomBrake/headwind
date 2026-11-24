@@ -187,3 +187,10 @@ function startBulk() {
     });
   }).catch(function () { lost('Connection lost.'); });
 }
+
+// Coaching Goals: the comeback's date only matters for "Since my comeback on…"
+function progressChanged(sel) {
+  var from = document.getElementById('progressFrom');
+  from.style.display = sel.value === 'since' ? '' : 'none';
+  if (sel.value === 'since') from.focus();
+}

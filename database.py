@@ -1561,6 +1561,17 @@ def _step_14(db):
         db.execute('''UPDATE Settings SET aiAutoSports='["group:ride"]' WHERE id=1''')
 
 
+def _step_15(db):
+    """Settings.coachProgressFrom: how far back the AI coach's progress by month goes (services/context.py): '6m' or '12m' before the activity,
+    a date ('2026-01-01') for a comeback, or 'off'; NULL is '6m'. It was fixed at 1 January 2026 and called a comeback, so an install from
+    before this keeps that until it's changed on the AI page. A new one starts on the last 6 months."""
+    have = {r[1] for r in db.execute('PRAGMA table_info(Settings)').fetchall()}
+    if 'coachProgressFrom' not in have:
+        db.execute('ALTER TABLE Settings ADD COLUMN coachProgressFrom TEXT')
+    if db.execute('SELECT 1 FROM Rider LIMIT 1').fetchone():
+        db.execute("UPDATE Settings SET coachProgressFrom='2026-01-01' WHERE id=1")
+
+
 def _compact(db):
     """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
     a temporary file and once through the WAL. Logged either way. Commits."""
@@ -1617,6 +1628,7 @@ STEPS = (
     (_step_12, False),
     (_step_13, False),
     (_step_14, False),
+    (_step_15, False),
 )
 LATEST = len(STEPS)
 

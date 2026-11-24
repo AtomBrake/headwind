@@ -2,24 +2,8 @@ from database import query_db
 from routes.riders import _compute_badges
 from services import units
 
-# ActivityMemory and the best-effort brackets are stored in miles / mph / feet (as are the similarity searches below). Everything the coach reads goes
-# through these, so it gets the rider's own units and never has to convert.
-def _mi(v):
-    return units.fmt_dist(float(v or 0) * units.MI)
-
-
-def _mph(v):
-    return units.fmt_speed(float(v or 0) / units.MPH_PER_MPS)
-
-
-def _ft(v):
-    return units.fmt_elev(float(v or 0) / units.FT_PER_M)
-
-
-def _rate(v_mph, style):
-    """A speed stored in mph, read as this sport reads it: speed, pace, or pace per 100 m."""
-    return units.fmt_rate(float(v_mph or 0) / units.MPH_PER_MPS, style)
-
+# Everything the coach reads is in the rider's own units (services/units), so it never has to convert. Its history comes from Activity, in metres
+# and m/s like everything else; only ActivityMemory, written below for the AI page, is still in miles, mph and feet.
 
 def _mins(secs):
     return f'{int(secs or 0) // 60} min'
@@ -38,7 +22,8 @@ def _tags(dist_mi, elev_ft, avg_power, avg_hr, ride=True):
 
 
 def save_ride_memory(activity, ai_summary):
-    """The activity's figures and its analysis in ActivityMemory, which later analyses read as history: any sport (its own is on Activity)."""
+    """The activity's figures and its analysis in ActivityMemory, any sport: the AI page's Working Memory card (routes/ai_page.py). The coach's
+    history doesn't read it: that comes from Activity (_history_sql), analysed or not."""
     from database import get_db
     from services.sports import is_ride
 
@@ -463,52 +448,102 @@ def _build_badge_context(rid, ride_id):
     return '\n'.join(lines)
 
 
-def _memory_sql(p, rider_id, exclude_id, day):
-    """The WHERE (and its params) for this activity's history in ActivityMemory: this rider's own activities of the same kind (Profile.history_sql),
-    up to this one's day, so an older activity analysed today isn't compared with what came after it."""
+# The speed in m/s: a few recordings have a distance and a moving time but no average speed
+_SPEED_SQL = 'COALESCE(NULLIF(averageSpeed, 0), distance * 1.0 / NULLIF(movingTime, 0))'
+# What the history reads of each activity: never SELECT *, which would drag its raw data and laps along
+_HISTORY_COLS = f'''id, name, date(startDateLocal) AS day, distance, movingTime, totalElevationGain AS elev, {_SPEED_SQL} AS speed,
+       averageWatts AS power, averageHeartrate AS hr, calories'''
+
+
+def _history_sql(p, rider_id, exclude_id, day):
+    """The WHERE (and its params) on Activity for this activity's history: this rider's own activities of the same kind (Profile.history_sql), up
+    to this one's day, so an older activity analysed today isn't compared with what came after it. Every one counts, analysed or not, as long
+    as something was recorded: a distance for a sport that has one (a pace needs it), otherwise a distance or a time (an empty Apple Health
+    workout has neither). A duplicate recording is parked out of Activity (services/duplicates), so it can't count twice."""
     kind_sql, kind_params = p.history_sql()
-    where = f'''activityId != ?
-          AND activityDate <= ?
-          AND activityId IN (SELECT id FROM Activity WHERE riderId IS ? AND {kind_sql})
-          AND NOT (activityName = 'Ride Activity' AND avgPower IS NULL)'''
-    if p.distance:
-        where += '\n          AND distanceMi > 0'
-    return where, [exclude_id, day, rider_id, *kind_params]
+    something = 'distance > 0' if p.distance else '(distance > 0 OR movingTime > 0)'
+    where = f'''riderId IS ?
+          AND {kind_sql}
+          AND id != ?
+          AND date(startDateLocal) <= ?
+          AND {something}'''
+    return where, [rider_id, *kind_params, exclude_id, day]
 
 
-def _build_comeback_progress(p, where, params, cur_spd_mph=None, cur_pwr_w=None):
-    """Monthly averages since comeback start, to surface gains clearly: speed (or pace) and power for a sport with a distance, time and heart
-    rate for one without."""
-    from datetime import datetime
-    current_ym = datetime.now().strftime('%Y-%m')
+def has_history(activity):
+    """Whether the coach has earlier activities of this kind to compare this one with (the activity page's "Analyse with history")."""
+    from services.coach_sports import profile
+    where, params = _history_sql(profile(activity['sportType']), activity['riderId'], str(activity['id']), str(activity['startDateLocal'])[:10])
+    return query_db(f'SELECT 1 FROM Activity WHERE {where} LIMIT 1', params, one=True) is not None
+
+
+PROGRESS_CHOICES = (('6m', 'The last 6 months'), ('12m', 'The last 12 months'), ('since', 'Since my comeback on…'), ('off', 'Off'))
+_ROLLING = {'6m': 6, '12m': 12}
+
+
+def progress_setting(value):
+    """Settings.coachProgressFrom as (choice, date): ('6m', None), ('12m', None), ('since', '2026-09-27') or ('off', None). NULL, or anything
+    unreadable, is the last 6 months."""
+    import re
+    v = (value or '').strip()
+    if v in _ROLLING or v == 'off':
+        return v, None
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', v):
+        return 'since', v
+    return '6m', None
+
+
+def _progress_window(day):
+    """Where this activity's progress by month starts, and what it's called: (start date, 'since the comeback on 27 Sept 2026') since the
+    rider's comeback, (the 1st of the month 5 or 11 before the activity's, 'the last 6 months') for the last 6 or 12, or None when it's off."""
+    row = query_db('SELECT coachProgressFrom FROM Settings WHERE id=1', one=True)
+    choice, since = progress_setting(row['coachProgressFrom'] if row else None)
+    if choice == 'off':
+        return None
+    if choice == 'since':
+        return since, f'since the comeback on {_fmt_date(since)}'
+    start = query_db("SELECT date(?, 'start of month', ?) AS d", [day, f'-{_ROLLING[choice] - 1} months'], one=True)['d']
+    return start, f'the last {_ROLLING[choice]} months'
+
+
+def _build_comeback_progress(p, where, params, day, cur_spd=None, cur_pwr_w=None):
+    """Monthly averages up to the activity's month, to surface gains clearly: speed (or pace) and power for a sport with a distance, time and
+    heart rate for one without. Speeds in m/s. Since the rider's comeback, or over the last 6 or 12 months: the AI page's choice
+    (Settings.coachProgressFrom), which can turn it off."""
+    window = _progress_window(day)
+    if not window:
+        return ''
+    start, span = window
+    current_ym = day[:7]                    # the activity's month: its history stops on its day, so the month is partial
 
     rows = query_db(f'''
-        SELECT strftime('%Y-%m', activityDate) as ym,
+        SELECT strftime('%Y-%m', startDateLocal) as ym,
                COUNT(*) as rides,
-               AVG(distanceMi) as avg_dist,
-               AVG(avgSpeedMph) as avg_spd,
-               AVG(avgPower) as avg_pwr,
-               MAX(avgSpeedMph) as best_spd,
-               MAX(avgPower) as best_pwr,
+               AVG(distance) as avg_dist,
+               AVG({_SPEED_SQL}) as avg_spd,
+               AVG(averageWatts) as avg_pwr,
+               MAX({_SPEED_SQL}) as best_spd,
+               MAX(averageWatts) as best_pwr,
                AVG(movingTime) as avg_time,
-               AVG(avgHR) as avg_hr
-        FROM ActivityMemory
+               AVG(averageHeartrate) as avg_hr
+        FROM Activity
         WHERE {where}
-          AND activityDate >= '2026-01-01'
-          {'AND distanceMi > 2' if p.family == 'ride' else ''}
+          AND date(startDateLocal) >= ?
+          {'AND distance > ?' if p.family == 'ride' else ''}
         GROUP BY ym
         ORDER BY ym
-    ''', params)
+    ''', params + [start] + ([2 * units.MI] if p.family == 'ride' else []))       # a ride under 2 miles is a spin round the block
 
     if len(rows) < 2:
         return ''
 
     best = 'best' if p.rate == 'speed' else 'quickest'
-    lines = [f'Comeback progress by month, {p.nouns} (Jan 2026 onwards — read the OVERALL arc, not month-to-month noise):']
+    title = 'Comeback progress by month' if span.startswith('since') else 'Progress by month'
+    lines = [f'{title}, {p.nouns} ({span} — read the OVERALL arc, not month-to-month noise):']
     for r in rows:
         partial_note = ' ⚠️ partial month' if r['ym'] == current_ym else ''
         if p.distance:
-            figs = f"avg {_rate(r['avg_spd'], p.rate)} ({best} {_rate(r['best_spd'], p.rate)})"
+            figs = f"avg {units.fmt_rate(r['avg_spd'], p.rate)} ({best} {units.fmt_rate(r['best_spd'], p.rate)})"
             if p.family == 'ride' or r['avg_pwr']:
                 figs += ' | ' + (f"avg {r['avg_pwr']:.0f}W, best {r['best_pwr']:.0f}W" if r['avg_pwr'] else 'no power data')
         else:
@@ -517,13 +552,13 @@ def _build_comeback_progress(p, where, params, cur_spd_mph=None, cur_pwr_w=None)
 
     # Add today's activity vs current month avg for context
     cur_month_row = next((r for r in rows if r['ym'] == current_ym), None)
-    if cur_month_row and p.distance and (cur_spd_mph or cur_pwr_w):
+    if cur_month_row and p.distance and (cur_spd or cur_pwr_w):
         parts = []
-        if cur_spd_mph and cur_month_row['avg_spd']:
-            direction = 'above' if cur_spd_mph > cur_month_row['avg_spd'] else 'below'
+        if cur_spd and cur_month_row['avg_spd']:
+            direction = 'above' if cur_spd > cur_month_row['avg_spd'] else 'below'
             if p.rate != 'speed':
                 direction = 'quicker than' if direction == 'above' else 'slower than'
-            parts.append(f'{_rate(cur_spd_mph, p.rate)} ({direction} {current_ym} avg of {_rate(cur_month_row["avg_spd"], p.rate)})')
+            parts.append(f'{units.fmt_rate(cur_spd, p.rate)} ({direction} {current_ym} avg of {units.fmt_rate(cur_month_row["avg_spd"], p.rate)})')
         if cur_pwr_w and cur_month_row['avg_pwr']:
             direction = 'above' if cur_pwr_w > cur_month_row['avg_pwr'] else 'below'
             parts.append(f'{cur_pwr_w:.0f}W ({direction} {current_ym} avg of {cur_month_row["avg_pwr"]:.0f}W)')
@@ -550,6 +585,40 @@ def _build_comeback_progress(p, where, params, cur_spd_mph=None, cur_pwr_w=None)
     return '\n'.join(lines)
 
 
+PAST_NOTES = 3
+
+
+def _verdict(text, limit=300):
+    """An earlier analysis in one line: the paragraph under its 🎯 verdict header, or its first paragraph without a header, plain text, cut at
+    a full stop before `limit` characters."""
+    import re
+    paras = [x.strip() for x in re.split(r'\n\s*\n', text or '') if x.strip()]
+    if not paras:
+        return ''
+    at = next((i for i, x in enumerate(paras) if '🎯' in x.split('\n', 1)[0]), None)
+    if at is not None:
+        head, _, body = paras[at].partition('\n')
+        pick = body or (paras[at + 1] if at + 1 < len(paras) else '')
+    else:
+        head, _, body = paras[0].partition('\n')
+        pick = body if body and (head.startswith('**') or not head[:1].isalnum()) else paras[0]
+    pick = ' '.join(pick.replace('**', '').replace('__', '').split())
+    if len(pick) <= limit:
+        return pick
+    cut = pick.rfind('. ', 0, limit)
+    return pick[:cut + 1] if cut > limit // 3 else pick[:limit].rsplit(' ', 1)[0] + '…'
+
+
+def _build_past_notes(p, where, params):
+    """The coach's own verdicts on the last few activities of this kind before this one, a line each, so it can follow up on what it said."""
+    rows = query_db(f"""SELECT date(startDateLocal) AS day, name, aiKudos FROM Activity WHERE {where} AND aiKudos IS NOT NULL AND aiKudos != ''
+                        ORDER BY startDateLocal DESC LIMIT {PAST_NOTES}""", params)
+    lines = [f'  {_fmt_date(r["day"])} — {r["name"]}: {v}' for r in rows if (v := _verdict(r['aiKudos']))]
+    if not lines:
+        return ''
+    return '\n'.join([f'Your verdicts on the last {p.count(len(lines))} you analysed (newest first):'] + lines)
+
+
 def _trend(vals):
     if len(vals) < 3: return 'insufficient data'
     first_half = sum(vals[:len(vals)//2]) / max(1, len(vals)//2)
@@ -561,16 +630,16 @@ def _trend(vals):
 
 def _history_row(r, p, power):
     """One line of the history table, in the columns _history_header gives."""
-    hr = f"{r['avgHR']:.0f}" if r['avgHR'] else '—'
+    hr = f"{r['hr']:.0f}" if r['hr'] else '—'
     if not p.distance:
         kcal = f"{r['calories']:.0f}" if r['calories'] else '—'
-        return f"{r['activityDate']} | {_mins(r['movingTime']):>7} | {hr:>4} | {kcal:>5} | {r['activityName']}"
-    cols = [r['activityDate'], f"{_mi(r['distanceMi']):>8}", f"{_rate(r['avgSpeedMph'], p.rate):>9}"]
+        return f"{r['day']} | {_mins(r['movingTime']):>7} | {hr:>4} | {kcal:>5} | {r['name']}"
+    cols = [r['day'], f"{units.fmt_dist(r['distance']):>8}", f"{units.fmt_rate(r['speed'], p.rate):>9}"]
     if p.climbing:
-        cols.append(f"{_ft(r['elevationFt']):>7}")
+        cols.append(f"{units.fmt_elev(r['elev']):>7}")
     if power:
-        cols.append(f"{(str(round(r['avgPower'])) + 'W') if r['avgPower'] else '—':>5}")
-    cols += [f'{hr:>4}', r['activityName']]
+        cols.append(f"{(str(round(r['power'])) + 'W') if r['power'] else '—':>5}")
+    cols += [f'{hr:>4}', r['name']]
     return ' | '.join(cols)
 
 
@@ -592,36 +661,36 @@ def build_context(activity):
     p = profile(activity['sportType'])
     ride_id  = str(activity['id'])
     day      = str(activity['startDateLocal'])[:10]
-    dist_mi  = float(activity['distance'] or 0) / 1609.344
-    elev_ft  = float(activity['totalElevationGain'] or 0) * 3.28084
-    where, params = _memory_sql(p, activity['riderId'], ride_id, day)
+    dist_m   = float(activity['distance'] or 0)
+    elev_m   = float(activity['totalElevationGain'] or 0)
+    where, params = _history_sql(p, activity['riderId'], ride_id, day)
+    def history(extra='', extra_params=(), limit=''):
+        return query_db(f'SELECT {_HISTORY_COLS} FROM Activity WHERE {where}{extra} ORDER BY startDateLocal DESC{limit}', params + list(extra_params))
 
-    recent = query_db(f'SELECT * FROM ActivityMemory WHERE {where} ORDER BY activityDate DESC LIMIT 20', params)
+    recent = history(limit=' LIMIT 20')
 
     # Like for like: about the same distance (and climb, where climbing counts), or for a session with no distance about the same length
     if p.distance:
-        similar = 'distanceMi BETWEEN ? AND ?' + (' AND elevationFt BETWEEN ? AND ?' if p.climbing else '')
-        sim_params = [dist_mi * 0.7, dist_mi * 1.3] + ([max(0, elev_ft * 0.6), elev_ft * 1.4] if p.climbing else [])
+        similar = 'distance BETWEEN ? AND ?' + (' AND COALESCE(totalElevationGain, 0) BETWEEN ? AND ?' if p.climbing else '')
+        sim_params = [dist_m * 0.7, dist_m * 1.3] + ([max(0, elev_m * 0.6), elev_m * 1.4] if p.climbing else [])
     else:
         secs = float(activity['movingTime'] or 0)
         similar, sim_params = 'movingTime BETWEEN ? AND ?', [secs * 0.7, secs * 1.3]
-    comparable = query_db(f'SELECT * FROM ActivityMemory WHERE {where} AND {similar} ORDER BY activityDate DESC LIMIT 5',
-                          params + sim_params)
+    comparable = history(f' AND {similar}', sim_params, ' LIMIT 5')
 
-    month = query_db(f"SELECT * FROM ActivityMemory WHERE {where} AND activityDate >= date(?, '-30 days') ORDER BY activityDate DESC",
-                     params + [day])
+    month = history(" AND date(startDateLocal) >= date(?, '-30 days')", [day])
 
     lines = []
 
     # Comeback progress FIRST — most important signal for a returning athlete
-    cur_spd = float(activity['averageSpeed'] or 0) * 2.23694 or None
+    cur_spd = float(activity['averageSpeed'] or 0) or None
     cur_pwr = float(activity['averageWatts'] or 0) or None
-    comeback_ctx = _build_comeback_progress(p, where, params, round(cur_spd, 2) if cur_spd else None, round(cur_pwr) if cur_pwr else None)
+    comeback_ctx = _build_comeback_progress(p, where, params, day, cur_spd, round(cur_pwr) if cur_pwr else None)
     if comeback_ctx:
         lines.append(comeback_ctx)
         lines.append('')
 
-    power = any(r['avgPower'] for r in recent)
+    power = any(r['power'] for r in recent)
     if recent:
         lines.append(f'{p.label} history (last {p.count(len(recent))}):')
         lines.append(_history_header(p, power))
@@ -633,45 +702,51 @@ def build_context(activity):
         lines.append(f'Comparable {p.nouns} ({"similar distance" + (" & elevation" if p.climbing else "") if p.distance else "similar length"}):')
         for r in comparable:
             if p.distance:
-                figs = [_mi(r['distanceMi']), _rate(r['avgSpeedMph'], p.rate)]
+                figs = [units.fmt_dist(r['distance']), units.fmt_rate(r['speed'], p.rate)]
                 if p.climbing:
-                    figs.append(f"{_ft(r['elevationFt'])} climb")
-                if r['avgPower']:
-                    figs.append(f"{r['avgPower']:.0f}W")
+                    figs.append(f"{units.fmt_elev(r['elev'])} climb")
+                if r['power']:
+                    figs.append(f"{r['power']:.0f}W")
             else:
                 figs = [_mins(r['movingTime'])]
-            if r['avgHR']:
-                figs.append(f"HR {r['avgHR']:.0f}")
-            lines.append(f"  {r['activityDate']}: {', '.join(figs)}")
+            if r['hr']:
+                figs.append(f"HR {r['hr']:.0f}")
+            lines.append(f"  {r['day']}: {', '.join(figs)}")
         lines.append('')
 
     if month:
         lines.append(f'30-day summary ({p.count(len(month))}):')
         if p.distance:
-            dists  = [r['distanceMi']  for r in month]
-            speeds = [r['avgSpeedMph'] for r in month]
-            elevs  = [r['elevationFt'] or 0 for r in month]
-            powers = [r['avgPower'] for r in month if r['avgPower']]
-            lines.append(f'  Distance : avg {_mi(sum(dists)/len(dists))}, best {_mi(max(dists))}, {_trend(dists)}')
+            oldest = month[::-1]                # the rows are newest first; _trend reads oldest first
+            dists  = [r['distance'] for r in oldest]
+            speeds = [r['speed'] or 0 for r in oldest]
+            elevs  = [r['elev'] or 0 for r in oldest]
+            powers = [r['power'] for r in oldest if r['power']]
+            lines.append(f'  Distance : avg {units.fmt_dist(sum(dists)/len(dists))}, best {units.fmt_dist(max(dists))}, {_trend(dists)}')
             if p.climbing:
-                lines.append(f'  Elevation: avg {_ft(sum(elevs)/len(elevs))}, best {_ft(max(elevs))}')
+                lines.append(f'  Elevation: avg {units.fmt_elev(sum(elevs)/len(elevs))}, best {units.fmt_elev(max(elevs))}')
             best = 'best' if p.rate == 'speed' else 'quickest'
             trend = _trend(speeds) if p.rate == 'speed' else _trend(speeds).replace('up', 'quicker').replace('down', 'slower')
-            lines.append(f'  {"Speed" if p.rate == "speed" else "Pace "}    : avg {_rate(sum(speeds)/len(speeds), p.rate)}, '
-                         f'{best} {_rate(max(speeds), p.rate)}, {trend}')
+            lines.append(f'  {"Speed" if p.rate == "speed" else "Pace "}    : avg {units.fmt_rate(sum(speeds)/len(speeds), p.rate)}, '
+                         f'{best} {units.fmt_rate(max(speeds), p.rate)}, {trend}')
             if powers:
                 lines.append(f'  Power    : avg {sum(powers)/len(powers):.0f}W, best {max(powers):.0f}W, {_trend(powers)}')
-            lines.append(f'  Last 3 {p.nouns}: {", ".join(_mi(r["distanceMi"]) for r in month[:3])}')
+            lines.append(f'  Last 3 {p.nouns}: {", ".join(units.fmt_dist(r["distance"]) for r in month[:3])}')
         else:
-            times = [float(r['movingTime'] or 0) for r in month]
+            times = [float(r['movingTime'] or 0) for r in month[::-1]]      # oldest first, for _trend
             lines.append(f'  Time     : avg {_mins(sum(times)/len(times))}, longest {_mins(max(times))}, {_trend(times)}')
-            hrs = [r['avgHR'] for r in month if r['avgHR']]
+            hrs = [r['hr'] for r in month[::-1] if r['hr']]
             if hrs:
                 lines.append(f'  Avg HR   : {sum(hrs)/len(hrs):.0f}, {_trend(hrs)}')
         lines.append('')
 
     if not recent and not month:
-        lines.append(f'No previous {p.nouns} in memory yet — this may be one of the first analysed.')
+        lines.append(f'No previous {p.nouns} recorded — this may be the first.')
+
+    notes_ctx = _build_past_notes(p, where, params)
+    if notes_ctx:
+        lines.append(notes_ctx)
+        lines.append('')
 
     # What the rider has switched off stays out (services/features.py): no recovery with Recovery off, no steps with Steps off, no segments with
     # Segments off. Nothing here reads the food diary; anything that adds it checks 'nutrition' the same way. The rider is the activity's, as
@@ -748,9 +823,9 @@ def build_comparison_receipts(activity):
     """Return specific before/after comparison receipts for AI coaching."""
     ride_id   = str(activity['id'])
     ride_date = str(activity['startDateLocal'])[:10]
-    dist_mi   = float(activity['distance'] or 0) / 1609.344
-    elev_ft   = float(activity['totalElevationGain'] or 0) * 3.28084
-    spd_mph   = float(activity['averageSpeed'] or 0) * 2.23694
+    dist_m    = float(activity['distance'] or 0)
+    elev_m    = float(activity['totalElevationGain'] or 0)
+    spd       = float(activity['averageSpeed'] or 0)            # m/s
 
     receipts = []
 
@@ -855,40 +930,40 @@ def build_comparison_receipts(activity):
     from services.coach_sports import profile
     p = profile(activity['sportType'])
     similar = []
-    if p.distance and spd_mph:
-        where, params = _memory_sql(p, activity['riderId'], ride_id, ride_date)
-        climb = ' AND elevationFt BETWEEN ? AND ?' if p.climbing else ''
+    if p.distance and spd:
+        where, params = _history_sql(p, activity['riderId'], ride_id, ride_date)
+        climb = ' AND COALESCE(totalElevationGain, 0) BETWEEN ? AND ?' if p.climbing else ''
         similar = query_db(f'''
-            SELECT activityId, activityDate, activityName, distanceMi, avgSpeedMph, elevationFt, avgPower
-            FROM ActivityMemory
+            SELECT {_HISTORY_COLS}
+            FROM Activity
             WHERE {where}
-              AND distanceMi BETWEEN ? AND ?{climb}
-            ORDER BY activityDate DESC LIMIT 3
-        ''', params + [dist_mi * 0.8, dist_mi * 1.2] + ([max(0, elev_ft * 0.7), elev_ft * 1.4] if p.climbing else []))
+              AND distance BETWEEN ? AND ?{climb}
+            ORDER BY startDateLocal DESC LIMIT 3
+        ''', params + [dist_m * 0.8, dist_m * 1.2] + ([max(0, elev_m * 0.7), elev_m * 1.4] if p.climbing else []))
 
     for sim in similar:
-        sim_spd = float(sim['avgSpeedMph'] or 0)
+        sim_spd = float(sim['speed'] or 0)
         if sim_spd == 0:
             continue
-        spd_delta = spd_mph - sim_spd
+        spd_delta = spd - sim_spd
         if abs(spd_delta) < 0.015 * sim_spd:            # about 0.2 mph on a 14 mph ride: noise
             continue
 
         quicker = spd_delta > 0
         if p.rate == 'speed':
             direction = 'faster' if quicker else 'slower'
-            delta = f'{_mph(abs(spd_delta))} {direction}'
+            delta = f'{units.fmt_speed(abs(spd_delta))} {direction}'
             hint = f'speed {"up" if quicker else "down"} on comparable {"terrain" if p.climbing else "distance"}'
         else:
             direction = 'quicker' if quicker else 'slower'
             per = 100 if p.rate == 'swim' else units.spec()['distM']           # pace per 100 m, per mile or per km
-            secs = abs(per / (sim_spd / units.MPH_PER_MPS) - per / (spd_mph / units.MPH_PER_MPS))
+            secs = abs(per / sim_spd - per / spd)
             delta = f'{_fmt_dur(secs)} {"/100 m" if p.rate == "swim" else units.spec()["pace"]} {direction}'
             hint = f'pace {direction} on comparable {"terrain" if p.climbing else "distance"}'
 
         pwr_note = ''
-        if activity['averageWatts'] and sim['avgPower']:
-            pwr_d = float(activity['averageWatts']) - float(sim['avgPower'])
+        if activity['averageWatts'] and sim['power']:
+            pwr_d = float(activity['averageWatts']) - float(sim['power'])
             if abs(pwr_d) < 5:
                 pwr_note = ', same power output'
                 if quicker:
@@ -903,12 +978,12 @@ def build_comparison_receipts(activity):
             'type': 'similar_ride',
             'comparison_type': 'similar_ride',
             'noun': p.noun,
-            'previous_name': sim['activityName'],
-            'previous_date': _fmt_date(str(sim['activityDate'])),
-            'current_speed': _rate(spd_mph, p.rate),
-            'previous_speed': _rate(sim_spd, p.rate),
-            'current_elev': _ft(elev_ft) if p.climbing else None,
-            'previous_elev': _ft(sim['elevationFt']) if p.climbing else None,
+            'previous_name': sim['name'],
+            'previous_date': _fmt_date(str(sim['day'])),
+            'current_speed': units.fmt_rate(spd, p.rate),
+            'previous_speed': units.fmt_rate(sim_spd, p.rate),
+            'current_elev': units.fmt_elev(elev_m) if p.climbing else None,
+            'previous_elev': units.fmt_elev(sim['elev']) if p.climbing else None,
             'delta': f'{delta}{pwr_note}',
             'hint': hint,
         })

@@ -121,7 +121,9 @@ def index():
         if key not in {c['key'] for c in sport_choices} and favourites.describe(key):
             sport_choices.append(favourites.describe(key))
     ai_ready = ai.get_chat() is not None
-    return render_template('ai.html', settings=settings,
+    from services.context import PROGRESS_CHOICES, progress_setting
+    progress, progress_from = progress_setting(settings['coachProgressFrom'] if settings else None)
+    return render_template('ai.html', settings=settings, progress_choices=PROGRESS_CHOICES, progress=progress, progress_from=progress_from,
                            total=total, analysed=analysed, memories=memories,
                            dots=dots, monthly=monthly, recent=recent, viz=viz,
                            sport_choices=sport_choices, auto_sports=auto_sports,
@@ -131,10 +133,23 @@ def index():
 
 @bp.route('/ai/goals', methods=['POST'])
 def save_goals():
+    """The coaching goals, and how far back the coach's progress by month goes (services/context.progress_setting)."""
+    from services.context import PROGRESS_CHOICES
     goals = request.form.get('goals', '').strip()
+    progress = request.form.get('progress')
     db = get_db()
     db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
     db.execute('UPDATE Settings SET coachingGoals=? WHERE id=1', [goals])
+    if progress == 'since':
+        try:
+            since = datetime.strptime(request.form.get('progress_from', ''), '%Y-%m-%d').date().isoformat()
+        except ValueError:
+            db.commit()
+            flash('Goals saved. Pick the date your comeback started to show progress since then.', 'error')
+            return redirect(url_for('ai_page.index'))
+        db.execute('UPDATE Settings SET coachProgressFrom=? WHERE id=1', [since])
+    elif progress in {k for k, _ in PROGRESS_CHOICES}:
+        db.execute('UPDATE Settings SET coachProgressFrom=? WHERE id=1', [progress])
     db.commit()
     flash('Goals saved.', 'success')
     return redirect(url_for('ai_page.index'))

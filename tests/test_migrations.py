@@ -281,3 +281,25 @@ def test_step_11_drops_the_install_ping_columns_and_keeps_the_settings(tmp_path,
         assert conn.execute('SELECT units FROM Settings WHERE id=1').fetchone() == ('metric',)
     finally:
         conn.close()
+
+
+def test_step_15_keeps_an_existing_install_on_its_comeback_and_starts_a_new_one_on_6_months(tmp_path, fresh):
+    old = tmp_path / 'coached.db'
+    _from_sql(old, 'schema_step_1.sql', 1)
+    conn = sqlite3.connect(old)
+    conn.execute("INSERT INTO Settings (id, units) VALUES (1, 'metric')")
+    conn.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Sam', 1)")
+    conn.commit()
+    conn.close()
+    _migrate(old)
+    conn = sqlite3.connect(old)
+    try:
+        assert conn.execute('SELECT coachProgressFrom FROM Settings WHERE id=1').fetchone() == ('2026-01-01',)    # as it was, until changed
+    finally:
+        conn.close()
+    assert 'coachProgressFrom' in _schema(fresh)[0]['Settings']
+    conn = sqlite3.connect(fresh)
+    try:
+        assert conn.execute('SELECT coachProgressFrom FROM Settings WHERE id=1').fetchone() in (None, (None,))    # NULL: the last 6 months
+    finally:
+        conn.close()

@@ -20,7 +20,7 @@
     <div class="stat-card">
       <div class="stat-value">{{ memories }}</div>
       <div class="stat-label">Memories</div>
-      <div class="stat-sub">used for context</div>
+      <div class="stat-sub">past analyses</div>
     </div>
   </div>
 
@@ -78,7 +78,7 @@
 
       <!-- Right: recent memories -->
       <div>
-        <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:0.6rem;">Recent memories in context</div>
+        <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:0.6rem;">Latest analyses</div>
         <div style="display:flex; flex-direction:column; gap:0.4rem;">
           {% for r in recent %}
           <div style="display:grid; grid-template-columns:auto 1fr; gap:0.75rem; align-items:start; padding:0.6rem 0.75rem; background:var(--inset-bg); border-radius:6px;">
@@ -141,6 +141,15 @@
         <textarea name="goals" rows="6" placeholder="e.g. Training for a 100-mile sportive in August and a half marathon in October. Two runs and a gym session a week alongside the riding. Trying to lose weight — currently 92kg, targeting 85kg."
           style="resize:vertical;">{{ (settings.coachingGoals or '') if settings }}</textarea>
       </div>
+      <div class="form-group">
+        <label for="progressChoice">Progress by month</label>
+        <select id="progressChoice" name="progress" data-change="progressChanged(this)">
+          {% for key, label in progress_choices %}<option value="{{ key }}" {% if key == progress %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+        <input type="date" id="progressFrom" name="progress_from" value="{{ progress_from or '' }}" aria-label="The date your comeback started"
+          style="margin-top:0.5rem;{% if progress != 'since' %} display:none;{% endif %}">
+        <p class="hint" style="margin:0.3rem 0 0;">Each sport's average speed or pace, power and heart rate by month, up to the activity, so the coach reads the overall trend. Since a comeback, it judges you against the rebuild, not your old best.</p>
+      </div>
       <button type="submit" class="btn btn-primary">Save Goals</button>
     </form>
 
@@ -148,7 +157,7 @@
     <div class="card" style="margin:0;">
       <div class="card-title">Bulk Analysis</div>
       <p class="hint" style="margin-bottom:1.25rem;">
-        Generate AI coaching notes for several activities at once. Builds memories for richer future context.
+        Generate AI coaching notes for several activities at once. The coach compares each with your earlier activities of the same sport, analysed or not.
       </p>
 
       <div class="form-grid">

@@ -45,7 +45,7 @@ def client(tmp_path, monkeypatch):
         db.execute("INSERT INTO SegmentEffort (segmentId, activityId, activityDate, elapsedSecs, avgSpeedMps, isPR) VALUES (1, 'r1', ?, 200, 6.0, 1)", [today.isoformat()])
         db.execute("INSERT INTO BestEffort (activityId, activityDate, distanceMi, elapsedSecs, avgSpeedMps) VALUES ('r1', ?, 5, 1200, 6.7)", [today.isoformat()])
         db.execute("INSERT INTO ActivityMemory (activityId, activityDate, activityName, distanceMi, movingTime, elevationFt, avgSpeedMph) VALUES ('r2', ?, 'Morning ride', 12.4, 2843, 984, 15.7)",
-                   [(today - timedelta(days=9)).isoformat()])        # r2's own day: the coach only reads what came before the activity
+                   [(today - timedelta(days=9)).isoformat()])        # the AI page's Working Memory card, stored in miles, shown in km
         db.execute("INSERT INTO Activity (id, riderId, sportType, startDateLocal, distance, movingTime, totalElevationGain, source) VALUES ('wk_1', 1, 'Run', ?, 5000, 1500, 40, 'android')",
                    [today.isoformat() + 'T07:00:00'])
         db.commit()
@@ -93,7 +93,9 @@ def test_the_ai_coach_is_given_metric_numbers_not_asked_to_convert(client, monke
         ai.generate_analysis(act)
     prompt = '\n'.join(m['content'] for m in sent['messages'])
     assert '19.9 km' in prompt and '25.2 km/h' in prompt and '300 m' in prompt      # this ride
-    assert '20.0 km' in prompt and '25.3 km/h' in prompt                             # the stored ride memory (12.4 mi, 15.7 mph), converted
+    history = prompt[prompt.index('HISTORY & CONTEXT'):]
+    assert 'Ride history (last 1 ride)' in history                                   # r2, the ride before, from Activity in metres and m/s
+    assert '19.9 km' in history and '25.2 km/h' in history and '300 m' in history
     hits = sorted({prompt[max(0, m.start() - 40):m.end() + 10] for m in IMPERIAL.finditer(prompt)})
     assert not hits, hits
 
