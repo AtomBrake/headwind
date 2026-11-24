@@ -15,7 +15,7 @@ log = logging.getLogger(__name__)
 def _statement():
     from services import strava_export, tasks
     n = len(strava_export.REIMPORT_ADVISED)
-    advised = f'({strava_export.ADVISED_COUNT_SQL})' if n else '0'
+    advised = f'({strava_export.ADVISED_COUNT_SQL})'        # with no lines, it still counts riders moved from the original Headwind
     return (f'''SELECT (SELECT units FROM Settings WHERE id=1) AS units,
                        (SELECT appearance FROM Settings WHERE id=1) AS appearance,
                        (SELECT favouriteSports FROM Settings WHERE id=1) AS favouriteSports,
@@ -26,7 +26,7 @@ def _statement():
                            AS ownerFeaturesOff,
                        (SELECT featuresOff FROM Settings WHERE id=1) AS featuresOff,
                        ({tasks.UNSEEN_STARTUP_SQL}) AS startupUnseen,
-                       {advised} AS reimportAdvised''', [n, n] if n else [])
+                       {advised} AS reimportAdvised''', [n, n])
 
 
 def get():

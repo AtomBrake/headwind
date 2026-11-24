@@ -167,7 +167,7 @@ _STEP_1_FLAGS = ('distanceBackfillDone', 'utcStartFixDone', 'awayStartRecheckDon
                  'movingTimePausedDone', 'bestEffortsCleanDone', 'sensorTopSpeedDone', 'mmDistancesDone', 'stravaManualDone', 'sanityAllSportsDone',
                  'liveParkedFixDone', 'strandedParkedFixDone', 'segmentClimbFloorDone', 'ebikeSportDone', 'segmentStopsDone',
                  'segmentRouteDone', 'segmentLapsDone', 'dupMatchFixDone')
-_REPAIR_FLAGS = _STEP_1_FLAGS + ('bestEffortsKmDone',)
+_REPAIR_FLAGS = _STEP_1_FLAGS + ('bestEffortsKmDone', 'upstreamExtrasDone')
 
 
 # One row per effort: an activity that rides a segment twice (two laps of a trail centre's loop) has two, told apart by startSecs, the seconds
@@ -1004,6 +1004,11 @@ def _every_start(db):
                       + (f"; {len(back)} set aside as a copy of a ride {'is' if len(back) == 1 else 'are'} back as {'its' if len(back) == 1 else 'their'} own: "
                          + '; '.join(b[1] or b[0] for b in back[:5]) + ('…' if len(back) > 5 else '') if back else '') + '.')
         db.commit()
+    from services import upstream_extras as _upstream_extras
+    res = _upstream_extras.fix(db, db.execute('PRAGMA database_list').fetchone()[2])     # before the duplicate checks, which take photos along
+    if res and (res['photos'] or res['faults'] or res['missing'] or res['gone']):
+        _tasks.record(db, 'startup:upstream_extras', 'Photos and faults from the original Headwind', _upstream_extras.summary(res))
+        db.commit()
 
     # ── Strava's "Virtual Ride", "E-Bike Ride", "Weight Training", ... saved as Headwind's VirtualRide, EBikeRide, Strength, ...: one sport, not two ──
     from services import sport_fix as _sport_fix
@@ -1053,9 +1058,11 @@ def _every_start(db):
     from services.start_times import fix_utc_starts
     res = fix_utc_starts(db)
     if res.get('ran') and (res['moved'] or db.execute('SELECT 1 FROM Activity LIMIT 1').fetchone()):     # a new, empty install has nothing to report
-        _tasks.record(db, 'startup:utc_starts', 'Start times of imported rides',
-                      f"{res['moved']} ride{'s' if res['moved'] != 1 else ''} moved from UTC to UK time; "
-                      f"{res['duplicates']} turned out to be a ride already here (the weaker copy was set aside)" if res['moved'] else 'Nothing needed moving')
+        one = res['moved'] == 1
+        _tasks.record(db, 'startup:utc_starts', 'Start times of imported activities',
+                      f"{res['moved']} activit{'y' if one else 'ies'} moved from UTC to the local time where {'it' if one else 'each'} began; "
+                      f"{res['duplicates']} turned out to be an activity already here (the weaker copy was set aside)" if res['moved']
+                      else 'Nothing needed moving')
         db.commit()
     from services.duplicates import recheck_workouts
     res = recheck_workouts(db)
@@ -1572,6 +1579,17 @@ def _step_15(db):
         db.execute("UPDATE Settings SET coachProgressFrom='2026-01-01' WHERE id=1")
 
 
+def _step_16(db):
+    """Settings.upstreamExtrasDone: the flag of the once-only repair that brings over the photos and faults of a database from upstream's
+    0.8 onwards and asks for its Strava export again (services/upstream_extras.py). Set done on every database but one of those."""
+    have = {r[1] for r in db.execute('PRAGMA table_info(Settings)').fetchall()}
+    if 'upstreamExtrasDone' not in have:
+        db.execute('ALTER TABLE Settings ADD COLUMN upstreamExtrasDone INTEGER DEFAULT 0')
+    from services import upstream_extras
+    if not upstream_extras.from_rewrite(db):
+        db.execute('UPDATE Settings SET upstreamExtrasDone=1')
+
+
 def _compact(db):
     """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
     a temporary file and once through the WAL. Logged either way. Commits."""
@@ -1629,6 +1647,7 @@ STEPS = (
     (_step_13, False),
     (_step_14, False),
     (_step_15, False),
+    (_step_16, False),
 )
 LATEST = len(STEPS)
 

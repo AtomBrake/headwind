@@ -46,7 +46,7 @@ def test_a_startup_repair_is_announced_once_and_listed(client):
     html = client.get('/dashboard').get_data(as_text=True)
     assert 'Headwind ran 1 start-up repair on your data' in html and 'nav-badge' in html
     html = client.get('/tasks').get_data(as_text=True)
-    assert 'Start times of imported rides' in html and '1 ride moved from UTC to UK time' in html
+    assert 'Start times of imported activities' in html and '1 activity moved from UTC to the local time where it began' in html
     html = client.get('/dashboard').get_data(as_text=True)
     assert 'start-up repair' not in html and 'nav-badge' not in html                 # seen: the notice is gone
 

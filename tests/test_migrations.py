@@ -84,6 +84,34 @@ def test_an_upstream_0_5_database_reaches_the_latest_step(tmp_path, fresh):
     assert sorted(r[0] for r in conn.execute('SELECT name FROM Activity')) == ['Lunch Run', 'Morning Ride']
 
 
+def test_an_upstream_0_9_database_reaches_the_latest_step(tmp_path, fresh):
+    """Upstream's rewrite (0.8 onwards) still says user_version 0, and keeps a typed-in walk, run or hike in Workout, a ride in Activity."""
+    old = tmp_path / 'old.db'
+    _from_sql(old, 'schema_upstream_0.9.1.sql', 0)
+    conn = sqlite3.connect(old)
+    conn.execute("INSERT INTO Settings (id, units, calorieAdjustPct, nutritionSugarGoal) VALUES (1, 'metric', 10, 50)")
+    conn.execute("INSERT INTO Rider (id, name, isDefault, defaultBikeId) VALUES (1, 'A', 1, 1)")
+    conn.execute("INSERT INTO Bike (id, riderId, name) VALUES (1, 1, 'Road bike')")
+    conn.execute("INSERT INTO Activity (id, name, type, sportType, startDate, startDateLocal, distance, streams, riderId, bikeId, caloriesRaw) "
+                 "VALUES ('imp_1', 'Morning Ride', 'Ride', 'Ride', '2024-05-01T08:00:00', '2024-05-01T08:00:00', 20000, "
+                 "'{\"time\": {\"data\": [0, 1]}}', 1, 1, 500)")
+    conn.execute("INSERT INTO Workout (id, riderId, sport, name, startDate, startDateLocal, distance, source, caloriesRaw) "
+                 "VALUES ('wk_1', 1, 'Run', 'Lunch Run', '2024-05-02T11:00:00', '2024-05-02T12:00:00', 5000, 'manual', 400)")
+    conn.commit()
+    conn.close()
+    _migrate(old)
+    assert _schema(old)[2] == database.LATEST
+    assert _missing(old, fresh) == []
+    conn = sqlite3.connect(old)
+    try:
+        assert sorted(r[0] for r in conn.execute('SELECT name FROM Activity')) == ['Lunch Run', 'Morning Ride']
+        assert conn.execute("SELECT bikeId, caloriesRaw FROM Activity WHERE id='imp_1'").fetchone() == (1, 500)
+        assert conn.execute("SELECT sportType, caloriesRaw FROM Activity WHERE id='wk_1'").fetchone() == ('Run', 400)
+        assert conn.execute('SELECT units, calorieAdjustPct, nutritionSugarGoal FROM Settings WHERE id=1').fetchone() == ('metric', 10, 50)
+    finally:
+        conn.close()
+
+
 def test_a_database_at_step_1_gets_what_a_new_one_has(tmp_path, fresh):
     """A database that has had step 1 never runs it again: a table or column added to it reaches new databases only. Put it in a new step."""
     old = tmp_path / 'step1.db'

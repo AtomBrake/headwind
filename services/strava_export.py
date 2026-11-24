@@ -25,6 +25,12 @@ REIMPORT_ADVISED = [
     # ('0.7.23-beta', "Strava's own moving time for runs and walks"),
 ]
 
+# A rider whose export the original Headwind imported (services/upstream_extras.advise_reimport) is at -1 in StravaExportRead, before every line
+# above, and is given this reason first.
+FROM_ORIGINAL = -1
+ORIGINAL_REASON = ('moved from the original Headwind', "Tracks the original couldn't read, Strava's own figures for each activity, its photos, "
+                   'and your bikes and shoes')
+
 
 def ensure_schema(db):
     db.execute('''CREATE TABLE IF NOT EXISTS StravaExport (
@@ -144,14 +150,13 @@ def advice(db, db_path):
     """[{riderId, riderName, readAt, kept, reasons: [(release, reason)]}]: riders whose export was last imported before a release in
     REIMPORT_ADVISED, and who haven't put it off since. kept: the export is here to import again without uploading it."""
     n = len(REIMPORT_ADVISED)
-    if not n:
-        return []
     rows = db.execute('''SELECT a.riderId, r.name AS riderName, a.readAt, a.advised, e.riderId IS NOT NULL AS kept
                           FROM StravaExportRead a JOIN Rider r ON r.id = a.riderId LEFT JOIN StravaExport e ON e.riderId = a.riderId
                           WHERE a.advised < ? AND a.dismissed < ? ORDER BY r.isDefault DESC, r.name''', [n, n]).fetchall()
     return [{'riderId': r['riderId'], 'riderName': r['riderName'], 'readAt': r['readAt'],
              'kept': bool(r['kept']) and os.path.isfile(path_for(db_path, r['riderId'])),
-             'reasons': REIMPORT_ADVISED[r['advised']:]} for r in rows]
+             'reasons': ([ORIGINAL_REASON] if r['advised'] == FROM_ORIGINAL else []) + REIMPORT_ADVISED[max(r['advised'], 0):]}
+            for r in rows]
 
 
 def forget_read(db, rider_id):

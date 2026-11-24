@@ -74,7 +74,7 @@ It runs on a Raspberry Pi, a NAS, a spare PC or a VPS. Your data lives in one SQ
 
 Headwind was created by [lordmaa](https://github.com/lordmaa), who wrote the original app ([lordmaa/headwind](https://github.com/lordmaa/headwind)) and released it under the MIT licence. Thank you for building it and sharing it openly: none of this would exist without it.
 
-This repository began as a fork of it in October 2026, from the original's 0.5.3-beta, and is now a separate project going in a different direction: every sport rather than cycling first, an iPhone and Apple Watch app, more ways to import your history, and a lot of fixes along the way. The two no longer share code, and each is maintained on its own, so please report problems with this version **here**, not on the original. If you run the original and want to try this one, see [Moving from the original Headwind](#moving-from-the-original-headwind).
+This repository began as a fork of it in October 2026, from the original's 0.5.3-beta, and is now a separate project going in a different direction: every sport rather than cycling first, an iPhone and Apple Watch app, more ways to import your history, and a lot of fixes along the way. The two no longer share code, and each is maintained on its own, so please report problems with this version **here**, not on the original. The original has since been rewritten (its 0.8 onwards). If you run the original, its 0.5 or the rewrite, and want to try this one, see [Moving from the original Headwind](#moving-from-the-original-headwind), which lists the releases tested and what comes across.
 
 ---
 
@@ -567,13 +567,28 @@ Images are published for **amd64 and arm64** on the GitHub Container Registry as
 
 ### Moving from the original Headwind
 
-If you run the original Headwind's image (`lordmerchant99/headwind`), back up your `./data` folder, then change the `image:` line in your `docker-compose.yml` to `ghcr.io/atombrake/headwind:beta` and run:
+If you run the original Headwind with Docker (its image is `lordmerchant99/headwind`, or one you built from its source), back up your `./data` folder, then change the `image:` line in your `docker-compose.yml` to `ghcr.io/atombrake/headwind:beta` and run:
 
 ```bash
 docker compose pull && docker compose up -d
 ```
 
-Keep `./data` and `./garmin_tokens` where they are. Headwind brings the database up to date at its first start, which can take a few minutes on a big one (see the health check above). Moving from the original's 0.5.3-beta has been tested. Its later releases (0.8 onwards) are a separate rewrite and haven't been tried yet, so keep the backup, and [open an issue](../../issues) if it goes wrong.
+Keep `./data` and `./garmin_tokens` where they are. Headwind brings the database up to date at its first start, which can take a few minutes on a big one (see the health check above), and the **Tasks** page then lists what it brought over and put right on the way.
+
+**Tested:** moving from the original's 0.5.3-beta, and from 0.9.1-beta, its newest release. Its 0.8 onwards are a rewrite of their own; 0.8.0 and 0.9.0 weren't tried separately, and a release newer than 0.9.1 hasn't been tried yet, so keep the backup, and [open an issue](../../issues) if it goes wrong.
+
+**What comes across:** every activity, with its map and its recorded data (heart rate, power, cadence and so on), bikes with their parts and service log, weigh-ins, food and drink, nutrition and weight goals, coaching goals and your settings. Photos on an activity come across too. A fault you logged on an activity (a puncture, a snapped chain) goes into that activity's notes, as there's no list of faults here; one on a bike is also in its service log, as it was.
+
+**What looks different afterwards**, because this Headwind puts right what the original saved wrongly:
+- An imported activity starts at the local time where it began. The original showed its UTC time, an hour or more out in summer or abroad.
+- An activity from a Strava export with no track has its real distance. The original saved some 1,000 times too long ("This ride looks wrong").
+- An activity recorded with auto-pause off has a moving time that leaves out the stops.
+
+**What doesn't come across**, as this Headwind doesn't have it: where a photo was placed on the map, the verdict on each weigh-in, the food diary summaries, the weight milestone, the automatic trim of the calorie goal, and the usual portion remembered for each food. They stay in the database as they were.
+
+**To do by hand afterwards:**
+- If you imported a Strava export into the original's rewrite, the **Import** page asks you to import it again (from 0.5.3, nothing asks, but it's worth doing too). Activities already here are matched, not doubled, and the page lists what reads better now for you to accept, such as a track the original couldn't read. It also brings in the export's bikes and shoes, and its photos.
+- The original's Android app doesn't work with this Headwind, which has an iPhone and Apple Watch app of its own.
 
 ### Raspberry Pi
 
