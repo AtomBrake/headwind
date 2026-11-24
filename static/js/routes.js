@@ -248,15 +248,103 @@ function importStravaZip(input) {
   stravaPost(fd, input).finally(function () { input.value = ''; });
 }
 
-// ── Garmin Connect courses: in the background, followed here ──
-function importGarmin() {
-  var btn = document.getElementById('garminBtn');
-  btn.disabled = true;
-  say('Asking Garmin for your courses…', 'warning');
-  fetch('/routes/import/garmin', { method: 'POST' })
+// ── Garmin Connect courses: listed to choose from, then brought in the background, followed here ──
+var garminCourses = null;
+
+function openGarmin() {
+  var panel = document.getElementById('garminPanel');
+  if (!panel.hidden) { closeGarmin(); return; }
+  panel.hidden = false;
+  if (garminCourses) return;
+  var loading = document.getElementById('garminLoading');
+  loading.textContent = 'Asking Garmin for your courses…';
+  loading.hidden = false;
+  document.getElementById('garminChoose').hidden = true;
+  fetch('/routes/import/garmin/courses')
     .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || r.status); return d; }); })
-    .then(function (d) { followGarmin(d.job); })
-    .catch(function (e) { btn.disabled = false; say(esc(e.message), 'error'); });
+    .then(function (d) { listGarmin(d.courses); })
+    .catch(function (e) { loading.textContent = e.message || 'Garmin could not be reached.'; });
+}
+
+function closeGarmin() { document.getElementById('garminPanel').hidden = true; }
+
+function listGarmin(courses) {
+  garminCourses = courses;
+  var loading = document.getElementById('garminLoading');
+  if (!courses.length) { loading.textContent = 'Garmin Connect has no courses of yours.'; return; }
+  loading.hidden = true;
+  var fresh = courses.filter(function (c) { return !c.here; }).length;
+  document.querySelector('#garminChoose > .hint').textContent = plural(courses.length, 'course') + ' on Garmin Connect, ' +
+    (fresh === courses.length ? 'none of them here yet' : fresh + ' not here yet') + '. Tick the ones to bring in as routes.';
+  var tbody = document.querySelector('#garminCourses tbody');
+  tbody.innerHTML = courses.map(function (c) {
+    var dist = c.distM != null ? UNITS.toDist(c.distM).toFixed(1) + ' ' + UNITS.dist : '—';
+    var gain = c.gainM != null ? Math.round(UNITS.toElev(c.gainM)).toLocaleString() + ' ' + UNITS.elev : '—';
+    var made = c.created ? new Date(c.created + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
+    return '<tr data-course="' + esc(c.id) + '" data-find="' + esc(c.name.toLowerCase()) + '"' + (c.here ? ' class="here"' : '') +
+      ' data-click="toggleCourse(this, event)">' +
+      '<td><input type="checkbox" value="' + esc(c.id) + '" aria-label="Bring in ' + esc(c.name) + '"' +
+      (c.here ? ' disabled title="Already here"' : '') + ' data-change="countGarmin()"></td>' +
+      '<td data-sort="' + esc(c.name) + '">' + esc(c.name) + (c.here ? ' <span class="hint">· already here</span>' : '') + '</td>' +
+      '<td>' + esc(c.sportLabel || '') + '</td>' +
+      '<td class="num" data-sort="' + (c.distM != null ? c.distM : '') + '">' + dist + '</td>' +
+      '<td class="num" data-sort="' + (c.gainM != null ? c.gainM : '') + '">' + gain + '</td>' +
+      '<td data-sort="' + esc(c.created || '') + '">' + made + '</td></tr>';
+  }).join('');
+  if (window.sortTable) sortTable(document.getElementById('garminCourses'));
+  document.getElementById('garminChoose').hidden = false;
+  countGarmin();
+}
+
+// A click anywhere in a row ticks it, except on the box itself, which ticks itself
+function toggleCourse(tr, ev) {
+  var box = tr.querySelector('input');
+  if (ev.target === box || box.disabled) return;
+  box.checked = !box.checked;
+  countGarmin();
+}
+
+function garminBoxes(shownOnly) {
+  return Array.prototype.filter.call(document.querySelectorAll('#garminCourses tbody input'), function (b) {
+    return !b.disabled && (!shownOnly || !b.closest('tr').hidden);
+  });
+}
+
+function filterGarmin() {
+  var q = document.getElementById('garminFilter').value.trim().toLowerCase();
+  document.querySelectorAll('#garminCourses tbody tr').forEach(function (tr) {
+    tr.hidden = q !== '' && tr.getAttribute('data-find').indexOf(q) < 0;
+  });
+  countGarmin();
+}
+
+function pickGarmin(on) {
+  garminBoxes(true).forEach(function (b) { b.checked = on; });
+  countGarmin();
+}
+
+function countGarmin() {
+  var chosen = garminBoxes(false).filter(function (b) { return b.checked; }).length;
+  var shown = garminBoxes(true);
+  var all = document.getElementById('garminAll');
+  all.checked = shown.length > 0 && shown.every(function (b) { return b.checked; });
+  all.indeterminate = !all.checked && shown.some(function (b) { return b.checked; });
+  all.disabled = !shown.length;
+  document.getElementById('garminCount').textContent = chosen ? plural(chosen, 'course') + ' chosen' : '';
+  var go = document.getElementById('garminGo');
+  go.disabled = !chosen;
+  go.textContent = chosen ? 'Bring in ' + plural(chosen, 'course') : 'Bring in the chosen courses';
+}
+
+function importGarmin() {
+  var ids = garminBoxes(false).filter(function (b) { return b.checked; }).map(function (b) { return b.value; });
+  if (!ids.length) return;
+  var btn = document.getElementById('garminBtn'), go = document.getElementById('garminGo');
+  btn.disabled = go.disabled = true;
+  say('Bringing in ' + plural(ids.length, 'course') + ' from Garmin…', 'warning');
+  postJSON('/routes/import/garmin', { ids: ids })
+    .then(function (d) { closeGarmin(); followGarmin(d.job); })
+    .catch(function (e) { btn.disabled = false; countGarmin(); say(esc(e.message), 'error'); });
 }
 
 function followGarmin(job) {
@@ -273,14 +361,14 @@ function followGarmin(job) {
       }
       if (d.state === 'done' && p.result) {
         var res = p.result;
-        if (!res.total) { reloadWith('Garmin Connect has no courses of yours.', 'warning'); return; }
+        if (!res.total) { reloadWith('Those courses are no longer on Garmin Connect.', 'warning'); return; }
         var msg = res.created ? plural(res.created, 'course') + ' added from Garmin.' : 'No new courses from Garmin.';
         if (res.existing) msg += ' ' + res.existing + ' already here.';
         if (res.unread) msg += ' ' + res.unread + ' could not be read.';
         reloadWith(msg, res.unread ? 'warning' : 'success');
         return;
       }
-      say(p.total ? 'Bringing in your Garmin courses: ' + p.done + ' of ' + p.total + '…' : 'Asking Garmin for your courses…', 'warning');
+      say(p.total ? 'Bringing in your Garmin courses: ' + p.done + ' of ' + p.total + '…' : 'Bringing in your Garmin courses…', 'warning');
       setTimeout(function () { followGarmin(job); }, 1500);
     })
     .catch(function () { setTimeout(function () { followGarmin(job); }, 4000); });

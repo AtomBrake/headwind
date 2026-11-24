@@ -102,13 +102,36 @@ def import_strava():
     return jsonify(res)
 
 
-@bp.route('/import/garmin', methods=['POST'])
-def import_garmin():
-    """Bring in the Garmin Connect courses, in the background (services/jobs.py): each is a download. {job}: the one already running, if any."""
+@bp.route('/import/garmin/courses')
+def garmin_courses():
+    """The Garmin Connect courses to choose from (services/planned_routes.garmin_course_list), with each one's sport as the page shows it:
+    {courses: [{id, name, sport, sportLabel, distM, gainM, created, here}]}. One call to Garmin, while the page waits."""
+    from services.garmin import SignInNeeded, _client
     if not _garmin_on():
         return jsonify(error='Connect Garmin in Settings first'), 400
+    try:
+        courses = planned_routes.garmin_course_list(get_db(), _client(), whose.rider_id())
+    except SignInNeeded as e:
+        return jsonify(error=str(e)), 400
+    except Exception as e:
+        log.warning('Garmin courses: the list could not be read (%s)', e)
+        return jsonify(error=f'Could not reach Garmin: {e}'), 502
+    for c in courses:
+        c['sportLabel'] = sports.label(c['sport']) if c['sport'] else None
+    return jsonify(courses=courses)
+
+
+@bp.route('/import/garmin', methods=['POST'])
+def import_garmin():
+    """Bring in the Garmin Connect courses chosen on the page ({ids}), in the background (services/jobs.py): each is a download.
+    {job}: the one already running, if any."""
+    if not _garmin_on():
+        return jsonify(error='Connect Garmin in Settings first'), 400
+    ids = (request.get_json(silent=True) or {}).get('ids')
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, (str, int)) and not isinstance(i, bool) for i in ids):
+        return jsonify(error='Choose the courses to bring in'), 400
     db = get_db()
-    job = jobs.enqueue(db, GARMIN_JOB, {'rider': whose.rider_id()})
+    job = jobs.enqueue(db, GARMIN_JOB, {'rider': whose.rider_id(), 'ids': [str(i) for i in ids]})
     if job is None:
         running = jobs.last(db, GARMIN_JOB)
         job = running['id'] if running else None
@@ -132,7 +155,7 @@ def _garmin_job(job):
         api = _client()
     except Exception as e:
         raise RuntimeError(f'Could not reach Garmin: {e}') from e
-    res = planned_routes.import_garmin(db, api, job['args']['rider'], progress=lambda done, total: jobs.progress(db, job['id'], done=done,
-                                                                                                                  total=total))
+    res = planned_routes.import_garmin(db, api, job['args']['rider'], ids=job['args'].get('ids'),
+                                       progress=lambda done, total: jobs.progress(db, job['id'], done=done, total=total))
     jobs.progress(db, job['id'], result=res)
     log.info('Garmin courses: %d of %d new, %d already here, %d not read', res['created'], res['total'], res['existing'], res['unread'])

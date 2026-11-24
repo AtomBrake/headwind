@@ -155,18 +155,64 @@ def test_the_course_list_may_come_wrapped(db):
     assert res['created'] == 1
 
 
-def test_from_garmin_runs_in_the_background_and_the_page_follows_it(app, client, monkeypatch):
-    assert client.post('/routes/import/garmin').status_code == 400              # not connected
+def test_only_the_chosen_garmin_courses_come_in(db):
+    api = FakeGarmin(COURSES, {11: trk(), 12: trk(30, 'x', None)})
+    res = planned_routes.import_garmin(db, api, 1, ids=['12'])
+    assert res == {'created': 1, 'existing': 0, 'unread': 0, 'total': 1} and api.downloaded == [12]
+    assert [r[0] for r in db.execute('SELECT sourceId FROM PlannedRoute')] == ['12']
+
+
+def test_the_garmin_course_list_says_what_each_is_and_which_are_here_without_downloading(db):
+    courses = [dict(COURSES[0], distanceInMeters=42195.0, elevationGainInMeters=610.4, createdDate=1735732800000),   # 1 Jan 2025
+               dict(COURSES[1], createdDate=1767268800000),                                                          # 1 Jan 2026
+               COURSES[2], COURSES[3]]
+    planned_routes.import_garmin(db, FakeGarmin(courses, {11: trk()}), 1, ids=[11])
+    api = FakeGarmin(courses, {})
+    got = planned_routes.garmin_course_list(db, api, 1)
+    assert api.downloaded == []
+    assert got == [{'id': '12', 'name': 'Parkrun', 'sport': 'Run', 'distM': None, 'gainM': None, 'created': '2026-01-01', 'here': False},
+                   {'id': '11', 'name': 'Tamar trail', 'sport': 'GravelRide', 'distM': 42195.0, 'gainM': 610.4, 'created': '2025-01-01',
+                    'here': True},
+                   {'id': '13', 'name': 'Gone', 'sport': None, 'distM': None, 'gainM': None, 'created': None, 'here': False}]  # no id: left out
+
+
+def test_from_garmin_lists_the_courses_then_brings_in_the_chosen_ones_in_the_background(app, client, monkeypatch):
+    assert client.get('/routes/import/garmin/courses').status_code == 400       # not connected
+    assert client.post('/routes/import/garmin', json={'ids': ['11']}).status_code == 400
     monkeypatch.setattr('routes.saved_routes._garmin_on', lambda: True)
     monkeypatch.setattr('services.garmin._client', lambda: FakeGarmin(COURSES[:2], {11: trk(), 12: trk(30, 'x', None)}))
-    assert 'From Garmin' in client.get('/routes/').get_data(as_text=True)
-    job = client.post('/routes/import/garmin').get_json()['job']
-    assert client.post('/routes/import/garmin').get_json()['job'] == job        # one at a time: the page follows the one queued
+    page = client.get('/routes/').get_data(as_text=True)
+    assert 'From Garmin' in page and 'id="garminPanel"' in page
+    listed = client.get('/routes/import/garmin/courses').get_json()['courses']
+    assert [(c['id'], c['sportLabel'], c['here']) for c in listed] == [('11', 'Gravel ride', False), ('12', 'Run', False)]
+    assert client.post('/routes/import/garmin', json={}).status_code == 400                  # nothing chosen
+    assert client.post('/routes/import/garmin', json={'ids': []}).status_code == 400
+    assert client.post('/routes/import/garmin', json={'ids': [True]}).status_code == 400
+    job = client.post('/routes/import/garmin', json={'ids': ['11']}).get_json()['job']
+    assert client.post('/routes/import/garmin', json={'ids': ['12']}).get_json()['job'] == job   # one at a time: the page follows it
     assert page_data(client.get('/routes/').get_data(as_text=True), 'routesData')['garminJob'] == job
     jobs.run_queued(app)
     st = client.get(f'/routes/import/garmin/{job}').get_json()
-    assert st['state'] == 'done' and st['progress']['result'] == {'created': 2, 'existing': 0, 'unread': 0, 'total': 2}
+    assert st['state'] == 'done' and st['progress']['result'] == {'created': 1, 'existing': 0, 'unread': 0, 'total': 1}
+    assert [c['here'] for c in client.get('/routes/import/garmin/courses').get_json()['courses']] == [True, False]
     assert client.get('/routes/import/garmin/999').status_code == 404
+
+
+def test_a_garmin_course_list_that_fails_says_so(client, monkeypatch):
+    from services.garmin import SIGN_IN_AGAIN, SignInNeeded
+
+    def refuse():
+        raise SignInNeeded(SIGN_IN_AGAIN)
+
+    def down():
+        raise ConnectionError('timed out')
+    monkeypatch.setattr('routes.saved_routes._garmin_on', lambda: True)
+    monkeypatch.setattr('services.garmin._client', refuse)
+    r = client.get('/routes/import/garmin/courses')
+    assert r.status_code == 400 and 'sign in again' in r.get_json()['error']
+    monkeypatch.setattr('services.garmin._client', down)
+    r = client.get('/routes/import/garmin/courses')
+    assert r.status_code == 502 and 'Could not reach Garmin' in r.get_json()['error']
 
 
 def test_a_garmin_sign_in_that_fails_says_so(app, client, monkeypatch):
@@ -176,7 +222,7 @@ def test_a_garmin_sign_in_that_fails_says_so(app, client, monkeypatch):
         raise SignInNeeded(SIGN_IN_AGAIN)
     monkeypatch.setattr('routes.saved_routes._garmin_on', lambda: True)
     monkeypatch.setattr('services.garmin._client', refuse)
-    job = client.post('/routes/import/garmin').get_json()['job']
+    job = client.post('/routes/import/garmin', json={'ids': ['11']}).get_json()['job']
     jobs.run_queued(app)
     st = client.get(f'/routes/import/garmin/{job}').get_json()
     assert st['state'] == 'failed' and 'sign in again' in st['error']

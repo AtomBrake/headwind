@@ -16,6 +16,14 @@
     tr.shown > td { background: var(--hover-tint); }
     #routesTable select { min-width: 9rem; }
     .row-actions { display: flex; gap: 0.35rem; justify-content: flex-end; white-space: nowrap; }
+    .garmin-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-bottom: 0.75rem; }
+    .garmin-tools input[type=search] { flex: 1 1 14rem; max-width: 22rem; }
+    .garmin-list { max-height: 26rem; overflow-y: auto; border: 1px solid var(--border); border-radius: 0.5rem; }
+    .garmin-list thead th { position: sticky; top: 0; background: var(--card-bg); z-index: 1; }
+    #garminCourses td:first-child, #garminCourses th:first-child { width: 2rem; }
+    #garminCourses tr.here td { color: var(--text-muted); }
+    #garminCourses tbody tr:not(.here) { cursor: pointer; }
+    .garmin-go { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.75rem; }
     @media (max-width: 700px) { #routesMap { height: 260px; } }
   </style>
 {% endblock %}
@@ -24,7 +32,7 @@
   <button class="btn btn-primary" data-click="chooseGpxFiles()">Import GPX</button>
   <button class="btn btn-secondary" data-click="toggleHidden('stravaPanel')">From Strava</button>
   {% if garmin_on %}
-  <button class="btn btn-secondary" id="garminBtn" data-click="importGarmin()" title="Bring in your Garmin Connect courses">From Garmin</button>
+  <button class="btn btn-secondary" id="garminBtn" data-click="openGarmin()" title="Choose courses from Garmin Connect to bring in">From Garmin</button>
   {% endif %}
   <input type="file" id="gpxFiles" accept=".gpx,application/gpx+xml" multiple hidden data-change="importGPX(this)">
 {% endblock %}
@@ -45,6 +53,41 @@
     <p class="hint">Only its routes are read: to bring in its activities as well, use the Import page.</p>
   </div>
 </div>
+
+{% if garmin_on %}
+<div class="card" id="garminPanel" hidden>
+  <div class="card-title">Courses on Garmin Connect</div>
+  <p class="hint" id="garminLoading">Asking Garmin for your courses…</p>
+  <div id="garminChoose" hidden>
+    <p class="hint">Tick the courses to bring in as routes. The ones already here can't be chosen again.</p>
+    <div class="garmin-tools">
+      <input type="search" id="garminFilter" placeholder="Find a course" aria-label="Find a course" data-input="filterGarmin()">
+      <button type="button" class="btn btn-secondary btn-sm" data-click="pickGarmin(true)">Select all shown</button>
+      <button type="button" class="btn btn-secondary btn-sm" data-click="pickGarmin(false)">Select none</button>
+      <span class="hint" id="garminCount"></span>
+    </div>
+    <div class="garmin-list">
+      <table class="table flush sortable" id="garminCourses" data-sort-name="csort">
+        <thead>
+          <tr>
+            <th data-nosort><input type="checkbox" id="garminAll" aria-label="Select all shown" data-change="pickGarmin(this.checked)"></th>
+            <th data-col="course">Course</th>
+            <th data-col="sport">Sport</th>
+            <th class="num" data-col="dist" data-first="desc">Distance</th>
+            <th class="num" data-col="climb" data-first="desc">Climb</th>
+            <th data-col="made" data-first="desc" aria-sort="descending">Made on Garmin</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="garmin-go">
+      <button type="button" class="btn btn-primary" id="garminGo" data-click="importGarmin()" disabled>Bring in the chosen courses</button>
+      <button type="button" class="btn btn-secondary" data-click="closeGarmin()">Cancel</button>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <div id="importResult" class="flash" hidden></div>
 

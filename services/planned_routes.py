@@ -210,25 +210,74 @@ def _garmin_sport(course):
     return sports.from_type(key) if key else None
 
 
-def import_garmin(db, api, rider_id, progress=None):
+def _garmin_number(course, *keys):
+    for k in keys:
+        v = course.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return float(v)
+    return None
+
+
+def _garmin_created(course):
+    """When the course was made on Garmin, as an ISO date: Garmin sends milliseconds since 1970, or (in case) a date string."""
+    from datetime import datetime, timezone
+    for k in ('createdDate', 'createDate', 'updatedDate'):
+        v = course.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+            try:
+                return datetime.fromtimestamp(v / 1000, timezone.utc).date().isoformat()
+            except (OverflowError, OSError, ValueError):
+                continue
+        if isinstance(v, str) and len(v) >= 10 and v[4] == '-' and v[7] == '-':
+            return v[:10]
+    return None
+
+
+def _garmin_id(course):
+    cid = course.get('courseId') or course.get('id')
+    return None if cid is None else str(cid)
+
+
+def garmin_course_list(db, api, rider_id):
+    """The rider's Garmin Connect courses as the Routes page lists them to choose from, newest first: [{id, name, sport, distM, gainM,
+    created, here}], here when the course was brought in before. One call to Garmin; nothing is downloaded or saved."""
+    have = {r[0] for r in db.execute("SELECT sourceId FROM PlannedRoute WHERE riderId IS ? AND source='garmin'", [rider_id])}
+    out = []
+    for c in _garmin_courses(api.get_courses()):
+        cid = _garmin_id(c)
+        if cid is None:
+            continue
+        out.append({'id': cid, 'name': (c.get('courseName') or c.get('name') or '').strip() or f'Course {cid}',
+                    'sport': _garmin_sport(c), 'distM': _garmin_number(c, 'distanceInMeters', 'distanceMeters', 'distance'),
+                    'gainM': _garmin_number(c, 'elevationGainInMeters', 'elevationGainMeters', 'elevationGain'),
+                    'created': _garmin_created(c), 'here': cid in have})
+    out.sort(key=lambda x: x['created'] or '', reverse=True)
+    return out
+
+
+def import_garmin(db, api, rider_id, progress=None, ids=None):
     """The rider's Garmin Connect courses (garminconnect's get_courses, then each one's GPX) saved as routes, source 'garmin' with the course id
-    in sourceId. A course brought in before is skipped without downloading it again, and one with the same points as a route here is kept once
-    (save). A course deleted on Garmin stays here. progress(done, total): after each course.
-    {created, existing, unread, total}. Commits after each course, so a run that fails part way keeps what it got."""
+    in sourceId: all of them, or with ids only those (the ones chosen on the Routes page). A course brought in before is skipped without
+    downloading it again, and one with the same points as a route here is kept once (save). A course deleted on Garmin stays here.
+    progress(done, total): after each course. {created, existing, unread, total}. Commits after each course, so a run that fails part way
+    keeps what it got."""
     import logging
     log = logging.getLogger(__name__)
     courses = _garmin_courses(api.get_courses())
+    if ids is not None:
+        wanted = {str(i) for i in ids}
+        courses = [c for c in courses if _garmin_id(c) in wanted]
     have = {r[0] for r in db.execute("SELECT sourceId FROM PlannedRoute WHERE riderId IS ? AND source='garmin'", [rider_id])}
     out = {'created': 0, 'existing': 0, 'unread': 0, 'total': len(courses)}
     for i, c in enumerate(courses):
-        cid = c.get('courseId') or c.get('id')
+        cid = _garmin_id(c)
         if cid is None:
             out['unread'] += 1
-        elif str(cid) in have:
+        elif cid in have:
             out['existing'] += 1
         else:
             try:
-                got = from_gpx(api.download_course(cid, 'gpx'), f'{cid}.gpx')
+                got = from_gpx(api.download_course(c.get('courseId') or c.get('id'), 'gpx'), f'{cid}.gpx')
             except Exception as e:
                 log.warning('Garmin courses: course %s could not be read (%s)', cid, e)
                 got = None
@@ -236,7 +285,7 @@ def import_garmin(db, api, rider_id, progress=None):
                 out['unread'] += 1
             else:
                 _, new = save(db, rider_id, (c.get('courseName') or c.get('name') or '').strip() or got['name'], track=got['track'],
-                              source='garmin', source_id=str(cid), sport=_garmin_sport(c) or got['sportType'])
+                              source='garmin', source_id=cid, sport=_garmin_sport(c) or got['sportType'])
                 out['created' if new else 'existing'] += 1
                 db.commit()
         if progress:
