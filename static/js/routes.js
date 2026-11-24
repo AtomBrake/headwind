@@ -1,12 +1,12 @@
-// The Routes page (templates/routes.html, routes/saved_routes.py): one route on the map with its profile, renaming, the sport, deleting,
-// and bringing routes in from GPX files, a Strava export and Garmin Connect. A route's points, its GPX and its deletion are the planner's
-// endpoints under /planner/routes (routes/route_builder.py).
+// The Routes page (templates/routes.html, routes/saved_routes.py): every route drawn together on one map (/routes/lines), a click on a line
+// opening its page (route.js); the table of them, sorted (static/js/app.js) and filtered here, the map showing only the routes the filters
+// leave; the sport, deleting, and bringing routes in from GPX files, a Strava export and Garmin Connect. A route's GPX and its deletion are
+// the planner's endpoints under /planner/routes (routes/route_builder.py).
 var PAGE = JSON.parse(document.getElementById('routesData').textContent);
 var FLASH_KEY = 'routesFlash';
-var FROM = { gpx: 'from a GPX file', activity: 'from an activity', strava: 'from Strava', garmin: 'from Garmin Connect',
-             planner: 'drawn in the planner' };
 
-var map = null, line = null, profile = null, dot = null, shownId = null;
+var map = null, lines = {}, layers = {}, shown = [], lit = null, litLayer = null, pixels = {}, pixelZoom = null;
+var PICK_PX = 8;                                        // how near a click must be to a line to pick it
 
 // ── Messages: what an import did, kept across the reload that shows its routes ──
 function say(html, kind) {
@@ -18,7 +18,7 @@ function say(html, kind) {
 
 function reloadWith(html, kind, routeId) {
   try { sessionStorage.setItem(FLASH_KEY, JSON.stringify({ html: html, kind: kind })); } catch (e) {}
-  location.href = '/routes/' + (routeId ? '?route=' + routeId : '');
+  location.href = '/routes/' + (routeId || '');
 }
 
 function esc(s) {
@@ -35,134 +35,200 @@ function postJSON(url, body) {
 }
 
 function row(id) { return document.querySelector('tr[data-route="' + id + '"]'); }
+function nameOf(id) { var tr = row(id); return tr ? tr.querySelector('a[data-name]').textContent : ''; }
 
-// ── The map ──
+// ── The map: every route shown in the table, light lines that add up where they overlap ──
 function initMap() {
   if (!document.getElementById('routesMap')) return;
-  map = L.map('routesMap').setView([PAGE.lat, PAGE.lng], 10);
+  map = L.map('routesMap', { preferCanvas: true }).setView([PAGE.lat, PAGE.lng], 9);
   HWMap.attach(map, { page: 'routes', base: 'scheme' });
-  document.getElementById('profileChart').addEventListener('mouseleave', function () {
-    if (dot) { map.removeLayer(dot); dot = null; }
-  });
-}
-
-function showRoute(id) {
-  if (!map) return false;
-  fetch('/planner/routes/' + id)
+  map.on('click', pickAt);
+  map.on('mousemove', hoverAt);
+  map.on('mouseout', function () { light(null); });
+  map.on('moveend', function () { if (document.getElementById('fView').checked) applyFilters(); });
+  map.on('popupclose', function () { light(null); });
+  fetch('/routes/lines')
     .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-    .then(function (route) {
-      shownId = route.id;
-      document.querySelectorAll('#routesTable tr.shown').forEach(function (tr) { tr.classList.remove('shown'); });
-      var tr = row(route.id);
-      if (tr) tr.classList.add('shown');
-      history.replaceState(null, '', '/routes/?route=' + route.id);
-      var pts = route.track || route.waypoints.map(function (w) { return [w.lat, w.lng]; });
-      if (line) map.removeLayer(line);
-      line = L.polyline(pts.map(function (p) { return [p[0], p[1]]; }), { color: cssVar('--accent'), weight: 4, opacity: 0.9 }).addTo(map);
-      if (pts.length) map.fitBounds(line.getBounds(), { padding: [30, 30] });
-      describe(route);
-      drawProfile(route.track);
+    .then(function (d) {
+      lines = d.lines;
+      Object.keys(lines).forEach(function (id) {
+        if (lines[id].length < 2) return;
+        layers[id] = L.polyline(lines[id], { color: cssVar('--accent'), weight: 3, opacity: 0.4, interactive: false });
+      });
+      applyFilters(true);
     })
-    .catch(function () { say('That route could not be loaded.', 'error'); });
-  return false;                                          // the link's own address is for opening it in a new tab
+    .catch(function () { say('The routes could not be drawn on the map.', 'error'); });
 }
 
-// The heading over the map: the name, then its sport, distance, climb and where it came from
-function describe(route) {
-  document.getElementById('shownName').textContent = route.name;
-  var facts = [];
-  var sel = row(route.id) && row(route.id).querySelector('select');
-  if (sel && sel.value) facts.push(sel.options[sel.selectedIndex].text);
-  facts.push(UNITS.toDist(route.distM).toFixed(1) + ' ' + UNITS.dist);
-  if (route.gainM != null) facts.push(Math.round(UNITS.toElev(route.gainM)).toLocaleString() + ' ' + UNITS.elev + ' climb');
-  facts.push(FROM[route.source] || route.source);
-  document.getElementById('shownFacts').textContent = facts.join(' · ');
-}
-
-function metresBetween(a, b) {
-  var R = 6371008.8, rad = Math.PI / 180;
-  var dLat = (b[0] - a[0]) * rad, dLng = (b[1] - a[1]) * rad;
-  var h = Math.pow(Math.sin(dLat / 2), 2) + Math.cos(a[0] * rad) * Math.cos(b[0] * rad) * Math.pow(Math.sin(dLng / 2), 2);
-  return 2 * R * Math.asin(Math.sqrt(Math.min(1, h)));
-}
-
-// The elevation profile under the map, from the route's own heights; hovering it marks the place on the map. None for waypoints.
-function drawProfile(track) {
-  var box = document.getElementById('routeProfile');
-  if (profile) { profile.destroy(); profile = null; }
-  if (dot) { map.removeLayer(dot); dot = null; }
-  if (!window.Chart || !track || !track.some(function (p) { return p[2] != null; })) { box.hidden = true; return; }
-  var along = [0];
-  for (var i = 1; i < track.length; i++) along.push(along[i - 1] + metresBetween(track[i - 1], track[i]));
-  var step = Math.max(1, Math.floor(track.length / 600)), idx = [];
-  for (var j = 0; j < track.length; j += step) idx.push(j);
-  if (idx[idx.length - 1] !== track.length - 1) idx.push(track.length - 1);
-  box.hidden = false;
-  profile = new Chart(document.getElementById('profileChart'), {
-    type: 'line',
-    data: {
-      labels: idx.map(function (k) { return UNITS.toDist(along[k]).toFixed(1); }),
-      datasets: [{ data: idx.map(function (k) { return track[k][2] != null ? UNITS.toElev(track[k][2]) : null; }),
-                   borderColor: cssVar('--accent'), backgroundColor: cssVar('--accent', 0.18), fill: true,
-                   borderWidth: 1.5, pointRadius: 0, tension: 0.2, spanGaps: true }],
-    },
-    options: {
-      animation: false, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
-      onHover: function (e, items) {
-        if (!items.length) return;
-        var p = track[idx[items[0].index]];
-        if (!dot) dot = L.circleMarker([p[0], p[1]], { radius: 7, color: cssVar('--card-bg'), weight: 2,
-                                                       fillColor: cssVar('--c-yellow'), fillOpacity: 1, interactive: false }).addTo(map);
-        else dot.setLatLng([p[0], p[1]]);
-      },
-      plugins: { legend: { display: false }, tooltip: { displayColors: false, callbacks: {
-        title: function (c) { return c[0].label + ' ' + UNITS.dist; },
-        label: function (c) { return Math.round(c.parsed.y) + ' ' + UNITS.elev; } } } },
-      scales: { x: { ticks: { maxTicksLimit: 8, font: { size: 10 } }, grid: { display: false } },
-                y: { ticks: { maxTicksLimit: 4, font: { size: 10 } } } },
-    },
+function drawShown(fit) {
+  Object.keys(layers).forEach(function (id) {
+    var on = shown.indexOf(id) >= 0;
+    if (on && !map.hasLayer(layers[id])) layers[id].addTo(map);
+    if (!on && map.hasLayer(layers[id])) map.removeLayer(layers[id]);
   });
+  if (fit) fitShown();
 }
 
-// ── Rename, in the row ──
-function startRename(id) {
-  var tr = row(id), cell = tr.cells[0], link = cell.querySelector('a[data-name]');
-  if (cell.querySelector('input')) return;
-  var box = document.createElement('div');
-  box.className = 'route-name-edit';
-  var input = document.createElement('input');
-  input.type = 'text'; input.maxLength = 100; input.value = link.textContent; input.setAttribute('aria-label', 'Route name');
-  var save = document.createElement('button');
-  save.className = 'btn btn-primary btn-sm'; save.textContent = 'Save';
-  var cancel = document.createElement('button');
-  cancel.className = 'btn btn-secondary btn-sm'; cancel.textContent = 'Cancel';
-  box.append(input, save, cancel);
-  link.hidden = true;
-  cell.appendChild(box);
-  input.focus(); input.select();
-
-  function close() { box.remove(); link.hidden = false; }
-  function commit() {
-    var name = input.value.trim();
-    if (!name) { input.focus(); return; }
-    if (name === link.textContent) { close(); return; }
-    save.disabled = true;
-    postJSON('/routes/' + id, { name: name })
-      .then(function (d) {
-        link.textContent = d.name;
-        cell.setAttribute('data-sort', d.name);
-        tr.querySelector('select').setAttribute('aria-label', 'Sport of ' + d.name);
-        if (shownId === id) document.getElementById('shownName').textContent = d.name;
-        close();
-      })
-      .catch(function (e) { save.disabled = false; say(esc(e.message), 'error'); });
+// The map fitted to the routes shown: by itself to where most of them are (within CLUSTER_KM of their middle), so one far away (a holiday)
+// doesn't zoom it out to the whole world; to every one of them with the link under the map (all)
+var CLUSTER_KM = 150;
+function fitShown(all) {
+  var ids = shown.filter(function (id) { return layers[id]; });
+  if (!all && ids.length > 2) {
+    var mid = function (xs) { xs = xs.slice().sort(function (a, b) { return a - b; }); return xs[Math.floor(xs.length / 2)]; };
+    var centres = ids.map(function (id) { return layers[id].getBounds().getCenter(); });
+    var middle = L.latLng(mid(centres.map(function (c) { return c.lat; })), mid(centres.map(function (c) { return c.lng; })));
+    var near = ids.filter(function (id, i) { return centres[i].distanceTo(middle) <= CLUSTER_KM * 1000; });
+    if (near.length) ids = near;
   }
-  save.addEventListener('click', commit);
-  cancel.addEventListener('click', close);
-  input.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') { e.preventDefault(); commit(); }
-    if (e.key === 'Escape') close();
+  var b = null;
+  ids.forEach(function (id) { b = b ? b.extend(layers[id].getBounds()) : L.latLngBounds(layers[id].getBounds()); });
+  if (b && b.isValid()) map.fitBounds(b, { padding: [20, 20], maxZoom: 14 });
+  return false;
+}
+
+// One route drawn over the others: the one under the mouse, or the row being pointed at
+function light(id) {
+  id = id == null ? null : String(id);
+  if (lit === id) return;
+  if (litLayer) { map.removeLayer(litLayer); litLayer = null; }
+  if (lit && row(lit)) row(lit).classList.remove('lit');
+  lit = id;
+  if (id && lines[id]) {
+    litLayer = L.polyline(lines[id], { color: cssVar('--c-yellow'), weight: 5, opacity: 1, interactive: false }).addTo(map);
+    if (row(id)) row(id).classList.add('lit');
+  }
+}
+
+// The routes within PICK_PX of a point on the map, nearest first, from their lines in pixels at this zoom
+function routesNear(latlng) {
+  var z = map.getZoom();
+  if (pixelZoom !== z) { pixels = {}; pixelZoom = z; }
+  var p = map.project(latlng, z), tol2 = PICK_PX * PICK_PX, hits = [];
+  shown.forEach(function (id) {
+    var line = lines[id];
+    if (!line || line.length < 2) return;
+    var px = pixels[id] || (pixels[id] = line.map(function (q) { return map.project(q, z); }));
+    var best = Infinity;
+    for (var i = 1; i < px.length; i++) {
+      var a = px[i - 1], b = px[i], dx = b.x - a.x, dy = b.y - a.y, ll = dx * dx + dy * dy;
+      var t = ll ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / ll)) : 0;
+      var ex = a.x + t * dx - p.x, ey = a.y + t * dy - p.y, d2 = ex * ex + ey * ey;
+      if (d2 < best) best = d2;
+    }
+    if (best <= tol2) hits.push({ id: id, d: best });
   });
+  return hits.sort(function (a, b) { return a.d - b.d; }).map(function (h) { return h.id; });
+}
+
+var hoverTimer = null;
+function hoverAt(e) {
+  if (hoverTimer) return;
+  hoverTimer = setTimeout(function () {
+    hoverTimer = null;
+    if (map._popup && map.hasLayer(map._popup)) return;      // a list of routes is open: it lights them itself
+    var hits = routesNear(e.latlng);
+    map.getContainer().classList.toggle('route-hover', hits.length > 0);
+    light(hits[0]);
+  }, 30);
+}
+
+// A click on one route opens it; on several where they overlap, a list to choose from
+function pickAt(e) {
+  var hits = routesNear(e.latlng);
+  if (!hits.length) return;
+  if (hits.length === 1) { location.href = '/routes/' + hits[0]; return; }
+  var ul = document.createElement('ul');
+  ul.className = 'route-pick';
+  hits.forEach(function (id) {
+    var tr = row(id), li = document.createElement('li'), a = document.createElement('a');
+    a.href = '/routes/' + id;
+    a.textContent = nameOf(id);
+    a.addEventListener('mouseenter', function () { light(id); });
+    li.appendChild(a);
+    if (tr) {
+      var facts = document.createElement('span');
+      facts.className = 'hint';
+      facts.textContent = tr.cells[2].textContent.trim();
+      li.appendChild(facts);
+    }
+    ul.appendChild(li);
+  });
+  var head = document.createElement('div');
+  head.className = 'hint';
+  head.textContent = hits.length + ' routes here';
+  var box = document.createElement('div');
+  box.append(head, ul);
+  L.popup({ maxWidth: 320 }).setLatLng(e.latlng).setContent(box).openOn(map);
+}
+
+// ── The table's filters: the name, sport, where from, distance and the map's view; kept in the URL ──
+var FILTERS = { q: 'fName', sport: 'fSport', from: 'fSource', min: 'fMin', max: 'fMax' };
+
+function filterValue(key) { var el = document.getElementById(FILTERS[key]); return el ? el.value.trim() : ''; }
+
+function inView(id, bounds) { return !!(layers[id] && bounds.intersects(layers[id].getBounds())); }
+
+function applyFilters(first) {
+  var table = document.getElementById('routesTable');
+  if (!table) return;
+  var q = filterValue('q').toLowerCase(), sport = filterValue('sport'), from = filterValue('from');
+  var min = parseFloat(filterValue('min')), max = parseFloat(filterValue('max'));
+  var view = document.getElementById('fView').checked && map ? map.getBounds() : null;
+  var rows = table.tBodies[0].rows, total = rows.length;
+  shown = [];
+  Array.prototype.forEach.call(rows, function (tr) {
+    var id = tr.getAttribute('data-route'), dist = UNITS.toDist(Number(tr.getAttribute('data-dist')));
+    var ok = (!q || tr.getAttribute('data-find').indexOf(q) >= 0) &&
+             (!sport || tr.getAttribute('data-sport') === sport) &&
+             (!from || tr.getAttribute('data-source') === from) &&
+             (isNaN(min) || dist >= min) && (isNaN(max) || dist <= max) &&
+             (!view || inView(id, view));
+    tr.hidden = !ok;
+    if (ok) shown.push(id);
+  });
+  var filtered = !!(q || sport || from || !isNaN(min) || !isNaN(max) || view);
+  document.getElementById('fCount').textContent = filtered ? shown.length + ' of ' + plural(total, 'route') : plural(total, 'route');
+  document.getElementById('fClear').hidden = !filtered;
+  document.getElementById('fNone').hidden = shown.length > 0;
+  table.hidden = !shown.length;
+  if (map) {
+    if (lit && shown.indexOf(lit) < 0) light(null);
+    drawShown(first === true || (!view && first !== false));
+  }
+  if (first !== true) remember();
+}
+
+function clearFilters() {
+  Object.keys(FILTERS).forEach(function (k) { var el = document.getElementById(FILTERS[k]); if (el) el.value = ''; });
+  document.getElementById('fView').checked = false;
+  applyFilters();
+  return false;
+}
+
+function remember() {
+  try {
+    var url = new URL(location.href);
+    Object.keys(FILTERS).forEach(function (k) { var v = filterValue(k); if (v) url.searchParams.set(k, v); else url.searchParams.delete(k); });
+    if (document.getElementById('fView').checked) url.searchParams.set('view', '1'); else url.searchParams.delete('view');
+    history.replaceState(history.state, '', url);
+  } catch (e) {}
+}
+
+function restoreFilters() {
+  var qs = new URLSearchParams(location.search);
+  Object.keys(FILTERS).forEach(function (k) { var el = document.getElementById(FILTERS[k]); if (el && qs.get(k)) el.value = qs.get(k); });
+}
+
+// Pointing at a row lights its route on the map
+function initRows() {
+  var table = document.getElementById('routesTable');
+  if (!table) return;
+  table.tBodies[0].addEventListener('mouseover', function (e) {
+    var tr = e.target.closest('tr[data-route]');
+    if (tr && map) light(tr.getAttribute('data-route'));
+  });
+  table.tBodies[0].addEventListener('mouseleave', function () { if (map) light(null); });
 }
 
 // ── Sport ──
@@ -174,7 +240,7 @@ function setSport(id, sel) {
     .then(function () {
       sel.setAttribute('data-was', sel.value);
       sel.closest('td').setAttribute('data-sort', sel.value ? sel.options[sel.selectedIndex].text : '');
-      if (shownId === id) fetch('/planner/routes/' + id).then(function (r) { return r.json(); }).then(describe);
+      sel.closest('tr').setAttribute('data-sport', sel.value || '-');
     })
     .catch(function (e) { sel.value = before; say(esc(e.message), 'error'); })
     .finally(function () { sel.disabled = false; });
@@ -182,7 +248,7 @@ function setSport(id, sel) {
 
 // ── Delete ──
 function deleteRoute(id) {
-  var name = row(id).querySelector('a[data-name]').textContent;
+  var name = nameOf(id);
   if (!confirm('Delete the route ' + name + '? This cannot be undone.')) return;
   fetch('/planner/routes/' + id, { method: 'DELETE' })
     .then(function (r) { if (!r.ok) throw new Error(r.status); reloadWith(esc(name) + ' deleted.'); })
@@ -379,7 +445,10 @@ function followGarmin(job) {
   var flash = null;
   try { flash = JSON.parse(sessionStorage.getItem(FLASH_KEY) || 'null'); sessionStorage.removeItem(FLASH_KEY); } catch (e) {}
   if (flash) say(flash.html, flash.kind);
+  restoreFilters();
+  if (new URLSearchParams(location.search).get('view') && document.getElementById('fView')) document.getElementById('fView').checked = true;
+  initRows();
   initMap();
-  if (PAGE.show) showRoute(PAGE.show);
+  applyFilters(false);
   if (PAGE.garminJob) followGarmin(PAGE.garminJob);
 })();

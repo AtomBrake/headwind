@@ -1,0 +1,34 @@
+{# A route page's "Segments on this route" card (routes/saved_routes.segments, services/route_library.segments_on), fetched after the page and
+   put in place of #routeSegments. Each segment's shape is in data-shapes, for route.js to draw on the map. #}
+<div class="card" style="margin-top:1rem;" id="routeSegments"
+     data-shapes='{{ segs | map(attribute="shape") | list | tojson }}' data-ids='{{ segs | map(attribute="id") | list | tojson }}'>
+  <div class="card-title">Segments on this route</div>
+  <div class="hint" style="margin-bottom:0.5rem;">{{ segs | length }} segment{{ '' if segs | length == 1 else 's' }} it takes in from end to end,
+    the same way round, in the order it reaches them.</div>
+  <div class="table-wrap">
+  <table class="table flush" id="segmentsTable">
+    <thead>
+      <tr>
+        <th>Segment</th>
+        <th class="num">From the start</th>
+        <th class="num">Length</th>
+        <th class="num">Climb</th>
+        <th class="num">Your best</th>
+        <th class="num">Times</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for s in segs %}
+      <tr data-segment="{{ loop.index0 }}">
+        <td><a href="{{ url_for('segments.detail', sid=s.id) }}">{{ s.name }}</a></td>
+        <td class="num">{{ s.at | fmt_dist }}</td>
+        <td class="num">{{ s.distanceM | fmt_dist if s.distanceM else '—' }}</td>
+        <td class="num">{{ s.elevationGainM | fmt_elev if s.elevationGainM else '—' }}</td>
+        <td class="num">{% if s.bestSecs %}<span title="{{ 'Your best since ' ~ (s.prDate | fmt_date) if s.prDate else '' }}">{{ s.bestSecs | fmt_duration }}</span>{% else %}—{% endif %}</td>
+        <td class="num">{{ s.efforts or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>

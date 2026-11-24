@@ -202,7 +202,7 @@ def from_activity(rid):
     if not got:
         abort(400)                                      # no GPS track
     db.commit()
-    return redirect(url_for('saved_routes.index', route=got[0]))
+    return redirect(url_for('saved_routes.route', route_id=got[0]))
 
 
 @bp.route('/routes/<int:route_id>', methods=['DELETE'])

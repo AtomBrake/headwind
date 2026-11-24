@@ -5,15 +5,21 @@
 
 {% block head %}
   {% include '_maps.html' %}
-  <script src="{{ url_for('static', filename='vendor/chart.js-4.4.0/chart.umd.js') }}"></script>
   <style>
-    #routesMap { height: 360px; border-radius: 0.5rem; }
-    #routeProfile { height: 120px; margin-top: 0.75rem; }
-    .route-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1rem; margin-bottom: 0.75rem; }
-    .route-head h3 { margin: 0; }
-    .route-name-edit { display: flex; gap: 0.35rem; align-items: center; }
-    .route-name-edit input { min-width: 12rem; }
-    tr.shown > td { background: var(--hover-tint); }
+    #routesMap { height: 460px; border-radius: 0.5rem; }
+    #routesMap.route-hover { cursor: pointer; }
+    .routes-map-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.25rem 1rem; margin-top: 0.5rem; }
+    .route-pick { list-style: none; margin: 0; padding: 0; max-height: 14rem; overflow-y: auto; }
+    .route-pick li { padding: 0.15rem 0; }
+    .route-pick .hint { margin-left: 0.35rem; }
+    .route-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.5rem 0.75rem; padding: 0.75rem 1rem;
+                     border-bottom: 1px solid var(--border); }
+    .route-filters label { display: flex; flex-direction: column; gap: 0.15rem; font-size: 0.8rem; color: var(--text-muted); }
+    .route-filters input[type=search] { min-width: 14rem; }
+    .route-filters input[type=number] { width: 5.5rem; }
+    .route-filters .check { flex-direction: row; align-items: center; gap: 0.35rem; padding-bottom: 0.4rem; }
+    .route-filters .count { margin-left: auto; padding-bottom: 0.4rem; }
+    tr.lit > td { background: var(--hover-tint); }
     #routesTable select { min-width: 9rem; }
     .row-actions { display: flex; gap: 0.35rem; justify-content: flex-end; white-space: nowrap; }
     .garmin-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-bottom: 0.75rem; }
@@ -24,7 +30,13 @@
     #garminCourses tr.here td { color: var(--text-muted); }
     #garminCourses tbody tr:not(.here) { cursor: pointer; }
     .garmin-go { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.75rem; }
-    @media (max-width: 700px) { #routesMap { height: 260px; } }
+    @media (max-width: 700px) {
+      #routesMap { height: 300px; }
+      .route-filters .count { margin-left: 0; }
+      #routesTable .wide-only { display: none; }
+      #routesTable select { min-width: 0; max-width: 7.5rem; }
+      .route-filters input[type=search] { min-width: 0; width: 100%; }
+    }
   </style>
 {% endblock %}
 
@@ -103,37 +115,58 @@
 {% else %}
 
 <div class="card">
-  <div class="route-head">
-    <h3 id="shownName"></h3>
-    <span class="hint" id="shownFacts"></span>
+  <div id="routesMap" role="region" aria-label="Map of every route shown in the table"></div>
+  <div class="routes-map-foot hint">
+    <span>Every route in the table below, drawn together: where they overlap the lines grow brighter. Click a line to open its route.</span>
+    <a href="#" data-click="return fitShown(true)">Fit the map to them all</a>
   </div>
-  <div id="routesMap"></div>
-  <div id="routeProfile" hidden><canvas id="profileChart"></canvas></div>
 </div>
 
 <p class="hint">Open an activity and choose <strong>Save as route</strong> from its <strong>⋯</strong> menu to keep the way you went.</p>
 
 <div class="card" style="padding:0; overflow:hidden;">
+  <div class="route-filters" id="routeFilters">
+    <label>Find
+      <input type="search" id="fName" placeholder="Part of a name" data-input="applyFilters()"></label>
+    <label>Sport
+      <select id="fSport" data-change="applyFilters()">
+        <option value="">Any</option>
+        {% for v, l in used_sports %}<option value="{{ v }}">{{ l }}</option>{% endfor %}
+        {% if routes | selectattr('sportType', 'none') | list %}<option value="-">Not set</option>{% endif %}
+      </select></label>
+    {% if used_sources | length > 1 %}
+    <label>From
+      <select id="fSource" data-change="applyFilters()">
+        <option value="">Anywhere</option>
+        {% for v, l in used_sources %}<option value="{{ v }}">{{ l }}</option>{% endfor %}
+      </select></label>
+    {% endif %}
+    <label>Distance ({{ U.dist }})
+      <span><input type="number" id="fMin" min="0" step="any" placeholder="From" aria-label="Shortest distance" data-input="applyFilters()">
+        – <input type="number" id="fMax" min="0" step="any" placeholder="To" aria-label="Longest distance" data-input="applyFilters()"></span></label>
+    <label class="check"><input type="checkbox" id="fView" data-change="applyFilters()"> Only in the map's view</label>
+    <button type="button" class="btn btn-secondary btn-sm" id="fClear" data-click="clearFilters()" hidden>Clear</button>
+    <span class="hint count" id="fCount" aria-live="polite"></span>
+  </div>
   <div class="table-wrap">
   <table class="table flush sortable" id="routesTable">
     <thead>
       <tr>
-        <th>Route</th>
-        <th>Sport</th>
-        <th class="num" data-first="desc">Distance</th>
-        <th class="num" data-first="desc">Climb</th>
-        <th>From</th>
-        {% if multi %}<th>Rider</th>{% endif %}
-        <th data-first="desc" aria-sort="descending">Added</th>
+        <th data-col="route">Route</th>
+        <th data-col="sport">Sport</th>
+        <th class="num" data-col="dist" data-first="desc">Distance</th>
+        <th class="num" data-col="climb" data-first="desc">Climb</th>
+        <th data-col="from" class="wide-only">From</th>
+        {% if multi %}<th data-col="rider">Rider</th>{% endif %}
+        <th data-col="added" data-first="desc" aria-sort="descending" class="wide-only">Added</th>
         <th></th>
       </tr>
     </thead>
     <tbody>
       {% for r in routes %}
-      <tr data-route="{{ r.id }}">
-        <td data-sort="{{ r.name }}">
-          <a href="{{ url_for('saved_routes.index', route=r.id) }}" data-name data-click="showRoute({{ r.id }})">{{ r.name }}</a>
-        </td>
+      <tr data-route="{{ r.id }}" data-find="{{ r.name | lower }}" data-sport="{{ r.sportType or '-' }}" data-source="{{ r.source }}"
+          data-dist="{{ r.distance or 0 }}">
+        <td data-sort="{{ r.name }}"><a href="{{ url_for('saved_routes.route', route_id=r.id) }}" data-name>{{ r.name }}</a></td>
         <td data-sort="{{ r.sportType | sport_label if r.sportType else '' }}">
           <select aria-label="Sport of {{ r.name }}" data-change="setSport({{ r.id }}, this)">
             <option value="">Not set</option>
@@ -143,12 +176,11 @@
         </td>
         <td class="num" data-sort="{{ r.distance or 0 }}">{{ r.distance | fmt_dist }}</td>
         <td class="num" data-sort="{{ r.elevationGain if r.elevationGain is not none else '' }}">{{ r.elevationGain | fmt_elev if r.elevationGain is not none else '—' }}</td>
-        <td>{% if r.activityId %}<a href="{{ url_for('activities.detail', rid=r.activityId) }}">{{ source_labels.activity }}</a>{% else %}{{ source_labels.get(r.source, r.source) }}{% endif %}</td>
+        <td class="wide-only">{% if r.activityId %}<a href="{{ url_for('activities.detail', rid=r.activityId) }}">{{ source_labels.activity }}</a>{% else %}{{ source_labels.get(r.source, r.source) }}{% endif %}</td>
         {% if multi %}<td>{{ r.riderName or '' }}</td>{% endif %}
-        <td data-sort="{{ r.createdAt or '' }}">{{ r.createdAt | fmt_when if r.createdAt else '' }}</td>
+        <td data-sort="{{ r.createdAt or '' }}" class="wide-only">{{ r.createdAt | fmt_when if r.createdAt else '' }}</td>
         <td>
           <div class="row-actions">
-            <button class="btn btn-secondary btn-sm" data-click="startRename({{ r.id }})">Rename</button>
             <a class="btn btn-secondary btn-sm" href="{{ url_for('route_builder.export_saved', route_id=r.id) }}" title="Download as a GPX file">GPX</a>
             <button class="btn btn-danger-quiet btn-sm" data-click="deleteRoute({{ r.id }})">Delete</button>
           </div>
@@ -158,12 +190,13 @@
     </tbody>
   </table>
   </div>
+  <p class="hint" id="fNone" style="padding:1rem;" hidden>No route matches. <a href="#" data-click="return clearFilters()">Show them all</a></p>
 </div>
 {% endif %}
 
 {% endblock %}
 
 {% block scripts %}
-<script type="application/json" id="routesData">{{ {'show': page.show, 'lat': page.lat, 'lng': page.lng, 'garminJob': garmin_job} | tojson }}</script>
+<script type="application/json" id="routesData">{{ {'lat': page.lat, 'lng': page.lng, 'garminJob': garmin_job} | tojson }}</script>
 <script src="{{ url_for('static', filename='js/routes.js') }}"></script>
 {% endblock %}

@@ -1,0 +1,38 @@
+{# A route page's "Done before" card (routes/saved_routes.activities, services/route_library.summary), fetched after the page and put in place
+   of #routeActivities. The chart's points are in data-series; route.js draws them. #}
+{% from '_activity_row.html' import activity_row %}
+<div class="card" style="margin-top:1rem;" id="routeActivities">
+  <div class="card-title">Done before</div>
+  {% if not m %}
+  <p class="hint">No activity of yours has followed this route yet (the same start, finish and roads, either way round) or taken in all of it
+    as part of a longer one.</p>
+  {% else %}
+  <div class="hint" style="margin-bottom:0.75rem;">{{ m.total }} time{{ '' if m.total == 1 else 's' }} since {{ m.first | fmt_date }}{% if m.parts %},
+    {{ m.parts }} of them as part of a longer one{% endif %}. Followed means the same start, finish and roads, either way round.
+    {%- if m.best and m.done != m.total - m.parts %} The times are for {{ m.label | lower }} only.{% endif %}</div>
+  <div class="metric-row-sub">
+    <div class="metric-tile-sub"><span class="m-value">{{ m.done }}</span><span class="m-label">followed it start to finish</span></div>
+    {% if m.best %}
+    <div class="metric-tile-sub" title="{{ m.best.name }}, {{ m.best.startDateLocal | fmt_date }}">
+      <span class="m-value"><a href="/activities/{{ m.best.id }}">{{ m.best.movingTime | fmt_duration }}</a></span>
+      <span class="m-label">quickest, {{ m.best.startDateLocal | fmt_date }}</span></div>
+    {% if m.recent >= 3 %}
+    <div class="metric-tile-sub" title="The moving time in the middle of your last {{ m.recent }}">
+      <span class="m-value">{{ m.median | int | fmt_duration }}</span><span class="m-label">typical, last {{ m.recent }}</span></div>
+    {% endif %}
+    {% endif %}
+    {% if m.parts %}
+    <div class="metric-tile-sub"><span class="m-value">{{ m.parts }}</span><span class="m-label">as part of a longer one</span></div>
+    {% endif %}
+    <div class="metric-tile-sub"><span class="m-value"><a href="/activities/{{ m.last.id }}">{{ m.last.startDateLocal | fmt_date }}</a></span>
+      <span class="m-label">last time</span></div>
+  </div>
+  {% if m.series | length > 1 %}
+  <div style="height:200px; position:relative; margin-bottom:0.75rem;">
+    <canvas id="routeChart" data-series='{{ m.series | tojson }}'></canvas>
+  </div>
+  {% endif %}
+  <div>{% for a in m.activities %}{{ activity_row(a, more=['the other way round' if a.reversed else None,
+                                                          'as part of a longer one' if a.part else None]) }}{% endfor %}</div>
+  {% endif %}
+</div>

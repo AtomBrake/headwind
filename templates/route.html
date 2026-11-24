@@ -1,0 +1,69 @@
+{# One saved route's page (routes/saved_routes.route): its map and elevation profile, renaming, its sport, GPX and delete, and the activities
+   that followed it (_route_activities.html) and the segments along it (_route_segments.html), both fetched after the page. static/js/route.js. #}
+{% extends 'base.html' %}
+
+{% block title %}{{ r.name }} · Routes{% endblock %}
+{% block parent %}<a href="{{ url_for('saved_routes.index') }}">Routes</a>{% endblock %}
+{% block page_title %}<span id="routeName">{{ r.name }}</span>{% endblock %}
+
+{% block head %}
+  {% include '_maps.html' %}
+  <script src="{{ url_for('static', filename='vendor/chart.js-4.4.0/chart.umd.js') }}"></script>
+  <style>
+    #routeMap { height: 420px; border-radius: 0.5rem; }
+    #routeProfile { height: 130px; margin-top: 0.75rem; }
+    .route-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1.25rem; margin-bottom: 0.75rem; }
+    .route-facts .fact { display: flex; flex-direction: column; }
+    .route-facts .fact b { font-size: 1.1rem; }
+    .route-facts select { min-width: 9rem; }
+    .route-name-edit { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin-bottom: 0.75rem; }
+    .route-name-edit[hidden] { display: none; }
+    .route-name-edit input { min-width: 14rem; }
+    #segmentsTable tbody tr { cursor: default; }
+    #segmentsTable tr.lit > td { background: var(--hover-tint); }
+    @media (max-width: 700px) { #routeMap { height: 300px; } }
+  </style>
+{% endblock %}
+
+{% block topbar_actions %}
+  <button class="btn btn-secondary" data-click="startRename()">Rename</button>
+  <a class="btn btn-secondary" href="{{ url_for('route_builder.export_saved', route_id=r.id) }}" title="Download as a GPX file">GPX</a>
+  <button class="btn btn-danger-quiet" data-click="deleteRoute()">Delete</button>
+{% endblock %}
+
+{% block content %}
+<div id="routeResult" class="flash" hidden></div>
+
+<div class="card">
+  <form class="route-name-edit" id="renameForm" hidden data-submit="saveName(event)">
+    <input type="text" id="nameInput" maxlength="100" value="{{ r.name }}" aria-label="Route name" data-keydown="nameKey(event)">
+    <button class="btn btn-primary btn-sm" type="submit">Save</button>
+    <button class="btn btn-secondary btn-sm" type="button" data-click="stopRename()">Cancel</button>
+  </form>
+  <div class="route-facts">
+    <div class="fact"><span class="hint">Distance</span><b>{{ r.distance | fmt_dist }}</b></div>
+    <div class="fact"><span class="hint">Climb</span><b>{{ r.elevationGain | fmt_elev if r.elevationGain is not none else '—' }}</b></div>
+    <div class="fact"><label class="hint" for="sportSelect">Sport</label>
+      <select id="sportSelect" data-change="setSport(this)" data-was="{{ r.sportType or '' }}">
+        <option value="">Not set</option>
+        {% if r.sportType and r.sportType not in sports | map('first') | list %}<option value="{{ r.sportType }}" selected>{{ r.sportType }}</option>{% endif %}
+        {% for v, l in sports %}<option value="{{ v }}" {{ 'selected' if r.sportType == v }}>{{ l }}</option>{% endfor %}
+      </select></div>
+    <div class="fact"><span class="hint">From</span>
+      <b>{% if r.activityId %}<a href="{{ url_for('activities.detail', rid=r.activityId) }}">{{ r.activityName or source_labels.activity }}</a>{% else %}{{ source_labels.get(r.source, r.source) }}{% endif %}</b></div>
+    {% if multi and r.riderName %}<div class="fact"><span class="hint">Rider</span><b>{{ r.riderName }}</b></div>{% endif %}
+    {% if r.createdAt %}<div class="fact"><span class="hint">Added</span><b>{{ r.createdAt | fmt_when }}</b></div>{% endif %}
+  </div>
+  <div id="routeMap"></div>
+  <div id="routeProfile" hidden><canvas id="profileChart"></canvas></div>
+</div>
+
+<div id="routeSegments"></div>
+
+<div id="routeActivities"><div class="card" style="margin-top:1rem;"><p class="hint">Looking for the times you've done this route…</p></div></div>
+{% endblock %}
+
+{% block scripts %}
+<script type="application/json" id="routeData">{{ {'id': r.id, 'name': r.name, 'lat': page.lat, 'lng': page.lng} | tojson }}</script>
+<script src="{{ url_for('static', filename='js/route.js') }}"></script>
+{% endblock %}

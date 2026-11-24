@@ -30,18 +30,19 @@ def test_the_page_is_in_the_sidebar_and_says_how_to_get_routes_when_there_are_no
     page = client.get('/routes/').get_data(as_text=True)
     assert 'No routes yet' in page and 'Save as route' in page and 'href="/routes/"' in page
     assert 'From Garmin' not in page and 'Connect Garmin in Settings' in page      # not connected here
-    assert page_data(page, 'routesData')['show'] is None
+    assert 'id="routesMap"' not in page
 
 
-def test_the_page_lists_every_route_and_shows_the_newest_or_the_one_asked_for(client):
+def test_the_page_lists_every_route_on_one_map_and_each_opens_its_own_page(client):
     a = add_gpx(client, ('a.gpx', trk()))[0]['id']
     b = add_gpx(client, ('b.gpx', trk(30, 'Canal', 'running')))[0]['id']
     page = client.get('/routes/').get_data(as_text=True)
-    assert 'Bodmin loop' in page and 'Canal' in page and 'No routes yet' not in page
-    assert page_data(page, 'routesData')['show'] == b
-    assert page_data(client.get(f'/routes/?route={a}').get_data(as_text=True), 'routesData')['show'] == a
-    assert page_data(client.get('/routes/?route=999').get_data(as_text=True), 'routesData')['show'] == b     # gone: the newest
+    assert 'Bodmin loop' in page and 'Canal' in page and 'No routes yet' not in page and 'id="routesMap"' in page
+    assert f'href="/routes/{a}"' in page and f'href="/routes/{b}"' in page
+    assert set(client.get('/routes/lines').get_json()['lines']) == {str(a), str(b)}
+    assert client.get(f'/routes/?route={a}').headers['Location'].endswith(f'/routes/{a}')     # the old address of one route
     assert '<option value="Run" selected>' in page and '<option value="MountainBikeRide" selected>' in page
+    assert 'Bodmin loop' in client.get(f'/routes/{a}').get_data(as_text=True)
 
 
 def test_a_route_from_an_activity_links_back_to_it(client):

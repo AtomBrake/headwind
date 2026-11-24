@@ -2,6 +2,7 @@
 a track with its heights; shown, exported and edited as a copy in the planner (routes/route_builder.py). Throwaway DB, no network."""
 import io
 import json
+import re
 import sqlite3
 import zipfile
 
@@ -240,8 +241,8 @@ def test_save_as_route_from_a_run_and_not_from_zwift(client):
     page = client.get('/activities/run1').get_data(as_text=True)
     assert 'Save as route' in page and 'Save as route' not in client.get('/activities/zw1').get_data(as_text=True)
     r = client.post('/planner/routes/from-activity/run1')
-    assert r.status_code == 302 and '/routes/?route=' in r.headers['Location']      # the Routes page, showing it
-    route = client.get('/planner/routes/' + r.headers['Location'].split('=')[1]).get_json()
+    assert r.status_code == 302 and re.search(r'/routes/\d+$', r.headers['Location'])      # the route's own page
+    route = client.get('/planner/routes/' + r.headers['Location'].rsplit('/', 1)[1]).get_json()
     assert route['name'] == 'Canal run' and route['source'] == 'activity' and route['sourceId'] == 'run1' and route['sportType'] == 'Run'
     assert len(route['track']) == 40 and route['track'][0] == [51.5, -0.1, 10.0]      # the standing still at the end is one point
     assert client.post('/planner/routes/from-activity/zw1').status_code == 400
