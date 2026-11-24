@@ -54,7 +54,7 @@ Headwind is a single self-hosted web app that brings together the things most at
 - **Activity analytics** — import from Garmin Connect, FIT/GPX/TCX files or a Strava export; see maps, streams, weather, wind, splits, laps, best times and records for each sport, segments, comparisons with the other times you've done the same route, goals, saved routes, and a GPS heatmap of everywhere you've been.
 - **Gear and maintenance** — bikes, shoes and other kit with photos, a default for each kind of activity (changeable per activity), a calendar to say which bike rode which rides, and mileage on the parts that wear out (chains, cassettes, tyres, bar tape, sealant...) with service log and "due" alerts.
 - **Nutrition and body tracking** — a fast food diary with barcode scanning, per-meal "recent foods", saved meals, hydration, weight trend and calorie goals that account for your training.
-- **Coaching and automation** — optional AI analysis with your own key (or local Ollama), on demand or as each activity arrives; Home Assistant sensors over MQTT; push notifications.
+- **Coaching and automation** — optional AI analysis of your rides with your own key (or local Ollama), on demand or as each ride arrives; Home Assistant sensors over MQTT; push notifications.
 - **A social layer without a central server** — link your instance to a friend's directly to share activities, segment leaderboards, the heatmap and challenges.
 
 It runs on a Raspberry Pi, a NAS, a spare PC or a VPS. Your data lives in one SQLite file you can copy, back up and inspect. It only talks to services you explicitly configure (plus a few public data APIs listed [below](#privacy)).
@@ -522,7 +522,7 @@ Headwind can also email each new link itself to people you choose beforehand: ad
 - Works over LAN, VPN or the public internet (use HTTPS).
 
 ### Automation and coaching
-- **AI coaching** (optional): GPT models, **Claude**, or a local **Ollama** model; the prompt includes activity stats, weather, same-route comparisons, similar past activities, segment comparisons, other training and recovery. Ten personalities (including a refreshingly rude one) and your own coaching goals. **Analyse New Rides** writes the notes for each new activity as it arrives.
+- **AI coaching** (optional, for rides): GPT models, **Claude**, or a local **Ollama** model; the prompt includes the ride's stats, weather, same-route comparisons, similar past rides, segment comparisons, other training and recovery. Ten personalities (including a refreshingly rude one) and your own coaching goals. **Analyse New Rides** writes the notes for each new ride as it arrives.
 - **Home Assistant / MQTT**: ride, every-sport, recovery, nutrition, hydration and weight sensors with auto-discovery; notifications; dashboards.
 - **Notifications** — activity-synced alerts through Home Assistant's companion app (an ntfy hook exists in the code but has no settings screen yet).
 
@@ -721,7 +721,7 @@ Each rider has their own switches. **Save, and start new riders with these** als
 - Two things sync: **activities** (downloaded as FIT, deduplicated by Garmin activity id and start time) and **daily health** (resting HR, HRV, sleep and its stages, body battery, steps, weigh-ins).
 - Every activity type comes in: mountain bike, gravel and e-bike rides keep their kind; strength, yoga and HIIT come in as their own sports, and pilates, breathwork and the like as Other workouts with no track. Activities typed into Garmin Connect come in from Garmin's activity list, marked as typed in (the activity page says so), so a real recording of the same session is kept over them. The daily Garmin check marks ones an older version brought in, and gives Garmin's distance and time to any saved with neither. **Settings → Garmin Connect → Check activity types with Garmin** puts right activities an older version saved with the wrong sport, and Headwind lists them by itself when it starts, from the type Garmin last gave each one (the dashboard says when there are some to review). Another name for the same sport isn't listed: a Strava "Stand Up Paddling" or "Nordic Ski" is already Garmin's paddle or ski.
 - An activity you cropped in Garmin Connect comes in cropped. Garmin keeps the whole recording in the file it hands out, so Headwind cuts the track to the part Garmin kept and takes Garmin's distance, moving time, climb and calories. One that came in whole before this was put right is found once by the daily check (below) and offered on the **Import** page with the other re-imports.
-- The activity cursor re-scans the most recent day and never advances past a failed download, so rides aren't silently skipped.
+- The activity cursor re-scans the most recent day and never advances past a failed download, so activities aren't silently skipped.
 - Your Garmin password isn't stored. Headwind keeps Garmin's sign-in tokens in `garmin_tokens` (readable only by Headwind's user, and encrypted with the key beside the database) and they renew themselves. If Garmin ever stops accepting them (you changed your Garmin password, or signed out of all devices), syncing stops and Settings and the Tasks page ask you to **Sign in again**. **Sign out** deletes the tokens.
 - Signing in to a different Garmin account replaces the tokens of the old one.
 - **Courses**: **From Garmin** on the **Routes** page brings in the courses you made in Garmin Connect, as routes with their heights and sport. It runs in the background and can be pressed again later: courses already here are skipped.
@@ -937,7 +937,7 @@ Known limits: one shared admin login; in the advanced multi-rider mode phone dev
 
 ## The iPhone and Apple Watch app
 
-A native SwiftUI app in [`ios/`](ios/README.md), paired with your server through the phone API. It isn't on the App Store: build it onto your own iPhone with Xcode (a free Apple ID works, though its builds expire after 7 days). [ios/README.md](ios/README.md) has the steps.
+A native SwiftUI app in [`ios/`](ios/README.md), paired with your server through the phone API (`/api/v1`). It isn't on the App Store: build it onto your own iPhone with Xcode (a free Apple ID works, though its builds expire after 7 days). [ios/README.md](ios/README.md) has the steps.
 
 - **Record any sport** on the iPhone or the Watch: rides on the bike you pick, runs, walks and hikes, swims on the Watch, and timed sessions (indoor rides, treadmill runs, strength, HIIT, yoga). The phone reads Bluetooth heart rate straps, power meters, speed and cadence sensors and smart trainers; the Watch uses the sensors paired in its own settings. Recordings go through the normal import (best times, segments, weather), and the phone shares its position with Home Assistant while recording.
 - **A live tracking link** to send when you start recording (see [A live tracking link](#a-live-tracking-link-iphone-app)).
@@ -947,7 +947,7 @@ A native SwiftUI app in [`ios/`](ios/README.md), paired with your server through
 - **Apple Health:** steps, resting heart rate, HRV, sleep, weight, body fat, calories and other apps' workouts, each switched on by itself. A workout already on the server, or deleted there, isn't read or sent again. A workout whose route is only a stale location (some apps save one) goes up timed, with Apple Health's own time, distance, calories and heart rate. If an older app sends that route anyway, the server refuses it rather than store an empty activity. Garmin's figure wins on a day it has one (steps follow the source chosen on the **Steps** page), a weigh-in never replaces a manual or Garmin one, and Apple's HRV (SDNN through the day) is kept apart from Garmin's (RMSSD overnight). **Remove Apple Health data from Headwind** deletes it from the server.
 - **Friends:** make a share code as a QR code, or add a friend by scanning theirs.
 
-It **requires HTTPS**. Pair it from **Phones**: name the phone, press **Create token**, then scan the QR code in the app or with the iPhone's Camera. A token works until it's revoked: **Phones** shows when each was last used, flags those not used for 90 days, and revokes them with one button (a phone counts as used while its Watch is, and its Watch's token goes with it).
+It **requires HTTPS**, and a server new enough for it: an app from this release on refuses to pair with a Headwind older than 0.7.47-beta, and says so if the one it's paired with is. Upstream's Android app doesn't work with this server: the older phone paths it used are gone. Pair it from **Phones**: name the phone, press **Create token**, then scan the QR code in the app or with the iPhone's Camera. A token works until it's revoked: **Phones** shows when each was last used, flags those not used for 90 days, and revokes them with one button (a phone counts as used while its Watch is, and its Watch's token goes with it).
 
 ---
 

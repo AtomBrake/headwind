@@ -5,7 +5,7 @@ const sourceParts = x => SOURCES.filter(([k]) => x[k] != null).map(([k, l]) => l
 function showSource(d) {
   document.querySelectorAll('#stSource .st-chip').forEach(x => x.classList.toggle('on', x.dataset.src === d.source));
   $('stSourceNote').textContent = d.source === 'auto'
-    ? 'Garmin when it has given steps on 5 of the last 14 days, otherwise the phone (Apple Health, the Android app, or a watch through Home Assistant). Now counting ' + (d.effective === 'garmin' ? 'Garmin.' : 'the phone.')
+    ? 'Garmin when it has given steps on 5 of the last 14 days, otherwise the phone (Apple Health through the iPhone app, or a watch through Home Assistant). Now counting ' + (d.effective === 'garmin' ? 'Garmin.' : 'the phone.')
     : '';
 }
 async function load() {

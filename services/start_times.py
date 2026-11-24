@@ -202,7 +202,7 @@ def fix_local_zones(db):
         bikes += strava_gear.apply_matched(db, rider_id)
         kit += strava_gear.apply_kit(db, rider_id)['filled']
     parked = [tuple(r) for r in db.execute("SELECT id, primaryId, reason FROM ActivityDuplicate WHERE status='parked'") if r[0] not in before]
-    frags = sum(1 for p in parked if (p[2] or '').startswith('Kept the whole ride'))
+    frags = sum(1 for p in parked if (p[2] or '').startswith(('Kept the whole activity', 'Kept the whole ride')))   # the second: an older Headwind's words
     found = len(parked) - frags
     db.execute('UPDATE Settings SET localZoneFixDone=1 WHERE id=1')
     db.commit()

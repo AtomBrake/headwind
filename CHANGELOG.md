@@ -15,6 +15,20 @@
 - **The Target box on the Goals page is labelled on one line.** "Target (km)" was split over three lines when adding a goal or starting a challenge.
 - **Forms with several fields side by side use the card's full width.** Adding a goal put its four boxes in the left half of the card; the same happened on Settings, Activities, Gear and Nutrition wherever a form ended in a full-width row of buttons.
 
+### Removed
+- **The phone API's older paths are gone, and upstream's Android app no longer works with this server.** `POST /api/v1/rides` and `POST /api/v1/workouts`, `GET /api/v1/rides`, everything under `/api/v1/rides/<kind>/<id>` (photos, bike, sport, commute, duplicates, delete), and `GET` and `DELETE /api/v1/workouts` now answer 404. So do the old keys: `ride` and `workout` in an upload's reply, `kind` in `POST /api/v1/activities`' reply and in the activity list, `ride_id` when a duplicate is resolved, `rideId` and `rideName` in `/api/v1/perform`, and the ride-only totals in `/api/v1/overview` (`all`, `week`, `month`, `year`, `workouts`, `weekly` and `sports`), which `groups` and `weekly_all` replace. Everything is at `/api/v1/activities` and `/api/v1/activities/<id>`, as the iPhone and Watch app has used since 0.7.47. These paths were kept only for upstream's Android app, which this project doesn't ship and can't update: it can't upload, list or open activities on this server any more. An Android app of this project's own is planned.
+- **The Android app download on the Phones page.** It offered upstream's sideloaded APK (`HEADWIND_APK`), which no longer works with this server. `/phones/app` and `/phones/app.apk` are gone.
+
+### Changed
+- **The iPhone and Watch app needs Headwind 0.7.47-beta or later.** It no longer knows the older paths: it refuses to pair with an older server, says so at the top of every tab when the one it's paired with is older, and holds its uploads and Apple Health sync until the server is updated. Update the server and the app together: the app installed before this one shows an error on its Overview tab against this server, because the ride totals it read are gone.
+- **The About page describes every sport.** It was written when Headwind was a cycling app. It now covers runs, walks, swims and the rest, with the best times each sport has, the trophy case's categories, the Home Assistant sensors as they are, and AI coaching as the rides-only feature it is.
+- **An activity with no sport is called "Activity", not "Ride".** It still counts with your rides in totals, segments and the Data page's records, as it always has.
+- **Pages say "activity" where they meant any sport.** The Garmin settings (**Activities + health stats**, **Sync Activities**), the dashboard's Sync button, the setup wizard, the backup description, the Strava import's note, the calorie adjustment's note, the steps source note, the duplicate recording pages and their reasons, a segment with no efforts, and the Garmin and friends sync messages in the log. Wording that is about rides (a bike's rides, the riding badges, AI coaching, the ride weather charts, ride segments) still says ride.
+- **Headwind points at its own project.** Bug reports and feature requests go to this project's Issues, with a form for each; LICENSE adds this project's copyright line beside the original's; the map tile requests name this project as their contact; and Home Assistant's device model reads Headwind instead of bike-flask (only the label changes, so your entities keep their ids). The README no longer describes upstream's Android app as part of this one.
+- **The Roughness map's empty state** no longer sends you to the Android app: it says the map is drawn from a phone's motion sensors, which no current Headwind app records yet.
+- **An upload from the phone with no `source`** is marked as the phone's, not the Android app's.
+- **The README's AI coaching lines** now say it's for rides; they said every activity.
+
 ## [0.7.58-beta] - 2026-11-23
 
 ### Changed

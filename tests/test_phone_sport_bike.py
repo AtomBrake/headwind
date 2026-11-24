@@ -52,7 +52,7 @@ def phone(tmp_path, monkeypatch):
 
 def upload(phone, data, **fields):
     from io import BytesIO
-    return phone.post('/api/v1/rides', headers=phone.H, content_type='multipart/form-data',
+    return phone.post('/api/v1/activities', headers=phone.H, content_type='multipart/form-data',
                       data={'file': (BytesIO(data), 'Morning Ride.gpx'), **fields})
 
 
@@ -74,49 +74,49 @@ def test_ping_lists_the_riders_bikes(phone):
 
 def test_upload_without_a_bike_gets_the_default(phone):
     r = upload(phone, gpx())
-    assert r.status_code == 200 and r.get_json()['status'] == 'imported'
-    assert activity(phone, r.get_json()['ride']['id']) == {'sportType': 'Ride', 'bikeId': 1}
+    assert r.status_code == 201 and r.get_json()['status'] == 'created'
+    assert activity(phone, r.get_json()['id']) == {'sportType': 'Ride', 'bikeId': 1}
 
 
 def test_upload_on_a_chosen_bike_and_as_an_ebike_ride(phone):
     r = upload(phone, gpx('ebike'), bike_id='2')
-    assert activity(phone, r.get_json()['ride']['id']) == {'sportType': 'EBikeRide', 'bikeId': 2}
+    assert activity(phone, r.get_json()['id']) == {'sportType': 'EBikeRide', 'bikeId': 2}
 
 
 def test_a_bike_that_isnt_available_falls_back_to_the_default(phone):
     for n, bad in enumerate(('3', '4', '99', 'abc')):                                  # archived, another rider's, gone, nonsense
         r = upload(phone, gpx(start=datetime(2026, 10, 1 + n, 8, 0, tzinfo=timezone.utc)), bike_id=bad)
-        assert r.status_code == 200 and activity(phone, r.get_json()['ride']['id'])['bikeId'] == 1
+        assert r.status_code == 201 and activity(phone, r.get_json()['id'])['bikeId'] == 1
 
 
 def test_change_a_rides_bike(phone):
-    rid = upload(phone, gpx()).get_json()['ride']['id']
-    r = phone.post(f'/api/v1/rides/ride/{rid}/bike', json={'bike_id': 2}, headers=phone.H)
+    rid = upload(phone, gpx()).get_json()['id']
+    r = phone.post(f'/api/v1/activities/{rid}/bike', json={'bike_id': 2}, headers=phone.H)
     assert r.status_code == 200 and r.get_json() == {'id': rid, 'bike_id': 2} and activity(phone, rid)['bikeId'] == 2
-    assert phone.post(f'/api/v1/rides/ride/{rid}/bike', json={'bike_id': None}, headers=phone.H).get_json()['bike_id'] is None
+    assert phone.post(f'/api/v1/activities/{rid}/bike', json={'bike_id': None}, headers=phone.H).get_json()['bike_id'] is None
     assert activity(phone, rid)['bikeId'] is None
     for bad in (3, 4, True, 'x'):
-        assert phone.post(f'/api/v1/rides/ride/{rid}/bike', json={'bike_id': bad}, headers=phone.H).status_code == 400
-    assert phone.post('/api/v1/rides/ride/nope/bike', json={'bike_id': 1}, headers=phone.H).status_code == 404
-    assert phone.post(f'/api/v1/rides/ride/{rid}/bike', json={'bike_id': 1}).status_code == 401
+        assert phone.post(f'/api/v1/activities/{rid}/bike', json={'bike_id': bad}, headers=phone.H).status_code == 400
+    assert phone.post('/api/v1/activities/nope/bike', json={'bike_id': 1}, headers=phone.H).status_code == 404
+    assert phone.post(f'/api/v1/activities/{rid}/bike', json={'bike_id': 1}).status_code == 401
 
 
 def test_walks_have_no_bike(phone):
     from io import BytesIO
-    r = phone.post('/api/v1/workouts', headers=phone.H, content_type='multipart/form-data',
+    r = phone.post('/api/v1/activities', headers=phone.H, content_type='multipart/form-data',
                    data={'file': (BytesIO(gpx('walking', step=0.00001)), 'Morning Walk.gpx'), 'sport': 'Walk', 'client_id': 'abc', 'source': 'ios'})
     assert r.status_code == 201
-    wid = r.get_json()['workout']['id']
+    wid = r.get_json()['id']
     assert activity(phone, wid) == {'sportType': 'Walk', 'bikeId': None}
     with phone.app_.app_context():
         assert database.get_db().execute('SELECT source FROM Activity WHERE id=?', [wid]).fetchone()[0] == 'ios'
-    assert phone.post(f'/api/v1/rides/workout/{wid}/bike', json={'bike_id': 1}, headers=phone.H).status_code == 400
+    assert phone.post(f'/api/v1/activities/{wid}/bike', json={'bike_id': 1}, headers=phone.H).status_code == 400
 
 
 def test_a_ride_from_the_phone_says_so_for_the_lists_source_filter(phone):
-    first = upload(phone, gpx()).get_json()['ride']['id']
-    second = upload(phone, gpx(start=datetime(2026, 10, 9, 8, 0, tzinfo=timezone.utc)), source='ios').get_json()['ride']['id']
+    first = upload(phone, gpx()).get_json()['id']
+    second = upload(phone, gpx(start=datetime(2026, 10, 9, 8, 0, tzinfo=timezone.utc)), source='ios').get_json()['id']
     with phone.app_.app_context():
         src = dict(database.get_db().execute('SELECT id, source FROM Activity WHERE id IN (?, ?)', [first, second]).fetchall())
     assert src == {first: 'phone', second: 'ios'}
-    assert upload(phone, gpx()).get_json()['status'] != 'imported'                  # sent again: nothing changes
+    assert upload(phone, gpx()).get_json()['created'] is False                        # sent again: nothing changes

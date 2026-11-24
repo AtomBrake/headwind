@@ -173,10 +173,10 @@ def test_the_dashboard_api_and_sensors_give_the_same_numbers(phone, mode, week_s
     assert (bar['from'], bar['to']) == week and bar['by']['ride']['dist_m'] == ride_week_m and bar['by']['foot']['dist_m'] == run_week_m
     assert (o['periods']['week']['from'], o['periods']['week']['to']) == week
     assert (o['periods']['month']['from'], o['periods']['month']['to']) == month
-    assert o['week']['distance_m'] == ride_week_m and o['month']['distance_m'] == ride_month_m
     groups = {g['key']: g['totals'] for g in o['groups']}
     assert groups['ride']['week']['distance_m'] == ride_week_m and groups['foot']['week']['distance_m'] == run_week_m
-    assert o['weekly'][-1]['distance_m'] == ride_week_m and (o['weekly'][-1]['from'], o['weekly'][-1]['to']) == week
+    assert groups['ride']['month']['distance_m'] == ride_month_m
+    assert o['weekly_all'][-1]['by']['ride']['distance_m'] == ride_week_m and (o['weekly_all'][-1]['from'], o['weekly_all'][-1]['to']) == week
     assert sensors['week_ride_distance_mi'] == str(round(ride_week_m / 1609.344, 1))
     assert sensors['week_foot_distance_mi'] == str(round(run_week_m / 1609.344, 1))
     assert runs['week']['m'] == run_week_m and (runs['periods']['week']['from'], runs['periods']['week']['to']) == week

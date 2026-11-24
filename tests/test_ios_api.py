@@ -129,7 +129,7 @@ def test_overview_totals_each_sport_group_on_its_own(phone):
     assert groups['swim']['totals']['week']['distance_m'] == 1500         # never added to the runs
     assert groups['Strength']['style'] == 'time' and not groups['Strength']['has_distance']
     assert groups['foot']['style'] == 'pace' and groups['swim']['style'] == 'swim'
-    assert o['week']['distance_m'] == 30000                                # the old ride totals are still there for older apps
+    assert not {'all', 'week', 'month', 'year', 'workouts', 'weekly', 'sports'} & set(o)    # the ride-only totals are gone: groups has them
     current = o['weekly_all'][-1]
     assert current['current'] and current['by']['foot']['distance_m'] == 5000 and current['by']['Strength']['moving_s'] == 2700
 
@@ -139,12 +139,12 @@ def test_lists_label_each_sport_and_filter_by_group(phone):
     add(phone, 'r1', 'VirtualRide', today, dist=20000)
     add(phone, 'w1', 'Run', today, dist=5000)
     add(phone, 'w2', 'Hike', today, dist=8000)
-    items = phone.get('/api/v1/rides?group=foot', headers=phone.H).get_json()['items']
+    add(phone, 'n1', None, today, dist=1000)                                # no sport: counted with the rides, but not called one
+    items = phone.get('/api/v1/activities?group=foot', headers=phone.H).get_json()['items']
     assert sorted(i['id'] for i in items) == ['w1', 'w2'] and {i['group'] for i in items} == {'foot'}
-    ride = phone.get('/api/v1/rides?group=ride', headers=phone.H).get_json()['items']
-    assert [(i['id'], i['label']) for i in ride] == [('r1', 'Indoor ride')]
-    assert phone.get('/api/v1/rides?group=nothing', headers=phone.H).get_json() == {'total': 0, 'offset': 0, 'items': []}
-    assert phone.get('/api/v1/workouts?days=lots', headers=phone.H).status_code == 400
+    ride = phone.get('/api/v1/activities?group=ride', headers=phone.H).get_json()['items']
+    assert sorted((i['id'], i['label']) for i in ride) == [('n1', 'Activity'), ('r1', 'Indoor ride')]
+    assert phone.get('/api/v1/activities?group=nothing', headers=phone.H).get_json() == {'total': 0, 'offset': 0, 'items': []}
 
 
 # ── Apple Health ───────────────────────────────────────────────────────────────────────
@@ -358,7 +358,7 @@ def jpeg():
 def test_photos_from_the_app(phone):
     add(phone, 'r1', 'Ride', tz.today().isoformat(), dist=20000)
     add(phone, 'sams', 'Ride', tz.today().isoformat(), dist=20000, rider=2)
-    up = lambda rid, data, **f: phone.post(f'/api/v1/rides/ride/{rid}/photos', headers=phone.H, content_type='multipart/form-data',
+    up = lambda rid, data, **f: phone.post(f'/api/v1/activities/{rid}/photos', headers=phone.H, content_type='multipart/form-data',
                                            data={'file': (BytesIO(data), 'IMG_1.jpg'), **f})
     r = up('r1', jpeg(), caption='Top of the climb', client_id='p1')
     assert r.status_code == 201
@@ -367,13 +367,13 @@ def test_photos_from_the_app(phone):
     assert len(up('r1', jpeg(), client_id='p1').get_json()['photos']) == 1                 # a retry isn't added twice
     assert up('r1', b'not a picture').status_code == 422
     assert up('sams', jpeg()).status_code == 404                                         # not this rider's
-    detail = phone.get('/api/v1/rides/ride/r1', headers=phone.H).get_json()
+    detail = phone.get('/api/v1/activities/r1', headers=phone.H).get_json()
     assert detail['photos'] == photos
     f = phone.get(photos[0]['url'], headers=phone.H)
     assert f.status_code == 200 and f.mimetype == 'image/jpeg'
     assert phone.get(photos[0]['thumb_url'], headers=phone.H).status_code == 200
     assert phone.get('/api/v1/photos/../app.db', headers=phone.H).status_code == 404
-    gone = phone.delete(f"/api/v1/rides/ride/r1/photos/{photos[0]['id']}", headers=phone.H)
+    gone = phone.delete(f"/api/v1/activities/r1/photos/{photos[0]['id']}", headers=phone.H)
     assert gone.status_code == 200 and gone.get_json()['photos'] == []
 
 
@@ -387,20 +387,20 @@ def test_photos_are_put_in_order_and_captioned_from_the_app(phone):
             photos.save(db, rid, jpeg(), phone.app_.config['DATABASE'], position=photos.next_position(db, rid))
         db.commit()
         sams = db.execute("SELECT id FROM ActivityPhoto WHERE activityId='sams'").fetchone()[0]
-    ids = lambda: [p['id'] for p in phone.get('/api/v1/rides/ride/r1', headers=phone.H).get_json()['photos']]
+    ids = lambda: [p['id'] for p in phone.get('/api/v1/activities/r1', headers=phone.H).get_json()['photos']]
     a, b, c = ids()
-    order = lambda new, rid='r1': phone.post(f'/api/v1/rides/ride/{rid}/photos/order', headers=phone.H, json={'ids': new})
+    order = lambda new, rid='r1': phone.post(f'/api/v1/activities/{rid}/photos/order', headers=phone.H, json={'ids': new})
     r = order([c, a, b])
     assert r.status_code == 200 and [p['id'] for p in r.get_json()['photos']] == [c, a, b] == ids()
     assert order([c, a]).status_code == 400                                              # every photo, exactly once
     assert order([c, a, a]).status_code == 400
     assert order([c, a, b, sams]).status_code == 400                           # not another activity's
     assert order(['c', 'a', 'b']).status_code == 400
-    assert phone.post('/api/v1/rides/ride/r1/photos/order', headers=phone.H, json={}).status_code == 400
+    assert phone.post('/api/v1/activities/r1/photos/order', headers=phone.H, json={}).status_code == 400
     assert order([sams], rid='sams').status_code == 404                              # not this rider's
     assert ids() == [c, a, b]
 
-    cap = lambda pid, body, rid='r1': phone.patch(f'/api/v1/rides/ride/{rid}/photos/{pid}', headers=phone.H, json=body)
+    cap = lambda pid, body, rid='r1': phone.patch(f'/api/v1/activities/{rid}/photos/{pid}', headers=phone.H, json=body)
     r = cap(a, {'caption': '  Top of the climb  '})
     assert r.status_code == 200 and [p['caption'] for p in r.get_json()['photos']] == [None, 'Top of the climb', None]
     assert cap(a, {'caption': 'x' * 500}).get_json()['photos'][1]['caption'] == 'x' * 200
@@ -412,16 +412,16 @@ def test_photos_are_put_in_order_and_captioned_from_the_app(phone):
 
 def test_an_open_water_swim_from_the_watch_is_a_swim_with_its_calories(phone):
     from tests.test_phone_sport_bike import gpx
-    r = phone.post('/api/v1/workouts', headers=phone.H, content_type='multipart/form-data',
+    r = phone.post('/api/v1/activities', headers=phone.H, content_type='multipart/form-data',
                    data={'file': (BytesIO(gpx('swimming', step=0.00001)), 'Morning Swim.gpx'), 'sport': 'Swim', 'client_id': 'w1', 'source': 'ios',
                          'calories': '210.4'})
     assert r.status_code == 201, r.get_json()
-    w = r.get_json()['workout']
+    w = phone.get(f"/api/v1/activities/{r.get_json()['id']}", headers=phone.H).get_json()
     assert (w['sport'], w['calories'], w['source']) == ('Swim', 210, 'ios')
-    walk = phone.post('/api/v1/workouts', headers=phone.H, content_type='multipart/form-data',
+    walk = phone.post('/api/v1/activities', headers=phone.H, content_type='multipart/form-data',
                       data={'file': (BytesIO(gpx('walking', start=datetime(2026, 10, 12, 9, 0, tzinfo=timezone.utc))), 'Walk.gpx'),
                             'sport': 'Strength', 'client_id': 'w2'})           # an hour after the swim: not a copy of it
-    assert walk.get_json()['workout']['sport'] == 'Walk'          # a timed-only sport can't have a track: the file's own sport
+    assert phone.get(f"/api/v1/activities/{walk.get_json()['id']}", headers=phone.H).get_json()['sport'] == 'Walk'   # a timed-only sport can't have a track: the file's own sport
 
 
 def test_a_sessions_start_keeps_the_phones_own_clock(phone):
@@ -496,10 +496,10 @@ def test_a_zwift_ride_comes_with_its_world_and_the_map_takes_the_token(phone, mo
                       "VALUES (?, 1, ?, ?, '2026-10-01T08:00:00', 20000, 3600, '{}')", [aid, sport, aid])
             _streams.save(d, aid, track)
         d.commit()
-    w = phone.get('/api/v1/rides/ride/zw', headers=phone.H).get_json()['zwift_world']
+    w = phone.get('/api/v1/activities/zw', headers=phone.H).get_json()['zwift_world']
     assert w['slug'] == 'watopia' and w['url'] == '/api/v1/zwift/watopia.png' and w['credit']
     assert w['bounds'] == [[-11.74087, 166.87747], [-11.62597, 167.03255]]
-    assert phone.get('/api/v1/rides/ride/real', headers=phone.H).get_json()['zwift_world'] is None
+    assert phone.get('/api/v1/activities/real', headers=phone.H).get_json()['zwift_world'] is None
 
     monkeypatch.setattr('services.zwift.map_image', lambda slug: b'\x89PNG...' if slug == 'watopia' else None)
     r = phone.get('/api/v1/zwift/watopia.png', headers=phone.H)

@@ -9,9 +9,10 @@
     <div class="card-header">Headwind</div>
     <div class="card-body">
       <p style="color:var(--text-muted); margin:0 0 0.5rem;">
-        A self-hosted, private cycling analytics database. Your rides, your data — stored locally,
-        never shared. Syncs from Garmin Connect and the Headwind phone app, supports FIT/GPX/Strava-export
-        imports, and runs entirely on your own hardware.
+        A self-hosted, private training and health app for every sport. It started as a cycling app, and rides are still its deepest
+        part, but runs, walks, hikes, swims, ski days, paddles, strength sessions and the rest are activities in their own right, and a
+        distance only ever adds up with others of its kind. Your data stays on your own hardware, in one database you can copy and back
+        up. Activities come from Garmin Connect, the Headwind iPhone and Apple Watch app, and FIT, GPX, TCX or Strava-export imports.
       </p>
     </div>
   </div>
@@ -19,67 +20,70 @@
   <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(380px,1fr)); gap:1.25rem;">
 
     <div class="card">
-      <div class="card-header">Ride Tracking</div>
+      <div class="card-header">Activities</div>
       <div class="card-body">
         <ul class="about-list">
-          <li><strong>Garmin sync</strong> — automatic activity + recovery sync, MFA-capable connect flow, no CLI needed</li>
-          <li><strong>Phone app</strong> <em>(work in progress)</em> — record a ride live on Android, it lands here the same way as a Garmin sync</li>
-          <li><strong>File import</strong> — drag-and-drop <code>.fit</code>, <code>.gpx</code>, or a zipped Strava data export with live progress</li>
-          <li><strong>GPX export</strong> — download any activity with a GPS track as a GPX file from its page</li>
-          <li><strong>Multi-rider</strong> — each rider gets their own profile, stats, segment PRs, best efforts, trophy case, and per-rider dashboard view</li>
+          <li><strong>Every sport</strong>: road, mountain bike, gravel, e-bike and indoor rides; runs, walks and hikes; pool and open-water swims; ski days; paddles, surfs, kitesurfs and sails; strength, yoga and HIIT</li>
+          <li><strong>Garmin sync</strong>: activities of every type and daily recovery data, with a connect flow in the browser that handles two-factor sign-in</li>
+          <li><strong>iPhone and Apple Watch app</strong>: records any sport, with Bluetooth sensors, and uploads it; can share a live tracking link while you record</li>
+          <li><strong>File import</strong>: <code>.fit</code>, <code>.gpx</code>, <code>.tcx</code>, or a zipped Strava data export, with live progress</li>
+          <li><strong>Duplicates</strong>: the same activity from Garmin, Strava, a file and the phone is kept once, the better recording winning</li>
+          <li><strong>GPX export</strong> of any activity with a GPS track, from its page</li>
+          <li><strong>Several riders</strong>, each with their own profile, stats, best times, segment PRs and trophy case</li>
         </ul>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-header">Ride Detail</div>
+      <div class="card-header">Activity pages</div>
       <div class="card-body">
         <ul class="about-list">
-          <li><strong>Satellite map</strong> — ESRI World Imagery with roads and place-name overlay</li>
-          <li>Elevation, heart rate, power, cadence, and speed stream charts</li>
-          <li>Wind direction arrows overlaid on the map, colour-coded by strength</li>
-          <li>Segment efforts and PRs for that ride</li>
-          <li>Co-rider badges for others who rode the same day</li>
-          <li>AI coaching analysis — on-demand or auto on webhook sync</li>
+          <li>A map with satellite, topographic and cycling map types, distance markers and wind arrows</li>
+          <li>Speed or pace, elevation, heart rate, power and cadence charts, linked to the map</li>
+          <li>Pages that fit the sport: pace and splits on foot, pace per 100 m and SWOLF for swims, each run of a ski day, no climb on the water</li>
+          <li>Laps from your device, segment efforts and PRs, and the other times you've done the same route</li>
+          <li>Zwift rides and runs drawn on their own world's map</li>
+          <li>AI coaching notes on a ride, on demand or as each new ride arrives</li>
         </ul>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-header">Trophy Case</div>
+      <div class="card-header">Best times and records</div>
       <div class="card-body">
         <ul class="about-list">
-          <li>Per-rider badge collection across 8 categories: Ride Count, Distance, Elevation, Epic Rides, Speed, Climbing, Weather, and Segments</li>
-          <li>Milestone badges (1st ride, 1,000th ride, 50K miles, 100 Everests…) link directly to the ride that earned them</li>
-          <li>Weather badges for cold, hot, rain, storms, and headwinds — with count progressions and personal records</li>
-          <li><strong>Record Low / Record Gale</strong> — always link to the coldest and windiest rides in your history</li>
-          <li>Speed and climbing badges calibrated per-rider</li>
-          <li>Earned count shown at the top; unearned badges shown at reduced opacity as goals</li>
+          <li><strong>Rides</strong>: fastest 5, 10, 20, 30, 50, 75 and 100 miles (5 to 160 km with metric units), the fastest stretch inside any one ride</li>
+          <li><strong>On foot</strong>: 1 km, 1 mile, 3 km, 5 km, 10 km, 15 km, half marathon and marathon</li>
+          <li><strong>In the water</strong>: 100 m to 3.8 km</li>
+          <li>Indoor rides and runs have tables of their own and never count towards your outdoor times</li>
+          <li><strong>Records by sport</strong>: longest, longest time, most climbing and fastest, all time and by year</li>
+          <li>Year and month filters; the AI coach is told about any record an activity set</li>
         </ul>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-header">Analytics</div>
+      <div class="card-header">Trophy case</div>
       <div class="card-body">
         <ul class="about-list">
-          <li>Speed over time with 20-ride rolling average</li>
-          <li>Monthly distance, year-on-year comparison, activity heatmap</li>
-          <li>Ride length distribution, rides by day of week</li>
-          <li>Calories over time</li>
-          <li><strong>Weather scatter charts</strong> — speed vs temperature, speed vs wind, average speed by condition; each dot links to that ride</li>
-          <li>Per-rider switcher — pill UI to flip between riders without leaving the page</li>
+          <li>Badges for riding (ride count, distance, elevation, epic rides, speed, climbing, weather, segments), running, walking and hiking, swimming, segments on foot, other sports and all sports together</li>
+          <li>Each badge links to the activity that earned it</li>
+          <li>Weather badges for cold, heat, rain, storms and headwinds, with <strong>Record Low</strong> and <strong>Record Gale</strong> linking to your coldest and windiest rides</li>
+          <li>Indoor rides and runs count towards the badges for counts and time, not distance, climbing, speed or weather</li>
+          <li>Unearned badges are shown faded, as goals</li>
         </ul>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-header">Achievements</div>
+      <div class="card-header">Analytics and goals</div>
       <div class="card-body">
         <ul class="about-list">
-          <li>Best efforts at 5, 10, 20, 30, 50, and 100 miles — fastest continuous stretch per ride</li>
-          <li>Year and month filter dropdowns</li>
-          <li>AI coaching prompt includes any records set on the current ride</li>
+          <li>Speed or pace over time with a rolling average, monthly distance, year on year, an activity calendar</li>
+          <li>Activity length distribution and activities by day of week, for one sport or several</li>
+          <li><strong>Weather scatter charts</strong>: speed against temperature and wind, average speed by condition; each dot links to its activity</li>
+          <li><strong>Goals</strong>: distance, climbing, time or number of activities for a sport, each week, month or year</li>
+          <li>Weeks and months as the past 7 and 28 days, or calendar ones, as each rider chooses</li>
         </ul>
       </div>
     </div>
@@ -88,10 +92,10 @@
       <div class="card-header">Segments</div>
       <div class="card-body">
         <ul class="about-list">
-          <li>Define custom GPS segments on any ride map — click start, click end, name it</li>
-          <li>Retroactive scan against all historical rides on creation</li>
-          <li>Per-rider PRs, leaderboard, effort history, difficulty rating (Easy → Brutal)</li>
-          <li>6-month trend charts per segment</li>
+          <li>Define a segment on any activity's map: click the start, click the end, name it</li>
+          <li>Every past activity of its kind is scanned for efforts in the background</li>
+          <li>Ride segments and on-foot segments; rides only match ride segments, runs, walks and hikes only on-foot ones</li>
+          <li>PRs, leaderboards (bike and e-bike efforts apart or together), effort history, trend charts and a difficulty rating</li>
         </ul>
       </div>
     </div>
@@ -100,33 +104,45 @@
       <div class="card-header">Weather</div>
       <div class="card-body">
         <ul class="about-list">
-          <li>Automatic weather fetch on every sync and file import via Open-Meteo (free, no API key)</li>
-          <li>Temperature, wind speed/direction/gusts, humidity, rain, and WMO condition code</li>
-          <li>Wind relation (headwind/tailwind/crosswind/calm) calculated from GPS route bearing</li>
-          <li>Backfill button in Settings for historical rides</li>
+          <li>Weather at the start of every outdoor activity from Open-Meteo (free, no API key)</li>
+          <li>Temperature, wind speed, direction and gusts, humidity, rain and conditions</li>
+          <li>Headwind, tailwind or crosswind, worked out from the route's bearing</li>
+          <li>Older activities are filled in a few at each sync, or all at once from the Tasks page</li>
         </ul>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-header">AI Coaching</div>
+      <div class="card-header">AI coaching</div>
       <div class="card-body">
         <ul class="about-list">
-          <li>GPT-4o / GPT-4o-mini, Claude, or a local Ollama model</li>
-          <li>Prompt includes ride stats, weather, segment comparisons, similar-ride history, and Garmin recovery data</li>
-          <li>Deliberately blunt tone — told to say when a ride was poor, not to encourage</li>
-          <li>Auto-generated on new rides as they sync; manually triggered on older rides</li>
+          <li>Coaching notes on your rides from OpenAI's GPT models, Claude, or a local Ollama model, with your own key</li>
+          <li>The prompt includes the ride's stats, weather, same-route comparisons, similar past activities, segment efforts, your other training and recovery</li>
+          <li>Ten personalities, from encouraging to blunt, and your own coaching goals</li>
+          <li>Written as each new ride arrives, or on demand for older ones</li>
         </ul>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-header">Recovery (Garmin Connect)</div>
+      <div class="card-header">Recovery and health</div>
       <div class="card-body">
         <ul class="about-list">
-          <li>Pulls resting HR, HRV, sleep score, and body battery from Garmin Connect</li>
-          <li>30/60/90-day charts for each metric</li>
-          <li>Recovery context fed into the AI coaching prompt for the ride's date</li>
+          <li>Resting heart rate, HRV, sleep, steps, stress and body battery from Garmin Connect, or from Apple Health through the iPhone app</li>
+          <li>30, 60 and 90-day charts for each</li>
+          <li>Food diary with barcode scanning, hydration, and a weight trend with calorie goals that count your training</li>
+          <li>Recovery on a ride's date is part of the AI coaching prompt</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">Gear</div>
+      <div class="card-body">
+        <ul class="about-list">
+          <li>Bikes, shoes and other kit, with a default for each kind of activity</li>
+          <li>Wear on chains, tyres, cassettes and other parts, worked out from your activities, with a service log</li>
+          <li>Alerts when a part or a pair of shoes is due, on the dashboard and through Home Assistant's companion app</li>
         </ul>
       </div>
     </div>
@@ -135,20 +151,22 @@
       <div class="card-header">Home Assistant</div>
       <div class="card-body">
         <ul class="about-list">
-          <li><strong>17 MQTT sensors</strong> — total rides, distance, elevation, calories, time, Everests climbed, laps of Earth, last ride details</li>
-          <li><strong>Auto-updates every 20 seconds</strong> via background heartbeat thread</li>
-          <li><strong>Ride notifications</strong> — tappable HA companion app notification fires when a new ride syncs, links directly to the ride page; routed per-rider</li>
-          <li>Manual "Publish to HA" button in Settings</li>
+          <li><strong>MQTT sensors</strong> found by Home Assistant itself: activities and training time of every sport, this week's distance by kind (rides, on foot, swims), the latest activity, ride totals (distance, climbing, Everests, laps of the Earth) and the last ride, badges, recovery, nutrition, hydration and weight</li>
+          <li>A <strong>Running</strong> tab: best times, pace, totals, recent runs and the latest route</li>
+          <li>Live sensors while the phone records: status, speed, distance, time and elevation</li>
+          <li>Published when something changes, with a check every 5 minutes</li>
+          <li><strong>Notifications</strong> through the Home Assistant companion app when a new activity arrives or gear is due, linking to its page</li>
         </ul>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-header">GPS Heatmap</div>
+      <div class="card-header">Heatmap and friends</div>
       <div class="card-body">
         <ul class="about-list">
-          <li>Full-history GPS heatmap with date range filter</li>
-          <li>HD export at 3440×1440 PNG with CARTO dark basemap</li>
+          <li>A GPS heatmap of every sport across your whole history, with a date range and sport filter</li>
+          <li>HD export at 3440×1440</li>
+          <li>Link your Headwind to a friend's to share activities, segments, the heatmap and challenges, with no central server</li>
         </ul>
       </div>
     </div>
@@ -157,10 +175,10 @@
       <div class="card-header">Stack</div>
       <div class="card-body">
         <ul class="about-list">
-          <li><strong>Backend</strong> — Python / Flask, SQLite</li>
-          <li><strong>Frontend</strong> — Vanilla JS, Chart.js 4.4, Leaflet 1.9</li>
-          <li><strong>Data sources</strong> — Garmin Connect, Open-Meteo, the Headwind phone app</li>
-          <li><strong>Integrations</strong> — Home Assistant via MQTT, ntfy.sh</li>
+          <li><strong>Backend</strong>: Python, Flask and SQLite</li>
+          <li><strong>Frontend</strong>: plain JavaScript, Chart.js and Leaflet</li>
+          <li><strong>Data sources</strong>: Garmin Connect, Open-Meteo, Open Food Facts, the Headwind iPhone and Apple Watch app</li>
+          <li><strong>Integrations</strong>: Home Assistant over MQTT</li>
         </ul>
       </div>
     </div>

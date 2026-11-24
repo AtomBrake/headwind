@@ -12,7 +12,6 @@ Totals and charts add distances up by stat_group, which is wider: every ride (in
 its own. A swim's distance never adds to a ride's (services/sport_filter)."""
 
 RIDE_SQL = "(sportType IS NULL OR sportType = '' OR lower(sportType) LIKE '%ride%' OR lower(sportType) LIKE '%cycl%')"
-KIND_SQL = f"(CASE WHEN {RIDE_SQL} THEN 'ride' ELSE 'workout' END)"     # the phone API's and the bulk actions' 'ride' / 'workout'
 
 # The sports Headwind itself writes: typed in by hand, recorded by the phone, picked in "change the type", saved by the Garmin sync.
 RIDES = ('Ride', 'VirtualRide', 'EBikeRide', 'MountainBikeRide', 'GravelRide')     # Strava's names for the last two, squashed: a default bike can follow them
@@ -118,8 +117,10 @@ def indoor_sql(indoor, sport='a.sportType'):
 
 
 def label(sport):
-    """What a person reads for a sport: 'Indoor ride' for VirtualRide, 'E-bike ride' for EBikeRide, else the sport itself."""
-    return LABELS.get(sport, sport or 'Ride')
+    """What a person reads for a sport: 'Indoor ride' for VirtualRide, 'E-bike ride' for EBikeRide, else the sport itself. 'Activity' when there is
+    no sport: is_ride still counts such a row as a ride for totals, segments and gear, but nothing says it was one, so its name doesn't claim it.
+    A caller that groups rows by this label, wanting the no-sport ones with the rides, passes `sport or 'Ride'` (routes/data._sport_records)."""
+    return LABELS.get(sport, sport or 'Activity')
 
 
 def canonical(sport):

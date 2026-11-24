@@ -23,23 +23,20 @@ struct OverviewView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
 
+                        if overview.groups.isEmpty {
+                            ContentUnavailableView("No activities yet", systemImage: "chart.bar",
+                                                   description: Text("Record one, or import your history on the web, and its totals show here."))
+                        }
                         CardColumns {
-                            if let groups = overview.groups, !groups.isEmpty {
-                                ForEach(groups) { group in
-                                    GroupCard(group: group, totals: group.totals[period.rawValue], units: session.units)
-                                }
-                            } else {
-                                // An older server: rides, and one line for everything else.
-                                TotalsCard(totals: overview.totals(for: period), workouts: overview.workouts?[period.rawValue], units: session.units)
+                            ForEach(overview.groups) { group in
+                                GroupCard(group: group, totals: group.totals[period.rawValue], units: session.units)
                             }
                             if let recovery = overview.recovery {
                                 RecoveryCard(recovery: recovery)
                             }
                         }
-                        if let weeks = overview.weeklyAll, let groups = overview.groups, !groups.isEmpty {
-                            SportsChart(weeks: weeks, groups: groups, units: session.units)
-                        } else {
-                            WeeklyChart(weeks: overview.weekly, units: session.units)
+                        if !overview.groups.isEmpty {
+                            SportsChart(weeks: overview.weeklyAll, groups: overview.groups, units: session.units)
                         }
                     }
                     .padding(16)
@@ -106,35 +103,6 @@ private struct GroupCard: View {
                     GridRow {
                         Stat(value: units.elevation(metres: t.elevM), caption: "Climbing")
                         Stat(value: Units.whole(t.calories), caption: "Calories")
-                    }
-                }
-            }
-        }
-    }
-}
-
-private struct TotalsCard: View {
-    var totals: Overview.RideTotals
-    var workouts: Overview.WorkoutTotals?
-    var units: Units
-
-    var body: some View {
-        Card(title: "Riding") {
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 14) {
-                GridRow {
-                    Stat(value: units.distance(metres: totals.distanceM), caption: "Distance")
-                    Stat(value: "\(totals.rides)", caption: totals.rides == 1 ? "Ride" : "Rides")
-                }
-                GridRow {
-                    Stat(value: units.elevation(metres: totals.elevM), caption: "Climbing")
-                    Stat(value: Units.duration(seconds: totals.movingS), caption: "Moving time")
-                }
-                GridRow {
-                    Stat(value: Units.whole(totals.calories), caption: "Calories")
-                    if let workouts, workouts.count > 0 {
-                        Stat(value: "\(workouts.count) · \(units.distance(metres: workouts.distanceM))", caption: "Other activities")
-                    } else {
-                        Color.clear.frame(height: 1)
                     }
                 }
             }
@@ -219,38 +187,6 @@ private struct SportsChart: View {
                 }
             }
             .frame(height: 200)
-        }
-    }
-}
-
-/// An older server's chart: rides only.
-private struct WeeklyChart: View {
-    var weeks: [Overview.WeekBar]
-    var units: Units
-
-    private var labelled: Set<String> {
-        Set(weeks.reversed().enumerated().filter { $0.offset % 3 == 0 }.map(\.element.label))
-    }
-
-    private func value(_ w: Overview.WeekBar) -> Double {
-        units.metric ? w.distanceM / 1000 : w.distanceM / 1609.344
-    }
-
-    var body: some View {
-        Card(title: "Last 12 weeks · \(units.metric ? "km" : "mi")") {
-            Chart(weeks) { week in
-                BarMark(x: .value("Week", week.label), y: .value("Distance", value(week)))
-                    .foregroundStyle(week.current ? Color.accentColor : Color.accentColor.opacity(0.45))
-                    .cornerRadius(3)
-            }
-            .chartXAxis {
-                AxisMarks { value in
-                    if let label = value.as(String.self), labelled.contains(label) {
-                        AxisValueLabel(collisionResolution: .disabled)
-                    }
-                }
-            }
-            .frame(height: 180)
         }
     }
 }

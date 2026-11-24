@@ -17,8 +17,8 @@ final class WatchBridge: NSObject {
     @ObservationIgnored var onLiveLink: ((LiveLinkMessage) -> Void)?
     /// The last Watch ride that couldn't be stored on the phone, for the Record tab to show.
     private(set) var lastError: AppError?
-    /// The latest units/paired/bikes/api/live-share context for the Watch, kept until the session can take it.
-    @ObservationIgnored private var context: (units: String, paired: Bool, bikes: [Bike], api: Int, shareLive: Bool)?
+    /// The latest units/paired/bikes/live-share context for the Watch, kept until the session can take it.
+    @ObservationIgnored private var context: (units: String, paired: Bool, bikes: [Bike], shareLive: Bool)?
     /// Where arriving rides are held (GPX plus a summary .json) until the RideStore takes them. Once a transfer
     /// is received the Watch deletes its copy, so this is in Application Support, not a purgeable temp directory.
     nonisolated let inbox: URL
@@ -41,8 +41,8 @@ final class WatchBridge: NSObject {
     }
 
     /// `shareLive`: Settings' default for the live tracking link, which the Watch's start screen switch starts from.
-    func updateWatch(units: String?, paired: Bool, bikes: [Bike], api: Int?, shareLive: Bool) {
-        context = (units ?? "metric", paired, bikes, api ?? 1, shareLive)
+    func updateWatch(units: String?, paired: Bool, bikes: [Bike], shareLive: Bool) {
+        context = (units ?? "metric", paired, bikes, shareLive)
         sendContext()
     }
 
@@ -87,7 +87,7 @@ final class WatchBridge: NSObject {
         guard let context, WCSession.isSupported(), WCSession.default.activationState == .activated,
               WCSession.default.isPaired, WCSession.default.isWatchAppInstalled else { return }
         try? WCSession.default.updateApplicationContext([WatchLink.unitsKey: context.units, WatchLink.pairedKey: context.paired,
-                                                         WatchLink.bikesKey: context.bikes.map(\.dictionary), WatchLink.apiKey: context.api,
+                                                         WatchLink.bikesKey: context.bikes.map(\.dictionary),
                                                          WatchLink.shareLiveKey: context.shareLive])
     }
 

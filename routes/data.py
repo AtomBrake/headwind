@@ -370,7 +370,7 @@ def _sport_records(rows):
             best[(period, sport)][what] = (value, r)
 
     for r in rows:
-        sport = sports.label(r['sportType'] or None)
+        sport = sports.label(r['sportType'] or 'Ride')      # no sport: a ride's records, as stat_group counts it (sports.is_ride)
         style = sports.rate_style(r['sportType'] or 'Ride')
         lo, hi = SPEED_BOUNDS[style]
         for period in ('all', str(r['startDateLocal'])[:4]):

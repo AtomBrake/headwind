@@ -166,28 +166,17 @@ struct UploadRoutingTests {
                   source: .phone, status: .pending)
     }
 
-    @Test func everythingWithATrackGoesToActivitiesOnAServerWithOneDoor() {
+    @Test func everythingWithATrackGoesToActivities() {
         let ride = saved(.ebike, bike: 2)
-        let r = RideStore.destination(ride, api: 2)
+        let r = RideStore.destination(ride)
         #expect(r.path == "activities" && r.fields["sport"] == "EBikeRide" && r.fields["bike_id"] == "2")
         #expect(r.fields["client_id"] == ride.id.uuidString && r.fields["source"] == "ios")          // a ride is found again by it too
-        let walk = RideStore.destination(saved(.walk, bike: 2), api: 2)
-        #expect(walk.path == "activities" && walk.fields["sport"] == "Walk" && walk.fields["bike_id"] == nil)   // a walk has no bike
-    }
-
-    @Test func ridesGoToRidesWithTheirBike() {
-        #expect(RideStore.destination(saved(.ride)).path == "rides")
-        #expect(RideStore.destination(saved(.ride)).fields.isEmpty)        // the server gives it the default bike
-        #expect(RideStore.destination(saved(.ebike, bike: 2)).fields == ["bike_id": "2"])
-    }
-
-    @Test func onFootGoesToWorkoutsWithItsSport() {
-        let walk = saved(.walk)
-        let d = RideStore.destination(walk)
-        #expect(d.path == "workouts")
-        #expect(d.fields["sport"] == "Walk")
-        #expect(d.fields["client_id"] == walk.id.uuidString)               // a retry finds the first upload
-        #expect(d.fields["name"]?.hasSuffix("Walk") == true)
+        #expect(RideStore.destination(saved(.ride)).fields["bike_id"] == nil)                          // the server gives it the default bike
+        let walk = saved(.walk, bike: 2)
+        let w = RideStore.destination(walk)
+        #expect(w.path == "activities" && w.fields["sport"] == "Walk" && w.fields["bike_id"] == nil)   // a walk has no bike
+        #expect(w.fields["client_id"] == walk.id.uuidString)                                           // a retry finds the first upload
+        #expect(w.fields["name"]?.hasSuffix("Walk") == true)
     }
 
     @Test func refusedRecordingsAreNotRetried() {
@@ -265,7 +254,7 @@ struct TimedSessionTests {
         let id = UUID()
         let ride = RideSummary.session(start: start, elapsed: 3600, sport: .ride, bikeId: 3)
         let gpx = try Uploader.request(summary: ride, id: id, name: "Ride", gpx: Data("<gpx/>".utf8), with: client)
-        #expect(gpx.url?.absoluteString == "https://bike.example.com/api/v1/rides" && gpx.httpMethod == "POST")
+        #expect(gpx.url?.absoluteString == "https://bike.example.com/api/v1/activities" && gpx.httpMethod == "POST")
         #expect(gpx.value(forHTTPHeaderField: "Authorization") == "Bearer abc")
         let body = String(decoding: try #require(gpx.httpBody), as: UTF8.self)
         #expect(body.contains("name=\"bike_id\"\r\n\r\n3\r\n") && body.contains("filename=\"Ride.gpx\"") && body.contains("<gpx/>"))
@@ -278,8 +267,10 @@ struct TimedSessionTests {
     }
 
     @Test func aBackgroundReplyReadsAsAForegroundOne() throws {
-        let reply: UploadReply = try APIClient.reply(Data(#"{"status":"imported","ride":{"id":7}}"#.utf8), status: 201)
-        #expect(reply.isNew && reply.serverId == "7")
+        let reply: UploadReply = try APIClient.reply(Data(#"{"status":"created","created":true,"id":"imp_7","duplicate":null}"#.utf8), status: 201)
+        #expect(reply.isNew && reply.serverId == "imp_7")
+        let again: UploadReply = try APIClient.reply(Data(#"{"status":"exists","created":false,"id":7,"duplicate":null}"#.utf8), status: 200)
+        #expect(!again.isNew && again.serverId == "7")                    // a number id reads as text
         func failure(_ status: Int) -> AppError? {
             do throws(AppError) { _ = try APIClient.reply(Data(#"{"error":"bad"}"#.utf8), status: status, as: UploadReply.self) } catch { return error }
             return nil
@@ -315,7 +306,7 @@ struct WatchRecordingTests {
         let first = try store.addSession(summary: summary, source: .watch, id: id)
         let again = try store.addSession(summary: summary, source: .watch, id: id)   // the Watch sent it twice
         #expect(first.id == id && again.id == id && store.rides.count == 1)
-        #expect(store.gpxURL(for: first) == nil && !first.hasTrack && first.kind == "workout")
+        #expect(store.gpxURL(for: first) == nil && !first.hasTrack)
         #expect(RideStore.destination(first).fields["client_id"] == id.uuidString)
     }
 
@@ -480,22 +471,15 @@ struct WorkoutCheckTests {
 }
 
 struct ActivityPathTests {
-    @Test func activitiesByIDFromAPI3() {
-        #expect(ActivityPath.list(api: 3) == "activities")
-        #expect(ActivityPath.of("123", kind: "workout", api: 3) == "activities/123")
-        #expect(ActivityPath.of("123", kind: nil, api: 4) + "/photos" == "activities/123/photos")
-        #expect(ActivityPath.page("123", api: 3) == "activities/123")
-    }
-
-    @Test func anOlderServerOrOneNotHeardFromYetGetsTheRidesPaths() {
-        #expect(ActivityPath.list(api: 2) == "rides" && ActivityPath.list(api: nil) == "rides")
-        #expect(ActivityPath.of("123", kind: "workout", api: 2) == "rides/workout/123")
-        #expect(ActivityPath.of("123", kind: nil, api: nil) == "rides/ride/123")
-        #expect(ActivityPath.page("123", api: 2) == "rides/123")
+    @Test func everyActivityIsAtActivities() {
+        #expect(ActivityPath.list == "activities")
+        #expect(ActivityPath.of("123") == "activities/123")
+        #expect(ActivityPath.of("123") + "/photos" == "activities/123/photos")
+        #expect(ActivityPath.page("123") == "activities/123")
     }
 
     @Test func aListItemNeedsNoKind() throws {
         let page = try JSONDecoder.headwind.decode(ActivityPage.self, from: Data(#"{"total":1,"offset":0,"items":[{"id":"9","date":"2026-11-20T08:00:00"}]}"#.utf8))
-        #expect(page.items.first?.kind == nil && page.items.first?.id == "9")
+        #expect(page.items.first?.id == "9")
     }
 }

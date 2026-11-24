@@ -35,17 +35,17 @@ function doSync() {
     .then(function (r) { return r.json(); })
     .then(function (data) {
       btn.textContent = data.synced !== undefined
-        ? 'Synced ' + data.synced + ' rides'
+        ? 'Synced ' + data.synced + ' activit' + (data.synced === 1 ? 'y' : 'ies')
         : (data.error || 'Error');
       setTimeout(function () {
         btn.disabled = false;
-        btn.textContent = 'Sync Rides';
+        btn.textContent = 'Sync';
         if (data.synced) location.reload();
       }, 2000);
     })
     .catch(function () {
       btn.textContent = 'Error';
-      setTimeout(function () { btn.disabled = false; btn.textContent = 'Sync Rides'; }, 2000);
+      setTimeout(function () { btn.disabled = false; btn.textContent = 'Sync'; }, 2000);
     });
 }
 

@@ -1,7 +1,6 @@
-"""Every activity the phone, the Watch or Apple Health sends, through one door (POST /api/v1/activities; the older /rides and /workouts are the
-same door with the kind decided for them).
+"""Every activity the phone, the Watch or Apple Health sends, through one door (POST /api/v1/activities).
 
-An upload carries a client_id: the iPhone's or the Watch's recording UUID, Apple Health's `ah_<uuid>`, the Android app's. It's kept on the
+An upload carries a client_id: the iPhone's or the Watch's recording UUID, Apple Health's `ah_<uuid>`, or another app's. It's kept on the
 activity (Activity.clientId, and in the row of a copy set aside or deleted), so the same upload sent again is found by it, whatever its sport,
 and the phone can ask which of its ids the server has before reading a workout's route (known). An activity uploaded before 0.7.47 has no
 clientId: it is found by the id it was given from its client_id (workouts.track_id, manual_activity.session_id), and gets its clientId then.
@@ -106,11 +105,11 @@ def _reply(db, act_id, created, via, duplicate=None, **extra):
             'duplicate': duplicate, **extra}
 
 
-def receive(db, rider_id, client_id=None, source=None, gpx=None, filename=None, sport=None, kind=None, name=None, bike_id=None,
+def receive(db, rider_id, client_id=None, source=None, gpx=None, filename=None, sport=None, name=None, bike_id=None,
             calories=None, steps=None, session=None):
     """Store one upload, or find it if it was sent before. `gpx` is the recording's file (bytes); without one, `session` is the timed session's
-    fields (manual_activity.create's: start, duration_s, distance_m, elev_m, calories, avg_hr, notes). `kind` 'ride' or 'workout' is decided for it by
-    the older /rides and /workouts; otherwise the sport decides, or the file's own when none is given; `bike_id` is one of the rider's, already checked. Returns
+    fields (manual_activity.create's: start, duration_s, distance_m, elev_m, calories, avg_hr, notes). The sport decides whether a track is a ride,
+    or the file's own sport when none is given; `bike_id` is one of the rider's, already checked. Returns
     {status 'created'|'exists', created, kind, id (the activity that stands for it), via 'ride'|'track'|'session' (None when it was sent
     before), duplicate, ...}: created is False when it was here already or was set aside behind another recording of the same session.
     Raises Refused. Commits."""
@@ -127,7 +126,7 @@ def receive(db, rider_id, client_id=None, source=None, gpx=None, filename=None, 
     if _no_time(gpx):
         log.warning('Upload refused: its track is one moment (client_id=%s, source=%s)', client_id, source)
         raise Refused(NOTHING_RECORDED)
-    ride = kind == 'ride' if kind else (is_ride(sport) if sport else _file_is_ride(gpx, filename))
+    ride = is_ride(sport) if sport else _file_is_ride(gpx, filename)
     if ride:
         return _ride(db, rider_id, client_id, source, gpx, filename, bike_id)
     return _track(db, rider_id, client_id, source, gpx, sport, name, calories, steps)
@@ -216,7 +215,7 @@ def _track(db, rider_id, client_id, source, data, sport, name, calories, steps):
     from services import workouts
     try:
         w, created = workouts.save_from_gpx(rider_id, data, sport=sport, name=(name or '')[:80] or None, client_id=client_id, steps=steps,
-                                            source=source if source in ('android', 'ios') else 'android', calories=calories)
+                                            source=source if source in ('android', 'ios') else 'phone', calories=calories)
     except ValueError as e:
         raise Refused(str(e))
     if not created and client_id:                      # sent before clientId was kept: its id is the one its client_id gives

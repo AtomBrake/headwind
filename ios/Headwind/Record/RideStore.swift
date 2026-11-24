@@ -15,9 +15,8 @@ struct SavedRide: Codable, Identifiable, Equatable {
     var status: Status
     /// Why the last upload failed, or the server's note (e.g. "Already on the server").
     var message: String?
-    /// Activity id on the server once uploaded, and its kind there ('ride' or 'workout').
+    /// Activity id on the server once uploaded.
     var serverId: String?
-    var serverKind: String?
     /// Photos added on the phone that haven't reached the server yet (file names in RideStore's photo folder for this ride).
     var pendingPhotos: [String]?
     /// The server the phone was paired with when this was recorded (RideStore.serverForNewRides). The recording, its photos and a change of
@@ -39,7 +38,6 @@ struct SavedRide: Codable, Identifiable, Equatable {
     var filename: String { "\(id.uuidString).gpx" }
     /// A GPS recording has a GPX file; a timed-only session is its summary alone.
     var hasTrack: Bool { summary.sport.usesGPS }
-    var kind: String { Uploader.kind(of: summary, reply: serverKind) }
 
     /// Whether this goes to `server`: it was recorded under it, or it's from before recordings kept their server. Never while unpaired.
     func belongs(to server: URL?) -> Bool {
@@ -193,7 +191,7 @@ final class RideStore {
             }
             do throws(AppError) {
                 _ = try await session.call { client async throws(AppError) in
-                    try await client.upload(ActivityPath.of(serverId, kind: ride.kind, api: session.info?.api) + "/photos", file: data, filename: name, mimeType: "image/jpeg",
+                    try await client.upload(ActivityPath.of(serverId) + "/photos", file: data, filename: name, mimeType: "image/jpeg",
                                             fields: ["client_id": String(name.dropLast(4))], as: Ignored.self)
                 }
             } catch {
@@ -285,16 +283,18 @@ final class RideStore {
             }
             gpx = data
         }
+        guard !session.serverTooOld else {                 // it has no /activities to send to: wait for the server to be updated
+            update(ride.id) { $0.status = .failed; $0.message = AppError.serverTooOld.localizedDescription }
+            return false
+        }
         update(ride.id) { $0.status = .uploading; $0.message = nil }
-        let api = session.info?.api
         do throws(AppError) {
             let reply = try await session.call { [gpx] client async throws(AppError) in
-                try await Uploader.upload(summary: ride.summary, id: ride.id, name: ride.name, gpx: gpx, api: api, with: client)
+                try await Uploader.upload(summary: ride.summary, id: ride.id, name: ride.name, gpx: gpx, with: client)
             }
             update(ride.id) {
                 $0.status = .uploaded
                 $0.serverId = reply.serverId
-                $0.serverKind = reply.kind
                 $0.message = reply.isNew ? nil : "Already on the server"
             }
             return true
@@ -309,8 +309,8 @@ final class RideStore {
     }
 
     /// Where a recording goes (Uploader.destination), kept here for the tests.
-    nonisolated static func destination(_ ride: SavedRide, api: Int? = nil) -> (path: String, fields: [String: String]) {
-        Uploader.destination(summary: ride.summary, id: ride.id, name: ride.name, api: api)
+    nonisolated static func destination(_ ride: SavedRide) -> (path: String, fields: [String: String]) {
+        Uploader.destination(summary: ride.summary, id: ride.id, name: ride.name)
     }
 
     /// Put a ride on another bike. Before upload it's only noted here and goes up with the ride; after, the server is told
@@ -326,7 +326,7 @@ final class RideStore {
                 throw .validationError(message: "Headwind didn't say which ride this became. Change its bike on the ride's page.")
             }
             _ = try await session.call { client async throws(AppError) in
-                try await client.post(ActivityPath.of(serverId, kind: "ride", api: session.info?.api) + "/bike", json: BikeChange(bike_id: bike),
+                try await client.post(ActivityPath.of(serverId) + "/bike", json: BikeChange(bike_id: bike),
                                       as: Ignored.self)
             }
         case .uploading:

@@ -1,56 +1,33 @@
 import Foundation
 
-/// POST /api/v1/activities reply (routes/api_v1.py post_activity), whose id and kind are at the top, or on an older server /rides (upload_ride),
-/// whose activity is under `ride`, or /workouts (post_workout), under `workout`.
+/// POST /api/v1/activities reply (routes/api_v1.py post_activity): {status 'created'|'exists', created, id, duplicate}.
 struct UploadReply: Decodable, Sendable {
     var status: String
     var serverId: String?
-    /// 'ride' or 'workout' when the server said; otherwise worked out from the sport.
-    var kind: String?
-    /// /rides says "imported", /workouts and /activities "created"; anything else was already there.
-    var isNew: Bool { status == "imported" || status == "created" }
+    /// "created"; anything else ("exists") was already there.
+    var isNew: Bool { status == "created" }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         status = try c.decode(String.self, forKey: .status)
-        kind = try? c.decodeIfPresent(String.self, forKey: .kind)
-        let nested = (try? c.decodeIfPresent(Activity.self, forKey: .ride)) ?? (try? c.decodeIfPresent(Activity.self, forKey: .workout))
-        serverId = nested?.id ?? Self.flexibleID(c, .id)
+        // The id is informational: accept a string or a number, and never fail the whole reply over it.
+        serverId = (try? c.decode(String.self, forKey: .id)) ?? (try? c.decode(Int.self, forKey: .id)).map(String.init)
     }
 
-    /// The id is informational: accept a string or a number, and never fail the whole reply over it.
-    private static func flexibleID<K: CodingKey>(_ c: KeyedDecodingContainer<K>, _ key: K) -> String? {
-        (try? c.decode(String.self, forKey: key)) ?? (try? c.decode(Int.self, forKey: key)).map(String.init)
-    }
-
-    private struct Activity: Decodable, Sendable {
-        var id: String?
-        init(from decoder: Decoder) throws {
-            id = UploadReply.flexibleID(try decoder.container(keyedBy: CodingKeys.self), .id)
-        }
-    }
-
-    private enum CodingKeys: String, CodingKey { case status, kind, ride, workout, id }
+    private enum CodingKeys: String, CodingKey { case status, id }
 }
 
 /// Where a finished recording goes, and sending it there. Shared by the iPhone's upload queue (RideStore) and the Watch's direct upload, so both
 /// send the same thing with the same client_id and the server keeps one copy.
 enum Uploader {
-    /// The server's /ping `api` from which every upload, whatever its sport, goes to POST /api/v1/activities (routes/api_v1.py post_activity).
-    static let oneDoor = 2
-
-    /// A recording with a track: to /activities with its sport and the recording's id as client_id, so a retry after a dropped reply finds the
-    /// first upload, and a ride with the chosen bike. On an older server (`api` below `oneDoor`), a ride goes to /rides (idempotent by content)
-    /// and any other sport to /workouts. Timed-only sessions don't come here: see `sessionBody`.
-    static func destination(summary s: RideSummary, id: UUID, name: String, clientID: String? = nil,
-                            api: Int? = nil) -> (path: String, fields: [String: String]) {
+    /// A recording with a track: to POST /api/v1/activities (routes/api_v1.py post_activity) with its sport and the recording's id as
+    /// client_id, so a retry after a dropped reply finds the first upload, and a ride with the chosen bike. Timed-only sessions don't come
+    /// here: see `sessionBody`.
+    static func destination(summary s: RideSummary, id: UUID, name: String, clientID: String? = nil) -> (path: String, fields: [String: String]) {
         let bike = s.sport.isRide ? s.bikeId.map { ["bike_id": String($0)] } ?? [:] : [:]
-        if (api ?? 1) < oneDoor && s.sport.isRide {
-            return ("rides", bike)
-        }
         var fields = ["sport": s.sport.serverSport, "name": name, "client_id": clientID ?? id.uuidString, "source": "ios"]
         if let kcal = s.calories, kcal > 0 { fields["calories"] = String(Int(kcal.rounded())) }
-        return ((api ?? 1) < oneDoor ? "workouts" : "activities", fields.merging(bike) { $1 })
+        return ("activities", fields.merging(bike) { $1 })
     }
 
     /// Body of POST /api/v1/activities for a timed-only session (services/manual_activity.create).
@@ -78,44 +55,31 @@ enum Uploader {
 
     /// Send one recording: its GPX when it has a track, its summary alone otherwise (a timed-only session, or a workout from another app
     /// that came without a route). `clientID` replaces the id as the server's client_id (Apple Health's workouts are `ah_<uuid>`).
-    /// `api` is the server's /ping `api` (see `destination`).
-    static func upload(summary: RideSummary, id: UUID, name: String, gpx: Data?, clientID: String? = nil, api: Int? = nil,
+    static func upload(summary: RideSummary, id: UUID, name: String, gpx: Data?, clientID: String? = nil,
                        with client: APIClient) async throws(AppError) -> UploadReply {
-        try await client.send(request(summary: summary, id: id, name: name, gpx: gpx, clientID: clientID, api: api, with: client),
-                              as: UploadReply.self)
+        try await client.send(request(summary: summary, id: id, name: name, gpx: gpx, clientID: clientID, with: client), as: UploadReply.self)
     }
 
     /// The request `upload` sends, for the Watch to hand to a background session; its reply is read with `APIClient.reply`.
-    static func request(summary: RideSummary, id: UUID, name: String, gpx: Data?, clientID: String? = nil, api: Int? = nil,
+    static func request(summary: RideSummary, id: UUID, name: String, gpx: Data?, clientID: String? = nil,
                         with client: APIClient) throws(AppError) -> URLRequest {
         if let gpx {
-            let (path, fields) = destination(summary: summary, id: id, name: name, clientID: clientID, api: api)
+            let (path, fields) = destination(summary: summary, id: id, name: name, clientID: clientID)
             return client.uploadRequest(path, file: gpx, filename: "\(name).gpx", mimeType: "application/gpx+xml", fields: fields)
         }
         guard summary.movingTime >= RideSummary.minimumSession else { throw .sessionTooShort }
         return try client.postRequest("activities", json: sessionBody(summary: summary, id: id, name: name, clientID: clientID))
     }
-
-    /// The server's kind for a recording ('ride' or 'workout'), for an older server's paths that take one (see ActivityPath).
-    static func kind(of summary: RideSummary, reply: String? = nil) -> String {
-        reply ?? (summary.sport.isRide ? "ride" : "workout")
-    }
 }
 
-/// Where an activity is in the phone API. From the server's /ping `api` 3 it's /activities/<id>, whatever its sport (routes/api_v1.py
-/// activity_detail); an older server has it at /rides/<kind>/<id>, with the kind the app had in hand. Newer servers answer the older paths
-/// too, so a phone that hasn't heard the server's `api` yet uses those.
+/// Where an activity is in the phone API, whatever its sport (routes/api_v1.py activity_detail), and its page on the web.
 enum ActivityPath {
-    static let byID = 3
-
     /// Every activity, a page at a time.
-    static func list(api: Int?) -> String { (api ?? 1) < byID ? "rides" : "activities" }
+    static let list = "activities"
 
     /// One activity; the paths under it add "/photos", "/bike" and so on.
-    static func of(_ id: String, kind: String?, api: Int?) -> String {
-        (api ?? 1) < byID ? "rides/\(kind ?? "ride")/\(id)" : "activities/\(id)"
-    }
+    static func of(_ id: String) -> String { "activities/\(id)" }
 
-    /// Its page on the web, relative to the server: /activities/<id> since the same release as `api` 3, /rides/<id> before.
-    static func page(_ id: String, api: Int?) -> String { (api ?? 1) < byID ? "rides/\(id)" : "activities/\(id)" }
+    /// Its page on the web, relative to the server.
+    static func page(_ id: String) -> String { "activities/\(id)" }
 }

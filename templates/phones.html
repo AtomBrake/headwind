@@ -18,13 +18,9 @@
 {% endblock %}
 {% block content %}
 <div class="ph-card">
-  <div style="font-weight:600;margin-bottom:0.3rem">Get the Android app <span style="font-weight:400;color:var(--text-muted);font-size:0.8rem">(work in progress)</span></div>
-  <a class="btn btn-secondary" href="/phones/app" style="min-height:44px;">Download &amp; install instructions</a>
-</div>
-<div class="ph-card">
   <div style="font-weight:600;margin-bottom:0.6rem">Pair a phone</div>
   <div class="ph-form">
-    <div class="form-group"><label>Name</label><input id="phName" placeholder="e.g. Pixel 10" value="Phone"></div>
+    <div class="form-group"><label>Name</label><input id="phName" placeholder="e.g. iPhone" value="Phone"></div>
     <div class="form-group"><label>Server address the phone will use</label>
       {% if server_url %}<div style="padding:0.45rem 0;"><code>{{ server_url }}</code> <a href="{{ url_for('settings.index') }}#address" style="font-size:0.8rem;">Change in Settings</a></div>
       {% else %}<div style="padding:0.45rem 0;color:var(--danger);font-size:0.85rem;">⚠ {% if other_url %}<code>{{ other_url }}</code> isn't https, and the app only pairs over https.{% else %}None set yet.{% endif %}

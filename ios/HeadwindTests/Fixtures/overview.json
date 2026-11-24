@@ -1,18 +1,117 @@
 {
-    "all": {
-        "calories": 89332,
-        "distance_m": 3190425,
-        "elev_m": 28716,
-        "moving_s": 441756,
-        "rides": 60
-    },
-    "month": {
-        "calories": 15768,
-        "distance_m": 563135,
-        "elev_m": 5068,
-        "moving_s": 77972,
-        "rides": 11
-    },
+    "groups": [
+        {
+            "has_distance": true,
+            "icon": "🚴",
+            "key": "ride",
+            "label": "Cycling",
+            "style": "speed",
+            "totals": {
+                "all": {
+                    "calories": 89332,
+                    "count": 60,
+                    "distance_m": 3190425,
+                    "elev_m": 28716,
+                    "moving_s": 441756
+                },
+                "month": {
+                    "calories": 15768,
+                    "count": 11,
+                    "distance_m": 563135,
+                    "elev_m": 5068,
+                    "moving_s": 77972
+                },
+                "week": {
+                    "calories": 6638,
+                    "count": 4,
+                    "distance_m": 237082,
+                    "elev_m": 2134,
+                    "moving_s": 32827
+                },
+                "year": {
+                    "calories": 89332,
+                    "count": 60,
+                    "distance_m": 3190425,
+                    "elev_m": 28716,
+                    "moving_s": 441756
+                }
+            }
+        },
+        {
+            "has_distance": true,
+            "icon": "🏃",
+            "key": "foot",
+            "label": "On foot",
+            "style": "pace",
+            "totals": {
+                "all": {
+                    "calories": 8200,
+                    "count": 20,
+                    "distance_m": 104000,
+                    "elev_m": 800,
+                    "moving_s": 37200
+                },
+                "month": {
+                    "calories": 1230,
+                    "count": 3,
+                    "distance_m": 15600,
+                    "elev_m": 120,
+                    "moving_s": 5580
+                },
+                "week": {
+                    "calories": 410,
+                    "count": 1,
+                    "distance_m": 5200,
+                    "elev_m": 40,
+                    "moving_s": 1860
+                },
+                "year": {
+                    "calories": 8200,
+                    "count": 20,
+                    "distance_m": 104000,
+                    "elev_m": 800,
+                    "moving_s": 37200
+                }
+            }
+        },
+        {
+            "has_distance": false,
+            "icon": "🏋️",
+            "key": "Strength",
+            "label": "Strength",
+            "style": "time",
+            "totals": {
+                "all": {
+                    "calories": 1890,
+                    "count": 9,
+                    "distance_m": 0,
+                    "elev_m": 0,
+                    "moving_s": 24300
+                },
+                "month": {
+                    "calories": 420,
+                    "count": 2,
+                    "distance_m": 0,
+                    "elev_m": 0,
+                    "moving_s": 5400
+                },
+                "week": {
+                    "calories": 0,
+                    "count": 0,
+                    "distance_m": 0,
+                    "elev_m": 0,
+                    "moving_s": 0
+                },
+                "year": {
+                    "calories": 1890,
+                    "count": 9,
+                    "distance_m": 0,
+                    "elev_m": 0,
+                    "moving_s": 24300
+                }
+            }
+        }
+    ],
     "recovery": {
         "bodyBattery": 74,
         "date": "2026-10-17",
@@ -23,124 +122,198 @@
         "steps": 6420
     },
     "rider": "Tom",
-    "sports": [
-        "Ride"
-    ],
-    "week": {
-        "calories": 6638,
-        "distance_m": 237082,
-        "elev_m": 2134,
-        "moving_s": 32827,
-        "rides": 4
-    },
-    "weekly": [
+    "weekly_all": [
         {
-            "calories": 6759,
+            "by": {
+                "foot": {
+                    "calories": 410,
+                    "distance_m": 5200,
+                    "elev_m": 40,
+                    "moving_s": 1860
+                },
+                "ride": {
+                    "calories": 6759,
+                    "distance_m": 241402,
+                    "elev_m": 2172,
+                    "moving_s": 33528
+                }
+            },
             "current": false,
-            "distance_m": 241402,
-            "elev_m": 2172,
-            "label": "27 Jul"
+            "from": "2026-08-01",
+            "label": "27 Jul",
+            "to": "2026-08-07"
         },
         {
-            "calories": 7266,
+            "by": {
+                "ride": {
+                    "calories": 7266,
+                    "distance_m": 259587,
+                    "elev_m": 2336,
+                    "moving_s": 36054
+                }
+            },
             "current": false,
-            "distance_m": 259587,
-            "elev_m": 2336,
-            "label": "3 Aug"
+            "from": "2026-08-08",
+            "label": "3 Aug",
+            "to": "2026-08-14"
         },
         {
-            "calories": 925,
+            "by": {
+                "ride": {
+                    "calories": 925,
+                    "distance_m": 32992,
+                    "elev_m": 297,
+                    "moving_s": 4582
+                }
+            },
             "current": false,
-            "distance_m": 32992,
-            "elev_m": 297,
-            "label": "10 Aug"
+            "from": "2026-08-15",
+            "label": "10 Aug",
+            "to": "2026-08-21"
         },
         {
-            "calories": 7096,
+            "by": {
+                "foot": {
+                    "calories": 410,
+                    "distance_m": 5200,
+                    "elev_m": 40,
+                    "moving_s": 1860
+                },
+                "ride": {
+                    "calories": 7096,
+                    "distance_m": 253472,
+                    "elev_m": 2281,
+                    "moving_s": 35204
+                }
+            },
             "current": false,
-            "distance_m": 253472,
-            "elev_m": 2281,
-            "label": "17 Aug"
+            "from": "2026-08-22",
+            "label": "17 Aug",
+            "to": "2026-08-28"
         },
         {
-            "calories": 9667,
+            "by": {
+                "ride": {
+                    "calories": 9667,
+                    "distance_m": 345204,
+                    "elev_m": 3108,
+                    "moving_s": 47945
+                }
+            },
             "current": false,
-            "distance_m": 345204,
-            "elev_m": 3108,
-            "label": "24 Aug"
+            "from": "2026-09-01",
+            "label": "24 Aug",
+            "to": "2026-09-07"
         },
         {
-            "calories": 6180,
+            "by": {
+                "ride": {
+                    "calories": 6180,
+                    "distance_m": 220641,
+                    "elev_m": 1987,
+                    "moving_s": 30645
+                }
+            },
             "current": false,
-            "distance_m": 220641,
-            "elev_m": 1987,
-            "label": "31 Aug"
+            "from": "2026-09-08",
+            "label": "31 Aug",
+            "to": "2026-09-14"
         },
         {
-            "calories": 18172,
+            "by": {
+                "foot": {
+                    "calories": 410,
+                    "distance_m": 5200,
+                    "elev_m": 40,
+                    "moving_s": 1860
+                },
+                "ride": {
+                    "calories": 18172,
+                    "distance_m": 648888,
+                    "elev_m": 5842,
+                    "moving_s": 90123
+                }
+            },
             "current": false,
-            "distance_m": 648888,
-            "elev_m": 5842,
-            "label": "7 Sep"
+            "from": "2026-09-15",
+            "label": "7 Sep",
+            "to": "2026-09-21"
         },
         {
-            "calories": 2320,
+            "by": {
+                "ride": {
+                    "calories": 2320,
+                    "distance_m": 82881,
+                    "elev_m": 745,
+                    "moving_s": 11511
+                }
+            },
             "current": false,
-            "distance_m": 82881,
-            "elev_m": 745,
-            "label": "14 Sep"
+            "from": "2026-09-22",
+            "label": "14 Sep",
+            "to": "2026-09-28"
         },
         {
-            "calories": 13659,
+            "by": {
+                "ride": {
+                    "calories": 13659,
+                    "distance_m": 487792,
+                    "elev_m": 4391,
+                    "moving_s": 67749
+                }
+            },
             "current": false,
-            "distance_m": 487792,
-            "elev_m": 4391,
-            "label": "21 Sep"
+            "from": "2026-10-01",
+            "label": "21 Sep",
+            "to": "2026-10-07"
         },
         {
-            "calories": 1218,
+            "by": {
+                "foot": {
+                    "calories": 410,
+                    "distance_m": 5200,
+                    "elev_m": 40,
+                    "moving_s": 1860
+                },
+                "ride": {
+                    "calories": 1218,
+                    "distance_m": 43452,
+                    "elev_m": 391,
+                    "moving_s": 6035
+                }
+            },
             "current": false,
-            "distance_m": 43452,
-            "elev_m": 391,
-            "label": "28 Sep"
+            "from": "2026-10-08",
+            "label": "28 Sep",
+            "to": "2026-10-14"
         },
         {
-            "calories": 7912,
+            "by": {
+                "ride": {
+                    "calories": 7912,
+                    "distance_m": 282601,
+                    "elev_m": 2543,
+                    "moving_s": 39250
+                }
+            },
             "current": false,
-            "distance_m": 282601,
-            "elev_m": 2543,
-            "label": "5 Oct"
+            "from": "2026-10-15",
+            "label": "5 Oct",
+            "to": "2026-10-21"
         },
         {
-            "calories": 6638,
+            "by": {
+                "ride": {
+                    "calories": 6638,
+                    "distance_m": 237056,
+                    "elev_m": 2134,
+                    "moving_s": 32924
+                }
+            },
             "current": true,
-            "distance_m": 237056,
-            "elev_m": 2134,
-            "label": "12 Oct"
+            "from": "2026-10-22",
+            "label": "12 Oct",
+            "to": "2026-10-28"
         }
-    ],
-    "workouts": {
-        "month": {
-            "calories": 0,
-            "count": 0,
-            "distance_m": 0
-        },
-        "week": {
-            "calories": 0,
-            "count": 0,
-            "distance_m": 0
-        },
-        "year": {
-            "calories": 0,
-            "count": 0,
-            "distance_m": 0
-        }
-    },
-    "year": {
-        "calories": 89332,
-        "distance_m": 3190425,
-        "elev_m": 28716,
-        "moving_s": 441756,
-        "rides": 60
-    }
+    ]
 }

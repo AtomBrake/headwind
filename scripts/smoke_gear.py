@@ -21,7 +21,7 @@ def gpx(start_utc, n=200, step=15):
 tok = c.post('/phones/create', json={'name': 'Pixel', 'server_url': 'https://x.example.com'}).get_json()['token']
 phone = a.test_client()
 def upload(start_utc):       # a ride arriving the way the phone app sends one: same import pipeline as a file import or a Garmin sync
-    return phone.post('/api/v1/rides', headers={'Authorization': 'Bearer ' + tok}, data={'file': (io.BytesIO(gpx(start_utc)), 'ride.gpx')}, content_type='multipart/form-data')
+    return phone.post('/api/v1/activities', headers={'Authorization': 'Bearer ' + tok}, data={'file': (io.BytesIO(gpx(start_utc)), 'ride.gpx')}, content_type='multipart/form-data')
 
 # pages render with nothing set up
 for u in ('/gear/', '/gear/bike/new', '/gear/assign'): ok(f'{u} renders empty', c.get(u).status_code == 200)

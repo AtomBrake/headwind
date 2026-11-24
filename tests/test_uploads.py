@@ -1,6 +1,6 @@
 """One upload path for every activity from the phone and the Watch (services/uploads.py): POST /api/v1/activities takes a ride, another sport
 with a track, or a session with no track, keeps its client_id and finds it again by it; POST /api/v1/activities/known says which client ids the
-server has, so Apple Health's sync can leave those out. /rides and /workouts are the same door with the older replies."""
+server has, so Apple Health's sync can leave those out. The older /rides and /workouts are gone (tests/test_phone_activities_api.py)."""
 from datetime import datetime, timezone
 from io import BytesIO
 
@@ -37,11 +37,11 @@ def test_a_ride_a_walk_and_a_session_go_through_one_door_and_keep_their_client_i
     ride = send(phone, gpx(), sport='Ride', client_id='rec-ride', bike_id='2')
     assert ride.status_code == 201, ride.get_json()
     r = ride.get_json()
-    assert (r['status'], r['kind']) == ('created', 'ride')
+    assert r['status'] == 'created' and 'kind' not in r
     walk = send(phone, WALK, sport='Walk', client_id='ah_walk').get_json()
-    assert (walk['status'], walk['kind']) == ('created', 'workout')
+    assert walk['status'] == 'created'
     lift = phone.post('/api/v1/activities', headers=phone.H, json={**SESSION, 'client_id': 'rec-lift'}).get_json()
-    assert (lift['status'], lift['kind']) == ('created', 'workout')
+    assert lift['status'] == 'created'
     assert sorted(sql(phone, 'SELECT clientId, sportType, source FROM Activity')) == [
         ('ah_walk', 'Walk', 'ios'), ('rec-lift', 'Strength', 'ios'), ('rec-ride', 'EBikeRide', 'ios')]   # bike 2 is an e-bike
     assert sql(phone, 'SELECT bikeId FROM Activity WHERE id=?', [r['id']]) == [(2,)]
@@ -54,8 +54,8 @@ def test_a_ride_a_walk_and_a_session_go_through_one_door_and_keep_their_client_i
 
 
 def test_without_a_sport_the_files_own_decides(phone):
-    assert send(phone, gpx(), client_id='a').get_json()['kind'] == 'ride'
-    assert send(phone, WALK, client_id='b').get_json()['kind'] == 'workout'
+    ride, walk = send(phone, gpx(), client_id='a').get_json()['id'], send(phone, WALK, client_id='b').get_json()['id']
+    assert sql(phone, 'SELECT id, sportType FROM Activity ORDER BY sportType') == [(ride, 'Ride'), (walk, 'Walk')]
 
 
 def test_one_sent_before_client_ids_were_kept_is_found_by_its_old_id_and_gets_its_client_id(phone):
@@ -64,32 +64,26 @@ def test_one_sent_before_client_ids_were_kept_is_found_by_its_old_id_and_gets_it
     sql(phone, 'UPDATE Activity SET clientId=NULL')                                     # as an upload from before 0.7.47
     assert known(phone, 'ah_old', 'rec-old') == ['ah_old', 'rec-old']
     assert send(phone, WALK, sport='Walk', client_id='ah_old').get_json() | {'duplicate': None} == {
-        'status': 'exists', 'created': False, 'kind': 'workout', 'id': walk['id'], 'duplicate': None}
+        'status': 'exists', 'created': False, 'id': walk['id'], 'duplicate': None}
     phone.post('/api/v1/activities', headers=phone.H, json={**SESSION, 'client_id': 'rec-old'})
     assert sorted(sql(phone, 'SELECT id, clientId FROM Activity')) == sorted([(walk['id'], 'ah_old'), (lift['id'], 'rec-old')])
 
 
-def test_a_ride_from_the_older_path_gets_its_client_id_when_it_comes_again(phone):
-    old = phone.post('/api/v1/rides', headers=phone.H, content_type='multipart/form-data', data={'file': (BytesIO(gpx()), 'Ride.gpx')}).get_json()
-    assert old['status'] == 'imported' and old['imported'] == 1 and old['ride']['id']                # the reply the released apps read
+def test_a_ride_sent_without_a_client_id_gets_one_when_it_comes_again(phone):
+    first = phone.post('/api/v1/activities', headers=phone.H, content_type='multipart/form-data',
+                       data={'file': (BytesIO(gpx()), 'Ride.gpx')}).get_json()            # no client id, no sport, no source: the file says ride
+    assert first['created'] and sql(phone, 'SELECT sportType, source, clientId FROM Activity') == [('Ride', 'phone', None)]
     assert known(phone, 'ah_ride') == []
     again = send(phone, gpx(), sport='Ride', client_id='ah_ride').get_json()
-    assert (again['status'], again['id']) == ('exists', old['ride']['id'])
+    assert (again['status'], again['id']) == ('exists', first['id'])
     assert known(phone, 'ah_ride') == ['ah_ride']
-    retry = phone.post('/api/v1/rides', headers=phone.H, content_type='multipart/form-data', data={'file': (BytesIO(gpx()), 'Ride.gpx')}).get_json()
-    assert (retry['status'], retry['imported'], retry['skipped'], retry['ride']['id']) == ('skipped', 0, 1, old['ride']['id'])
 
 
-def test_the_older_workouts_path_keeps_its_reply(phone):
-    r = phone.post('/api/v1/workouts', headers=phone.H, content_type='multipart/form-data',
+def test_a_walk_sent_without_a_source_is_the_phones(phone):
+    r = phone.post('/api/v1/activities', headers=phone.H, content_type='multipart/form-data',
                    data={'file': (BytesIO(WALK), 'Walk.gpx'), 'sport': 'Walk', 'client_id': 'w1', 'steps': '1200'})
-    assert r.status_code == 201 and r.get_json()['status'] == 'created'
-    w = r.get_json()['workout']
-    assert (w['sport'], w['steps'], w['source']) == ('Walk', 1200, 'android')                       # an older Android app sends no source
-    again = phone.post('/api/v1/workouts', headers=phone.H, content_type='multipart/form-data',
-                       data={'file': (BytesIO(WALK), 'Walk.gpx'), 'sport': 'Walk', 'client_id': 'w1'})
-    assert again.status_code == 200 and again.get_json()['status'] == 'exists' and again.get_json()['workout']['id'] == w['id']
-    assert phone.post('/api/v1/workouts', headers=phone.H, json={}).status_code == 400
+    assert r.status_code == 201
+    assert sql(phone, 'SELECT sportType, steps, source FROM Activity') == [('Walk', 1200, 'phone')]
 
 
 def test_one_set_aside_behind_another_recording_is_known_and_stands_as_that_one(phone):
@@ -110,7 +104,7 @@ def test_one_set_aside_behind_another_recording_is_known_and_stands_as_that_one(
 
 def test_a_deleted_one_is_known_so_a_sync_leaves_it_out_but_sending_it_brings_it_back(phone):
     walk = send(phone, WALK, sport='Walk', client_id='ah_gone').get_json()
-    assert phone.delete(f"/api/v1/workouts/{walk['id']}", headers=phone.H).status_code == 200
+    assert phone.delete(f"/api/v1/activities/{walk['id']}", headers=phone.H).status_code == 200
     assert known(phone, 'ah_gone') == ['ah_gone']
     back = send(phone, WALK, sport='Walk', client_id='ah_gone').get_json()
     assert back['status'] == 'created' and sql(phone, 'SELECT clientId FROM Activity') == [('ah_gone',)]
@@ -149,14 +143,12 @@ def nothing_stored(phone):
 REFUSED = {'error': 'The recording has no distance and no time: nothing was recorded'}
 
 
-def test_a_track_that_is_one_moment_is_refused_through_every_door_and_nothing_is_stored(phone):
-    old = lambda path, cid: phone.post(f'/api/v1/{path}', headers=phone.H, content_type='multipart/form-data',
-                                       data={'file': (BytesIO(one_moment()), 'Workout.gpx'), 'client_id': cid, 'source': 'ios'})
+def test_a_track_that_is_one_moment_is_refused_whatever_its_sport_and_nothing_is_stored(phone):
     for r in (send(phone, one_moment(), sport='Walk', client_id='ah_w'), send(phone, one_moment(), sport='Ride', client_id='ah_r'),
-              send(phone, one_moment(), client_id='ah_any'), old('rides', 'ah_old_r'), old('workouts', 'ah_old_w')):
+              send(phone, one_moment(), client_id='ah_any')):
         assert (r.status_code, r.get_json()) == (422, REFUSED)
     assert nothing_stored(phone)
-    assert known(phone, 'ah_w', 'ah_r', 'ah_any', 'ah_old_r', 'ah_old_w') == []
+    assert known(phone, 'ah_w', 'ah_r', 'ah_any') == []
 
 
 def test_one_point_or_one_moment_written_two_ways_is_refused_too(phone):
@@ -179,9 +171,8 @@ def test_a_short_real_track_is_still_stored(phone):
     assert b'07:30:05Z' in two('walking', 7) and b'07:30:01Z' not in two('walking', 7)
     walk = send(phone, two('walking', 7), sport='Walk', client_id='ah_short')
     assert walk.status_code == 201 and walk.get_json()['created'], walk.get_json()
-    ride = phone.post('/api/v1/rides', headers=phone.H, content_type='multipart/form-data',
-                      data={'file': (BytesIO(two('cycling', 17)), 'Ride.gpx'), 'client_id': 'rec_short', 'source': 'ios'})
-    assert ride.status_code == 200 and ride.get_json()['imported'] == 1, ride.get_json()          # the older path's reply
+    ride = send(phone, two('cycling', 17), name='Ride.gpx', client_id='rec_short')
+    assert ride.status_code == 201 and ride.get_json()['created'], ride.get_json()
     assert known(phone, 'ah_short', 'rec_short') == ['ah_short', 'rec_short']
     assert sql(phone, 'SELECT COUNT(*) FROM Activity WHERE elapsedTime > 0') == [(2,)]
 

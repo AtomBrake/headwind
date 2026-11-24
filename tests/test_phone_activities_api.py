@@ -1,5 +1,5 @@
-"""The phone API's /activities paths, beside the older /rides/<kind>/<id> ones the released apps still use: the same answers without a kind,
-whatever the sport, and the older paths unchanged."""
+"""The phone API's /activities paths: the same answers whatever the sport, with no kind. The older /rides and /workouts paths, and the
+/rides/<kind>/<id> ones under them, are gone and answer 404."""
 from io import BytesIO
 
 import database
@@ -11,16 +11,13 @@ def test_ping_says_the_activities_paths_are_there(phone):
     assert phone.get('/api/v1/ping', headers=phone.H).get_json()['api'] == 3
 
 
-def test_the_list_is_the_same_without_a_kind(phone):
+def test_the_list_has_every_sport_and_no_kind(phone):
     day = tz.today().isoformat()
     add(phone, 'r1', 'Ride', day, dist=20000)
     add(phone, 'w1', 'Walk', day, dist=3000)
     new = phone.get('/api/v1/activities?limit=10', headers=phone.H).get_json()
-    old = phone.get('/api/v1/rides?limit=10', headers=phone.H).get_json()
-    assert new['total'] == old['total'] == 2
-    assert {i['kind'] for i in old['items']} == {'ride', 'workout'}
+    assert new['total'] == 2 and {i['id'] for i in new['items']} == {'r1', 'w1'}
     assert all('kind' not in i for i in new['items'])
-    assert [{k: v for k, v in i.items() if k != 'kind'} for i in old['items']] == new['items']
     assert [i['id'] for i in phone.get('/api/v1/activities?group=foot', headers=phone.H).get_json()['items']] == ['w1']
 
 
@@ -31,10 +28,57 @@ def test_one_opens_whatever_its_sport(phone):
     for aid in ('r1', 'w1'):
         new = phone.get(f'/api/v1/activities/{aid}', headers=phone.H)
         assert new.status_code == 200 and new.get_json()['id'] == aid and 'kind' not in new.get_json()
-    old = phone.get('/api/v1/rides/ride/w1', headers=phone.H).get_json()                 # a stale kind still finds it, and says the right one
-    assert old['kind'] == 'workout'
     assert phone.get('/api/v1/activities/nope', headers=phone.H).status_code == 404
-    assert phone.get('/api/v1/rides/run/w1', headers=phone.H).status_code == 400
+
+
+def test_the_older_paths_are_gone(phone):
+    """Upstream's Android app's paths: every one answers 404 now, with a good token, for an activity that is there."""
+    from tests.test_uploads import gpx
+    day = tz.today().isoformat()
+    add(phone, 'r1', 'Ride', day, dist=20000)
+    add(phone, 'w1', 'Walk', day, dist=3000)
+    upload = lambda: {'file': (BytesIO(gpx()), 'Ride.gpx')}
+    gone = [
+        phone.post('/api/v1/rides', headers=phone.H, content_type='multipart/form-data', data=upload()),
+        phone.post('/api/v1/workouts', headers=phone.H, content_type='multipart/form-data', data=upload()),
+        phone.get('/api/v1/rides', headers=phone.H),
+        phone.get('/api/v1/rides?limit=10', headers=phone.H),
+        phone.get('/api/v1/workouts', headers=phone.H),
+        phone.delete('/api/v1/workouts/w1', headers=phone.H),
+    ]
+    for kind, aid in (('ride', 'r1'), ('workout', 'w1')):
+        base = f'/api/v1/rides/{kind}/{aid}'
+        gone += [
+            phone.get(base, headers=phone.H),
+            phone.delete(base, headers=phone.H),
+            phone.post(f'{base}/photos', headers=phone.H, content_type='multipart/form-data', data={'file': (BytesIO(jpeg()), 'IMG_1.jpg')}),
+            phone.post(f'{base}/photos/order', headers=phone.H, json={'ids': []}),
+            phone.patch(f'{base}/photos/1', headers=phone.H, json={'caption': 'x'}),
+            phone.delete(f'{base}/photos/1', headers=phone.H),
+            phone.post(f'{base}/sport', headers=phone.H, json={'sport': 'Run'}),
+            phone.post(f'{base}/bike', headers=phone.H, json={'bike_id': None}),
+            phone.post(f'{base}/commute', headers=phone.H, json={'commute': True}),
+        ]
+    gone.append(phone.post('/api/v1/rides/ride/r1/duplicate/1/keep', headers=phone.H))
+    assert [r.status_code for r in gone] == [404] * len(gone)
+    # ...and nothing they were sent changed anything
+    assert {i['id'] for i in phone.get('/api/v1/activities', headers=phone.H).get_json()['items']} == {'r1', 'w1'}
+    w1 = phone.get('/api/v1/activities/w1', headers=phone.H).get_json()
+    assert w1['sport'] == 'Walk' and w1['commute'] is False and w1['photos'] == []
+
+
+def test_upload_replies_have_no_kind(phone):
+    from tests.test_uploads import gpx
+    r = phone.post('/api/v1/activities', headers=phone.H, content_type='multipart/form-data',
+                   data={'file': (BytesIO(gpx()), 'Ride.gpx'), 'sport': 'Ride', 'client_id': 'k1'})
+    assert r.status_code == 201 and set(r.get_json()) == {'status', 'created', 'id', 'duplicate'}
+
+
+def test_overview_sends_the_groups_and_not_the_ride_totals(phone):
+    add(phone, 'r1', 'Ride', tz.today().isoformat(), dist=20000)
+    o = phone.get('/api/v1/overview', headers=phone.H).get_json()
+    assert set(o) == {'rider', 'recovery', 'groups', 'weekly_all', 'periods'}
+    assert [g['key'] for g in o['groups']] == ['ride'] and o['groups'][0]['totals']['all']['distance_m'] == 20000
 
 
 def test_photos_on_the_activities_path(phone):
@@ -50,7 +94,7 @@ def test_photos_on_the_activities_path(phone):
     assert [p['id'] for p in cap] == pids[::-1] and cap[1]['caption'] == 'Summit'
     gone = phone.delete(f'/api/v1/activities/w1/photos/{pids[1]}', headers=phone.H)
     assert gone.status_code == 200 and [p['id'] for p in gone.get_json()['photos']] == [pids[0]]
-    assert [p['id'] for p in phone.get('/api/v1/rides/workout/w1', headers=phone.H).get_json()['photos']] == [pids[0]]
+    assert [p['id'] for p in phone.get('/api/v1/activities/w1', headers=phone.H).get_json()['photos']] == [pids[0]]
 
 
 def test_sport_bike_and_commute_on_the_activities_path(phone):
@@ -64,7 +108,7 @@ def test_sport_bike_and_commute_on_the_activities_path(phone):
     assert phone.post('/api/v1/activities/sams/commute', headers=phone.H, json={'commute': True}).status_code == 404
 
 
-def test_a_duplicate_is_resolved_on_either_path(phone):
+def test_a_duplicate_is_resolved(phone):
     add(phone, 'r1', 'Ride', tz.today().isoformat(), dist=20000)
     with phone.app_.app_context():
         d = database.get_db()
@@ -73,7 +117,7 @@ def test_a_duplicate_is_resolved_on_either_path(phone):
                       "'garmin', 'same start', '{}')", [i])
         d.commit()
     assert phone.post('/api/v1/activities/r1/duplicate/1/keep', headers=phone.H).get_json() == {'ok': True, 'id': 'r1'}
-    assert phone.post('/api/v1/rides/ride/r1/duplicate/2/keep', headers=phone.H).get_json() == {'ok': True, 'ride_id': 'r1'}
+    assert phone.post('/api/v1/activities/r1/duplicate/2/discard', headers=phone.H).get_json() == {'ok': True, 'id': 'r1'}
 
 
 def test_deleting_on_the_activities_path(phone):
@@ -87,7 +131,7 @@ def test_deleting_on_the_activities_path(phone):
     assert phone.delete('/api/v1/activities/r1', headers=phone.H).status_code == 404
 
 
-def test_perform_names_the_activity_and_keeps_the_older_keys(phone):
+def test_perform_names_the_activity(phone):
     add(phone, 'r1', 'Ride', tz.today().isoformat(), dist=20000)
     climb = phone.get('/api/v1/perform', headers=phone.H).get_json()['biggest_climbs'][0]
-    assert climb['activityId'] == climb['rideId'] == 'r1' and climb['activityName'] == climb['rideName'] == 'r1'
+    assert climb == {'activityId': 'r1', 'activityName': 'r1', 'elevM': climb['elevM'], 'date': climb['date']}

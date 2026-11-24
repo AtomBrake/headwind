@@ -1,4 +1,4 @@
-"""POST /api/v1/rides (phone-recorded cycling ride -> a ride, not a workout) end to end. Throwaway instance only:
+"""POST /api/v1/activities with a phone-recorded cycling ride (-> a ride, not a workout) end to end. Throwaway instance only:
   d=$(mktemp -d); printf "DATABASE_URL=$d/t.db\nSECRET_KEY=x\nAPP_USERNAME=t\nAPP_PASSWORD=t\n" > $d/env; HEADWIND_ENV=$d/env PYTHONPATH=. python3 scripts/smoke_ride_upload.py"""
 import sqlite3
 import time
@@ -37,19 +37,18 @@ def make_gpx(start_iso, n_points, lat0=54.87, lng0=-1.68, step=0.0006, name='Rid
         t = (start + datetime.timedelta(seconds=i * 5)).isoformat().replace('+00:00', 'Z')
         pts.append(f'<trkpt lat="{lat0 + i * step:.6f}" lon="{lng0 + i * step:.6f}"><ele>{100 + i:.1f}</ele><time>{t}</time></trkpt>')
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<gpx version="1.1" creator="Headwind Android" xmlns="http://www.topografix.com/GPX/1.1">\n'
+            '<gpx version="1.1" creator="Headwind" xmlns="http://www.topografix.com/GPX/1.1">\n'
             f'<trk><name>{name}</name><type>cycling</type><trkseg>\n' + '\n'.join(pts) + '\n</trkseg></trk></gpx>\n').encode()
 
 
 gpx1 = make_gpx('2026-09-29T08:00:00', 400, step=0.00025)  # comfortably over 8047 m — clears the 5-mile BestEffort bracket
 
-r = c.post('/api/v1/rides', headers=auth, data={'file': (__import__('io').BytesIO(gpx1), 'ride.gpx')}, content_type='multipart/form-data')
+r = c.post('/api/v1/activities', headers=auth, data={'file': (__import__('io').BytesIO(gpx1), 'ride.gpx')}, content_type='multipart/form-data')
 j = r.get_json()
-ok('upload succeeds', r.status_code == 200, (r.status_code, j))
-ok('status=imported', j.get('status') == 'imported', j)
-ok('imported=1', j.get('imported') == 1, j)
-ride1 = j.get('ride')
-ok('ride payload present with id/name/distance', ride1 and ride1.get('id') and ride1.get('name') == 'Ride' and ride1.get('distance', 0) > 0, ride1)
+ok('upload succeeds', r.status_code == 201, (r.status_code, j))
+ok('status=created', j.get('status') == 'created' and j.get('created') is True, j)
+ride1 = {'id': j.get('id')}
+ok('reply has the id', ride1['id'], j)
 
 row = con.execute("SELECT sportType, riderId, distance, calories FROM Activity WHERE id=?", [ride1['id']]).fetchone()
 ok('landed as a ride (not a workout) with sportType=Ride', row is not None and row[0] == 'Ride' and row[1] == rider_id, row)
@@ -67,18 +66,18 @@ n_workouts = con.execute(f"SELECT COUNT(*) from {WK}").fetchone()[0]
 ok('no workout saved', n_workouts == 0, n_workouts)
 
 # --- retry the exact same file (network drop before the app deleted its local copy) -> idempotent, not duplicated ---
-r2 = c.post('/api/v1/rides', headers=auth, data={'file': (__import__('io').BytesIO(gpx1), 'ride.gpx')}, content_type='multipart/form-data')
+r2 = c.post('/api/v1/activities', headers=auth, data={'file': (__import__('io').BytesIO(gpx1), 'ride.gpx')}, content_type='multipart/form-data')
 j2 = r2.get_json()
-ok('retry -> status=skipped', j2.get('status') == 'skipped', j2)
-ok('retry -> same ride id reported back', j2.get('ride', {}).get('id') == ride1['id'], j2)
+ok('retry -> status=exists', j2.get('status') == 'exists' and j2.get('created') is False, j2)
+ok('retry -> same ride id reported back', j2.get('id') == ride1['id'], j2)
 n_activities = con.execute("SELECT COUNT(*) FROM Activity").fetchone()[0]
 ok('still only one Activity row', n_activities == 1, n_activities)
 
 # --- a different ride (different start time) -> a genuinely new Activity ---
 gpx2 = make_gpx('2026-09-29T14:00:00', 30, name='Evening spin')
-r3 = c.post('/api/v1/rides', headers=auth, data={'file': (__import__('io').BytesIO(gpx2), 'ride2.gpx')}, content_type='multipart/form-data')
+r3 = c.post('/api/v1/activities', headers=auth, data={'file': (__import__('io').BytesIO(gpx2), 'ride2.gpx')}, content_type='multipart/form-data')
 j3 = r3.get_json()
-ok('second distinct ride -> imported', j3.get('status') == 'imported' and j3.get('ride', {}).get('id') != ride1['id'], j3)
+ok('second distinct ride -> created', j3.get('status') == 'created' and j3.get('id') != ride1['id'], j3)
 ok('now two Activity rows', con.execute("SELECT COUNT(*) FROM Activity").fetchone()[0] == 2)
 
 # --- best efforts got computed (proves the full pipeline ran, not just an Activity insert) ---
@@ -86,13 +85,13 @@ n_efforts = con.execute("SELECT COUNT(*) FROM BestEffort").fetchone()[0]
 ok('BestEffort rows were computed for the upload', n_efforts > 0, n_efforts)
 
 # --- garbage upload (no file) -> clean 400, not a 500 ---
-r4 = c.post('/api/v1/rides', headers=auth, content_type='multipart/form-data')
+r4 = c.post('/api/v1/activities', headers=auth, content_type='multipart/form-data')
 ok('missing file -> 400', r4.status_code == 400, r4.get_json())
 
 # --- revoked token -> 401, never touches the DB ---
 with a.app_context():
     device_auth.revoke(device_id)
-r5 = c.post('/api/v1/rides', headers=auth, data={'file': (__import__('io').BytesIO(gpx1), 'ride.gpx')}, content_type='multipart/form-data')
+r5 = c.post('/api/v1/activities', headers=auth, data={'file': (__import__('io').BytesIO(gpx1), 'ride.gpx')}, content_type='multipart/form-data')
 ok('revoked token -> 401', r5.status_code == 401, r5.status_code)
 
 print('ALL PASS')

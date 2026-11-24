@@ -58,7 +58,7 @@ struct DecodingTests {
 
     @Test func decodesPing() throws {
         let ping = try JSONDecoder.headwind.decode(PingInfo.self, from: fixture("ping"))
-        #expect(ping.api == 1)
+        #expect(ping.api == 3 && !Session.tooOld(ping))
         #expect(ping.units == "metric")
         #expect(ping.calorieAdjustPct == 0)
         #expect(ping.serverUrl == "https://headwind.example.com")
@@ -80,18 +80,18 @@ struct DecodingTests {
 
     @Test func decodesOverview() throws {
         let o = try JSONDecoder.headwind.decode(Overview.self, from: fixture("overview"))
-        #expect(o.all.rides == 60)
-        #expect(o.weekly.count == 12)
-        #expect(o.weekly.last?.current == true)
-        #expect(o.workouts?["week"]?.count == 0)
+        #expect(o.groups.map(\.key) == ["ride", "foot", "Strength"])
+        #expect(o.groups.first?.totals["all"]?.count == 60 && o.groups.first?.totals["week"]?.distanceM == 237082)
+        #expect(o.groups.last?.hasDistance == false && o.groups.last?.style == "time")
+        #expect(o.weeklyAll.count == 12)
+        #expect(o.weeklyAll.last?.current == true && o.weeklyAll.first?.by["foot"]?.distanceM == 5200)
         #expect(o.recovery?.restingHR == 48)
-        #expect(o.title(for: .week) == "Week")             // an older server sends no periods: the app's own words
+        #expect(o.title(for: .week) == "Week")             // a server from before the rolling periods sends none: the app's own words
         #expect(o.caption(for: .week) == nil)
     }
 
     @Test func overviewSaysWhatTheServerCountsAsAWeek() throws {
-        let t = #"{"rides":0,"distance_m":0,"elev_m":0,"moving_s":0,"calories":0}"#
-        let json = #"{"all":\#(t),"week":\#(t),"month":\#(t),"year":\#(t),"weekly":[],"periods":{"#
+        let json = #"{"groups":[],"weekly_all":[],"periods":{"#
             + #""week":{"label":"Past 7 days","short":"7 days","dates":"17–23 Nov","from":"2026-11-17","to":"2026-11-23","days":7,"mode":"rolling"},"#
             + #""month":{"label":"November","short":"Month","dates":"Nov 2026","from":"2026-11-01","to":"2026-11-30","days":30,"mode":"calendar"},"#
             + #""year":{"label":"2026","short":"Year","dates":"2026","from":"2026-01-01","to":"2026-12-31","days":365,"mode":"rolling"}}}"#
@@ -100,6 +100,18 @@ struct DecodingTests {
         #expect(o.caption(for: .week) == "Past 7 days · 17–23 Nov")
         #expect(o.caption(for: .year) == "2026")
         #expect(o.title(for: .all) == "All time" && o.caption(for: .all) == nil)
+    }
+
+    @Test func aServerFromBeforeTheActivitiesPathsIsTooOld() throws {
+        for (json, old) in [(#"{"ok":true,"api":2}"#, true), (#"{"ok":true}"#, true), (#"{"ok":true,"api":3}"#, false), (#"{"ok":true,"api":4}"#, false)] {
+            #expect(Session.tooOld(try JSONDecoder.headwind.decode(PingInfo.self, from: Data(json.utf8))) == old)
+        }
+        #expect(AppError.serverTooOld.localizedDescription.contains("0.7.47"))
+    }
+
+    @Test func overviewDecodesWithNoActivitiesYet() throws {
+        let o = try JSONDecoder.headwind.decode(Overview.self, from: Data(#"{"rider":"New","recovery":null,"groups":[],"weekly_all":[]}"#.utf8))
+        #expect(o.groups.isEmpty && o.weeklyAll.isEmpty && o.recovery == nil)
     }
 
     @Test func decodesAFreshInstallWithNothingSet() throws {

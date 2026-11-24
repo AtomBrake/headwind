@@ -59,7 +59,7 @@ struct ActivityDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     if let server = session.pairing?.server {
-                        Link(destination: server.appending(path: ActivityPath.page(item.id, api: session.info?.api))) { Label("Open in Safari", systemImage: "safari") }
+                        Link(destination: server.appending(path: ActivityPath.page(item.id))) { Label("Open in Safari", systemImage: "safari") }
                     }
                     if own {
                         Button("Delete", systemImage: "trash", role: .destructive) { confirmDelete = true }
@@ -117,7 +117,7 @@ struct ActivityDetailView: View {
     }
 
     /// Where it is in the phone API (/activities/<id>, or /rides/<kind>/<id> on an older server).
-    private var path: String { ActivityPath.of(item.id, kind: item.kind, api: session.info?.api) }
+    private var path: String { ActivityPath.of(item.id) }
 
     private func load() async {
         do throws(AppError) {

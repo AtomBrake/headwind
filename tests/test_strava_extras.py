@@ -314,15 +314,15 @@ def test_adding_photos_on_the_activity_page(client):
 def test_commute_in_the_phone_api(client):
     H = {'Authorization': 'Bearer ' + client.post('/phones/create', json={'name': 'Pixel', 'server_url': 'https://h.example'}).get_json()['token']}
     phone = client.app_.test_client()
-    assert phone.get('/api/v1/rides/ride/r1', headers=H).get_json()['commute'] is False
-    r = phone.post('/api/v1/rides/workout/w1/commute', json={'commute': True}, headers=H)
+    assert phone.get('/api/v1/activities/r1', headers=H).get_json()['commute'] is False
+    r = phone.post('/api/v1/activities/w1/commute', json={'commute': True}, headers=H)
     assert r.status_code == 200 and r.get_json() == {'id': 'w1', 'commute': True} and commute_of(client, 'w1') == 1
-    assert phone.get('/api/v1/rides/workout/w1', headers=H).get_json()['commute'] is True
-    phone.post('/api/v1/rides/workout/w1/commute', json={'commute': False}, headers=H)
+    assert phone.get('/api/v1/activities/w1', headers=H).get_json()['commute'] is True
+    phone.post('/api/v1/activities/w1/commute', json={'commute': False}, headers=H)
     assert commute_of(client, 'w1') == 0
-    assert phone.post('/api/v1/rides/ride/r1/commute', json={'commute': 'yes'}, headers=H).status_code == 400
-    assert phone.post('/api/v1/rides/ride/nope/commute', json={'commute': True}, headers=H).status_code == 404
-    assert phone.post('/api/v1/rides/ride/r1/commute', json={'commute': True}).status_code == 401
+    assert phone.post('/api/v1/activities/r1/commute', json={'commute': 'yes'}, headers=H).status_code == 400
+    assert phone.post('/api/v1/activities/nope/commute', json={'commute': True}, headers=H).status_code == 404
+    assert phone.post('/api/v1/activities/r1/commute', json={'commute': True}).status_code == 401
 
 
 def test_the_import_page_offers_photos_and_segments(client):

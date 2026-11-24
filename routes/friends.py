@@ -637,7 +637,7 @@ def _read_feed(db, pull, resp):
                     pull.changed += kind == 'changed'
                 pull.rides[aid] = obj.get('updatedAt')
                 if len(pull.rides) % BATCH == 0:
-                    log.info('Friends sync: streamed %d rides for "%s"…', len(pull.rides), pull.name)
+                    log.info('Friends sync: streamed %d activities for "%s"…', len(pull.rides), pull.name)
 
             elif t == 'manifest':
                 pull.manifest = {str(r[0]): r[1] or '' for r in obj.get('rides') or [] if isinstance(r, list) and len(r) == 2}
@@ -762,7 +762,7 @@ def _do_ride_sync(friend_id):
         local = {r[0]: r[1] for r in db.execute('SELECT id, srcUpdatedAt FROM Activity WHERE riderId=?', [pull.rider_id])}
         gone = [aid for aid in local if aid not in remote]
         if gone:
-            log.info('Friends sync: %d rides no longer shared by "%s"', len(gone), pull.name)
+            log.info('Friends sync: %d activities no longer shared by "%s"', len(gone), pull.name)
             for aid in gone:
                 gone_segs.update(_forget_ride(db, aid))
             db.commit()
@@ -782,7 +782,7 @@ def _do_ride_sync(friend_id):
         db.executemany('UPDATE Activity SET srcUpdatedAt=? WHERE id=?', settle)
         db.commit()
         if want:
-            log.info('Friends sync: fetching %d new or changed rides from "%s"', len(want), pull.name)
+            log.info('Friends sync: fetching %d new or changed activities from "%s"', len(want), pull.name)
         for ids in _chunks(want, MAX_IDS):
             resp, err = _open_feed(friend, rider + ['ids='+ ','.join(urllib.parse.quote(i, safe='') for i in ids)])
             if not err:
@@ -793,7 +793,7 @@ def _do_ride_sync(friend_id):
             if err:
                 break
 
-    log.info('Friends sync: received %d rides (%d new, %d changed), %d segments from "%s"',
+    log.info('Friends sync: received %d activities (%d new, %d changed), %d segments from "%s"',
              len(pull.rides), pull.new, pull.changed, pull.segments, pull.name)
 
     # ── New and changed segments: matched from scratch against every activity near them ──
@@ -811,7 +811,7 @@ def _do_ride_sync(friend_id):
     every = db.execute('SELECT * FROM Segment').fetchall()
     sibs = {g['id']: siblings_of(g, every) for g in others}
     if pull.rides:
-        log.info('Friends sync: scanning %d rides against %d segments…', len(pull.rides), len(others))
+        log.info('Friends sync: scanning %d activities against %d segments…', len(pull.rides), len(others))
         done = 0
         for ids in _chunks(pull.rides, 500):
             marks = ','.join('?' * len(ids))
@@ -849,6 +849,6 @@ def _do_ride_sync(friend_id):
     if pull.new and friend['lastSynced']:
         db.execute('UPDATE Friend SET newFrom=COALESCE(newFrom, ?) WHERE id=?', [began, friend_id])
     db.commit()
-    log.info('Friends sync: %s — received %d rides (%d new, %d changed), %d segments for "%s"',
+    log.info('Friends sync: %s — received %d activities (%d new, %d changed), %d segments for "%s"',
              'done' if not err else 'stopped early', len(pull.rides), pull.new, pull.changed, pull.segments, pull.name)
     return pull.new + pull.changed, err

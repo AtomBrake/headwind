@@ -5,6 +5,11 @@ struct Ignored: Decodable, Sendable {}
 
 /// The phone API (routes/api_v1.py): requests with a Bearer device token, JSON back. Used by the iPhone, and by the Watch with a token of its own.
 struct APIClient: Sendable {
+    /// The least /api/v1/ping `api` this app works with: 3, every activity at /api/v1/activities/<id> (Headwind 0.7.47-beta). The older
+    /// /rides and /workouts paths are gone from the server, and this app no longer knows them. Session refuses to pair with an older server,
+    /// and says so when one it's paired with turns out to be older.
+    static let minimumAPI = 3
+
     let pairing: Pairing
     var urlSession: URLSession = .shared
 

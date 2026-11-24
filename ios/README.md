@@ -1,13 +1,14 @@
 # Headwind for iPhone and Apple Watch
 
-A native SwiftUI companion for a Headwind server. It uses the same phone API and pairing as the Android app
-(`routes/api_v1.py`, `routes/phones.py`), so the server needs no changes.
+A native SwiftUI companion for a Headwind server, on the server's phone API and pairing (`routes/api_v1.py`,
+`routes/phones.py`). It needs a server whose `/api/v1/ping` says `api` 3 or more (Headwind 0.7.47-beta or later): pairing
+with an older one is refused, and an app already paired with one says the server needs updating.
 
 | Tab | Shows | Endpoint |
 |---|---|---|
 | Today | Calories ring (eaten / goal / burned), macros, water, steps, weight trend, food diary by meal, today's other activities with their own icons | `GET /api/v1/today` |
-| Record | Map (or a clock for a timed sport), live stats, start / pause / finish any sport the phone records, on a chosen bike; share a live tracking link; list of recordings, their upload status, bike and waiting photos (add, remove, reorder) | `POST /api/v1/activities` (older servers: `/rides`, `/workouts`), `/activities/<id>/bike`, `/activities/<id>/photos`, `/live`, `/live/share` |
-| Activities | Every activity of every sport, paged, searchable and filtered by sport, and by whose (Me, a friend, Everyone); each with its map (a Zwift ride's over its Zwift world), stats, charts and photos (add, delete, reorder, caption), and delete. A friend's is read-only | `GET /api/v1/activities` (`?rider=`), `/friends`, `/activities/<id>`, `/photos/<name>`, `/zwift/<slug>.png`, `/activities/<id>/photos…` (older servers, whose `/ping` says `api` below 3: `/rides`, `/rides/<kind>/<id>…`) |
+| Record | Map (or a clock for a timed sport), live stats, start / pause / finish any sport the phone records, on a chosen bike; share a live tracking link; list of recordings, their upload status, bike and waiting photos (add, remove, reorder) | `POST /api/v1/activities`, `/activities/<id>/bike`, `/activities/<id>/photos`, `/live`, `/live/share` |
+| Activities | Every activity of every sport, paged, searchable and filtered by sport, and by whose (Me, a friend, Everyone); each with its map (a Zwift ride's over its Zwift world), stats, charts and photos (add, delete, reorder, caption), and delete. A friend's is read-only | `GET /api/v1/activities` (`?rider=`), `/friends`, `/activities/<id>`, `/photos/<name>`, `/zwift/<slug>.png`, `/activities/<id>/photos…` |
 | Overview | A card per sport group for week / month / year / all time (the week and month as the server counts them: the past 7 and 28 days, or calendar ones, with their dates), a 12-week chart of one sport by distance or every sport by time, latest recovery (Garmin's or Apple Health's) | `GET /api/v1/overview` |
 | Settings | Paired server, rider, units, Bluetooth sensors (pair, forget, battery, wheel size), whether recordings share a live tracking link and the contacts the server emails it to, Apple Health (what to send, how far back), friends (make a QR code for a friend with what they may see; add a friend by scanning or pasting their code), unpair | `GET /api/v1/ping`, `/contacts`, `POST /api/v1/health/days`, `GET`/`DELETE /api/v1/health`, `POST /api/v1/friends/tokens`, `/friends/probe`, `/friends` |
 
@@ -18,9 +19,9 @@ speed or pace, distance, climbing, power and cadence, and a map of the track so 
 
 | Sport | Records | iPhone | Watch | Goes to |
 |---|---|---|---|---|
-| Ride, E-bike ride | GPS track | ✓ | ✓ | `/rides`, with its bike |
-| Run, Walk, Hike | GPS track | ✓ | ✓ | `/workouts` |
-| Open water swim | GPS track | | ✓ (water lock) | `/workouts` as a Swim |
+| Ride, E-bike ride | GPS track | ✓ | ✓ | `/activities`, with its bike |
+| Run, Walk, Hike | GPS track | ✓ | ✓ | `/activities` |
+| Open water swim | GPS track | | ✓ (water lock) | `/activities` as a Swim |
 | Indoor ride | Time (Watch: heart rate, calories, a paired speed sensor's distance; iPhone: its Bluetooth sensors' heart rate, power, cadence and a trainer's or wheel sensor's distance) | ✓ | ✓ | `/activities` as VirtualRide, with its bike |
 | Treadmill run | Time (Watch: distance from its steps) | ✓ | ✓ | `/activities` as VirtualRun |
 | Pool swim | Time, lengths (pool length chosen on the Watch) | | ✓ (water lock) | `/activities` as a Swim |
@@ -33,12 +34,11 @@ minute to be kept.
 
 - **Sport and bike:** pick Ride, E-bike ride, Run, Walk or Hike before Start, on the phone or the Watch, and for rides
   the bike (the server's default to begin with; the last choice is remembered). Both are fixed once recording. Every
-  recording uploads to `/api/v1/activities` with its sport, a ride with its `bike_id`; to a server older than that (its
-  `/api/v1/ping` says `api` 1) rides go to `/api/v1/rides` and the rest to `/api/v1/workouts`. On foot the live
+  recording uploads to `/api/v1/activities` with its sport, a ride with its `bike_id`. On foot the live
   stats show pace, and the Watch records the matching Apple Health workout. A ride's bike can be changed later from its
   menu under Recordings, before or after upload.
 - **iPhone:** GPS keeps recording with the screen locked. While recording, the phone reports its position to
-  `/api/v1/live` every 15 s for Home Assistant, as the Android app does. Every post carries the recording's id
+  `/api/v1/live` every 15 s for Home Assistant. Every post carries the recording's id
   (`recording`), given at Start and kept in the journal; the upload sends the same id as its `client_id`.
 - **Live tracking link (iPhone):** "Share live location" on the Record screen (its default is in Settings) asks the server
   for a link at Start (`POST /api/v1/live/share`), or mid-recording with the track so far thinned as the server thins it
@@ -169,7 +169,7 @@ What's planned for the apps (food logging, widgets, smart-trainer control, follo
 
 - Xcode 16 or newer (the project uses folder-synchronised groups)
 - iOS 17 or newer on the phone; watchOS 10 or newer on the Watch
-- A Headwind server reachable over **https://**, the same requirement as the Android app (the main README's
+- A Headwind server, 0.7.47-beta or later, reachable over **https://** (the main README's
   [Putting it on the internet safely](../README.md#putting-it-on-the-internet-safely) has a Cloudflare Tunnel compose file
   and a Caddyfile)
 

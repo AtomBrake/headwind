@@ -418,10 +418,10 @@ def _whole_beats_fragment(existing, new):
         if no_gps or short:
             mins = max(1, round(_secs(span(part)) / 60))
             what = 'with no GPS track' if no_gps else f'with {round(100 * dp / dw)}% of its distance'
-            reason = (f'Kept the whole ride: the other recording is only a {mins}-minute piece of it, {what} '
-                      '(a phone app or sensor that recorded part of the ride, or a device that stopped early).')
+            reason = (f'Kept the whole activity: the other recording is only a {mins}-minute piece of it, {what} '
+                      '(a phone app or sensor that recorded part of it, or a device that stopped early).')
             if _gps_points(whole) == 0 and not no_gps:  # the totals need the whole ride, but the map, profile and segments are on the piece
-                reason += (' This ride has no GPS track and the piece has one: its map, elevation profile and segment efforts are on the '
+                reason += (' This activity has no GPS track and the piece has one: its map, elevation profile and segment efforts are on the '
                            'other recording. View it, or keep both if you would rather have the track than the right totals.')
             return whole, part, reason
     return None

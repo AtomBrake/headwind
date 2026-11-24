@@ -73,7 +73,7 @@ struct HeadwindApp: App {
     }
 
     private func syncWatch() {
-        watch.updateWatch(units: session.info?.units, paired: session.pairing != nil, bikes: session.bikes, api: session.info?.api,
+        watch.updateWatch(units: session.info?.units, paired: session.pairing != nil, bikes: session.bikes,
                           shareLive: liveShare.shareByDefault)
         Task { await watch.provisionWatch(using: session) }
     }
@@ -231,6 +231,18 @@ struct MainTabs: View {
                     SettingsView()
                         .tabItem { Label("Settings", systemImage: "gearshape") }
                 }
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            if session.serverTooOld {
+                // A server from before every activity was at /api/v1/activities/<id>: lists, uploads and the Overview can't work with it.
+                Label(AppError.serverTooOld.localizedDescription, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(.yellow.opacity(0.25), in: .rect(cornerRadius: 10))
+                    .padding(.horizontal, 16)
+                    .accessibilityIdentifier("server-too-old")
             }
         }
         .task { await session.refreshInfo() }

@@ -127,7 +127,7 @@ struct ActivitiesView: View {
         if !query.isEmpty { q.append(URLQueryItem(name: "q", value: query)) }
         if !whose.isEmpty { q.append(URLQueryItem(name: "rider", value: whose)) }
         do throws(AppError) {
-            let page = try await session.load(ActivityPath.list(api: session.info?.api), query: q, as: ActivityPage.self)
+            let page = try await session.load(ActivityPath.list, query: q, as: ActivityPage.self)
             if reset { items = page.items } else { items += page.items.filter { new in !items.contains { $0.id == new.id } } }
             total = page.total
             error = nil

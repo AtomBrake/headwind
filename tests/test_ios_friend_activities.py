@@ -1,4 +1,4 @@
-"""Friends' activities in the app's Activities list: GET /api/v1/rides?rider= lists a friend's (or everyone's) beside your own, they open in
+"""Friends' activities in the app's Activities list: GET /api/v1/activities?rider= lists a friend's (or everyone's) beside your own, they open in
 detail, and every change from the phone is refused. Another local rider's never shows."""
 from io import BytesIO
 
@@ -20,7 +20,7 @@ def befriend(phone):
 
 
 def listed(phone, **q):
-    r = phone.get('/api/v1/rides', headers=phone.H, query_string=q)
+    r = phone.get('/api/v1/activities', headers=phone.H, query_string=q)
     return r.status_code, r.get_json()
 
 
@@ -45,7 +45,7 @@ def test_another_local_riders_isnt_the_phones(phone):
     for who in (3, 99, 'Sam'):
         assert listed(phone, rider=who)[0] == 404, who
     assert listed(phone, rider=1)[0] == 404, 'your own rider is the empty choice, not an id'
-    assert phone.get('/api/v1/rides/ride/alexs', headers=phone.H).status_code == 404
+    assert phone.get('/api/v1/activities/alexs', headers=phone.H).status_code == 404
 
 
 def test_friends_lists_the_synced_ones(phone):
@@ -57,21 +57,21 @@ def test_friends_lists_the_synced_ones(phone):
 
 def test_a_friends_activity_opens_and_says_whose(phone):
     befriend(phone)
-    got = phone.get('/api/v1/rides/workout/sams', headers=phone.H).get_json()
+    got = phone.get('/api/v1/activities/sams', headers=phone.H).get_json()
     assert got['id'] == 'sams' and got['own'] is False and got['rider'] == 'Sam P' and got['synced']
-    mine = phone.get('/api/v1/rides/ride/mine', headers=phone.H).get_json()
+    mine = phone.get('/api/v1/activities/mine', headers=phone.H).get_json()
     assert mine['own'] is True and mine['rider'] == 'Tom' and mine['synced'] is None
 
 
 def test_a_friends_activity_cant_be_changed_from_the_phone(phone):
     befriend(phone)
     H = phone.H
-    assert phone.post('/api/v1/rides/workout/sams/sport', headers=H, json={'sport': 'Walk'}).status_code >= 400
-    assert phone.post('/api/v1/rides/workout/sams/bike', headers=H, json={'bike_id': None}).status_code >= 400
-    assert phone.post('/api/v1/rides/workout/sams/commute', headers=H, json={'commute': True}).status_code >= 400
-    assert phone.post('/api/v1/rides/workout/sams/photos', headers=H, content_type='multipart/form-data',
+    assert phone.post('/api/v1/activities/sams/sport', headers=H, json={'sport': 'Walk'}).status_code >= 400
+    assert phone.post('/api/v1/activities/sams/bike', headers=H, json={'bike_id': None}).status_code >= 400
+    assert phone.post('/api/v1/activities/sams/commute', headers=H, json={'commute': True}).status_code >= 400
+    assert phone.post('/api/v1/activities/sams/photos', headers=H, content_type='multipart/form-data',
                       data={'file': (BytesIO(jpeg()), 'p.jpg')}).status_code == 404
-    assert phone.delete('/api/v1/rides/workout/sams', headers=H).status_code == 404
+    assert phone.delete('/api/v1/activities/sams', headers=H).status_code == 404
     with phone.app_.app_context():
         row = database.get_db().execute('SELECT sportType, commute FROM Activity WHERE id=?', ['sams']).fetchone()
     assert row['sportType'] == 'Run' and not row['commute']
@@ -95,4 +95,4 @@ def test_a_friends_start_that_hasnt_happened_isnt_listed(phone):
     assert code == 200 and [i['id'] for i in got['items']] == ['kiwi', 'sams'] and got['total'] == 2
     assert [i['id'] for i in listed(phone, rider='all')[1]['items']] == ['mine2106', 'kiwi', 'sams', 'mine']
     assert [i['id'] for i in listed(phone)[1]['items']] == ['mine2106', 'mine']
-    assert phone.get('/api/v1/rides/ride/sams2106', headers=phone.H).status_code == 200
+    assert phone.get('/api/v1/activities/sams2106', headers=phone.H).status_code == 200

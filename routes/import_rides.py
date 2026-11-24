@@ -1036,7 +1036,7 @@ def _process_generic_zip(zf, names, rider_id=None):
                     differs = _offer_change(db, act, name)
                     reimport.remember(db, seen_key, act['id'], seen_fp)
                     db.commit()
-                    log.info('Import %s: %s', 'differs from the saved ride' if differs else 'skip (duplicate)', name)
+                    log.info('Import %s: %s', 'differs from the saved activity' if differs else 'skip (duplicate)', name)
                     changed += bool(differs)
                     skipped += not differs
                 else:

@@ -12,8 +12,8 @@ log = logging.getLogger(__name__)
 @bp.route('/sync', methods=['POST'])
 def sync():
     """Pull recent activities from Garmin Connect (the only live sync source — Strava's public API was
-    locked down by Strava and is no longer usable for this kind of third-party sync). Rides also arrive
-    via the phone app's own recording (POST /api/v1/rides) or manual .fit/.gpx/Strava-export-zip import
+    locked down by Strava and is no longer usable for this kind of third-party sync). Activities also arrive
+    via the phone app's own recording (POST /api/v1/activities) or manual .fit/.gpx/Strava-export-zip import
     (routes/import_rides.py) — neither of those needs this endpoint."""
     from services.garmin import connected
     s = query_db('SELECT garminEmail, garminPassword, garminSyncMode FROM Settings WHERE id=1', one=True)
@@ -87,10 +87,10 @@ def sync():
     try:
         from services.weather import backfill_missing
         db = get_db()
-        recent, _ = backfill_missing(db, since_days=7, pause=0)              # new rides first
+        recent, _ = backfill_missing(db, since_days=7, pause=0)              # new activities first
         older, _ = backfill_missing(db, limit=25, pause=0.1)                   # then a few of the old ones each time, so history fills in by itself
         if recent or older:
-            log.info('Weather backfill on sync: enriched %d recent and %d older rides', recent, older)
+            log.info('Weather backfill on sync: enriched %d recent and %d older activities', recent, older)
     except Exception as wxe:
         log.warning('Weather backfill (sync) failed: %s', wxe)
 

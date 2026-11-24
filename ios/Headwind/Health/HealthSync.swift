@@ -468,9 +468,9 @@ final class HealthSync {
     }
 
     /// The client ids of these workouts the server has already (POST /api/v1/activities/known), so their routes and heart rate aren't read
-    /// again: a full look goes over years of them. Empty from a server before the one upload path (/ping's `api` 2), which finds them itself.
+    /// again: a full look goes over years of them. A server too old for this app (Session.serverTooOld) stops the sync here, with its reason.
     private func alreadySent(_ workouts: [HKWorkout], using session: Session) async throws(AppError) -> Set<String> {
-        guard (session.info?.api ?? 1) >= Uploader.oneDoor else { return [] }
+        guard !session.serverTooOld else { throw .serverTooOld }
         let ids = workouts.filter { !$0.sourceRevision.source.bundleIdentifier.hasPrefix(Self.ownBundlePrefix) }.map { Self.clientID($0.uuid) }
         guard !ids.isEmpty else { return [] }
         let reply = try await session.call { client async throws(AppError) in
@@ -511,11 +511,10 @@ final class HealthSync {
                                   sport: sport, calories: kcal)
         let name = GPXWriter.rideName(summary)
         let gpx = route.isEmpty ? nil : GPXWriter.gpx(segments: [route], name: name, type: sport.gpxType, creator: "Apple Health")
-        let api = session.info?.api
         do throws(AppError) {
             _ = try await session.call { client async throws(AppError) in
                 try await Uploader.upload(summary: summary, id: workout.uuid, name: name, gpx: gpx, clientID: Self.clientID(workout.uuid),
-                                          api: api, with: client)
+                                          with: client)
             }
             workoutsSent += 1
             check.sent += 1

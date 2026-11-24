@@ -1064,7 +1064,7 @@ def sync_garmin_activities(rider_id, api=None):
     from services import garmin_changes, garmin_failures
     since = garmin_failures.rewind(db, since)        # back to an activity given up on that a newer Headwind may read
 
-    yield {'msg': 'Connected to Garmin Connect' + (f' — fetching rides since {since}' if since else ' — full history sync')}
+    yield {'msg': 'Connected to Garmin Connect' + (f' — fetching activities since {since}' if since else ' — full history sync')}
 
     imported = 0
     skipped  = 0
@@ -1171,7 +1171,7 @@ def sync_garmin_activities(rider_id, api=None):
         retry_from = (date.fromisoformat(first_failed) - timedelta(days=1)).isoformat()
         if newest is None or retry_from < newest:
             newest = retry_from if (since is None or retry_from > since) else since
-        yield {'msg': f'Some rides failed to download — they will be retried on the next sync'}
+        yield {'msg': f'Some activities failed to download — they will be retried on the next sync'}
 
     # Save newest date as next incremental cursor
     if newest:

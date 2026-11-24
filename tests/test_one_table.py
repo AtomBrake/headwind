@@ -196,16 +196,15 @@ def test_the_phone_and_the_days_burn_read_every_sport_once(tmp_path, monkeypatch
     H = {'Authorization': 'Bearer ' + web.post('/phones/create', json={'name': 'Pixel', 'server_url': 'https://h.example'}).get_json()['token']}
     phone = full.test_client()
 
-    o = phone.get('/api/v1/overview', headers=H).get_json()
-    assert o['all']['rides'] == 1 and o['all']['distance_m'] == 30000 and o['week']['calories'] == 500
-    assert o['workouts']['week'] == {'count': 2, 'distance_m': 12000, 'calories': 650}
-    lst = phone.get('/api/v1/rides', headers=H).get_json()
-    assert lst['total'] == 3 and [(i['id'], i['kind']) for i in lst['items']] == [('555', 'workout'), ('w1', 'workout'), ('r1', 'ride')]
-    assert phone.get('/api/v1/rides?sport=walk', headers=H).get_json()['total'] == 1
-    d = phone.get('/api/v1/rides/ride/w1', headers=H)                                                     # the app's kind is stale: the walk is still found
-    assert d.status_code == 200 and d.get_json()['kind'] == 'workout' and d.get_json()['sport'] == 'Walk'
-    assert phone.get('/api/v1/rides/bike/w1', headers=H).status_code == 400
-    assert phone.delete('/api/v1/rides/ride/555', headers=H).get_json() == {'deleted': True}
+    o = {g['key']: g['totals'] for g in phone.get('/api/v1/overview', headers=H).get_json()['groups']}
+    assert o['ride']['all']['count'] == 1 and o['ride']['all']['distance_m'] == 30000 and o['ride']['week']['calories'] == 500
+    assert o['foot']['week'] == {'count': 2, 'distance_m': 12000, 'moving_s': 6400, 'elev_m': 0, 'calories': 650}
+    lst = phone.get('/api/v1/activities', headers=H).get_json()
+    assert lst['total'] == 3 and [(i['id'], i['group']) for i in lst['items']] == [('555', 'foot'), ('w1', 'foot'), ('r1', 'ride')]
+    assert phone.get('/api/v1/activities?sport=walk', headers=H).get_json()['total'] == 1
+    d = phone.get('/api/v1/activities/w1', headers=H)
+    assert d.status_code == 200 and d.get_json()['sport'] == 'Walk'
+    assert phone.delete('/api/v1/activities/555', headers=H).get_json() == {'deleted': True}
     with full.app_context():
         assert [r[0] for r in database.get_db().execute(WORKOUTS)] == ['w1']
     page = web.get(web.get('/workouts').headers['Location']).get_data(as_text=True)           # the old Workouts page: Activities, rides left out

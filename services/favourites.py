@@ -3,7 +3,7 @@ stat group ('group:ride': every kind of ride, so an e-bike or gravel ride first 
 without the walks). The list opened says what it keeps (group=ride, only=Run: services/sport_filter.py), never what it leaves out.
 
 Kept for the instance in Settings.favouriteSports (a JSON list, in the order picked), chosen in Settings → Display. The phone app gets them from
-/api/v1/ping as favourite_sports: {label, icon, group} or {label, icon, sport}, the arguments its activity list (/api/v1/rides) takes."""
+/api/v1/ping as favourite_sports: {label, icon, group} or {label, icon, sport}, the arguments its activity list (/api/v1/activities) takes."""
 import json
 
 from services import sports

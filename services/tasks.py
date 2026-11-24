@@ -175,7 +175,7 @@ def overview(db):
     else:
         state = 'running' if g and g['status'] == 'running' else ('failed' if s.get('garminLastError') else ('done' if s.get('garminLastOk') else 'idle'))
         detail = (f"Failing ({s.get('garminFailCount') or 1} in a row): {s['garminLastError']}. Retrying within half an hour." if state == 'failed'
-                  else (g or {}).get('result') or 'Health data' + (' and rides' if s.get('garminSyncMode') == 'full' else '') + f", every {_hours(s.get('garminSyncHours'))}.")
+                  else (g or {}).get('result') or 'Health data' + (' and activities' if s.get('garminSyncMode') == 'full' else '') + f", every {_hours(s.get('garminSyncHours'))}.")
         jobs.append(_card('Garmin sync', state, detail, (g or {}).get('finishedAt') or s.get('garminLastOk'),
                           {'url': '/tasks/run/garmin', 'label': 'Sync now'} if state != 'running' else None))
 

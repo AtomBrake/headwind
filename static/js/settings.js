@@ -314,7 +314,7 @@ function garminActivitySync() {
         failed(d.error);
       } else if (d.done) {
         shown = true;
-        status.textContent = '✓ Imported ' + d.imported + ' rides' + (d.skipped ? ', ' + d.skipped + ' skipped' : '');
+        status.textContent = '✓ Imported ' + d.imported + ' activit' + (d.imported === 1 ? 'y' : 'ies') + (d.skipped ? ', ' + d.skipped + ' skipped' : '');
         status.style.color = 'var(--success)';
         btn.disabled = false;
       } else if (d.msg) {

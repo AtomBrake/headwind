@@ -46,7 +46,7 @@ def test_a_fast_walk_is_not_a_ride_best_time(app):
         _add(db, 'theirs', 'Ride', 12.0, '2026-09-03', rider=2)
         _add(db, 'newer', 'Ride', 9.0, '2026-09-04')
         assert db.execute("SELECT COUNT(*) FROM BestEffort WHERE activityId='walk'").fetchone()[0] == 2     # kept on purpose
-        best = {e['distanceMi']: e['rideId'] for e in app.test_client().get('/api/v1/perform').get_json()['best_efforts']}
+        best = {e['distanceMi']: e['activityId'] for e in app.test_client().get('/api/v1/perform').get_json()['best_efforts']}
         assert best == {5: 'newer', 10: 'newer'}       # not the walk, not the other rider's faster ride
         said = context._build_achievement_context('newer', '2026-09-04')
         assert said.count('from 2 Sep 2026') == 2, said  # the rider's own earlier ride, not the walk on the 1st or B's ride on the 3rd

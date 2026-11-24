@@ -176,8 +176,8 @@
     <div class="card-title">Calorie burn adjustment</div>
     <p class="hint" style="margin-bottom:1rem;">
       Burn figures are estimates and tend to read high. This takes a percentage off every burn estimate as it is pulled in
-      (Garmin and FIT rides, phone recordings, walks and runs, Garmin daily totals). Everything downstream — dashboards, Home
-      Assistant, the API and the Android app — then carries the corrected number. Food calories and figures you type in yourself
+      (activities of every sport from Garmin, files and the phone, and Garmin daily totals). Everything downstream — dashboards, Home
+      Assistant, the API and the iPhone app — then carries the corrected number. Food calories and figures you type in yourself
       are never changed, and the original number is always kept so this can be undone.
     </p>
     <div style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap;">
@@ -232,7 +232,7 @@
         <label>Garmin use</label>
         <select name="garminSyncMode" id="garminSyncMode" data-change="updateGarminMode(this.value)">
           <option value="health" {% if not s or not s.garminSyncMode or s.garminSyncMode == 'health' %}selected{% endif %}>Health stats only (HRV, sleep, HR)</option>
-          <option value="full"   {% if s and s.garminSyncMode == 'full' %}selected{% endif %}>Rides + health stats</option>
+          <option value="full"   {% if s and s.garminSyncMode == 'full' %}selected{% endif %}>Activities + health stats</option>
         </select>
       </div>
       <div class="form-group">
@@ -260,7 +260,7 @@
               {% if not garmin_on %}disabled{% endif %}>Sync Recovery</button>
       <button type="button" class="btn btn-secondary" data-click="garminActivitySync()" id="garminActivityBtn"
               style="display:{% if s and s.garminSyncMode == 'full' %}inline-flex{% else %}none{% endif %};"
-              {% if not garmin_on %}disabled{% endif %}>Sync Rides</button>
+              {% if not garmin_on %}disabled{% endif %}>Sync Activities</button>
       {% if garmin_on %}
       <button type="button" class="btn btn-secondary" data-click="garminSignOut(this)">Sign out</button>
       {% endif %}
@@ -619,7 +619,7 @@
   <div class="card" id="backup">
     <div class="card-title">Backup &amp; Restore</div>
     <p class="hint" style="margin-bottom:1rem;">
-      Export a full backup — all rides, segments, settings, avatars, and rider data.
+      Export a full backup — all activities, segments, settings, avatars, and rider data.
       Use to migrate to a new machine or restore after a problem.
     </p>
     {% if backup_job.state == 'running' %}

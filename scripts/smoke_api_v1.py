@@ -37,21 +37,24 @@ def gpx(start):
 start = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(hours=1)
 files = lambda: {'file': (io.BytesIO(gpx(start)), 'walk.gpx'), 'client_id': 'test-uuid-1', 'steps': '3400'}
 acts_before = con.execute('select count(*) from Ride').fetchone()[0]
-r = c2.post('/api/v1/workouts', headers=H, data=files(), content_type='multipart/form-data'); w = r.get_json()
-ok('upload walk -> created', r.status_code == 201 and w['status'] == 'created', {k: w['workout'][k] for k in ('sport', 'distance', 'movingTime', 'calories', 'steps')})
-ok('sport detected from GPX <type>', w['workout']['sport'] == 'Walk')
-ok('calories estimated', 80 <= (w['workout']['calories'] or 0) <= 400, w['workout']['calories'])
-r = c2.post('/api/v1/workouts', headers=H, data=files(), content_type='multipart/form-data')
+r = c2.post('/api/v1/activities', headers=H, data=files(), content_type='multipart/form-data'); j = r.get_json()
+w = c2.get(f"/api/v1/activities/{j['id']}", headers=H).get_json() if r.status_code == 201 else {}
+ok('upload walk -> created', r.status_code == 201 and j['status'] == 'created', {k: w.get(k) for k in ('sport', 'distance_m', 'moving_s', 'calories', 'steps')})
+ok('sport detected from GPX <type>', w.get('sport') == 'Walk')
+ok('calories estimated', 80 <= (w.get('calories') or 0) <= 400, w.get('calories'))
+r = c2.post('/api/v1/activities', headers=H, data=files(), content_type='multipart/form-data')
 ok('same client_id again -> exists (idempotent)', r.status_code == 200 and r.get_json()['status'] == 'exists')
 ok('exactly one workout row', con.execute(f'select count(*) from {WK}').fetchone()[0] == 1)
 ok('RIDE STATS UNTOUCHED (no new ride)', con.execute('select count(*) from Ride').fetchone()[0] == acts_before)
-ok('bad file -> 422', c2.post('/api/v1/workouts', headers=H, data={'file': (io.BytesIO(b'not gpx'), 'x.gpx')}, content_type='multipart/form-data').status_code == 422)
+ok('bad file -> 422', c2.post('/api/v1/activities', headers=H, data={'file': (io.BytesIO(b'not gpx'), 'x.gpx'), 'sport': 'Walk'}, content_type='multipart/form-data').status_code == 422)
 today = datetime.now().date().isoformat()
 d = c.get('/nutrition/api/day/' + today).get_json()
-ok("workout kcal counted in the day's burn", d.get('ride_calories') == round(w['workout']['calories']) or d.get('ride_calories') is not None, {'ride_calories': d.get('ride_calories'), 'burned': d.get('burned')})
+ok("workout kcal counted in the day's burn", d.get('ride_calories') == round(w.get('calories') or 0) or d.get('ride_calories') is not None, {'ride_calories': d.get('ride_calories'), 'burned': d.get('burned')})
 ok('activities page lists it', b'Test walk' in c.get('/activities').data or b'Walk' in c.get('/activities').data)
-ok('list api', len(c2.get('/api/v1/workouts', headers=H).get_json()['workouts']) == 1)
-ok('delete', c2.delete('/api/v1/workouts/' + w['workout']['id'], headers=H).status_code == 200 and con.execute(f'select count(*) from {WK}').fetchone()[0] == 0)
+ok('list api', c2.get('/api/v1/activities?group=foot', headers=H).get_json()['total'] == 1)
+ok('delete', c2.delete(f"/api/v1/activities/{j['id']}", headers=H).status_code == 200 and con.execute(f'select count(*) from {WK}').fetchone()[0] == 0)
+ok('the older paths are gone', c2.post('/api/v1/workouts', headers=H, data=files(), content_type='multipart/form-data').status_code == 404
+   and c2.get('/api/v1/rides', headers=H).status_code == 404)
 # --- revoke ---
 c.post('/phones/1/revoke'); ok('revoked token -> 401', c2.get('/api/v1/ping', headers=H).status_code == 401)
 print('ALL CHECKS PASSED')

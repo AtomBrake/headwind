@@ -38,6 +38,10 @@ final class Session {
     }
 
     var units: Units { Units(system: info?.units) }
+    /// The paired server answered /ping with an `api` older than this app works with (APIClient.minimumAPI): MainTabs says so.
+    var serverTooOld: Bool { info.map(Self.tooOld) ?? false }
+
+    nonisolated static func tooOld(_ ping: PingInfo) -> Bool { (ping.api ?? 0) < APIClient.minimumAPI }
     var bikes: [Bike] { info?.bikes ?? [] }
 
     /// Validates the link, checks the server accepts the token, and only then stores it.
@@ -47,6 +51,7 @@ final class Session {
 
     func pair(with candidate: Pairing) async throws(AppError) {
         let ping = try await APIClient(pairing: candidate).get("ping", as: PingInfo.self)
+        guard !Self.tooOld(ping) else { throw .serverTooOld }
         store.save(candidate)
         pairing = candidate
         lastServer = candidate.server

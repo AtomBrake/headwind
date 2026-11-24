@@ -80,7 +80,7 @@ enum Sport: String, Codable, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Rides have a bike (and on a server older than /ping's `api` 2, a GPS ride goes to POST /api/v1/rides).
+    /// Rides have a bike.
     var isRide: Bool { self == .ride || self == .ebike || self == .indoorRide }
 
     /// Records a GPS track, written as GPX. The others are timed only.

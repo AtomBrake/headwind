@@ -1,7 +1,6 @@
 """Pair a phone with this instance: create a device token, show it once as a QR code (and text), list / revoke paired phones."""
-import os
 
-from flask import Blueprint, current_app, jsonify, render_template, request, send_file
+from flask import Blueprint, jsonify, render_template, request
 from urllib.parse import quote
 
 from services import device_auth, external_url, qr
@@ -39,31 +38,3 @@ def revoke(device_id):
 def revoke_stale():
     """Every token not used for device_auth.STALE_DAYS, flagged on the page."""
     return jsonify({'ok': True, 'revoked': device_auth.revoke_stale()})
-
-
-# ── the Android app itself (sideloading; served behind the normal login) ─────────────────────────────
-def _apk_path():
-    """HEADWIND_APK, or headwind.apk beside the database (with an optional version.txt next to it)."""
-    data_dir = os.path.dirname(os.path.abspath(current_app.config['DATABASE'].replace('sqlite:///', '')))
-    return os.environ.get('HEADWIND_APK') or os.path.join(data_dir, 'headwind.apk')
-
-
-@bp.route('/app')
-def app_page():
-    apk = _apk_path()
-    info = ''
-    try:
-        info = open(os.path.join(os.path.dirname(apk), 'version.txt'), encoding='utf-8').read().strip()
-    except OSError:
-        pass
-    available = os.path.exists(apk)
-    return render_template('phones_app.html', available=available, info=info, apk_path=apk,
-                           size_mb=round(os.path.getsize(apk) / 1048576, 1) if available else None)
-
-
-@bp.route('/app.apk')
-def app_apk():
-    apk = _apk_path()
-    if not os.path.exists(apk):
-        return jsonify({'error': 'no APK has been built yet'}), 404
-    return send_file(apk, mimetype='application/vnd.android.package-archive', as_attachment=True, download_name='headwind.apk')

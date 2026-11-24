@@ -20,8 +20,6 @@ final class PhoneLink: NSObject {
     private(set) var bikes: [Bike] = []
     /// The phone's Settings default for the live tracking link, which the start screen's switch starts from.
     private(set) var shareLiveDefault = false
-    /// The server's /ping `api`, from the phone: where this Watch's own uploads go (Uploader.destination). 1 until an iPhone app says.
-    @ObservationIgnored private var api = 1
     /// Rides in the outbox: not yet confirmed delivered to the phone or the server.
     private(set) var waitingToSend = 0
     /// Why rides are stuck in the outbox (e.g. Headwind isn't installed on the iPhone); nil while sending normally.
@@ -193,7 +191,7 @@ final class PhoneLink: NSObject {
         guard isSession || gpx != nil else { return }      // a ride whose GPX can't be read isn't sent as a session: the phone's copy will do
         var request: URLRequest
         do throws(AppError) {
-            request = try Uploader.request(summary: summary, id: id, name: GPXWriter.rideName(summary), gpx: gpx, api: api,
+            request = try Uploader.request(summary: summary, id: id, name: GPXWriter.rideName(summary), gpx: gpx,
                                            with: APIClient(pairing: pairing))
         } catch {
             return                                         // too short to keep: the phone's copy will say so
@@ -327,12 +325,11 @@ final class PhoneLink: NSObject {
         }
     }
 
-    private func apply(units system: String?, paired: Bool?, bikes: [Bike]?, api: Int?, shareLive: Bool?) {
+    private func apply(units system: String?, paired: Bool?, bikes: [Bike]?, shareLive: Bool?) {
         if let shareLive { shareLiveDefault = shareLive }
         if let system { units = Units(system: system) }
         if let paired { phonePaired = paired }
         if let bikes { self.bikes = bikes }
-        if let api { self.api = api }
     }
 
     /// The bikes in an application context, or nil if it has none (an older iPhone app).
@@ -345,10 +342,10 @@ extension PhoneLink: WCSessionDelegate {
     nonisolated func session(_ session: WCSession, activationDidCompleteWith state: WCSessionActivationState, error: Error?) {
         let context = session.receivedApplicationContext
         let units = context[WatchLink.unitsKey] as? String, paired = context[WatchLink.pairedKey] as? Bool
-        let bikes = Self.bikes(in: context), api = context[WatchLink.apiKey] as? Int, share = context[WatchLink.shareLiveKey] as? Bool
+        let bikes = Self.bikes(in: context), share = context[WatchLink.shareLiveKey] as? Bool
         let activated = state == .activated
         Task { @MainActor in
-            self.apply(units: units, paired: paired, bikes: bikes, api: api, shareLive: share)
+            self.apply(units: units, paired: paired, bikes: bikes, shareLive: share)
             if activated { self.resendOutbox() }
             self.refreshCount()
         }
@@ -356,8 +353,8 @@ extension PhoneLink: WCSessionDelegate {
 
     nonisolated func session(_ session: WCSession, didReceiveApplicationContext context: [String: Any]) {
         let units = context[WatchLink.unitsKey] as? String, paired = context[WatchLink.pairedKey] as? Bool
-        let bikes = Self.bikes(in: context), api = context[WatchLink.apiKey] as? Int, share = context[WatchLink.shareLiveKey] as? Bool
-        Task { @MainActor in self.apply(units: units, paired: paired, bikes: bikes, api: api, shareLive: share) }
+        let bikes = Self.bikes(in: context), share = context[WatchLink.shareLiveKey] as? Bool
+        Task { @MainActor in self.apply(units: units, paired: paired, bikes: bikes, shareLive: share) }
     }
 
     /// The Watch's own pairing (or word to forget it), sent once by the phone with transferUserInfo.

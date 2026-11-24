@@ -70,6 +70,8 @@ extension AppError {
         message: "That token doesn't look right. Tokens start with hw_ and are shown once when you create a pairing.")
     static let rideTooShort = AppError.validationError(
         message: "Not enough GPS was recorded to save this ride. Wait for \"GPS ready\" before starting.")
+    static let serverTooOld = AppError.validationError(
+        message: "This Headwind server is too old for this app. Update Headwind on the server to 0.7.47 or later, then try again.")
     static let sessionTooShort = AppError.validationError(
         message: "Too short to save: Headwind keeps sessions of a minute or more.")
 }
