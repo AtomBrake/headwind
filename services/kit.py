@@ -337,10 +337,11 @@ def stats(db, kit_id):
 
 
 def all_stats(db, rider_id):
-    """{kit id: {'n', 'distance', 'moving', 'last'}} for every item of the rider in one query, for the Gear page."""
-    rows = db.execute('''SELECT k.id, COUNT(a.id) n, COALESCE(SUM(a.distance),0) dist, COALESCE(SUM(a.movingTime),0) moving, MAX(substr(a.startDateLocal,1,10)) last
+    """{kit id: {'n', 'distance', 'moving', 'first', 'last'}} for every item of the rider in one query, for the Gear page."""
+    rows = db.execute('''SELECT k.id, COUNT(a.id) n, COALESCE(SUM(a.distance),0) dist, COALESCE(SUM(a.movingTime),0) moving,
+                                MIN(substr(a.startDateLocal,1,10)) first, MAX(substr(a.startDateLocal,1,10)) last
                          FROM Kit k LEFT JOIN Activity a ON a.kitId = k.id WHERE k.riderId=? GROUP BY k.id''', [rider_id]).fetchall()
-    return {r['id']: {'n': r['n'], 'distance': r['dist'], 'moving': r['moving'], 'last': r['last']} for r in rows}
+    return {r['id']: {'n': r['n'], 'distance': r['dist'], 'moving': r['moving'], 'first': r['first'], 'last': r['last']} for r in rows}
 
 
 def odometer(db, k, used_m=None):

@@ -139,7 +139,7 @@ def _item(db, what, row, stats, full=False):
            'photo': url_for('gear.photo', name=row['photo']) if row['photo'] else None, 'sub': ' '.join(str(x) for x in sub if x),
            'bought': row['boughtOn'], 'strava': strava, 'odometer': odo, 'start': row['startMeters'], 'notes': row['notes'],
            'retired': retired, 'retired_on': retired_on, 'defaults': [default_label(k) for k in defaults], 'wear': wear,
-           'n': stats.get('n') or 0, 'moving': stats.get('moving') or 0, 'last': stats.get('last'), 'stats': stats,
+           'n': stats.get('n') or 0, 'moving': stats.get('moving') or 0, 'first': stats.get('first'), 'last': stats.get('last'), 'stats': stats,
            'noun': ('ride', 'rides') if is_bike else ('activity', 'activities'), 'gear_word': 'bike' if is_bike else 'gear', 'url': page}
     if full:
         out.update(urls={'edit': url_for('gear.bike_form', bike_id=iid) if is_bike else url_for('gear.kit_form', kit_id=iid),

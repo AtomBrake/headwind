@@ -1,5 +1,5 @@
 {# The pieces a bike and an item of kit share, so the Gear page's cards and each item's page show both the same way (routes/gear._item
-   builds the item: what, name, photo, icon, sub, odometer, wear, defaults, retired, n, noun, moving, last, url).
+   builds the item: what, name, photo, icon, sub, odometer, wear, defaults, retired, n, noun, moving, first, last, url).
    {% from '_gear.html' import gear_ph, wear_bar, gear_chips, gear_card %} #}
 
 {% macro bike_icon(size=46) %}<svg width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="16" r="3.5"/><circle cx="18.5" cy="16" r="3.5"/><path d="M5.5 16 9 8h5l4.5 8M9 8l3.5 8M14 8l-1-3h-2"/></svg>{% endmacro %}
@@ -33,7 +33,8 @@
     <div class="sub">{{ item.sub or item.kind_label }}</div>
     <div class="odo">{{ item.odometer | fmt_dist }}</div>
     {% if item.wear %}{{ wear_bar(item.wear, 'margin:.2rem 0;') }}{% endif %}
-    <div class="sub">{{ '{:,}'.format(item.n) }} {{ item.noun[0] if item.n == 1 else item.noun[1] }} · {{ item.moving | fmt_hours }}{% if item.last %} · last {{ item.last | fmt_date }}{% endif %}</div>
+    <div class="sub">{{ '{:,}'.format(item.n) }} {{ item.noun[0] if item.n == 1 else item.noun[1] }} · {{ item.moving | fmt_hours }}</div>
+    {% if item.last %}<div class="sub">{% if item.first and item.first != item.last %}First {{ item.first | fmt_date }} · last{% else %}Used{% endif %} {{ item.last | fmt_date }}</div>{% endif %}
   </div>
 </a>
 {% endmacro %}
