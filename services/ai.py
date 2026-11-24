@@ -396,6 +396,16 @@ def _current(activity, p):
     return current
 
 
+# Why a ride's or a run's history is its own kind only (services/coach_sports), and what that means for the others
+_KINDS = {
+    'ride': ("Speeds differ between kinds of ride: indoors (Zwift and the like, whose speeds are a game's), off-road on a mountain bike, on "
+             "gravel, on an e-bike and on the road. So its history is {kinds} only, and any other kind of ride is under other training: "
+             "count it as load, but never set its speed, or a speed trend that mixes kinds, against this one's."),
+    'run': ("Paces differ between kinds of run: on a treadmill or in Zwift, on trails and on the road. So its history is {kinds} only, and "
+            "any other kind of run is under other training: count it as load, but never set its pace against this one's."),
+}
+
+
 def _weather_rule(p):
     """What the weather means for this sport's numbers."""
     from services import units
@@ -465,7 +475,10 @@ def generate_analysis(activity, personality_key=None):
     else:
         system_msg += ('it records time, heart rate and calories, and anything in the notes. There is no distance, pace or speed: '
                        'never invent them, and never fault the session for not having them.')
-    system_msg += f' Compare it with the athlete\'s other {nouns}, not with other sports.\n'
+    system_msg += f' Compare it with the athlete\'s other {p.kind_nouns}, not with other sports.'
+    if p.family in ('ride', 'run'):
+        system_msg += ' ' + _KINDS[p.family].format(kinds=p.kind_nouns)
+    system_msg += '\n'
     if goals:
         system_msg += f'\nTHE ATHLETE\'S CURRENT GOALS (factor these into your analysis where relevant):\n{goals}\n'
     system_msg += f"""
@@ -476,7 +489,7 @@ TONE (non-negotiable):
 - If the athlete's goals mention a comeback or return from a break, or the history has a "Comeback progress by month" table: judge performance against their current trajectory, not their pre-break best. Someone rebuilding from scratch doing a reasonable training {noun} is NOT having a poor {noun} just because it's slower than their peak from years ago
 - Historical PRs (marked as "historical — aspirational target") show what's been achieved before. Use them as context for the ceiling, not as a stick to beat current performance with. Never say a {noun} was poor solely because it's slower than a years-old PR
 - THE ATHLETE'S NOTES AND DESCRIPTION: if they've added notes (visible in the current {noun}'s data), treat them as ground truth about its intent. "Chilled ride with son", "recovery spin", "easy jog", "deliberately easy" = intentional low effort — do NOT critique {measures} as if they were trying hard. Acknowledge the intent and assess whether the {noun} delivered what it was meant to. Similarly "GPS dropped" or "bad data" notes should stop you treating incomplete stats as representative
-- OTHER TRAINING: the history lists the athlete's other sports in the weeks before. Use it to read fatigue and load — a hard run or a heavy gym session the day before explains tired legs today — but never compare this {noun}'s numbers with another sport's
+- OTHER TRAINING: the history lists the athlete's other sports in the weeks before{", and their other kinds of " + noun if p.family in ('ride', 'run') else ""}. Use it to read fatigue and load — a hard run or a heavy gym session the day before explains tired legs today — but never compare this {noun}'s numbers with another sport's{" or another kind of " + noun + "'s" if p.family in ('ride', 'run') else ""}
 - ACKNOWLEDGE GAINS: if the history begins with a "Progress by month" or "Comeback progress by month" table — READ THIS FIRST. Read the OVERALL ARC from the first month to the most recent complete month (ignore any month flagged as partial — partial months have too few sessions to compare fairly). If the overall arc shows {measures} improving, name those specific numbers. This is the most important context, above all for a comeback, and must appear in the bigger picture section. NEVER call a partial month's average a "downturn" compared to a prior full month — that is noise, not signal. Don't skip the monthly table in favour of micro-comparisons between individual {nouns}
 - YOUR EARLIER VERDICTS: the history may list what you concluded about the last few {nouns}. Follow up where this {noun} answers something you raised (a heart rate drift, a pacing question, a load worry), and if you now read the trend differently, say what changed. Don't repeat them or quote them back"""
     if weather_rule:

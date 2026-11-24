@@ -85,6 +85,12 @@ def test_profiles():
     assert (ride.family, ride.rate, ride.athlete) == ('ride', 'speed', 'cyclist') and coach_sports.profile(None).family == 'ride'
     assert not kite.climbing and kite.distance
     assert coach_sports.profile('TrailRun').family == coach_sports.profile('VirtualRun').family == 'run'
+    # Each kind of ride or run is its own history: their speeds don't compare
+    kinds = {s: coach_sports.profile(s) for s in ('Ride', None, 'MountainBikeRide', 'Mountain Bike Ride', 'VirtualRide', 'EBikeRide', 'Trail Run')}
+    assert kinds['Ride'].kind == kinds[None].kind == 'ride' and kinds['MountainBikeRide'].kind == kinds['Mountain Bike Ride'].kind
+    assert [kinds[s].kind_nouns for s in ('Ride', 'MountainBikeRide', 'VirtualRide', 'EBikeRide', 'Trail Run')] == \
+        ['rides', 'mountain bike rides', 'indoor rides', 'e-bike rides', 'trail runs']
+    assert kinds['VirtualRide'].kind_count(1) == '1 indoor ride' and gym.kind_count(2) == '2 strength sessions'
 
 
 def test_every_personality_fills_in_for_every_sport():
@@ -157,12 +163,12 @@ def test_the_activity_page_offers_the_coach_for_a_run(app):
 def test_a_run_s_history_is_every_earlier_run_analysed_or_not(app, monkeypatch):
     with app.app_context():
         assert database.get_db().execute('SELECT COUNT(*) FROM ActivityMemory').fetchone()[0] == 0     # nothing has been analysed
-    _add(app, ('run_old', 'Easy run', 'TrailRun', 1, _day(20), 8000, 2880, 2.778, 120, None))
+    _add(app, ('run_old', 'Easy run', 'Run', 1, _day(20), 8000, 2880, 2.778, 120, None))
     _, user = _prompt(app, 'run_now', monkeypatch)
     history = _history(user)
     assert 'No previous runs' not in user
     assert 'Run history (last 2 runs):' in history
-    assert 'Tempo run' in history and 'Easy run' in history                       # a trail run is a run
+    assert 'Tempo run' in history and 'Easy run' in history
     assert '10.0 km' in history and '4:50 /km' in history and '8.0 km' in history  # metres and m/s, in the rider's units
     assert 'Comparable runs' in history and '30-day summary (2 runs)' in history
 
@@ -199,6 +205,64 @@ def test_a_ride_without_power_named_ride_activity_counts(app, monkeypatch):
     _, user = _prompt(app, 'ride_before', monkeypatch)
     history = _history(user)
     assert 'Ride Activity' in history and 'Comparable rides' in history
+
+
+def test_a_mountain_bike_ride_is_compared_with_mountain_bike_rides_only(app, monkeypatch):
+    """Zwift's speeds are a game's and a mountain bike's are off-road: neither is a road ride's history, nor it theirs."""
+    _add(app, ('mtb_before', 'Trail centre', 'Mountain Bike Ride', 1, _day(6), 30000, 7500, 4.0, 700, 190),     # Strava's spelling
+              ('mtb_now', 'Woods loop', 'MountainBikeRide', 1, _day(1), 32000, 8000, 4.0, 750, 200),
+              ('zwift', 'Watopia', 'VirtualRide', 1, _day(3), 32000, 3300, 9.7, 300, 230))
+    system, user = _prompt(app, 'mtb_now', monkeypatch)
+    history = _history(user)
+    assert 'Trail centre' in history and 'Mountain bike ride history (last 1 mountain bike ride):' in history
+    assert 'Watopia' not in history and 'Long ride' not in history
+    other = user[user.index('Other training'):]
+    assert 'Indoor ride — Watopia' in other and 'Ride — Long ride' in other      # still the training load
+    assert "other mountain bike rides, not with other sports" in system and 'Zwift' in system
+    _, road = _prompt(app, 'ride_before', monkeypatch)
+    assert 'Watopia' not in _history(road) and 'Trail centre' not in _history(road)
+    assert 'No previous rides recorded' in road and 'Other kinds are under other training' in road
+
+
+def test_a_trail_run_is_compared_with_trail_runs_only(app, monkeypatch):
+    _add(app, ('trail', 'Fell race', 'Trail Run', 1, _day(3), 10000, 4200, 2.38, 600, None))
+    _, run = _prompt(app, 'run_now', monkeypatch)
+    assert 'Fell race' not in _history(run) and 'Fell race' in run[run.index('Other training'):]
+    _, trail = _prompt(app, 'trail', monkeypatch)
+    assert 'No previous trail runs recorded' in trail and 'Tempo run' not in _history(trail)
+
+
+def test_a_ride_s_best_times_are_held_against_its_own_kind(app, monkeypatch):
+    """A road ride's best 10 km isn't beaten by Zwift's, nor measured against it."""
+    _add(app, ('zwift', 'Watopia', 'VirtualRide', 1, _day(9), 32000, 3300, 9.7, 300, 230),
+              ('road_old', 'Club run', 'Ride', 1, _day(20), 40000, 5400, 7.4, 400, None))
+    with app.app_context():
+        db = database.get_db()
+        add = 'INSERT INTO BestEffortKm (activityId, activityDate, distanceKm, elapsedSecs, avgSpeedMps) VALUES (?,?,?,?,?)'
+        db.execute(add, ['zwift', _day(9)[:10], 10, 1030, 9.7])
+        db.execute(add, ['road_old', _day(20)[:10], 10, 1300, 7.7])
+        db.execute(add, ['ride_before', _day(2)[:10], 10, 1250, 8.0])
+        db.commit()
+    _, user = _prompt(app, 'ride_before', monkeypatch)
+    assert 'Fastest 10 km: 20:50' in user and 'beat previous best of 21:40' in user and '17:10' not in user
+
+
+def test_a_ride_slower_than_its_best_is_not_called_a_best(app, monkeypatch):
+    """It used to read "beat previous best of 18:20 by -2:30" for every bracket, beaten or not; and a best set after it isn't one it beat."""
+    _add(app, ('road_old', 'Club run', 'Ride', 1, _day(20), 40000, 5400, 7.4, 400, None),
+              ('road_new', 'Chaingang', 'Ride', 1, _day(-3), 40000, 4800, 8.3, 400, None))
+    with app.app_context():
+        db = database.get_db()
+        add = 'INSERT INTO BestEffortKm (activityId, activityDate, distanceKm, elapsedSecs, avgSpeedMps) VALUES (?,?,?,?,?)'
+        db.execute(add, ['road_old', _day(20)[:10], 10, 1100, 9.1])
+        db.execute(add, ['road_old', _day(20)[:10], 20, 2700, 7.4])
+        db.execute(add, ['road_new', _day(-3)[:10], 20, 2000, 10.0])
+        db.execute(add, ['ride_before', _day(2)[:10], 10, 1250, 8.0])
+        db.execute(add, ['ride_before', _day(2)[:10], 20, 2600, 7.7])
+        db.commit()
+    _, user = _prompt(app, 'ride_before', monkeypatch)
+    assert 'Fastest 10 km' not in user and 'Quickest stretches against personal bests: 10 km 20:50 (best 18:20' in user
+    assert 'Fastest 20 km: 43:20' in user and 'beat previous best of 45:00' in user and '33:20' not in user
 
 
 def test_analyse_with_history_means_earlier_activities_of_the_kind(app):

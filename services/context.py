@@ -207,15 +207,16 @@ def _build_segment_context(activity_id):
 
 
 def _build_achievement_context(activity_id, activity_date, sport=None):
-    """Best times this activity set. A ride's are its BestEffort brackets; a run's or a swim's its SportEffort distances (services/sport_records).
-    Each is held against the rider's own of the same kind, indoors against indoors."""
+    """Best times this activity set, and how far off the rest were. A ride's are its BestEffort brackets; a run's or a swim's its SportEffort
+    distances (services/sport_records). Each is held against the rider's own before it, up to its day, of the same kind (services/coach_sports): a mountain bike ride's best 10 miles against the mountain bike
+    rides', an indoor ride's against the indoor rides', never a road ride's."""
     from services.sports import is_ride
     if not is_ride(sport):
         return _build_sport_record_context(activity_id, sport)
     # The Ride view, and this rider's own: BestEffort has rows for anything with a track, and a walk is neither a ride's best 5 miles nor the
-    # best another rider's ride has to beat. An indoor ride (Zwift, a turbo) is held against the indoor rides only, an outdoor one the outdoor ones.
+    # best another rider's ride has to beat.
     from services.best_efforts import effort_set
-    from services.sports import indoor_sql, is_virtual
+    from services.coach_sports import profile
     es = effort_set(units.current())                    # in miles, or in km for a metric rider
     achievements = query_db(f'''
         SELECT e.{es.col} AS dist, e.elapsedSecs, e.avgSpeedMps, a.riderId, a.sportType
@@ -226,37 +227,38 @@ def _build_achievement_context(activity_id, activity_date, sport=None):
     if not achievements:
         return ''
 
-    lines = ['Achievements set on this ride:']
-
+    lines, close = [], []
     for ach in achievements:
-        d_mi   = units.fmt_dist(es.metres(float(ach['dist'])), places=0)
-        secs   = ach['elapsedSecs']
-        mph    = units.fmt_speed(ach['avgSpeedMps'])
+        kind_sql, kind_params = profile(ach['sportType']).history_sql('a.sportType')
+        dist = units.fmt_dist(es.metres(float(ach['dist'])), places=0)
+        secs = ach['elapsedSecs']
+        speed = units.fmt_speed(ach['avgSpeedMps'])
 
-        # What was the previous best for this distance bracket?
+        # The best before it over this distance, up to its day: one set later is no best it beat
         prev = query_db(f'''
             SELECT e.elapsedSecs, e.activityDate
             FROM {es.table} e JOIN Ride a ON a.id = e.activityId
-            WHERE e.{es.col} = ? AND e.activityId != ? AND a.riderId IS ? AND {indoor_sql(is_virtual(ach['sportType']))}
+            WHERE e.{es.col} = ? AND e.activityId != ? AND a.riderId IS ? AND e.activityDate <= ? AND {kind_sql}
             ORDER BY e.elapsedSecs ASC LIMIT 1
-        ''', [ach['dist'], activity_id, ach['riderId']], one=True)
+        ''', [ach['dist'], activity_id, ach['riderId'], str(activity_date)[:10], *kind_params], one=True)
 
-        if prev:
-            improvement = prev['elapsedSecs'] - secs
-            lines.append(
-                f'- Fastest {d_mi}: {_fmt_dur(secs)} at {mph} '
-                f'(beat previous best of {_fmt_dur(prev["elapsedSecs"])} '
-                f'from {_fmt_date(prev["activityDate"])} by {_fmt_dur(improvement)})'
-            )
+        if prev is None:
+            lines.append(f'- Fastest {dist}: {_fmt_dur(secs)} at {speed} (first recorded effort at this distance)')
+        elif secs < prev['elapsedSecs']:
+            lines.append(f"- Fastest {dist}: {_fmt_dur(secs)} at {speed} (beat previous best of {_fmt_dur(prev['elapsedSecs'])} "
+                         f"from {_fmt_date(prev['activityDate'])} by {_fmt_dur(prev['elapsedSecs'] - secs)})")
         else:
-            lines.append(f'- Fastest {d_mi}: {_fmt_dur(secs)} at {mph} (first recorded effort at this distance)')
+            close.append(f"{dist} {_fmt_dur(secs)} (best {_fmt_dur(prev['elapsedSecs'])}, {_fmt_date(prev['activityDate'])})")
 
-    return '\n'.join(lines)
+    out = ['Achievements set on this ride:'] + lines if lines else []
+    if close:
+        out.append(f'Quickest stretches against personal bests: {"; ".join(close)}')
+    return '\n'.join(out)
 
 
 def _build_sport_record_context(activity_id, sport):
-    """A run's or a swim's best times over the standard distances (services/sport_records), each against the rider's best before it: a new best,
-    or how far off it. Nothing for other sports, which have no best times."""
+    """A run's or a swim's best times over the standard distances (services/sport_records), each against the rider's best before it on the same
+    kind of run (services/coach_sports): a new best, or how far off it. Nothing for other sports, which have no best times."""
     from database import get_db
     from services import sport_records
     from services.sports import is_virtual
@@ -275,8 +277,10 @@ def _build_sport_record_context(activity_id, sport):
     if not mine:
         return ''
     names = dict(sport_records.DISTANCES[k])
-    before = sport_records.bests(db, act['riderId'], k, "e.activityId != ? AND e.activityDate <= ?",
-                                 [activity_id, str(act['startDateLocal'])[:10]], indoor=is_virtual(sport))
+    from services.coach_sports import profile
+    kind_sql, kind_params = profile(sport).history_sql('a.sportType')      # a trail run against the trail runs, not the road
+    before = sport_records.bests(db, act['riderId'], k, f"e.activityId != ? AND e.activityDate <= ? AND {kind_sql}",
+                                 [activity_id, str(act['startDateLocal'])[:10], *kind_params], indoor=is_virtual(sport))
     lines, close = [], []
     for row in mine:
         name, secs = names.get(row['distanceM'], f"{row['distanceM']:.0f} m"), row['elapsedSecs']
@@ -539,7 +543,7 @@ def _build_comeback_progress(p, where, params, day, cur_spd=None, cur_pwr_w=None
 
     best = 'best' if p.rate == 'speed' else 'quickest'
     title = 'Comeback progress by month' if span.startswith('since') else 'Progress by month'
-    lines = [f'{title}, {p.nouns} ({span} — read the OVERALL arc, not month-to-month noise):']
+    lines = [f'{title}, {p.kind_nouns} ({span} — read the OVERALL arc, not month-to-month noise):']
     for r in rows:
         partial_note = ' ⚠️ partial month' if r['ym'] == current_ym else ''
         if p.distance:
@@ -548,7 +552,7 @@ def _build_comeback_progress(p, where, params, day, cur_spd=None, cur_pwr_w=None
                 figs += ' | ' + (f"avg {r['avg_pwr']:.0f}W, best {r['best_pwr']:.0f}W" if r['avg_pwr'] else 'no power data')
         else:
             figs = f"avg {_mins(r['avg_time'])}" + (f", avg HR {r['avg_hr']:.0f}" if r['avg_hr'] else '')
-        lines.append(f"  {r['ym']}{partial_note}: {p.count(r['rides'])} | {figs}")
+        lines.append(f"  {r['ym']}{partial_note}: {p.kind_count(r['rides'])} | {figs}")
 
     # Add today's activity vs current month avg for context
     cur_month_row = next((r for r in rows if r['ym'] == current_ym), None)
@@ -616,7 +620,7 @@ def _build_past_notes(p, where, params):
     lines = [f'  {_fmt_date(r["day"])} — {r["name"]}: {v}' for r in rows if (v := _verdict(r['aiKudos']))]
     if not lines:
         return ''
-    return '\n'.join([f'Your verdicts on the last {p.count(len(lines))} you analysed (newest first):'] + lines)
+    return '\n'.join([f'Your verdicts on the last {p.kind_count(len(lines))} you analysed (newest first):'] + lines)
 
 
 def _trend(vals):
@@ -692,14 +696,14 @@ def build_context(activity):
 
     power = any(r['power'] for r in recent)
     if recent:
-        lines.append(f'{p.label} history (last {p.count(len(recent))}):')
+        lines.append(f'{p.label} history (last {p.kind_count(len(recent))}):')
         lines.append(_history_header(p, power))
         for r in recent:
             lines.append(_history_row(r, p, power))
         lines.append('')
 
     if comparable:
-        lines.append(f'Comparable {p.nouns} ({"similar distance" + (" & elevation" if p.climbing else "") if p.distance else "similar length"}):')
+        lines.append(f'Comparable {p.kind_nouns} ({"similar distance" + (" & elevation" if p.climbing else "") if p.distance else "similar length"}):')
         for r in comparable:
             if p.distance:
                 figs = [units.fmt_dist(r['distance']), units.fmt_rate(r['speed'], p.rate)]
@@ -715,7 +719,7 @@ def build_context(activity):
         lines.append('')
 
     if month:
-        lines.append(f'30-day summary ({p.count(len(month))}):')
+        lines.append(f'30-day summary ({p.kind_count(len(month))}):')
         if p.distance:
             oldest = month[::-1]                # the rows are newest first; _trend reads oldest first
             dists  = [r['distance'] for r in oldest]
@@ -731,7 +735,7 @@ def build_context(activity):
                          f'{best} {units.fmt_rate(max(speeds), p.rate)}, {trend}')
             if powers:
                 lines.append(f'  Power    : avg {sum(powers)/len(powers):.0f}W, best {max(powers):.0f}W, {_trend(powers)}')
-            lines.append(f'  Last 3 {p.nouns}: {", ".join(units.fmt_dist(r["distance"]) for r in month[:3])}')
+            lines.append(f'  Last 3 {p.kind_nouns}: {", ".join(units.fmt_dist(r["distance"]) for r in month[:3])}')
         else:
             times = [float(r['movingTime'] or 0) for r in month[::-1]]      # oldest first, for _trend
             lines.append(f'  Time     : avg {_mins(sum(times)/len(times))}, longest {_mins(max(times))}, {_trend(times)}')
@@ -741,7 +745,8 @@ def build_context(activity):
         lines.append('')
 
     if not recent and not month:
-        lines.append(f'No previous {p.nouns} recorded — this may be the first.')
+        lines.append(f'No previous {p.kind_nouns} recorded — this may be the first.'
+                     + (' Other kinds are under other training, for load only.' if p.family in ('ride', 'run') else ''))
 
     notes_ctx = _build_past_notes(p, where, params)
     if notes_ctx:

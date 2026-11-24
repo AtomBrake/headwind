@@ -311,7 +311,7 @@ def detail(rid):
     sport_guess = None if friend else _sport_guess.for_activity(get_db(), activity['id'])    # an upload whose file didn't say it was a run
     return render_template('activity.html', friend=friend, kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), photo_caption_max=_photos.MAX_CAPTION, phone_sensors=phone_sensors, activity=activity, coords=coords, zwift_world=zwift_world, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
                            file_climb=file_climb, file_moving=file_moving, elapsed_fix=elapsed_fix, future_start=future_start, sport_guess=sport_guess, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
-                           charts=charts, chart_axes=chart_axes, chart_pauses=chart_pauses, has_history=has_history, coach_noun=coach.noun, coach_nouns=coach.nouns, ai_pending=_auto_analyse.is_pending(activity['id']),
+                           charts=charts, chart_axes=chart_axes, chart_pauses=chart_pauses, has_history=has_history, coach_noun=coach.noun, coach_nouns=coach.kind_nouns, ai_pending=_auto_analyse.is_pending(activity['id']),
                            seg_efforts=seg_efforts, alt_raw=alt_raw, coords_from_stream=coords_from_stream, dist_raw=dist_raw, time_raw=time_raw,
                            co_riders=co_riders, seg_rivals=seg_rivals,
                            seg_trends=seg_trends, rival_trends=rival_trends, seg_laps=seg_laps,
