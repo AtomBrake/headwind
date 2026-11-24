@@ -512,36 +512,49 @@ function segSnapIdx(latlng, which) {
 // ── Charts and the map ───────────────────────────────────────────
 // Hovering a chart puts a dot on the map where that point is, and the map's cursor on the track shows on every chart. A chart point's idx is
 // its place in the streams, the same as the map's points when they're the latlng stream; on a track drawn from the summary polyline the
-// spot is matched by how far along it is instead. A chart against minutes (the phone sensors: data.mins) is matched by the time at each point,
+// spot is matched by how far along the activity it is instead (by distance, else time, else idx). Either way it doesn't matter which
+// x-axis the charts are drawn against. A chart against minutes (the phone sensors: data.mins) is matched by the time at each point,
 // and isn't linked when there are no times; a minute outside the chart, or the track, has no spot.
 var _linkedCharts = [], _hoverDot = null, COORDS_FROM_STREAM = PAGE.coordsFromStream;
 
+function chartAlong(data, j) {            // how far along the activity a chart point is, 0 to 1
+  var xs = data.dist || data.secs || data.idx, last = xs[xs.length - 1];
+  return last > 0 && xs[j] != null ? xs[j] / last : 0;
+}
+
 function chartToCoord(data, j) {
-  var coords = window._rideCoords, dist = window._rideDist, time = window._rideTime;
+  var coords = window._rideCoords, dist = window._rideDist, time = window._rideTime, lo, hi, mid;
   if (data.mins) {
-    var s = data.mins[j] * 60, lo = 0, hi = time.length - 1;
+    var s = data.mins[j] * 60;
+    lo = 0; hi = time.length - 1;
     if (s < time[0] || s > time[hi]) return null;
-    while (lo < hi) { var mid = (lo + hi) >> 1; if (time[mid] < s) lo = mid + 1; else hi = mid; }
+    while (lo < hi) { mid = (lo + hi) >> 1; if (time[mid] < s) lo = mid + 1; else hi = mid; }
     return lo;
   }
-  if (COORDS_FROM_STREAM && data.idx) return Math.min(data.idx[j], coords.length - 1);
-  var last = data.labels[data.labels.length - 1], m = last > 0 ? data.labels[j] / last * dist[dist.length - 1] : 0, lo = 0, hi = dist.length - 1;
-  while (lo < hi) { var mid = (lo + hi) >> 1; if (dist[mid] < m) lo = mid + 1; else hi = mid; }
+  if (COORDS_FROM_STREAM) return Math.min(data.idx[j], coords.length - 1);
+  var m = chartAlong(data, j) * dist[dist.length - 1];
+  lo = 0; hi = dist.length - 1;
+  while (lo < hi) { mid = (lo + hi) >> 1; if (dist[mid] < m) lo = mid + 1; else hi = mid; }
   return lo;
 }
 
 function coordToChart(data, ci) {
+  var best = 0, gap = Infinity, k;
   if (data.mins) {
-    var mins = data.mins, at = window._rideTime[ci] / 60, best = -1, gap = Infinity;
+    var mins = data.mins, at = window._rideTime[ci] / 60;
     if (at < mins[0] || at > mins[mins.length - 1]) return -1;
-    for (var k = 0; k < mins.length; k++) if (Math.abs(mins[k] - at) < gap) { gap = Math.abs(mins[k] - at); best = k; }
+    for (k = 0; k < mins.length; k++) if (Math.abs(mins[k] - at) < gap) { gap = Math.abs(mins[k] - at); best = k; }
     return best;
   }
-  var dist = window._rideDist, last = data.labels[data.labels.length - 1], best = 0, gap = Infinity;
-  var byIdx = COORDS_FROM_STREAM && data.idx, at = byIdx ? ci : dist[ci] / (dist[dist.length - 1] || 1) * last;
-  for (var j = 0; j < data.labels.length; j++) {
-    var g = Math.abs((byIdx ? data.idx[j] : data.labels[j]) - at);
-    if (g < gap) { gap = g; best = j; }
+  if (COORDS_FROM_STREAM) {                // idx is in order: the last point at or before ci, or the next if that's nearer
+    var idx = data.idx, lo = 0, hi = idx.length - 1, mid;
+    while (lo < hi) { mid = (lo + hi + 1) >> 1; if (idx[mid] <= ci) lo = mid; else hi = mid - 1; }
+    return lo + 1 < idx.length && idx[lo + 1] - ci < ci - idx[lo] ? lo + 1 : lo;
+  }
+  var dist = window._rideDist, f = dist[ci] / (dist[dist.length - 1] || 1);
+  for (k = 0; k < data.idx.length; k++) {
+    var g = Math.abs(chartAlong(data, k) - f);
+    if (g < gap) { gap = g; best = k; }
   }
   return best;
 }
@@ -606,85 +619,161 @@ function linkChart(chart, data) {
   map.on('mouseout', clearCharts);
 })();
 
-function makeChart(id, data, colour) {     // colour: a variable from style.css, e.g. '--success'
-  var color = cssVar(colour);
-  linkChart(new Chart(document.getElementById(id), {
+// ── The charts' x-axis: distance or time ─────────────────────────
+// Every chart of the activity's streams is drawn against distance or against time (PAGE.chartAxes: what it has, the first the default),
+// switched together by the Distance / Time buttons above them and remembered in localStorage. The x scale is linear, so the ticks fall on
+// round figures. Against time, a stop the device paused over (PAGE.pauses) is a gap; against distance it takes no room.
+var CHART_AXES = PAGE.chartAxes || [], _axisCharts = [], AXIS_KEY = 'headwind.activity.chartAxis', _chartAxis;
+var X_TICKS = 8;
+
+function chartAxis() {
+  var saved = null;
+  try { saved = localStorage.getItem(AXIS_KEY); } catch (e) {}
+  return CHART_AXES.indexOf(saved) >= 0 ? saved : (CHART_AXES[0] || 'index');
+}
+
+function hmm(s, secs) {                   // 3725 -> 1:02, or 1:02:05 with secs
+  s = Math.round(s);
+  var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+  return h + ':' + String(m).padStart(2, '0') + (secs ? ':' + String(s % 60).padStart(2, '0') : '');
+}
+
+function chartXs(series, axis) {
+  return (axis === 'time' ? series.secs : axis === 'distance' ? series.dist : null) || series.idx;
+}
+
+function chartPoints(series, axis, values) {
+  var xs = chartXs(series, axis);
+  return values.map(function (v, k) { return { x: xs[k], y: v }; });
+}
+
+function chartLast(series, axis) {        // the far end of the axis
+  var xs = chartXs(series, axis);
+  for (var k = xs.length - 1; k >= 0; k--) if (xs[k] != null) return xs[k];
+  return 0;
+}
+
+function chartXScale(axis, series) {
+  var max = chartLast(series, axis);
+  var ticks = { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: X_TICKS, maxRotation: 0, includeBounds: false };   // no tick at an odd end
+  var scale = { type: 'linear', min: 0, max: max || undefined, ticks: ticks, grid: { display: false } };
+  if (axis === 'time') {                  // whole minutes and hours, as h:mm
+    var steps = [60, 120, 300, 600, 900, 1200, 1800, 3600, 7200, 10800, 21600, 43200, 86400], step = steps[steps.length - 1];
+    for (var k = 0; k < steps.length; k++) if (max / steps[k] <= X_TICKS - 1) { step = steps[k]; break; }
+    ticks.callback = function (v) { return hmm(v); };
+    // Made here: given a stepSize, Chart.js stretches it to fit the range whenever that's within stepSize / 1000 steps of whole,
+    // which in seconds is nearly always (a 4:57 ride got a tick every 0:59)
+    scale.afterBuildTicks = function (sc) { sc.ticks = []; for (var v = 0; v <= max; v += step) sc.ticks.push({ value: v }); };
+  } else if (axis === 'distance') {
+    ticks.callback = function (v) { return +v.toFixed(2); };
+  } else {
+    ticks.display = false;
+  }
+  return scale;
+}
+
+function chartTitle(series, j) {          // the tooltip's heading: how far, and how long, at this point
+  var out = [];
+  if (series.dist && series.dist[j] != null) out.push(series.dist[j].toFixed(2) + ' ' + UNITS.dist);
+  if (series.secs && series.secs[j] != null) out.push(hmm(series.secs[j], true));
+  return out.join(' · ');
+}
+
+function inPause(a, b) {                  // is there a stop between these two times?
+  if (a == null || b == null) return false;
+  for (var k = 0; k < (PAGE.pauses || []).length; k++) if (PAGE.pauses[k][0] >= a && PAGE.pauses[k][1] <= b) return true;
+  return false;
+}
+
+function pauseSegment(series) {           // Chart.js segment styles: nothing drawn across a stop, against time
+  var hide = function (ctx) {
+    return _chartAxis === 'time' && series.secs && inPause(series.secs[ctx.p0DataIndex], series.secs[ctx.p1DataIndex]) ? 'transparent' : undefined;
+  };
+  return { borderColor: hide, backgroundColor: hide };
+}
+
+// A chart drawn from the activity's series (each dataset's series and the values it plots), redrawn when the axis changes.
+function axisChart(id, sets, options) {
+  var axis = _chartAxis;
+  options.scales.x = chartXScale(axis, sets[0].series);
+  options.plugins.tooltip.callbacks = Object.assign({ title: function (ctx) { return chartTitle(sets[ctx[0].datasetIndex].series, ctx[0].dataIndex); } },
+                                                    options.plugins.tooltip.callbacks || {});
+  var chart = new Chart(document.getElementById(id), {
     type: 'line',
-    data: {
-      labels: data.labels,
-      datasets: [{ data: data.values, borderColor: color, borderWidth: 1.5,
-        pointRadius: 0, fill: true,
-        backgroundColor: cssVar(colour, 0.08) }]
-    },
-    options: {
-      animation: false,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: {
-        mode: 'index', intersect: false,
-        callbacks: { title: ctx => ctx[0].label + ' ' + UNITS.dist }
-      }},
-      scales: {
-        x: { ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false } },
-        y: { ticks: { color: cssVar('--text-muted'), font: { size: 10 } }, grid: { color: cssVar('--border') } }
-      }
-    }
-  }), data);
+    data: { datasets: sets.map(function (s) {
+      return Object.assign({ data: chartPoints(s.series, axis, s.values), pointRadius: 0, borderWidth: 1.5, segment: pauseSegment(s.series) }, s.style);
+    }) },
+    options: Object.assign({ animation: false, maintainAspectRatio: false }, options)
+  });
+  _axisCharts.push({ chart: chart, sets: sets });
+  linkChart(chart, sets[0].series);
+}
+
+function setChartAxis(axis) {
+  if (CHART_AXES.indexOf(axis) < 0) return;
+  try { localStorage.setItem(AXIS_KEY, axis); } catch (e) {}
+  _chartAxis = axis;
+  showChartAxis(axis);
+  _axisCharts.forEach(function (c) {
+    c.chart.data.datasets.forEach(function (d, k) { d.data = chartPoints(c.sets[k].series, axis, c.sets[k].values); });
+    c.chart.options.scales.x = chartXScale(axis, c.sets[0].series);
+    c.chart.update('none');
+  });
+}
+
+function showChartAxis(axis) {
+  document.querySelectorAll('#chartAxis .seg-btn').forEach(function (b) {
+    var on = b.getAttribute('data-axis') === axis;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+}
+
+function yScale(extra) {
+  return Object.assign({ ticks: { color: cssVar('--text-muted'), font: { size: 10 } }, grid: { color: cssVar('--border') } }, extra || {});
+}
+
+function makeChart(id, data, colour) {     // colour: a variable from style.css, e.g. '--success'
+  axisChart(id, [{ series: data, values: data.values,
+                   style: { borderColor: cssVar(colour), fill: true, backgroundColor: cssVar(colour, 0.08) } }], {
+    plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+    scales: { y: yScale() }
+  });
 }
 
 // Pace in seconds per mile / km / 100 m: faster at the top, minutes and seconds on the axis. A gap is a stop.
 function makePaceChart(id, data, colour) {
-  var color = cssVar(colour);
   var mmss = function (v) { v = Math.round(v); return Math.floor(v / 60) + ':' + String(v % 60).padStart(2, '0'); };
   var vals = data.values.filter(function (v) { return v; }).sort(function (a, b) { return a - b; });
   var cap = vals.length ? vals[Math.floor(vals.length * 0.95)] * 1.15 : null;      // a slow shuffle at a junction shouldn't squash the rest
-  linkChart(new Chart(document.getElementById(id), {
-    type: 'line',
-    data: { labels: data.labels, datasets: [{ data: data.values.map(function (v) { return v && cap && v > cap ? cap : v; }), borderColor: color,
-            borderWidth: 1.5, pointRadius: 0, fill: false, spanGaps: false }] },
-    options: {
-      animation: false,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false,
-        callbacks: { title: function (ctx) { return ctx[0].label + ' ' + UNITS.dist; }, label: function (ctx) { return mmss(ctx.parsed.y); } } } },
-      scales: {
-        x: { ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false } },
-        y: { reverse: true, ticks: { color: cssVar('--text-muted'), font: { size: 10 }, callback: mmss }, grid: { color: cssVar('--border') } }
-      }
-    }
-  }), data);
+  axisChart(id, [{ series: data, values: data.values.map(function (v) { return v && cap && v > cap ? cap : v; }),
+                   style: { borderColor: cssVar(colour), fill: false, spanGaps: false } }], {
+    plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false, callbacks: { label: function (ctx) { return mmss(ctx.parsed.y); } } } },
+    scales: { y: yScale({ reverse: true, ticks: { color: cssVar('--text-muted'), font: { size: 10 }, callback: mmss } }) }
+  });
 }
 
 function makeElevHrChart(id, elevData, hrData) {
-  linkChart(new Chart(document.getElementById(id), {
-    type: 'line',
-    data: {
-      labels: elevData.labels,
-      datasets: [
-        { label: 'Elev (' + UNITS.elev + ')', data: elevData.values, borderColor: cssVar('--success'), borderWidth: 1.5,
-          pointRadius: 0, fill: true, backgroundColor: cssVar('--success', 0.08), yAxisID: 'yElev' },
-        { label: 'HR (bpm)',  data: hrData.values,   borderColor: cssVar('--danger'),  borderWidth: 1.5,
-          pointRadius: 0, fill: false, yAxisID: 'yHr' }
-      ]
+  axisChart(id, [
+    { series: elevData, values: elevData.values, style: { label: 'Elev (' + UNITS.elev + ')', borderColor: cssVar('--success'), fill: true,
+      backgroundColor: cssVar('--success', 0.08), yAxisID: 'yElev' } },
+    { series: hrData, values: hrData.values, style: { label: 'HR (bpm)', borderColor: cssVar('--danger'), fill: false, yAxisID: 'yHr' } }
+  ], {
+    plugins: {
+      legend: { display: true, labels: { color: cssVar('--text-muted'), font: { size: 10 }, boxWidth: 10, padding: 12 } },
+      tooltip: { mode: 'index', intersect: false }
     },
-    options: {
-      animation: false,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: true, labels: { color: cssVar('--text-muted'), font: { size: 10 }, boxWidth: 10, padding: 12 } },
-        tooltip: { mode: 'index', intersect: false,
-          callbacks: { title: ctx => ctx[0].label + ' ' + UNITS.dist } }
-      },
-      scales: {
-        x: { ticks: { color: cssVar('--text-muted'), font: { size: 10 }, maxTicksLimit: 8 }, grid: { display: false } },
-        yElev: { position: 'left',  ticks: { color: cssVar('--success'), font: { size: 10 } }, grid: { color: cssVar('--border') } },
-        yHr:   { position: 'right', ticks: { color: cssVar('--danger'),  font: { size: 10 } }, grid: { drawOnChartArea: false } }
-      }
+    scales: {
+      yElev: { position: 'left',  ticks: { color: cssVar('--success'), font: { size: 10 } }, grid: { color: cssVar('--border') } },
+      yHr:   { position: 'right', ticks: { color: cssVar('--danger'),  font: { size: 10 } }, grid: { drawOnChartArea: false } }
     }
-  }), elevData);
+  });
 }
 
 (function () {
   var c = PAGE.charts;           // each a series or null (routes/activities.py)
+  _chartAxis = chartAxis();
+  showChartAxis(_chartAxis);
   if (c.elevation && c.heartrate) makeElevHrChart('elevChart', c.elevation, c.heartrate);
   else if (c.elevation) makeChart('elevChart', c.elevation, '--success');
   if (c.speed) makeChart('speedChart', c.speed, '--c-sky');

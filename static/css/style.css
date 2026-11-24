@@ -401,6 +401,10 @@ body {
 /* Chart.js (maintainAspectRatio: false) sizes the canvas to its parent, so each canvas sits in a .cbox that takes
    what's left of the card under its title. Sized by the card itself, a chart was drawn as tall as the whole card and squashed. */
 .charts-col .card .cbox { position: relative; flex: 1; min-height: 0; }
+/* Distance / Time above the charts (static/js/activity.js setChartAxis): its own row, the full width when the charts are a grid */
+.chart-axis-row { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; flex: none; grid-column: 1 / -1; }
+.chart-axis-label { font-size: 0.75rem; color: var(--text-muted); }
+.chart-axis-row .seg-btn { padding: 0.2rem 0.6rem; font-size: 0.75rem; }
 /* No map beside them (an indoor ride, a watch with no GPS): the charts sit side by side, each card a fixed height.
    A card sized by its own canvas grew on every resize. */
 .map-charts-grid:not(.has-both) .charts-col {

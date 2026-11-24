@@ -7,6 +7,8 @@ device's laps and a pool swim's lengths (Activity.laps, services/parser.fit_laps
 - splits(): one row per mile, km or 100 m, from the distance and time streams. The time is moving time, as Strava's splits are: a stop (or a
   pause the device skipped over) isn't in it.
 - pace_series(): pace along the activity for the chart, for runs and walks that have no speed stream (most don't).
+- chart_axes(), axes(), pauses(): what the charts can be drawn against (distance, time), where each chart point is on each, and the stops
+  the device paused over, which the charts show as a gap against time.
 - pool(): a pool swim's lengths, grouped into sets at each rest.
 - ski_runs(): each descent of at least SKI_MIN_DROP_M, and the climbs between them (the lifts)."""
 import json
@@ -94,8 +96,8 @@ def _split_row(n, dist_m, cur):
 
 
 def pace_series(streams, view_, system=None, window_s=30, points=300):
-    """{'values': seconds per mile / km (per 100 m swimming), 'labels': distance along it, 'idx': each point's place in the streams} for the
-    pace chart, from a speed averaged over about window_s seconds. None for a gap (standing still). None when the streams have no distance
+    """{'values': seconds per mile / km (per 100 m swimming), 'idx': each point's place in the streams, and where each is along it (axes())}
+    for the pace chart, from a speed averaged over about window_s seconds. None for a gap (standing still). None when the streams have no distance
     and time."""
     dist, time = _data(streams, 'distance'), _data(streams, 'time')
     n = min(len(dist), len(time))
@@ -104,7 +106,7 @@ def pace_series(streams, view_, system=None, window_s=30, points=300):
     unit = SWIM_SPLIT_M if view_ == 'swim' else units.spec(system)['distM']
     slow = _MIN_PACE_MPS.get(view_, 0.5)
     step = max(1, n // points)
-    values, labels, idx, j = [], [], [], 0
+    values, idx, j = [], [], 0
     for i in range(0, n, step):
         if dist[i] is None or time[i] is None:
             continue
@@ -113,20 +115,19 @@ def pace_series(streams, view_, system=None, window_s=30, points=300):
         dt = time[i] - time[j] if j < i else 0
         mps = (dist[i] - dist[j]) / dt if dt > 0 else None
         values.append(round(unit / mps) if mps and mps >= slow else None)
-        labels.append(round(units.dist(dist[i], system), 2))
         idx.append(i)
-    return {'values': values, 'labels': labels, 'idx': idx} if any(v for v in values) else None
+    return dict(axes(streams, idx, system), values=values, idx=idx) if any(v for v in values) else None
 
 
 def speed_series(streams, system=None, window_s=10, points=300):
-    """{'values': speed in mph or km/h, 'labels': distance along it, 'idx': each point's place in the streams} from the distance and time
+    """{'values': speed in mph or km/h, 'idx': each point's place in the streams, and where each is along it (axes())} from the distance and time
     streams, for an activity with no speed stream (a GPX from Strava has none). None without distance and time."""
     dist, time = _data(streams, 'distance'), _data(streams, 'time')
     n = min(len(dist), len(time))
     if n < 2:
         return None
     step = max(1, n // points)
-    values, labels, idx, j = [], [], [], 0
+    values, idx, j = [], [], 0
     for i in range(0, n, step):
         if dist[i] is None or time[i] is None:
             continue
@@ -134,9 +135,53 @@ def speed_series(streams, system=None, window_s=10, points=300):
             j += 1
         dt = time[i] - time[j] if j < i else 0
         values.append(round(units.speed((dist[i] - dist[j]) / dt, system), 1) if dt > 0 else 0)
-        labels.append(round(units.dist(dist[i], system), 2))
         idx.append(i)
-    return {'values': values, 'labels': labels, 'idx': idx} if any(values) else None
+    return dict(axes(streams, idx, system), values=values, idx=idx) if any(values) else None
+
+
+PAUSE_S = 30            # a jump in the time stream at least this long, while hardly moving, is a stop: the device paused, or barely recorded
+PAUSE_MPS = 0.3
+
+
+def chart_axes(streams):
+    """What the activity's charts can be drawn against: 'distance' when it has a distance stream that goes somewhere, 'time' when it has a
+    time stream. The first is the default; with only one (a pool swim or an indoor session has no distance) the page offers no choice."""
+    out = []
+    if any(_data(streams, 'distance')):
+        out.append('distance')
+    if sum(1 for t in _data(streams, 'time') if t is not None) >= 2:
+        out.append('time')
+    return out
+
+
+def axes(streams, idx, system=None):
+    """Where each chart point (idx: its place in the streams) is on each x-axis: {'dist': along the activity in the rider's unit, 'secs':
+    seconds since the start, 'labels': the distance, or the time without one (else the place itself)}. 'dist' or 'secs' is None when the
+    activity has no such stream, and a point the stream has nothing for is None."""
+    have = chart_axes(streams)
+    dist, time = _data(streams, 'distance'), _data(streams, 'time')
+    t0 = next((t for t in time if t is not None), 0)
+    d = [round(units.dist(dist[i], system), 2) if i < len(dist) and dist[i] is not None else None for i in idx] if 'distance' in have else None
+    t = [round(time[i] - t0) if i < len(time) and time[i] is not None else None for i in idx] if 'time' in have else None
+    return {'dist': d, 'secs': t, 'labels': d if d is not None else t if t is not None else list(idx)}
+
+
+def pauses(streams):
+    """[[from, to], ...] seconds since the start: each stop the time stream jumps over (PAUSE_S or more with under PAUSE_MPS covered), which
+    the charts leave a gap for when drawn against time. A stop the device went on recording through isn't one: it shows as itself."""
+    dist, time = _data(streams, 'distance'), _data(streams, 'time')
+    t0 = next((t for t in time if t is not None), 0)
+    out, prev = [], None
+    for i, t in enumerate(time):
+        if t is None:
+            continue
+        if prev is not None and t - time[prev] >= PAUSE_S:
+            d0 = dist[prev] if prev < len(dist) else None
+            d1 = dist[i] if i < len(dist) else None
+            if d0 is None or d1 is None or (d1 - d0) / (t - time[prev]) < PAUSE_MPS:
+                out.append([round(time[prev] - t0), round(t - t0)])
+        prev = i
+    return out
 
 
 def load_laps(laps_json):

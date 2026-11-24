@@ -27,6 +27,9 @@ STREAMS = {'latlng': {'data': [[51.5 + i * 0.0001, -0.12] for i in range(N)]}, '
            'heartrate': {'data': [120] * N}}
 
 
+INDOOR = {'time': {'data': [100 + 2 * i for i in range(N)]}, 'heartrate': {'data': [130] * N}, 'watts': {'data': [200] * N}}
+
+
 @pytest.fixture
 def app(tmp_path, monkeypatch):
     monkeypatch.setattr(config.Config, 'DATABASE', str(tmp_path / 't.db'))
@@ -39,6 +42,10 @@ def app(tmp_path, monkeypatch):
         db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, rawData) "
                    "VALUES ('gps', 'GPS', 'Ride', 1, '2026-10-01T08:00:00', 6650, 600, '{}')", [])
         _streams.save(db, 'gps', json.dumps(STREAMS))
+        # an indoor ride: a time stream and sensors, no distance and no track
+        db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, rawData) "
+                   "VALUES ('indoor', 'Trainer', 'VirtualRide', 1, '2026-10-03T08:00:00', 0, 1200, '{}')", [])
+        _streams.save(db, 'indoor', json.dumps(INDOOR))
         # an older activity with only the summary polyline for its map
         db.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime, rawData, summaryPolyline) "
                    "VALUES ('poly', 'Poly', 'Ride', 1, '2026-10-02T08:00:00', 5000, 600, '{}', ?)",
@@ -137,6 +144,28 @@ def test_chart_points_carry_their_place_in_the_streams(client):
     assert len(elev['idx']) == len(elev['values']) == len(elev['labels'])
     assert elev['idx'][:3] == [0, 2, 4]                                     # every 2nd of 600 points: at most 300
     assert ride['dist'][:3] == [0.0, 11.1, 22.2]                            # the distance stream, for the distance markers
+
+
+def test_each_chart_point_has_its_distance_and_time(client):
+    html = client.get('/activities/gps').get_data(as_text=True)
+    ride = page_data(html, 'rideData')
+    assert ride['chartAxes'] == ['distance', 'time'] and 'id="chartAxis"' in html     # both: the Distance / Time choice is offered
+    for name in ('elevation', 'heartrate'):
+        s = ride['charts'][name]
+        assert s['secs'] == [STREAMS['time']['data'][i] for i in s['idx']]      # the time at the same place in the streams
+        assert s['dist'] == [round(STREAMS['distance']['data'][i] / 1609.344, 2) for i in s['idx']]
+        assert s['labels'] == s['dist']                                         # distance stays the default
+    assert ride['pauses'] == []
+
+
+def test_an_activity_without_distance_is_charted_against_time(client):
+    html = client.get('/activities/indoor').get_data(as_text=True)
+    ride = page_data(html, 'rideData')
+    assert ride['chartAxes'] == ['time'] and 'id="chartAxis"' not in html       # nothing to choose between
+    for name in ('heartrate', 'power'):
+        s = ride['charts'][name]
+        assert s['dist'] is None
+        assert s['secs'] == s['labels'] == [INDOOR['time']['data'][i] - 100 for i in s['idx']]    # seconds since the start
 
 
 def test_a_polyline_track_is_matched_by_distance(client):

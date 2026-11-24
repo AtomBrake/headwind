@@ -4,8 +4,10 @@
 
 ### Added
 - **Maintenance warnings can be turned off for one bike or one item of kit.** Untick **Maintenance warnings** when editing it, for a bike on a turbo trainer or shoes you'll wear out regardless. Its parts, or the item itself, then stay off the Gear page's Needs attention list and the dashboard, and send no notifications or Home Assistant alerts. Its card says "No warnings" instead of Due or Overdue, and its wear still shows on its own page. Before, the only way was to untick notifications on each of a bike's parts, which still left them on the due lists. Ticking it again sends any alert it missed.
+- **An activity's charts can be drawn against time as well as distance.** A Distance / Time switch above the charts changes every chart at once, and the page remembers your choice next time. Against time, a stop where your device paused shows as a gap, where against distance it takes no room. The ticks along the bottom now fall on round figures (0, 5, 10 km; or 0:15, 0:30, 0:45), not on whatever point happened to be there (6.68, 13.61). Hovering a chart still marks the spot on the map, and the cursor on the map still shows on every chart, whichever way they're drawn. The tooltip gives both how far and how long at that point.
 
 ### Fixed
+- **Charts for an activity with no distance are drawn against time.** A pool swim, a yoga or strength session, and a Zwift ride (whose files have no distance along the way) had charts numbered by sample along the bottom. They're now against time, without the switch.
 - **A strength, yoga or HIIT session uploaded as a FIT file keeps its sport.** Garmin watches write these as "training" with the kind of session beside it, and Headwind read only the first part, so they came in as Other. Garmin sync wasn't affected.
 - **A FIT file from a watch paired with a gym's machine keeps its sport.** An indoor bike comes in as an indoor ride, a treadmill as an indoor run and a rowing machine as a row, rather than Other.
 - **Water skiing is no longer a ski day.** It came in as Ski, adding to your snow totals; it's now Other.

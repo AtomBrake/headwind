@@ -48,6 +48,27 @@ def test_pace_series_is_seconds_per_unit_with_gaps_for_stops():
     assert p['values'][100] == 250 and None in p['values']                  # 4 m/s is 4:10 a km
 
 
+def test_pace_points_carry_their_time_and_distance():
+    s = streams(4.0, 600)
+    s['time']['data'] = [t + 50 for t in s['time']['data']]                  # a clock that doesn't start at 0
+    p = ad.pace_series(s, 'foot', 'metric', points=100)
+    assert p['secs'] == [s['time']['data'][i] - 50 for i in p['idx']]
+    assert p['dist'] == p['labels'] == [round(s['distance']['data'][i] / 1000, 2) for i in p['idx']]
+
+
+def test_pauses_are_the_stops_the_time_stream_jumps_over():
+    s = streams(3.0, 2000)
+    t, d = s['time']['data'], s['distance']['data']
+    t[1000:] = [x + 600 for x in t[1000:]]                     # paused for 10 minutes after 3 km
+    d[1500:1560] = [d[1500]] * 60                              # and stood still for a minute later, recording all the while
+    assert ad.pauses(s) == [[999, 1600]]                        # only the pause: the recorded stop shows as itself
+    t[1800:] = [x + 40 for x in t[1800:]]                      # 40 s with no record but 120 m covered: smart recording, not a stop
+    d[1800:] = [x + 120 for x in d[1800:]]
+    assert ad.pauses(s) == [[999, 1600]]
+    assert ad.pauses({'time': {'data': [0, 1, 2, 60, 61]}}) == [[2, 60]]       # no distance: any jump is a stop
+    assert ad.chart_axes({'time': {'data': [0, 1]}, 'distance': {'data': [0, 0]}}) == ['time']    # a distance that goes nowhere isn't one
+
+
 def test_pool_sets_break_at_each_rest():
     lengths = [{'t': i * 30, 'secs': 30, 'active': True, 'strokes': 15, 'stroke': 'freestyle'} for i in range(4)]
     lengths += [{'t': 120, 'secs': 45, 'active': False}]

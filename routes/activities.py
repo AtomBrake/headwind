@@ -78,20 +78,16 @@ def _sample(data, n=_SAMPLE):
     return data[::step]
 
 
-def _stream_series(streams, key, dist_key='distance', transform=None):
-    from services import units
-    raw  = (streams.get(key) or {}).get('data') or []
-    dist = (streams.get(dist_key) or {}).get('data') or []
+def _stream_series(streams, key, transform=None):
+    """{'values', 'idx': each point's place in the streams (for the map), and where each is along the activity: 'dist', 'secs', 'labels'
+    (activity_detail.axes)} for a chart of one stream, at most _SAMPLE points. None without the stream."""
+    from services import activity_detail
+    raw = (streams.get(key) or {}).get('data') or []
     if not raw:
         return None
-    step = max(1, len(raw) // _SAMPLE)
-    values = []
-    labels = []
-    for i in range(0, len(raw), step):
-        v = raw[i]
-        values.append(round(transform(v) if transform else v, 2))
-        labels.append(round(units.dist(dist[i]), 2) if i < len(dist) else i)      # distance along the ride, in the rider's unit
-    return {'values': values, 'labels': labels, 'idx': list(range(0, len(raw), step))}   # idx: each point's place in the streams, for the map
+    idx = list(range(0, len(raw), max(1, len(raw) // _SAMPLE)))
+    values = [round(transform(raw[i]) if transform else raw[i], 2) for i in idx]
+    return dict(activity_detail.axes(streams, idx), values=values, idx=idx)
 
 
 @bp.route('/<rid>')
@@ -150,6 +146,8 @@ def detail(rid):
     }
     if not by_pace and not charts['speed']:
         charts['speed'] = activity_detail.speed_series(streams)     # no speed stream (a GPX): from the distance and time
+    chart_axes = activity_detail.chart_axes(streams)                # distance and/or time: a choice above the charts when there are both
+    chart_pauses = activity_detail.pauses(streams) if 'time' in chart_axes else []
 
     memory_count = get_db().execute(
         'SELECT COUNT(*) FROM ActivityMemory WHERE activityId != ?', [rid]
@@ -312,7 +310,7 @@ def detail(rid):
     sport_guess = None if friend else _sport_guess.for_activity(get_db(), activity['id'])    # an upload whose file didn't say it was a run
     return render_template('activity.html', friend=friend, kit_items=kit_items, detail=detail, view=view, avg_mps=avg_mps, has_climbing=sports.has_climbing(activity['sportType']), source_links=source_links, photos=_photos.for_activity(get_db(), activity['id']), photo_caption_max=_photos.MAX_CAPTION, phone_sensors=phone_sensors, activity=activity, coords=coords, zwift_world=zwift_world, dups=dups, gear_bikes=gear_bikes, gear_error=request.args.get('error'), sports=list(sports.SPORTS),
                            file_climb=file_climb, file_moving=file_moving, elapsed_fix=elapsed_fix, future_start=future_start, sport_guess=sport_guess, garmin_change=garmin_changes.for_ride(get_db(), activity['id']),
-                           charts=charts, has_memory=memory_count > 0, ai_pending=_auto_analyse.is_pending(activity['id']),
+                           charts=charts, chart_axes=chart_axes, chart_pauses=chart_pauses, has_memory=memory_count > 0, ai_pending=_auto_analyse.is_pending(activity['id']),
                            seg_efforts=seg_efforts, alt_raw=alt_raw, coords_from_stream=coords_from_stream, dist_raw=dist_raw, time_raw=time_raw,
                            co_riders=co_riders, seg_rivals=seg_rivals,
                            seg_trends=seg_trends, rival_trends=rival_trends, seg_laps=seg_laps,

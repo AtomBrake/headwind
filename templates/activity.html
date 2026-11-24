@@ -526,6 +526,15 @@
 
   {% if has_charts %}
   <div class="charts-col">
+    {% if chart_axes | length > 1 %}
+    <div class="chart-axis-row">
+      <span class="chart-axis-label" id="chartAxisLabel">Charts against</span>
+      <div class="seg-tabs" id="chartAxis" role="group" aria-labelledby="chartAxisLabel">
+        <button type="button" class="seg-btn" data-axis="distance" data-click="setChartAxis('distance')">Distance</button>
+        <button type="button" class="seg-btn" data-axis="time" data-click="setChartAxis('time')">Time</button>
+      </div>
+    </div>
+    {% endif %}
     {% if charts.elevation %}
     <div class="card">
       <div class="card-title">Elevation{% if charts.heartrate %} &amp; Heart Rate{% endif %}</div>
@@ -1009,7 +1018,7 @@
 <script type="application/json" id="rideData">{{ {'id': activity.id, 'canEdit': not (demo_mode or friend),
   'coords': coords, 'alt': alt_raw, 'time': time_raw, 'dist': dist_raw, 'distance': activity.distance or 0,
   'coordsFromStream': coords_from_stream | default(false), 'zwiftWorld': zwift_world,
-  'windDir': activity.weatherWindDir, 'windKph': activity.weatherWindKph, 'charts': charts,
+  'windDir': activity.weatherWindDir, 'windKph': activity.weatherWindKph, 'charts': charts, 'chartAxes': chart_axes, 'pauses': chart_pauses,
   'sensors': {'series': phone_sensors.series, 'track': phone_sensors.track or [], 'pocket': phone_sensors.mount == 'pocket'} if phone_sensors else none,
   'matchedUrl': url_for('matched.card', rid=activity.id)} | tojson }}</script>
 <script src="{{ url_for('static', filename='js/activity.js') }}"></script>
