@@ -12,7 +12,7 @@ A native SwiftUI companion for a Headwind server. It uses the same phone API and
 | Settings | Paired server, rider, units, Bluetooth sensors (pair, forget, battery, wheel size), whether recordings share a live tracking link and the contacts the server emails it to, Apple Health (what to send, how far back), friends (make a QR code for a friend with what they may see; add a friend by scanning or pasting their code), unpair | `GET /api/v1/ping`, `/contacts`, `POST /api/v1/health/days`, `GET`/`DELETE /api/v1/health`, `POST /api/v1/friends/tokens`, `/friends/probe`, `/friends` |
 
 **Apple Watch:** recording only. Start, pause and end any sport on the wrist with heart rate, calories and, where it has them, GPS,
-speed or pace, distance, climbing, power and cadence. On Apple Watch Ultra the Action button starts and pauses it.
+speed or pace, distance, climbing, power and cadence, and a map of the track so far. On Apple Watch Ultra the Action button starts and pauses it.
 
 ## Sports
 
@@ -73,6 +73,19 @@ minute to be kept.
   once it's on the server. The upload goes through a background `URLSession`, queued when the ride is saved to start when
   the 45 s are up, so it goes even if the app has been suspended (wrist down, another app opened). Every recording carries the Watch's id for it, sent as its `client_id` either way, so the server
   keeps one copy.
+- **The Watch's pages while recording:** swipe between the controls (End, Pause, the live link), the figures, and for a sport with
+  GPS a map: the track so far (a `MapPolyline`) and where you are (`UserAnnotation`), with distance and time over it (distance and
+  pace on foot). The page moves the camera to each fix itself, at the zoom the Digital Crown left, turned to the direction of travel
+  from GPS: MapKit's own follow mode would put the zoom back every time it started following again, and the compass would point
+  where the wrist does and keep the compass running. Timed-only sessions (an indoor ride, a
+  treadmill run, a pool swim, strength) have the first two. The track is the recording's own fixes thinned as they arrive
+  (`Shared/MapTrack.swift`): a fix is drawn only when leaving it out would bend the line more than 3 m, the tolerance doubling
+  whenever more than 2,000 points are kept, so a long day redraws as quickly as a short one; the GPX and the journal still keep
+  every fix. Each stretch between pauses is its own line. With the wrist down, in Always On, or on another page, the map rests:
+  dimmed, held where it was and not redrawn, until the wrist comes up. MapKit in an app doesn't use the offline maps downloaded in
+  Apple Maps, so with no phone and no connection the Watch may have no tiles beyond what it has cached: the track and your position
+  still draw, on MapKit's empty grid. `HeadwindWatch/MapPage.swift`; the line layer (`TrackLines`) is there for a route to be drawn
+  under the track.
 - **Action button (Apple Watch Ultra):** Settings → Action Button → Workout → Headwind, then pick the sport under First
   Press. The press starts it (the system opens the app and it starts the workout session); a press during it pauses or
   resumes; the Action and side buttons together pause and resume too. `HeadwindWatch/WorkoutIntents.swift`.
@@ -149,7 +162,7 @@ All recording state lives in objects made at launch (`PhoneRideRecorder`, `RideS
 fold or rotation mid-ride loses nothing. The fold-specific APIs Apple has shown (reserved regions, ArrangementView) are in the
 iOS 27.1 SDK only; the app uses only what Xcode 16 and iOS 17 have, and the system's own containers keep clear of the fold.
 
-What's planned for the apps (food logging, widgets, smart-trainer control, following a route on the Watch) is in
+What's planned for the apps (food logging, widgets, smart-trainer control, following a route on the iPhone and Watch) is in
 [TODO.md](../TODO.md) under **iPhone and Watch** in each priority tier.
 
 ## Requirements
@@ -243,7 +256,8 @@ xcodebuild test -project ios/Headwind.xcodeproj -scheme Headwind -destination 'p
 
 The unit tests cover pairing links, decoding, formatting, and the recording maths: distance, moving time, GPS-jump
 rejection, climbing, pauses, GPX output (with power and cadence), journal recovery (timed sessions too), where each sport
-uploads to (by the server's `api`), the Watch's ids, Apple Health's sleep merging, and the Bluetooth sensors: GATT parsing, counters wrapping, 3 s power,
+uploads to (by the server's `api`), the Watch's ids, the Watch map's thinned track (corners and turns kept, under 2,000 points
+after six hours), Apple Health's sleep merging, and the Bluetooth sensors: GATT parsing, counters wrapping, 3 s power,
 combining sensors, distance by sensor and a timed session's samples. The decoding tests use JSON captured from a real
 server in `HeadwindTests/Fixtures/`. If an endpoint's shape changes, refresh those files and the tests show what
 the app no longer understands.
@@ -258,8 +272,12 @@ xcrun simctl privacy <device> grant location io.github.atombrake.headwind
 TEST_RUNNER_HW_SERVER=http://localhost:5001 TEST_RUNNER_HW_TOKEN=hw_... xcodebuild test ... -parallel-testing-enabled NO
 ```
 
-The **HeadwindWatch** scheme's UI test records a ride on a Watch simulator. Give the Watch a moving location first:
-`xcrun simctl location <watch> start --speed=8 51.4545,-2.5879 51.4745,-2.5879`.
+The **HeadwindWatch** scheme's UI tests record a ride and a run on a Watch simulator, checking the map page after the figures
+(the crown zooming it, and it coming back after the app has been in the background), and a strength session, which has no map
+page. Give the Watch a moving location first, with turns so the map has something to draw:
+`xcrun simctl location <watch> start --speed=8 51.4545,-2.5879 51.4581,-2.5879 51.4581,-2.5836 51.4545,-2.5836 51.4545,-2.5879`.
+On a simulator that has never granted Headwind Health access, the test pages through the Health sheet itself (Review, each
+switch, Next, Continue, Full History, Done), which takes about 30 s the first time.
 
 ## Layout
 
@@ -269,7 +287,7 @@ ios/
   Config/                  Info.plists (URL scheme, background modes), the Watch's HealthKit entitlements, signing and
                            the apps' version (Version.xcconfig)
   scripts/                 bump_version.py
-  Shared/                  compiled into both apps: sports, ride tracker, GPX writer, crash journal, ride summary, units,
+  Shared/                  compiled into both apps: sports, ride tracker, the map's thinned track, GPX writer, crash journal, ride summary, units,
                            API client and pairing, upload routing, Bluetooth sensor parsing and readings
   Headwind/
     App/                   entry point, root view, tabs
@@ -281,6 +299,7 @@ ios/
     Record/                iPhone recorder, recordings store and upload queue, Watch link, Record tab
     Sensors/               Bluetooth sensors: CoreBluetooth manager and the Sensors screen
   HeadwindWatch/           Watch app: HealthKit workout + GPS recorder, iPhone link and direct upload, Action button intents, screens
+                           (the recording's map page in MapPage.swift)
   HeadwindTests/           Swift Testing unit tests
   HeadwindUITests/         end-to-end iPhone tests against a live server
   HeadwindWatchUITests/    end-to-end Watch recording test

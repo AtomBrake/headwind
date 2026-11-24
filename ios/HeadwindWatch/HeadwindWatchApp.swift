@@ -144,6 +144,10 @@ struct RecordingView: View {
         TabView(selection: $page) {
             ControlsPage().tag(0)
             MetricsPage().tag(1)
+            // The sport is fixed once recording, so the page count doesn't change mid-recording.
+            if workout.sport.usesGPS {
+                MapPage(showing: page == 2).tag(2)
+            }
         }
         .tabViewStyle(.page)
     }

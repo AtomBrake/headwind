@@ -27,6 +27,10 @@ final class WorkoutManager: NSObject {
 
     private(set) var state: State = .idle
     private(set) var tracker = RideTracker()
+    /// The track so far, thinned for the map page. Fed from the same fixes as `tracker`; only for the screen.
+    private(set) var mapTrack = MapTrack()
+    /// Which way you're going, in degrees from north, from the latest fix taken while moving: what the map page turns to.
+    private(set) var course: Double?
     private(set) var clock = ActiveClock()
     private(set) var heartRate: Int?
     private(set) var averageHeartRate: Int?
@@ -163,6 +167,8 @@ final class WorkoutManager: NSObject {
             let id = UUID()
             recordingID = id
             tracker = RideTracker()
+            mapTrack = MapTrack()
+            course = nil
             bikeId = sport.isRide ? bike : nil
             postingLive = sharesLive && sport.usesGPS && phone.pairing != nil
             liveLink = .none
@@ -444,6 +450,7 @@ final class WorkoutManager: NSObject {
         case .running where state == .paused:
             state = .recording
             tracker.resume()
+            mapTrack.newSegment()
             clock.resume(at: date)
             if sport.usesGPS { journal.newSegment() }
         case .paused where state == .recording:
@@ -481,12 +488,16 @@ final class WorkoutManager: NSObject {
             let point = RidePoint(loc, hr: heartRate, power: power, cadence: cadence)
             if tracker.add(point) {
                 journal.append(point)
+                mapTrack.add(point)
                 kept.append(loc)
             }
         }
         if !kept.isEmpty, let routeBuilder {
             // Best effort: the GPX for Headwind already has these points; only the Health map would miss them.
             Task { try? await routeBuilder.insertRouteData(kept) }
+        }
+        if let moving = kept.last(where: { $0.course >= 0 && $0.speed >= RideTracker.movingSpeed }) {
+            course = moving.course
         }
         if let last = kept.last {
             lastLocation = last

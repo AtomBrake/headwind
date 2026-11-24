@@ -1,5 +1,5 @@
 // The iPhone and Watch apps' version, for every target. The Watch app must match the iPhone app it's embedded in.
 // Don't edit by hand: run `python3 ios/scripts/bump_version.py` before each build that goes onto a phone or Watch
 // (see "Versions" in ios/README.md).
-MARKETING_VERSION = 0.1.2
-CURRENT_PROJECT_VERSION = 3
+MARKETING_VERSION = 0.1.3
+CURRENT_PROJECT_VERSION = 4
