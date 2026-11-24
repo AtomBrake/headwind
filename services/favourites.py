@@ -37,10 +37,77 @@ def describe(key):
     return {'key': key, 'label': sports.label(value), 'icon': sports.icon(value), 'arg': ('only', value)}
 
 
-def choices(db, rider_id):
-    """What can be picked, as describe() dicts: Cycling, On foot and Swimming where the rider has any of them, then each sport they have."""
+def parse_set(raw):
+    """A stored set of sports (Settings.aiAutoSports, Goal.sports, Settings.exerciseSports): None for every sport (NULL or ''), else the list of
+    keys ('group:ride', 'sport:Run'), anything unreadable dropped. Unlike parse() there's no limit: a goal can count as many sports as it likes."""
+    if raw is None or raw == '':
+        return None
+    try:
+        keys = json.loads(raw)
+    except ValueError:
+        return None
+    return list(dict.fromkeys(k for k in keys if isinstance(k, str) and _split(k))) if isinstance(keys, list) else None
+
+
+def dump_set(keys):
+    """parse_set the other way: NULL for every sport (None), else the keys as JSON, repeats and anything that isn't one dropped."""
+    return None if keys is None else json.dumps(list(dict.fromkeys(k for k in keys if _split(k))))
+
+
+def covers(keys, sport):
+    """Whether a set of sports (parse_set) takes in this sport. A group is a stat group (services/sports.stat_group); a sport is matched by its
+    canonical name, a row with no sport as a ride."""
+    if keys is None:
+        return True
+    sport = sports.canonical(sport or 'Ride')
+    return f'group:{sports.stat_group(sport)}' in keys or f'sport:{sport}' in keys
+
+
+def group_of(key):
+    """The stat group a key's distances add to: 'ride', 'foot', 'swim', or the sport itself ('Paddle')."""
+    kind, value = _split(key)
+    return value if kind == 'group' else sports.stat_group(sports.canonical(value))
+
+
+_COUNTABLE = ('ride', 'run', 'walk', 'hike', 'swim', 'row', 'paddle', 'surf', 'climb', 'skate', 'session', 'workout')
+
+
+def noun(key):
+    """A key as a plural noun for a sentence: 'rides', 'swims', 'on foot', 'runs', 'indoor rides', 'yoga'."""
+    kind, value = _split(key)
+    if kind == 'group':
+        return sports.stat_label(value).lower()          # 'Rides', 'On foot', 'Swims': the groups' names live in services/sports
+    text = sports.label(value).lower()
+    return text + 's' if text.split()[-1] in _COUNTABLE else text
+
+
+def nouns(keys, every='every sport'):
+    """A set of sports in words: 'rides', 'rides or runs', 'rides, runs or swims'; `every` for None."""
+    if keys is None:
+        return every
+    words = [noun(k) for k in keys]
+    return words[0] if len(words) == 1 else ', '.join(words[:-1]) + ' or ' + words[-1]
+
+
+def icons(keys):
+    """The icons of a set of sports, at most three: '🏅' for every sport."""
+    if keys is None:
+        return '🏅'
+    return ''.join(list(dict.fromkeys(describe(k)['icon'] for k in keys))[:3]) or '🏅'
+
+
+def choices_with(db, rider_id, keys):
+    """choices(), plus any of keys the rider has nothing of now (a sport picked once still shows ticked)."""
+    out = choices(db, rider_id)
+    have = {c['key'] for c in out}
+    return out + [describe(k) for k in keys or [] if k not in have and describe(k)]
+
+
+def choices(db, rider_id, every_group=False):
+    """What can be picked, as describe() dicts: Cycling, On foot and Swimming where the rider has any of them (all three with every_group, for
+    a goal of a sport not started yet), then each sport they have."""
     have = [r[0] for r in db.execute("SELECT DISTINCT COALESCE(NULLIF(sportType, ''), 'Ride') FROM Activity WHERE riderId=?", [rider_id])]
-    groups = sorted({sports.stat_group(s) for s in have} & set(GROUP_NAMES), key=sports.stat_order)
+    groups = sorted(set(GROUP_NAMES) if every_group else {sports.stat_group(s) for s in have} & set(GROUP_NAMES), key=sports.stat_order)
     singles = sorted({sports.canonical(s) for s in have}, key=lambda s: (sports.stat_order(sports.stat_group(s)), sports.label(s)))
     return [describe(f'group:{g}') for g in groups] + [describe(f'sport:{s}') for s in singles]
 

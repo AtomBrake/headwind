@@ -737,12 +737,49 @@ async function sgLoad() {
   sgBornShow(p);
   document.getElementById('sgHeight').value = p.height_cm || '';
   document.getElementById('sgRides').value = p.ride_kcal_week;
-  document.getElementById('sgRideGoal').value = p.ride_goal_week;
+  sgExercise(d.exercise);
   sgLossShow(p.loss_lb_week, d.weight_unit);
   document.getElementById('sgSteps').value = p.step_goal;
   document.getElementById('sgAuto').checked = !!p.auto;
   sgRender(d.plan, d.current);
 }
+// The sports the typical week's exercise covers: ticks like the AI page's, Every sport or any of the rider's sports and groups
+function sgExercise(ex) {
+  if (!ex) return;
+  const box = document.getElementById('sgExChecks'), every = ex.sports === null;
+  box.replaceChildren();
+  const add = (key, text, on) => {
+    const label = document.createElement('label'), input = document.createElement('input');
+    label.className = 'check'; input.type = 'checkbox'; input.value = key; input.checked = on;
+    input.addEventListener('change', () => sgExTick(input));
+    label.append(input, ' ' + text);
+    box.append(label);
+  };
+  add('', '🏅 Every sport', every);
+  ex.choices.forEach(c => add(c.key, c.icon + ' ' + c.label, !every && ex.sports.includes(c.key)));
+  const hint = document.getElementById('sgRidesHint'), use = document.getElementById('sgRidesUse');
+  const f = n => Number(n).toLocaleString('en-GB');
+  hint.textContent = ex.suggest != null ? `Your last ${ex.weeks} weeks of ${ex.nouns}: about ${f(ex.suggest)} kcal a week.`
+                                        : `No calories recorded for ${ex.nouns} in the last ${ex.weeks} weeks.`;
+  use.style.display = ex.suggest == null || String(ex.suggest) === document.getElementById('sgRides').value ? 'none' : '';     // .btn would show [hidden]
+  use.dataset.kcal = ex.suggest == null ? '' : ex.suggest;
+}
+function sgExTick(input) {
+  const boxes = [...document.querySelectorAll('#sgExChecks input')];
+  if (input.value === '' && input.checked) boxes.forEach(b => { if (b !== input) b.checked = false; });
+  else if (input.checked) boxes[0].checked = false;
+  if (!boxes.some(b => b.checked)) boxes[0].checked = true;
+  sgSave();
+}
+function sgExKeys() {
+  const boxes = [...document.querySelectorAll('#sgExChecks input')];
+  if (!boxes.length) return undefined;                  // not drawn yet: leave the setting alone
+  return boxes[0].checked ? null : boxes.filter(b => b.checked).map(b => b.value);
+}
+document.getElementById('sgRidesUse').addEventListener('click', e => {
+  document.getElementById('sgRides').value = e.currentTarget.dataset.kcal;
+  sgSave();
+});
 // The loss rate is kept in lb a week, and shown and typed in kg a week when weights are shown in kg (0.25-1.1 kg for 0.5-2.5 lb)
 const SG_KG_PER_LB = 0.45359237;
 function sgLossShow(lb, unit) {
@@ -769,22 +806,23 @@ function sgRender(pl, cur) {
   const diff = cur && cur.cal ? pl.goal - cur.cal : null;
   box.innerHTML =
     `<b>${f(pl.goal)} kcal</b> a day &nbsp;·&nbsp; P ${pl.protein}g · C ${pl.carbs}g · F ${pl.fat}g<br>` +
-    `<span style="color:var(--text-muted)">Weight ${pl.weight_kg} kg → BMR ${f(pl.bmr)} × ${pl.profile.activity} = ${f(pl.neat)}, + ride allowance ${f(pl.rides_per_day)}/day ` +
+    `<span style="color:var(--text-muted)">Weight ${pl.weight_kg} kg → BMR ${f(pl.bmr)} × ${pl.profile.activity} = ${f(pl.neat)}, + exercise allowance ${f(pl.rides_per_day)}/day ` +
     `(${f(pl.rides_week)}/week) = ~${f(pl.tdee)} − ${f(pl.deficit)} deficit${pl.floored ? ' (held at the ' + f(pl.floor) + ' floor)' : ''}.</span>` +
     (diff != null ? `<br>You have <b>${f(cur.cal)}</b> saved${diff ? ` — this is ${diff > 0 ? '+' : '−'}${Math.abs(diff)} kcal` : ' — the same'}.` : '');
 }
 async function sgSave() {
   const r = await fetch('/nutrition/api/goal-profile', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({
     sex: document.getElementById('sgSex').value, birth_date: document.getElementById('sgBorn').value, height_cm: document.getElementById('sgHeight').value,
-    ride_kcal_week: document.getElementById('sgRides').value, ride_goal_week: document.getElementById('sgRideGoal').value, loss_lb_week: sgLossLb(),
+    ride_kcal_week: document.getElementById('sgRides').value, exercise_sports: sgExKeys(), loss_lb_week: sgLossLb(),
     step_goal: document.getElementById('sgSteps').value, auto: document.getElementById('sgAuto').checked }) });
   const d = await r.json();
   if (!r.ok) { document.getElementById('sgPlan').textContent = d.error; return; }
   sgBornShow(d.profile);
+  sgExercise(d.exercise);
   const cur = await (await fetch('/nutrition/api/goals')).json();
   sgRender(d.plan, cur);
 }
-['sgSex','sgBorn','sgHeight','sgRides','sgRideGoal','sgLoss','sgSteps','sgAuto'].forEach(id => document.getElementById(id).addEventListener('change', sgSave));
+['sgSex','sgBorn','sgHeight','sgRides','sgLoss','sgSteps','sgAuto'].forEach(id => document.getElementById(id).addEventListener('change', sgSave));
 document.getElementById('sgApply').addEventListener('click', async () => {
   const r = await fetch('/nutrition/api/goal-plan/apply', { method: 'POST' });
   if (!r.ok) return;

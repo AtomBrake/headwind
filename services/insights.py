@@ -192,16 +192,17 @@ def projection(rider_id):
 
 
 def activity_status(w):
-    """'stagnant' when neither weekly riding miles nor daily steps are up 5%+ (last 4 completed weeks vs the 4 before),
+    """'stagnant' when neither the weekly exercise nor daily steps are up 5%+ (last 4 completed weeks vs the 4 before),
     'ok' when at least one is rising, 'unknown' with too little data. `w` is the nutrition_activity_weekly payload; its
-    last week is still in progress and is left out. Same rule the Activity trend card draws."""
+    last week is still in progress and is left out. The exercise is the sports of the rider's weekly goal of a number of activities (every
+    sport without one), by distance when their distances add up, else by time (w['trend']: 'mi' or 'h'). Same rule the Activity trend card draws."""
     def pct(v):
         done = [x for x in (v or [])[:-1] if x is not None]
         if len(done) < 8:
             return None
         a, b = sum(done[-4:]) / 4, sum(done[-8:-4]) / 4
         return (a - b) / b * 100 if b else None
-    p = [x for x in (pct(w.get('mi')), pct(w.get('steps'))) if x is not None]
+    p = [x for x in (pct(w.get(w.get('trend') or 'mi')), pct(w.get('steps'))) if x is not None]
     if not p:
         return 'unknown'
     return 'stagnant' if all(x < 5 for x in p) else 'ok'

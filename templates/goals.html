@@ -41,11 +41,19 @@
   <form method="POST" action="{{ url_for('goals.add_goal') }}" class="form-grid">
     {{ rider_field() }}
     <label>What{{ metric_select('goalMetric') }}</label>
-    <label>Sport{{ sport_select() }}</label>
     <label>How often<select name="period">{% for p in periods %}<option value="{{ p }}"{{ ' selected' if p == 'week' }}>{{ every[p][:1] | upper }}{{ every[p][1:] }}</option>{% endfor %}</select></label>
     <label><span>Target (<span data-unit-for="goalMetric">{{ units_of.distance }}</span>)</span><input type="number" name="target" min="0" step="any" required></label>
-    <div class="wide form-actions"><button class="btn btn-primary" type="submit">Add goal</button>
-      <span class="hint">Weeks run Monday to Sunday. A distance goal is for one kind of sport; climbing, time and activities can count every sport.</span></div>
+    <fieldset class="wide">
+      <legend>Sports it counts</legend>
+      <div class="checks">
+        <label class="check"><input type="checkbox" name="every" value="1" data-change="goalSportTick(this)"{{ ' checked' if not sport_choices }}> 🏅 Every sport</label>
+        {% for f in sport_choices %}
+        <label class="check"><input type="checkbox" name="sports" value="{{ f.key }}" data-change="goalSportTick(this)"{{ ' checked' if loop.first }}> {{ f.icon }} {{ f.label }}</label>
+        {% endfor %}
+      </div>
+      <p class="hint">Pick as many as you like: "3 activities a week" can be rides or runs. Cycling takes in every kind of ride, On foot runs, walks and hikes, and Every sport any you start later too. A distance goal needs sports whose distances add up: rides, or runs and walks, not both.</p>
+    </fieldset>
+    <div class="wide form-actions"><button class="btn btn-primary" type="submit">Add goal</button></div>
   </form>
 </details>
 

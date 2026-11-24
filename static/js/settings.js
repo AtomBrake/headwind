@@ -352,7 +352,7 @@ function pfKgFrom(unit, idSt, idLb, idKg) {
 async function pfLoad() {
   var d = await (await fetch('/nutrition/api/profile')).json();
   var p = d.profile || {};
-  PF.auto = p.auto ? 1 : 0; PF.rides = p.ride_kcal_week; PF.rideGoal = p.ride_goal_week; PF.ws = d.weight_settings;
+  PF.auto = p.auto ? 1 : 0; PF.rides = p.ride_kcal_week; PF.ws = d.weight_settings;
   document.getElementById('pfSex').value = p.sex || '';
   document.getElementById('pfBorn').value = (!p.birth_date_guessed && p.birth_date) || '';
   document.getElementById('pfBornHint').textContent = p.birth_date_guessed ? 'Only the year (' + p.birth_date.slice(0, 4) + ') is known: enter the full date.' : (p.age ? 'Age ' + p.age : '');
@@ -397,7 +397,7 @@ function pfRender(d) {
   apply.disabled = !!d.plan_error;
   if (d.plan_error) { box.textContent = d.plan_error + ' — fill those in above and save.'; return; }
   var pl = d.plan, f = function(n) { return Number(n).toLocaleString('en-GB'); };
-  box.innerHTML = '<b>' + f(pl.goal) + ' kcal</b> a day &nbsp;·&nbsp; protein ' + pl.protein + ' g · carbs ' + pl.carbs + ' g · fat ' + pl.fat + ' g<br><span style="color:var(--text-muted)">From a resting burn of ' + f(pl.bmr) + ' kcal, your step goal and riding, minus the deficit for losing ' + pfLossText(p.loss_lb_week, d.weight_unit) + ' a week.</span>';
+  box.innerHTML = '<b>' + f(pl.goal) + ' kcal</b> a day &nbsp;·&nbsp; protein ' + pl.protein + ' g · carbs ' + pl.carbs + ' g · fat ' + pl.fat + ' g<br><span style="color:var(--text-muted)">From a resting burn of ' + f(pl.bmr) + ' kcal, your step goal and a typical week's exercise, minus the deficit for losing ' + pfLossText(p.loss_lb_week, d.weight_unit) + ' a week.</span>';
 }
 async function pfSave() {
   var msg = document.getElementById('pfMsg'); msg.textContent = 'Saving…';
@@ -405,7 +405,7 @@ async function pfSave() {
   var height = pfNum('pfCm');                    // kept in step with ft / in as either is typed (pfHeightFrom)
   var post = function(url, body) { return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); };
   var r = await post('/nutrition/api/goal-profile', { sex: document.getElementById('pfSex').value, birth_date: document.getElementById('pfBorn').value, height_cm: height,
-    loss_lb_week: pfLossLb(), step_goal: document.getElementById('pfSteps').value, ride_kcal_week: PF.rides, ride_goal_week: PF.rideGoal, auto: !!PF.auto });
+    loss_lb_week: pfLossLb(), step_goal: document.getElementById('pfSteps').value, ride_kcal_week: PF.rides, auto: !!PF.auto });
   if (!r.ok) { msg.textContent = (await r.json()).error || 'Could not save.'; return; }
   var kg = pfKgFrom(unit, 'pfSt', 'pfLb', 'pfKg');
   if (kg) {

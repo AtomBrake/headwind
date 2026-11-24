@@ -692,10 +692,19 @@ def _history_payloads(rid):
         blocks = periods.blocks('week', 26, periods.prefs(rid), today)
         mons = [b.first for b in blocks]
         first = mons[0].isoformat()
+        # The sports of the rider's weekly count goal (services/goals.weekly_count), or every sport when they have none. The trend
+        # (insights.activity_status) is by distance when those sports' distances add up, else by time.
+        from database import get_db
+        from services import favourites, goals
+        wgoal = goals.weekly_count(get_db(), rid)
+        keys = wgoal['keys'] if wgoal else None
+        one_kind = keys is not None and len({favourites.group_of(k) for k in keys}) == 1
         rides = {}
-        for r in query_db('''SELECT date(startDateLocal) d, COUNT(*) n, SUM(distance) d_m, SUM(movingTime) t
-                             FROM Ride WHERE riderId=? AND date(startDateLocal) BETWEEN ? AND ? GROUP BY date(startDateLocal)''',
+        for r in query_db('''SELECT date(startDateLocal) d, sportType, COUNT(*) n, SUM(distance) d_m, SUM(movingTime) t
+                             FROM Activity WHERE riderId=? AND date(startDateLocal) BETWEEN ? AND ? GROUP BY date(startDateLocal), sportType''',
                           [rid, first, today.isoformat()]):
+            if not favourites.covers(keys, r['sportType']):
+                continue
             i = periods.find(blocks, date.fromisoformat(r['d']))
             if i is not None:
                 w = rides.setdefault(mons[i].isoformat(), {'n': 0, 'd': 0, 't': 0})
@@ -719,7 +728,9 @@ def _history_payloads(rid):
             'h': [round(((rides.get(m.isoformat()) or {'t': 0})['t'] or 0) / 3600, 1) for m in mons],
             'steps': [round(sum(steps_by_week[m.isoformat()]) / len(steps_by_week[m.isoformat()])) if m.isoformat() in steps_by_week else None for m in mons],
             'step_days': [len(steps_by_week.get(m.isoformat(), [])) for m in mons],
-            'ride_goal': __import__('services.goal_model', fromlist=['x']).profile()['ride_goal_week'],
+            'ride_goal': wgoal['target'] if wgoal else None,          # None: no weekly goal of a number of activities
+            'goal_nouns': wgoal['nouns'] if wgoal else 'activities',  # what rides, mi and h count: 'rides', 'rides or runs', 'activities'
+            'trend': 'mi' if one_kind else 'h',
             'step_goal': (query_db('SELECT stepGoal FROM Settings WHERE id=1', one=True) or {'stepGoal': None})['stepGoal'] or 8000,
         }
     except Exception as e:

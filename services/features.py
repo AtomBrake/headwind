@@ -17,7 +17,7 @@ Health is off, whatever 'steps' itself says.
 What depends on what (each written where it's decided):
   - The Garmin sync's daily figures feed Recovery, Steps and Nutrition's calorie burn, so they're read while any of those is on; the weigh-ins
     feed Weight and Nutrition's calorie goals, so they're read while either is (app._garmin_heartbeat, services/garmin.py).
-  - Nutrition's calorie goals count everyday movement from the step goal. With Steps off they count rides only (services/goal_model.profile).
+  - Nutrition's calorie goals count everyday movement from the step goal. With Steps off they count the exercise allowance only (services/goal_model.profile).
   - Nutrition's page logs weigh-ins too, so the weight endpoints it uses answer while Weight or Nutrition is on; the Weight and backfill pages
     need Weight.
   - The AI coach leaves out recovery (and the steps in it) with Recovery off, and the segments with Segments off (services/context.py). It
@@ -40,7 +40,7 @@ Feature = namedtuple('Feature', 'key label hint parent')
 FEATURES = (
     Feature('health',      'Health',           'Nutrition, Steps, Weight and Recovery together, and the Health heading in the sidebar.', None),
     Feature('nutrition',   'Nutrition',        'The food diary, water and the calorie goals.', 'health'),
-    Feature('steps',       'Steps',            'The Steps page. With it off the calorie goals count rides only.', 'health'),
+    Feature('steps',       'Steps',            'The Steps page. With it off the calorie goals count your exercise only.', 'health'),
     Feature('weight',      'Weight',           'The Weight page and its backfill page.', 'health'),
     Feature('recovery',    'Recovery',         "The Recovery page, the dashboard's Recovery Today card and the Garmin health sync.", 'health'),
     Feature('gear',        'Gear',             'Bikes, shoes and other kit, and picking them on an activity.', None),

@@ -775,10 +775,23 @@ def sync_nutrition():
         'weights': [{'id': r['id'], 'date': r['logDate'], 'kg': r['weightKg'], 'source': r['source']}
                     for r in query_db('SELECT id, logDate, weightKg, source FROM WeightLog WHERE riderId=? ORDER BY logDate', [rid])],
         'weight_settings': nu._weight_settings(),
-        'profile': dict(query_db('SELECT sex, birthYear, birthDate, heightCm, lossLbPerWeek, stepGoal, goalAuto, rideKcalWeek, rideGoalWeek FROM Settings WHERE id=1', one=True) or {}),
+        'profile': _profile(rid),
         'steps_days': [{'date': d['date'], 'best': d['best'], 'manual': d['manual']} for d in nu.steps_list().get_json()['days']] if steps_on else [],
         'saved_meals': nu.list_saved_meals().get_json(),
     })
+
+
+def _profile(rid):
+    """The Nutrition profile for the apps. rideKcalWeek is the typical week's exercise, whatever its sports (exerciseSports: keys as favourites
+    have them, None for every sport); rideGoalWeek, kept until the apps read the rider's goals, is the target of their weekly goal of a number
+    of activities (services/goals.weekly_count), None when they have none."""
+    from services import favourites, goals
+    p = dict(query_db('SELECT sex, birthYear, birthDate, heightCm, lossLbPerWeek, stepGoal, goalAuto, rideKcalWeek, exerciseSports FROM Settings '
+                      'WHERE id=1', one=True) or {})
+    p['exerciseSports'] = favourites.parse_set(p.get('exerciseSports'))
+    wgoal = goals.weekly_count(get_db(), rid)
+    p['rideGoalWeek'] = wgoal['target'] if wgoal else None
+    return p
 
 
 @bp.route('/activities', methods=['POST'])

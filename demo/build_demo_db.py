@@ -500,7 +500,8 @@ def main():
         db.execute("INSERT INTO Rider (name, avatarPath, isDefault) VALUES ('Alex', 'custard_cream.svg', 1)")
         rider = db.execute('SELECT id FROM Rider').fetchone()[0]
         db.execute("""INSERT OR REPLACE INTO Settings (id, units, nutritionCalGoal, nutritionProteinGoal, nutritionCarbGoal, nutritionFatGoal, nutritionWaterGoalMl,
-                      nutritionWeightUnit, heightCm, sex, birthYear, stepGoal, goalWeightKg, rideGoalWeek, goalAuto) VALUES (1,'imperial',2400,160,260,75,2500,'kg',181,'male',1985,10000,84,200,0)""")
+                      nutritionWeightUnit, heightCm, sex, birthYear, stepGoal, goalWeightKg, goalAuto) VALUES (1,'imperial',2400,160,260,75,2500,'kg',181,'male',1985,10000,84,0)""")
+        db.execute("""INSERT INTO Goal (riderId, metric, period, sport, sports, target) VALUES (?, 'count', 'week', 'ride', '["group:ride"]', 3)""", [rider])
         # segments: only those clear of every privacy zone, judged on EVERY point of the line (segment lines are stored as JSON point lists)
         from services.segments import clean_polyline
         import re

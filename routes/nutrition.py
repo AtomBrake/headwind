@@ -349,10 +349,22 @@ def estimate_meal_photo():
 
 # ── Smart (floating) goals ────────────────────────────────────────────
 
+def _exercise(rider_id, profile):
+    """The typical week's exercise for the Smart goals form: the sports it covers (None: every sport), the ones that can be picked, and a value
+    offered from the last weeks of those sports' calories (services/goal_model.suggest_exercise_kcal)."""
+    from services import favourites, goal_model
+    keys = profile['exercise_sports']
+    return {'sports': keys, 'choices': favourites.choices_with(get_db(), rider_id, keys) if rider_id else [],
+            'nouns': favourites.nouns(keys, every='every sport'), 'weeks': goal_model.SUGGEST_WEEKS,
+            'suggest': goal_model.suggest_exercise_kcal(rider_id, keys) if rider_id else None}
+
+
 @bp.route('/api/goal-plan', methods=['GET'])
 def goal_plan():
     from services import goal_model
-    return jsonify({'plan': goal_model.plan(whose.rider_id()), 'profile': goal_model.profile(whose.rider_id()), 'current': _get_goals(),
+    rid = whose.rider_id()
+    p = goal_model.profile(rid)
+    return jsonify({'plan': goal_model.plan(rid), 'profile': p, 'current': _get_goals(), 'exercise': _exercise(rid, p),
                     'weight_unit': _weight_settings()['unit']})      # the loss rate is shown in kg a week when weights are
 
 
@@ -379,13 +391,17 @@ def save_goal_profile():
         rides = float(d['ride_kcal_week']) if d.get('ride_kcal_week') not in (None, '') else None
         loss = float(d['loss_lb_week']) if d.get('loss_lb_week') not in (None, '') else None
         steps = int(d['step_goal']) if d.get('step_goal') else None
-        ride_goal = int(d['ride_goal_week']) if d.get('ride_goal_week') not in (None, '') else None
     except (TypeError, ValueError):
         return jsonify({'error': 'invalid number'}), 400
     if loss is not None and not (0 <= loss <= 2.5):
         return jsonify({'error': 'loss rate must be between 0 and 2.5 lb (1.1 kg) a week'}), 400
-    if ride_goal is not None and not (1 <= ride_goal <= 14):
-        return jsonify({'error': 'rides per week must be between 1 and 14'}), 400
+    if rides is not None and not (0 <= rides <= 50000):
+        return jsonify({'error': 'typical exercise must be between 0 and 50,000 kcal a week'}), 400
+    from services import favourites
+    if 'exercise_sports' in d:                          # a list of keys (services/favourites), or null for every sport; left alone when not sent
+        keys = d['exercise_sports']
+        if keys is not None and not (isinstance(keys, list) and favourites.parse_set(favourites.dump_set(keys))):
+            return jsonify({'error': 'pick at least one sport, or every sport'}), 400
     if height_cm is not None and not (100 <= height_cm <= 250):
         return jsonify({'error': 'height must be between 100 and 250 cm'}), 400
     born = None
@@ -398,8 +414,10 @@ def save_goal_profile():
     db = get_db()
     db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
     db.execute("UPDATE Settings SET sex=COALESCE(?, sex), heightCm=COALESCE(?, heightCm), rideKcalWeek=COALESCE(?, rideKcalWeek), "
-               "lossLbPerWeek=COALESCE(?, lossLbPerWeek), stepGoal=COALESCE(?, stepGoal), rideGoalWeek=COALESCE(?, rideGoalWeek), goalAuto=? WHERE id=1",
-               [sex, height_cm, rides, loss, steps, ride_goal, 1 if d.get('auto') else 0])
+               "lossLbPerWeek=COALESCE(?, lossLbPerWeek), stepGoal=COALESCE(?, stepGoal), goalAuto=? WHERE id=1",
+               [sex, height_cm, rides, loss, steps, 1 if d.get('auto') else 0])
+    if 'exercise_sports' in d:
+        db.execute('UPDATE Settings SET exerciseSports=? WHERE id=1', [favourites.dump_set(d['exercise_sports'])])
     if born:
         db.execute('UPDATE Settings SET birthDate=?, birthDateGuessed=0, birthYear=? WHERE id=1', [born.isoformat(), born.year])
     elif age is not None and age != goal_model.profile()['age']:     # an age alone: 1 January of the year it gives, still to be confirmed
@@ -407,7 +425,9 @@ def save_goal_profile():
         db.execute('UPDATE Settings SET birthDate=?, birthDateGuessed=1, birthYear=? WHERE id=1', [f'{y:04d}-01-01', y])
     db.commit()
     _mqtt_nutrition()
-    return jsonify({'plan': goal_model.plan(whose.rider_id()), 'profile': goal_model.profile(whose.rider_id())})
+    rid = whose.rider_id()
+    p = goal_model.profile(rid)
+    return jsonify({'plan': goal_model.plan(rid), 'profile': p, 'exercise': _exercise(rid, p)})
 
 
 @bp.route('/api/goal-plan/apply', methods=['POST'])

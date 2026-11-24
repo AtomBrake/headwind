@@ -1590,6 +1590,34 @@ def _step_16(db):
         db.execute('UPDATE Settings SET upstreamExtrasDone=1')
 
 
+def _step_17(db):
+    """Goals count any set of sports, and the rider has only the goals they chose (services/goals.py). Goal.sports: the keys a goal counts, as
+    favourites have them (services/favourites.parse_set), NULL for every sport; each goal's one group becomes a one-item list. Settings.rideGoalWeek
+    (rides a week, read by Home Assistant's weekly activity sensor) becomes an ordinary goal of the default rider's, a count of rides each week,
+    unless they have that goal already; an install that never set it gets none, not the old default of 2. The column is left for an older
+    Headwind. Settings.exerciseSports: the sports whose calories the Nutrition page offers as the typical week's exercise (rideKcalWeek),
+    NULL for every sport; it was rides, so an install from before this keeps Cycling."""
+    from services import goals
+    goals.ensure_schema(db)
+    have = {r[1] for r in db.execute('PRAGMA table_info(Goal)').fetchall()}
+    if 'sports' not in have:
+        db.execute('ALTER TABLE Goal ADD COLUMN sports TEXT')
+    for group in ('ride', 'foot', 'swim'):
+        db.execute('UPDATE Goal SET sports=? WHERE sport=? AND sports IS NULL', [f'["group:{group}"]', group])
+    have = {r[1] for r in db.execute('PRAGMA table_info(Settings)').fetchall()}
+    if 'exerciseSports' not in have:
+        db.execute('ALTER TABLE Settings ADD COLUMN exerciseSports TEXT')
+    if not db.execute('SELECT 1 FROM Rider LIMIT 1').fetchone():
+        return
+    db.execute('''UPDATE Settings SET exerciseSports='["group:ride"]' WHERE id=1''')
+    s = db.execute('SELECT rideGoalWeek FROM Settings WHERE id=1').fetchone() if 'rideGoalWeek' in have else None
+    rider = db.execute('SELECT id FROM Rider ORDER BY isDefault DESC, id LIMIT 1').fetchone()
+    if s and s[0] and s[0] > 0 and not db.execute(
+            '''SELECT 1 FROM Goal WHERE riderId=? AND metric='count' AND period='week' AND sports='["group:ride"]' ''', [rider[0]]).fetchone():
+        db.execute('''INSERT INTO Goal (riderId, metric, period, sport, sports, target) VALUES (?, 'count', 'week', 'ride', '["group:ride"]', ?)''',
+                   [rider[0], int(s[0])])
+
+
 def _compact(db):
     """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
     a temporary file and once through the WAL. Logged either way. Commits."""
@@ -1648,6 +1676,7 @@ STEPS = (
     (_step_14, False),
     (_step_15, False),
     (_step_16, False),
+    (_step_17, False),
 )
 LATEST = len(STEPS)
 

@@ -331,3 +331,48 @@ def test_step_15_keeps_an_existing_install_on_its_comeback_and_starts_a_new_one_
         assert conn.execute('SELECT coachProgressFrom FROM Settings WHERE id=1').fetchone() in (None, (None,))    # NULL: the last 6 months
     finally:
         conn.close()
+
+
+def test_step_17_turns_each_goal_into_a_list_and_the_ride_goal_into_a_goal(tmp_path, fresh):
+    old = tmp_path / 'goals.db'
+    _from_sql(old, 'schema_step_1.sql', 1)
+    conn = sqlite3.connect(old)
+    conn.execute("INSERT INTO Settings (id, units, rideGoalWeek, rideKcalWeek) VALUES (1, 'metric', 3, 2800)")
+    conn.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Sam', 0)")
+    conn.execute("INSERT INTO Rider (id, name, isDefault) VALUES (2, 'Tom', 1)")
+    for sport in ('ride', 'foot', 'swim', 'all'):
+        conn.execute("INSERT INTO Goal (riderId, metric, period, sport, target) VALUES (1, 'time', 'week', ?, 3600)", [sport])
+    conn.commit()
+    conn.close()
+    _migrate(old)
+    conn = sqlite3.connect(old)
+    try:
+        assert conn.execute("SELECT sport, sports FROM Goal WHERE riderId=1 ORDER BY id").fetchall() == [
+            ('ride', '["group:ride"]'), ('foot', '["group:foot"]'), ('swim', '["group:swim"]'), ('all', None)]
+        assert conn.execute("SELECT riderId, metric, period, sports, target FROM Goal WHERE riderId=2").fetchall() == [
+            (2, 'count', 'week', '["group:ride"]', 3.0)]                     # the default rider's, as the setting was
+        assert conn.execute('SELECT exerciseSports, rideKcalWeek FROM Settings').fetchone() == ('["group:ride"]', 2800.0)    # was rides
+    finally:
+        conn.close()
+    assert not _missing(old, fresh)
+
+
+def test_step_17_gives_no_goal_to_an_install_that_never_set_one(tmp_path, fresh):
+    old = tmp_path / 'nogoal.db'
+    _from_sql(old, 'schema_step_1.sql', 1)
+    conn = sqlite3.connect(old)
+    conn.execute("INSERT INTO Settings (id, units) VALUES (1, 'metric')")
+    conn.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Sam', 1)")
+    conn.commit()
+    conn.close()
+    _migrate(old)
+    conn = sqlite3.connect(old)
+    try:
+        assert conn.execute('SELECT COUNT(*) FROM Goal').fetchone()[0] == 0
+    finally:
+        conn.close()
+    conn = sqlite3.connect(fresh)
+    try:
+        assert conn.execute('SELECT exerciseSports FROM Settings WHERE id=1').fetchone() in (None, (None,))     # a new install: every sport
+    finally:
+        conn.close()

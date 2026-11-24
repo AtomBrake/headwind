@@ -1,7 +1,10 @@
-"""Goals and friend challenges: distance, climbing, time or a count of activities, for one kind of sport or for all of them.
+"""Goals and friend challenges: distance, climbing, time or a count of activities, for the sports picked or for all of them.
 
-A goal is the rider's own target for every week, month or year ("100 mi of riding a week", "50,000 ft of climbing this year"), measured from their
-activities as they are now, so a deleted or re-typed activity moves it straight away. Nothing is stored but the target.
+A goal is the rider's own target for every week, month or year ("100 mi of riding a week", "50,000 ft of climbing this year", "3 rides or runs a
+week"), measured from their activities as they are now, so a deleted or re-typed activity moves it straight away. Nothing is stored but the target
+and the sports it counts: Goal.sports, a set of keys as favourites have them (services/favourites.parse_set: 'group:ride' for every kind of ride,
+'sport:Run' for runs alone), NULL for every sport (stored_keys). Goal.sport, the one group it was before (database._step_17), is still written, as near as one
+group gets, for an older Headwind opening the database. A rider has only the goals they set: none to start with.
 
 A challenge is a race between friends over set dates: the most (or first to a target) of one thing. It travels on the friends feed
 (routes/friends.feed) as 'challenge' lines, each with a uid made where it was started. One started here goes only to the friends invited, by
@@ -35,9 +38,10 @@ def ensure_schema(db):
         riderId   INTEGER NOT NULL REFERENCES Rider(id),
         metric    TEXT NOT NULL,                  -- METRICS
         period    TEXT NOT NULL,                  -- PERIODS
-        sport     TEXT NOT NULL DEFAULT 'all',    -- GROUPS
+        sport     TEXT NOT NULL DEFAULT 'all',    -- GROUPS: what an older Headwind counts (_old_group); sports is what counts
         target    REAL NOT NULL,                  -- metres, seconds or a count
-        createdAt TEXT DEFAULT (datetime('now'))
+        createdAt TEXT DEFAULT (datetime('now')),
+        sports    TEXT                            -- services/favourites.parse_set keys, as JSON; NULL: sport's group, 'all' every sport (stored_keys)
     )''')
     db.execute('''CREATE TABLE IF NOT EXISTS Challenge (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,25 +117,71 @@ def unit_label(metric):
     return {'distance': units.spec()['dist'], 'climb': units.spec()['elev'], 'time': 'hours', 'count': 'activities'}[metric]
 
 
+def keys_of(sport):
+    """What a goal counts, from a set of keys (a list; anything that isn't one dropped), a challenge's group ('ride', 'all') or None (every
+    sport): None for every sport, else the list of keys. An empty list stays empty, for check() to refuse."""
+    from services import favourites
+    if sport is None or sport == 'all':
+        return None
+    if isinstance(sport, str):
+        return [f'group:{sport}'] if sport in GROUPS else []
+    return favourites.parse_set(favourites.dump_set(sport))
+
+
+def stored_keys(row):
+    """What a Goal row counts: its sports, or, where they're NULL, its one group, as a goal an older Headwind added has only that (NULL with
+    sport 'all' is every sport)."""
+    from services import favourites
+    if row['sports'] is None:
+        return keys_of(row['sport'] if row['sport'] in GROUPS else 'all')
+    return favourites.parse_set(row['sports'])
+
+
+def _old_group(keys):
+    """Goal.sport for an older Headwind: the one group every key is in, else 'all'."""
+    from services import favourites
+    groups = {favourites.group_of(k) for k in keys or ()}
+    return groups.pop() if keys and len(groups) == 1 and next(iter(groups)) in GROUPS else 'all'
+
+
+def _on(sport):
+    """' (rides or runs)' for a title, '' for every sport. sport: keys or a challenge's group."""
+    from services import favourites
+    keys = keys_of(sport)
+    return '' if keys is None else f' ({favourites.nouns(keys)})'
+
+
 def describe(metric, sport, target=None, period=None, mode=None):
-    """'100 mi of rides a week', 'The most climbing, every sport', ... mode 'rolling' (services/periods): a month goal is 'every 28 days'."""
+    """'100 mi of distance (rides) a week', 'The most climbing', '3 activities (rides or runs) a week', ... sport: a set of keys (keys_of), a
+    challenge's group, or None for every sport. mode 'rolling' (services/periods): a month goal is 'every 28 days'."""
     what = {'distance': 'distance', 'climb': 'climbing', 'time': 'time', 'count': 'activities'}[metric]
-    on = '' if sport == 'all' else f" ({GROUP_LABELS[sport].lower()})"
+    on = _on(sport)
     if target is None:
         return f'The most {what}{on}'
     every = ROLLING_PERIOD_LABELS.get(period) if mode == 'rolling' else None    # a week is 7 days either way
-    return f"{fmt(metric, target)} of {what}{on}" + (f' {every or PERIOD_LABELS[period]}' if period else '')
+    amount = fmt(metric, target) if metric == 'count' else f'{fmt(metric, target)} of {what}'      # '3 activities', not '3 activities of activities'
+    return f"{amount}{on}" + (f' {every or PERIOD_LABELS[period]}' if period else '')
 
 
 def check(metric, sport, period=None):
-    """An error text for a combination that can't be measured, else None. A distance needs one kind of sport: a swim's metres never add to a
-    ride's miles (services/sport_filter), and there's no climbing in the water."""
-    if metric not in METRICS or sport not in GROUPS or (period is not None and period not in PERIODS):
+    """An error text for a combination that can't be measured, else None. sport: a set of keys, a challenge's group, or None for every sport.
+    A distance needs sports whose distances add up, one stat group: a swim's metres never add to a ride's miles (services/sport_filter), nor a
+    run's to a ride's. There's no climbing in the water."""
+    from services import favourites
+    if metric not in METRICS or (isinstance(sport, str) and sport not in GROUPS) or (period is not None and period not in PERIODS):
         return 'Pick what to count, the sport and how often.'
-    if metric == 'distance' and sport == 'all':
-        return 'A distance goal needs one kind of sport: a swim’s distance doesn’t add to a ride’s.'
-    if metric == 'climb' and sport == 'swim':
-        return 'Swims have no climbing.'
+    keys = keys_of(sport)
+    if keys == []:
+        return 'Pick at least one sport, or every sport.'
+    groups = {favourites.group_of(k) for k in keys or ()}
+    if metric == 'distance' and (keys is None or len(groups) > 1):
+        return ('A distance goal needs sports whose distances add up: rides, or runs and walks, not both. A swim’s or a run’s distance '
+                'doesn’t add to a ride’s.')
+    if metric == 'climb' and keys is not None:
+        if groups == {'swim'}:
+            return 'Swims have no climbing.'
+        if not any(favourites.group_of(k) in ('ride', 'foot') or sports.has_climbing(k.partition(':')[2]) for k in keys):
+            return 'None of those sports has climbing.'
     return None
 
 
@@ -148,18 +198,23 @@ def _value(metric, row):
     return {'distance': row[2], 'climb': row[4], 'time': row[3], 'count': 1}[metric] or 0
 
 
-def _counts(sport, sport_type):
-    return sport == 'all' or sports.stat_group(sport_type) == sport
+def _counts(keys, sport_type):
+    """Whether an activity of this sport counts towards a goal or challenge of these keys (keys_of)."""
+    from services import favourites
+    return favourites.covers(keys, sport_type)
 
 
 def total(db, rider_id, metric, sport, first, last):
-    return sum(_value(metric, r) for r in _rows(db, rider_id, first, last) if _counts(sport, r[1]))
+    keys = keys_of(sport)
+    return sum(_value(metric, r) for r in _rows(db, rider_id, first, last) if _counts(keys, r[1]))
 
 
 # ── Goals ──
 
 def add_goal(db, rider_id, metric, period, sport, target_text):
-    """Returns an error text, or None once it's saved. Commits."""
+    """sport: the keys it counts (a list), a group ('ride') or None / 'all' for every sport. Returns an error text, or None once it's saved.
+    Commits."""
+    from services import favourites
     err = check(metric, sport, period)
     if err:
         return err
@@ -167,9 +222,24 @@ def add_goal(db, rider_id, metric, period, sport, target_text):
         target = to_stored(metric, target_text)
     except (TypeError, ValueError):
         return f'Type the target as a number of {unit_label(metric)}.'
-    db.execute('INSERT INTO Goal (riderId, metric, period, sport, target) VALUES (?,?,?,?,?)', [rider_id, metric, period, sport, target])
+    keys = keys_of(sport)
+    db.execute('INSERT INTO Goal (riderId, metric, period, sport, sports, target) VALUES (?,?,?,?,?,?)',
+               [rider_id, metric, period, _old_group(keys), favourites.dump_set(keys), target])
     db.commit()
     return None
+
+
+def weekly_count(db, rider_id):
+    """The rider's goal of a number of activities each week (the first, if they've set more than one): {id, target, keys, nouns ('rides or
+    runs', 'activities' for every sport)}, or None when they have none. Home Assistant's weekly activity sensor and its "looking stagnant" status
+    count its sports (services/mqtt, services/insights.activity_status)."""
+    from services import favourites
+    g = db.execute("SELECT id, target, sport, sports FROM Goal WHERE riderId=? AND metric='count' AND period='week' ORDER BY id LIMIT 1",
+                   [rider_id]).fetchone() if rider_id is not None else None
+    if not g:
+        return None
+    keys = stored_keys(g)
+    return {'id': g['id'], 'target': int(g['target']), 'keys': keys, 'nouns': favourites.nouns(keys, every='activities')}
 
 
 def delete_goal(db, rider_id, goal_id):
@@ -188,14 +258,16 @@ def goals(db, rider_id, today=None, p=None):
     today = today or tz.today()
     p = p or periods.resolve(rider_id)
     out = []
-    for g in db.execute('SELECT * FROM Goal WHERE riderId=? ORDER BY period, sport, metric', [rider_id]).fetchall():
+    from services import favourites
+    for g in db.execute('SELECT * FROM Goal WHERE riderId=? ORDER BY period, sport, metric, id', [rider_id]).fetchall():
+        keys = stored_keys(g)
         blocks = periods.blocks(g['period'], HISTORY[g['period']] + 1, p, today)
         now = blocks[-1]
         first, last = now.first, now.last
         rows = _rows(db, rider_id, blocks[0].first, last)
         sums = [0] * len(blocks)
         for r in rows:
-            if _counts(g['sport'], r[1]):
+            if _counts(keys, r[1]):
                 i = periods.find(blocks, date.fromisoformat(r[0]))
                 if i is not None:
                     sums[i] += _value(g['metric'], r)
@@ -210,8 +282,8 @@ def goals(db, rider_id, today=None, p=None):
                 break
             streak += 1
         out.append({
-            'id': g['id'], 'metric': g['metric'], 'period': g['period'], 'sport': g['sport'], 'target': target,
-            'title': describe(g['metric'], g['sport'], target, g['period'], p.mode), 'icon': GROUP_ICONS[g['sport']],
+            'id': g['id'], 'metric': g['metric'], 'period': g['period'], 'sports': keys, 'target': target,
+            'title': describe(g['metric'], keys, target, g['period'], p.mode), 'icon': favourites.icons(keys),
             'done': done, 'done_fmt': fmt(g['metric'], done), 'target_fmt': fmt(g['metric'], target),
             'pct': min(100, round(100 * done / target)), 'expected_pct': min(100, round(100 * expected / target)),
             'status': 'done' if done >= target else ('ahead' if done >= expected else 'behind'),

@@ -490,7 +490,9 @@ const steps = n('{N}steps_today'), stepGoal = n('{N}steps_goal') || 8000;
 const water = n('{N}water'), waterGoal = n('{N}water_goal') || 2000;
 const prot = n('{N}protein'), protGoal = n('{N}protein_goal');
 const eaten = n('{N}calories_eaten'), kGoal = n('{N}calories_goal');
-const rideGoal = AW.ride_goal || 2, rides = (AW.rides && AW.rides.length) ? AW.rides[AW.rides.length - 1] : 0;
+const rideGoal = AW.ride_goal, rides = (AW.rides && AW.rides.length) ? AW.rides[AW.rides.length - 1] : 0;      // no goal: no row
+const what = AW.goal_nouns || 'activities';                             // the goal's sports: 'rides', 'rides or runs', 'activities'
+const hasGoal = rideGoal != null;
 const rolling = AW.mode === 'rolling';                                  // the past 7 days (services/periods): no end of the week to count down to
 const daysLeft = AW.days_left != null ? AW.days_left : 7 - (new Date().getDay() + 6) % 7;      // days left this week including today
 const need = Math.max(0, rideGoal - rides);
@@ -501,17 +503,17 @@ const row = (done, bad, label, val, sub, v, g, c) => `<div style="padding:9px 0;
   <div style="flex:1;min-width:0"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><span style="font-size:14px;font-weight:600">${{label}}</span><span style="font-size:14px;font-weight:700;white-space:nowrap">${{val}}</span></div>
   ${{v == null ? '' : bar(v, g, c)}}${{sub ? `<div style="font-size:11.5px;color:${{MUTED}};margin-top:4px;white-space:normal;line-height:1.3">${{sub}}</div>` : ''}}</div></div></div>`;
 const f = x => Math.round(x).toLocaleString('en-GB');
-const dSteps = steps >= stepGoal, dWater = water >= waterGoal, dProt = protGoal ? prot >= protGoal : false, dRides = rides >= rideGoal;
+const dSteps = steps >= stepGoal, dWater = water >= waterGoal, dProt = protGoal ? prot >= protGoal : false, dRides = hasGoal && rides >= rideGoal;
 const over = kGoal && eaten > kGoal, dCal = kGoal && !over && late;
-const ridePips = Array.from({{length: rideGoal}}, (_, i) => i < rides ? '●' : '○').join(' ');
-const rideBad = !rolling && !dRides && daysLeft <= need;
+const ridePips = hasGoal ? Array.from({{length: rideGoal}}, (_, i) => i < rides ? '●' : '○').join(' ') : '';
+const rideBad = hasGoal && !rolling && !dRides && daysLeft <= need;
 const rideSub = dRides ? (rolling ? 'Done in the past 7 days' : 'Done for the week — anything extra is a bonus')
   : rolling ? need + ' more to go in the past 7 days'
-  : need + ' more to go · ' + daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' left this week' + (rideBad ? ' — you need to ride ' + (daysLeft === need ? 'every day left' : 'soon') : '');
-const done = [dSteps, dWater, dProt, dRides, dCal].filter(Boolean).length;
-return `<div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:${{MUTED}}">Today's goals</div><b style="font-size:13px;color:${{done === 5 ? '#34d399' : '#fff'}}">${{done}} of 5 done</b></div>
+  : need + ' more to go · ' + daysLeft + ' day' + (daysLeft === 1 ? '' : 's') + ' left this week' + (rideBad ? ' — you need one ' + (daysLeft === need ? 'every day left' : 'soon') : '');
+const done = [dSteps, dWater, dProt, dRides, dCal].filter(Boolean).length, of = hasGoal ? 5 : 4;
+return `<div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:${{MUTED}}">Today's goals</div><b style="font-size:13px;color:${{done === of ? '#34d399' : '#fff'}}">${{done}} of ${{of}} done</b></div>
 ${{row(dSteps, false, 'Walk ' + f(stepGoal) + ' steps', f(steps) + ' / ' + f(stepGoal), dSteps ? '' : f(stepGoal - steps) + ' to go', steps, stepGoal, '#34d399')}}
-${{row(dRides, rideBad, 'Ride ' + rideGoal + (rolling ? '× in 7 days' : '× this week'), ridePips + '  ' + rides + ' / ' + rideGoal, rideSub, null)}}
+${{hasGoal ? row(dRides, rideBad, rideGoal + ' ' + what + (rolling ? ' in 7 days' : ' this week'), ridePips + '  ' + rides + ' / ' + rideGoal, rideSub, null) : ''}}
 ${{row(dWater, false, 'Drink ' + f(waterGoal) + ' ml', f(water) + ' / ' + f(waterGoal), '', water, waterGoal, '#38bdf8')}}
 ${{row(dProt, false, 'Hit ' + f(protGoal) + ' g protein', f(prot) + ' / ' + f(protGoal) + ' g', '', prot, protGoal, '#fbbf24')}}
 ${{row(dCal, over, 'Stay within ' + f(kGoal) + ' kcal', f(eaten) + ' / ' + f(kGoal), over ? f(eaten - kGoal) + ' over' : dCal ? '' : f(kGoal - eaten) + ' left · ticks off after 8 pm if you are under', eaten, kGoal, over ? '#f87171' : '#fc4c02')}}`;""", pad=16), 12)
@@ -526,17 +528,17 @@ return panel('My plan', A.auto ? 'auto-adjusting' : 'manual', null, `
   <div style="display:flex;align-items:baseline;gap:8px"><span style="font-size:40px;font-weight:800;color:#fc4c02">${k(A.saved_goal)}</span><span style="font-size:14px;color:${MUTED}">kcal / day</span></div>
   <div style="font-size:13px;color:${MUTED};margin:2px 0 8px">P ${A.protein} g · C ${A.carbs} g · F ${A.fat} g · fibre 30 g</div>
   ${row('Steps', k(A.step_goal), ' / day')}
-  ${row('Riding allowance', k(A.rides_week), ' kcal / week (about 2 rides)')}
+  ${row('Exercise allowance', k(A.rides_week), ' kcal / week')}
   ${row('Loss target', A.loss_lb_week + ' lb', ' / week')}
   <div style="font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:${MUTED};margin-top:12px">How it adds up (at ${A.weight_lb} lb)</div>
   ${row('Resting burn (BMR)', k(A.bmr))}
   ${row('× everyday movement', '+' + k(A.neat - A.bmr), ' (×' + A.activity + ' from ' + k(A.step_goal) + ' steps)')}
-  ${row('+ riding allowance', '+' + k(A.rides_per_day), ' / day')}
+  ${row('+ exercise allowance', '+' + k(A.rides_per_day), ' / day')}
   ${row('= daily burn', k(A.tdee))}
   ${row('− deficit', '−' + k(A.deficit), ' (' + A.loss_lb_week + ' lb/week)')}
   ${row('Never below', k(A.floor), ' (1.1 × BMR)' + (A.floored ? ' — floor is active' : ''))}
   ${drift}
-  <div style="font-size:11px;color:${MUTED};margin-top:10px;white-space:normal;line-height:1.35">Riding never changes the goal — only your weight does. Rides are a fixed allowance, so a big ride is extra room, not a reason to eat more.</div>`);""")
+  <div style="font-size:11px;color:${MUTED};margin-top:10px;white-space:normal;line-height:1.35">Training never changes the goal — only your weight does. Exercise is a fixed allowance, so a big week is extra room, not a reason to eat more.</div>`);""")
 
     next_cut = chart_card(PLAN, """
 if (A.status !== 'ok') return panel('Next calorie change', '', null, `<div style="color:${MUTED};font-size:13px;padding:8px 0">Needs your profile and a weigh-in.</div>`);
@@ -653,16 +655,17 @@ const cmp = v => { const done = v.slice(0, cur).filter(x => x != null); if (done
 const pill = (label, pct) => { if (pct == null) return `<span style="background:rgba(255,255,255,.08);border-radius:999px;padding:5px 11px;font-size:12px;color:${MUTED}">${label} · not enough weeks</span>`;
   const flat = Math.abs(pct) < 5, up = pct >= 5, c = flat ? '#fbbf24' : up ? '#34d399' : '#f87171';
   return `<span style="background:${c}22;color:${c};border-radius:999px;padding:5px 11px;font-size:12px;font-weight:700">${label} · ${flat ? 'flat' : up ? '▲ up ' + Math.round(pct) + '%' : '▼ down ' + Math.round(-pct) + '%'}</span>`; };
-const mi = A.mi, st = A.steps, goal = A.step_goal;
+const byTime = A.trend === 'h', mi = (byTime ? A.h : A.mi) || [], st = A.steps, goal = A.step_goal;    // the weekly goal's sports: distance when it adds up, else hours
+const exName = A.goal_nouns ? A.goal_nouns.charAt(0).toUpperCase() + A.goal_nouns.slice(1) : 'Riding';
 const dim = arr => arr.map((_, i) => i === cur ? 'rgba(255,255,255,.28)' : null);
 const miCol = mi.map((_, i) => i === cur ? 'rgba(252,76,2,.35)' : '#fc4c02'), stCol = st.map((_, i) => i === cur ? 'rgba(125,211,252,.35)' : '#7dd3fc');
 const sIdx = st.findIndex(x => x != null), sl = i => i < 0 ? 0 : i;
 const pm = cmp(mi), ps = cmp(st);
 const flatBoth = pm != null && ps != null && Math.abs(pm) < 5 && Math.abs(ps) < 5;
-const flatMsg = flatBoth ? `<div style="font-size:12px;color:#fbbf24;margin-top:10px;white-space:normal;line-height:1.35">Riding and steps have both been level for the last 4 weeks vs the 4 before — a plateau in activity, which is when losses usually stall.</div>` : '';
+const flatMsg = flatBoth ? `<div style="font-size:12px;color:#fbbf24;margin-top:10px;white-space:normal;line-height:1.35">${exName} and steps have both been level for the last 4 weeks vs the 4 before — a plateau in activity, which is when losses usually stall.</div>` : '';
 return panel('Activity trend · 26 weeks', '', [['Week', 'rgba(255,255,255,.6)'], ['4-week average', '#ffffff']], `
-  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">${pill('Riding', pm)}${pill('Steps', ps)}</div>
-  <div style="font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:${MUTED}">Riding · miles per week</div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">${pill(exName, pm)}${pill('Steps', ps)}</div>
+  <div style="font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:${MUTED}">${exName} · ${byTime ? 'hours' : 'miles'} per week</div>
   ${chart({labels: d, xdates: false, dec: 0, zero: true, h: 120, series: [{v: mi, color: '#fc4c02', colors: miCol, type: 'bar'}, {v: roll(mi), color: '#ffffff', w: 2.2}]})}
   <div style="font-size:12px;letter-spacing:.07em;text-transform:uppercase;color:${MUTED};margin-top:12px">Steps · daily average per week</div>
   ${chart({labels: d, dec: 0, zero: true, h: 120, goal: goal, series: [{v: st, color: '#7dd3fc', colors: stCol, type: 'bar'}, {v: roll(st), color: '#ffffff', w: 2.2}]})}

@@ -130,9 +130,82 @@ def test_a_rolling_monthly_goal_on_the_1st_includes_last_months_days(pair):
     assert g['done'] == 1 and g['period_label'] == 'November' and g['days_left'] == 30   # the calendar month: the 1st alone
 
 
+def test_a_goal_of_rides_and_runs_counts_both_and_nothing_else(pair):
+    tom, _ = pair
+
+    def go(d):
+        assert goals.add_goal(d, 1, 'count', 'week', ['group:ride', 'sport:Run'], '3') is None
+        ride(d, 'r1', '2026-10-19')
+        ride(d, 'r2', '2026-10-20', sport='EBikeRide')          # every kind of ride
+        ride(d, 'run', '2026-10-21', sport='Run')
+        ride(d, 'walk', '2026-10-21', sport='Walk')             # on foot, but only runs were picked
+        ride(d, 'swim', '2026-10-22', sport='Swim')
+        return goals.goals(d, 1, today=date(2026, 10, 22), p=CAL)[0]
+    g = on(tom, go)
+    assert g['done'] == 3 and g['status'] == 'done' and g['sports'] == ['group:ride', 'sport:Run']
+    assert g['title'] == '3 activities (rides or runs) a week' and g['icon'] == '🚴🏃'
+    stored = on(tom, lambda d: tuple(d.execute('SELECT sport, sports FROM Goal').fetchone()))
+    assert stored == ('all', '["group:ride", "sport:Run"]')     # an older Headwind: as near as one group gets
+
+
+def test_a_distance_goal_of_runs_and_walks_adds_their_distances(pair):
+    tom, _ = pair
+
+    def go(d):
+        assert goals.add_goal(d, 1, 'distance', 'week', ['sport:Run', 'sport:Walk'], '5') is None
+        ride(d, 'run', '2026-10-19', sport='Run', dist=5000)
+        ride(d, 'walk', '2026-10-20', sport='Walk', dist=3000)
+        ride(d, 'hike', '2026-10-20', sport='Hike', dist=9000)  # on foot too, but not picked
+        return goals.goals(d, 1, today=date(2026, 10, 20), p=CAL)[0]
+    g = on(tom, go)
+    assert round(g['done']) == 8000
+    assert on(tom, lambda d: d.execute('SELECT sport FROM Goal').fetchone()[0]) == 'foot'
+
+
+def test_a_goal_an_older_headwind_added_counts_its_group(pair):
+    tom, _ = pair
+
+    def go(d):
+        d.execute("INSERT INTO Goal (riderId, metric, period, sport, target) VALUES (1, 'count', 'week', 'foot', 2)")    # no sports
+        ride(d, 'ride', '2026-10-19')
+        ride(d, 'walk', '2026-10-19', sport='Walk')
+        return goals.goals(d, 1, today=date(2026, 10, 19), p=CAL)[0]
+    g = on(tom, go)
+    assert g['done'] == 1 and g['sports'] == ['group:foot']
+    assert on(tom, lambda d: goals.weekly_count(d, 1))['keys'] == ['group:foot']
+
+
+def test_every_sport_counts_any_sport(pair):
+    tom, _ = pair
+
+    def go(d):
+        assert goals.add_goal(d, 1, 'time', 'week', None, '1') is None
+        ride(d, 'yoga', '2026-10-19', sport='Yoga', secs=1800, dist=0)
+        ride(d, 'paddle', '2026-10-19', sport='Paddle', secs=1800)
+        return goals.goals(d, 1, today=date(2026, 10, 19), p=CAL)[0]
+    g = on(tom, go)
+    assert g['done'] == 3600 and g['sports'] is None and g['icon'] == '🏅' and g['title'] == '1h 00m of time a week'
+
+
+def test_weekly_count_is_the_riders_weekly_goal_of_a_number_of_activities(pair):
+    tom, _ = pair
+    assert on(tom, lambda d: goals.weekly_count(d, 1)) is None              # none until the rider sets one
+    on(tom, lambda d: goals.add_goal(d, 1, 'count', 'month', 'ride', '10'))
+    on(tom, lambda d: goals.add_goal(d, 1, 'distance', 'week', 'ride', '50'))
+    assert on(tom, lambda d: goals.weekly_count(d, 1)) is None
+    on(tom, lambda d: goals.add_goal(d, 1, 'count', 'week', ['group:ride', 'group:swim'], '4'))
+    w = on(tom, lambda d: goals.weekly_count(d, 1))
+    assert w['target'] == 4 and w['keys'] == ['group:ride', 'group:swim'] and w['nouns'] == 'rides or swims'
+
+
 def test_goals_that_cant_be_measured_are_refused(pair):
     tom, _ = pair
-    assert on(tom, lambda d: goals.add_goal(d, 1, 'distance', 'week', 'all', '10')).startswith('A distance goal needs one kind of sport')
+    assert on(tom, lambda d: goals.add_goal(d, 1, 'distance', 'week', 'all', '10')).startswith('A distance goal needs sports whose distances add up')
+    assert on(tom, lambda d: goals.add_goal(d, 1, 'distance', 'week', ['group:ride', 'sport:Run'], '10')).startswith('A distance goal needs')
+    assert on(tom, lambda d: goals.add_goal(d, 1, 'climb', 'week', ['sport:Swim'], '10')) == 'Swims have no climbing.'
+    assert on(tom, lambda d: goals.add_goal(d, 1, 'climb', 'week', ['sport:Kitesurf'], '10')) == 'None of those sports has climbing.'
+    assert on(tom, lambda d: goals.add_goal(d, 1, 'count', 'week', [], '3')).startswith('Pick at least one sport')
+    assert on(tom, lambda d: goals.add_goal(d, 1, 'count', 'week', ['nonsense'], '3')).startswith('Pick at least one sport')
     assert on(tom, lambda d: goals.add_goal(d, 1, 'climb', 'week', 'swim', '10')) == 'Swims have no climbing.'
     assert on(tom, lambda d: goals.add_goal(d, 1, 'time', 'week', 'ride', 'lots')).startswith('Type the target')
     assert on(tom, lambda d: goals.add_goal(d, 1, 'time', 'week', 'ride', '-3')).startswith('Type the target')
@@ -276,7 +349,9 @@ def test_goals_page_adds_shows_and_deletes_a_goal(client):
     html = client.get('/goals').get_data(as_text=True)
     assert '100 km of distance (rides) a week' in html and '<strong>12.0 km</strong> of 100 km' in html
     assert '100 km of distance (rides) a week' in client.get('/dashboard').get_data(as_text=True)
-    r = client.post('/goals/add', data={'metric': 'distance', 'sport': 'all', 'period': 'week', 'target': '100'})
+    r = client.post('/goals/add', data={'metric': 'distance', 'every': '1', 'period': 'week', 'target': '100'})
+    assert 'error=' in r.headers['Location']
+    r = client.post('/goals/add', data={'metric': 'count', 'period': 'week', 'target': '3'})          # nothing ticked
     assert 'error=' in r.headers['Location']
     client.post('/goals/1/delete', data={'rider': '1'})
     assert 'No goals yet' in client.get('/goals').get_data(as_text=True)
@@ -289,3 +364,15 @@ def test_starting_a_challenge_from_the_page(client):
     html = client.get('/goals').get_data(as_text=True)
     assert 'The most time' in html and 'Tom' in html and 'Nobody reads your feed yet' in html
     assert 'The most time' in client.get('/dashboard').get_data(as_text=True)
+
+
+def test_the_goal_form_takes_any_set_of_sports(client):
+    html = client.get('/goals').get_data(as_text=True)
+    for key in ('group:ride', 'group:foot', 'group:swim', 'sport:Ride'):    # the groups even before any run or swim, and the sports the rider has
+        assert f'value="{key}"' in html
+    r = client.post('/goals/add', data={'metric': 'count', 'period': 'week', 'target': '3', 'sports': ['group:ride', 'sport:Run']})
+    assert r.status_code == 302 and 'error' not in r.headers['Location']
+    r = client.post('/goals/add', data={'metric': 'time', 'period': 'month', 'target': '20', 'every': '1', 'sports': ['group:ride']})
+    assert 'error' not in r.headers['Location']                      # Every sport wins over a sport left ticked
+    html = client.get('/goals').get_data(as_text=True)
+    assert '3 activities (rides or runs) a week' in html and '20h 00m of time' in html

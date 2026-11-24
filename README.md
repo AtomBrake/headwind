@@ -133,7 +133,7 @@ Speed (or pace) over time, monthly distance, year-on-year, length distribution, 
 <img src="docs/promo/performance-context.jpg" alt="The stuff around the ride matters too: recovery, bodyweight and nutrition beside your cycling data" width="900">
 
 ### Nutrition
-A diary built for speed: barcode scan, per-meal recent foods, saved meals, hydration, macro rings, and calorie goals that include what you burned riding.
+A diary built for speed: barcode scan, per-meal recent foods, saved meals, hydration, macro rings, and calorie goals that include what you burn training.
 
 <img src="docs/screenshots/nutrition-day.jpg" alt="Nutrition diary" width="900">
 
@@ -153,7 +153,7 @@ Daily weigh-ins with a smoothed trend line, rate of change, and progress against
 <img src="docs/screenshots/weight-trend.jpg" alt="Weight trend" width="900">
 
 ### Goals and challenges
-Set a distance, climbing, time or activity-count goal for a sport, per week, month or year, and see whether you're ahead of an even pace on the Goals page and the dashboard. Challenge linked friends to a race over set dates; each instance works out the standings from the activities it syncs.
+Set a distance, climbing, time or activity-count goal per week, month or year, for every sport or the ones you tick ("3 activities a week, rides or runs"), and see whether you're ahead of an even pace on the Goals page and the dashboard. You have only the goals you set. Challenge linked friends to a race over set dates; each instance works out the standings from the activities it syncs.
 
 ### Gear: bikes, shoes, parts and service
 Add your bikes, shoes and other kit (with photos) and give each kind of activity a default — road, mountain bike, gravel, e-bike, indoor, commutes, runs — so every new activity lands on the right one. The calendar assigns older activities by date or range, and each bike tracks the mileage on its replaceable parts with a service log and alerts. Full guide: [docs/GEAR.md](docs/GEAR.md).
@@ -461,7 +461,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - Analytics: speed or pace trend with rolling average, monthly distance, year-on-year, distribution, day-of-week, weather scatters; metric/imperial; sport filter.
 - **Best times** — fastest 5/10/20/30/50/75/100 miles on a ride (5/10/20/40/50/100/160 km when your units are metric), 1 km to the marathon on foot, 100 m to 3.8 km in the water, with year/month filters, plus **records by sport** (longest, longest time, most climbing, fastest). Indoor rides and runs (Zwift, a turbo trainer, a treadmill) have best-time tables of their own and never count towards your outdoor ones.
 - **Trophy case** — badges for riding (counts, distance, elevation, epic rides, speed, climbing, weather, segments), running, walking and hiking, swimming, other sports and all sports together, each linking back to the activity that earned it. Indoor rides and runs count for the badges that count activities or time, not for distance, climbing, speed, weather or segments. With metric units the limits are round figures (40 km in one ride, 150 m of climbing) and count as such.
-- **Goals** — distance, climbing, time or number of activities for a sport, every week, month or year, on the Goals page and the dashboard. With calendar weeks and months a goal is measured against an even pace; with the past 7 and 28 days it's what you've done in them (see **This week and this month** below).
+- **Goals** — distance, climbing, time or number of activities, every week, month or year, on the Goals page and the dashboard. Each counts the sports you tick: every sport, Cycling, On foot, Swimming or single sports like Run, as many as you like; a distance goal needs sports whose distances add up (rides, or runs and walks). Your weekly goal of a number of activities is also what Home Assistant's weekly activity sensor counts. With calendar weeks and months a goal is measured against an even pace; with the past 7 and 28 days it's what you've done in them (see **This week and this month** below).
 - **This week and this month** — under **Settings → Display**, each rider picks how they're counted: **Past 7 and 28 days** (today and the 6 or 27 days before it, so a Monday or the 1st never starts you from nothing) or **Calendar weeks and months** (the week starts on the day you choose, the month on the 1st). The dashboard's weekly bars, goals and their history, the phone app's Overview, the alcohol units and the Home Assistant sensors all follow it, and say which they mean ("Past 7 days" or "This week"). The year is the calendar year either way. The Nutrition week diary, the badge for three kinds of training in one week, the Analytics calendar and the gear calendar are calendar weeks from your chosen day whichever you pick. New installs start on the past 7 and 28 days; an existing one keeps calendar weeks from Monday until you change it.
 - **Activities that look wrong** — anything that can't be real is flagged on the dashboard and its own page, and left out of the speed and weather charts until you keep it or delete it: a ride at 2,500 mph, a walk at 20 km/h, a run faster than any record, a swim with nothing recorded, a moving time of seconds against a real distance, a heart rate below 30 or above 230 bpm, or a start date in the future from a device whose clock was wrong (every sport). The limits are loose: hard but real days pass. Where it can, the flag offers a fix: Strava's climb in place of a file's impossible one, the elapsed time when a file's broken timestamps made the moving time seconds, or the real date for one dated in the future. To deal with many at once, the dashboard's card has its own **Select**: pick rows, or every one with the same reason, then say they're right, fix them or delete them. Only your own riders' activities are flagged for you: a friend's are theirs to fix on their own Headwind.
 - **Recovery** — resting HR, HRV, sleep (stacked by deep, light and REM sleep and time awake, with sleep efficiency), steps, stress and body battery with 30/60/90-day charts: from Garmin, or from Apple Health through the iPhone app on days Garmin has none (Apple Health has no body battery, sleep score or stress, so a chart or Daily Log column with nothing in it is left out). Steps come from one source, chosen on the **Steps** page (Garmin, the phone, or automatic), never the highest of several: a phone counts pedalling as steps.
@@ -494,7 +494,7 @@ Headwind can also email each new link itself to people you choose beforehand: ad
 - **Recent foods per meal** — pick *Add* on a meal and see what you most often (and most recently) log for that meal.
 - **Saved meals** and **recipes**, **Go-Tos** (favourites), **My Foods** (your own foods, per-100 g).
 - Edit any entry's weight and the macros rescale; scale a whole meal with one tap.
-- Calorie and macro goals, with an estimated daily burn that includes your rides; weekly view; "copy yesterday".
+- Calorie and macro goals, with an estimated daily burn that includes your activities and a fixed weekly allowance for exercise (**Typical exercise**, for the sports you tick, with a figure offered from their last 8 weeks); weekly view; "copy yesterday".
 - Hydration logging with a daily goal.
 - Weight tracking with a smoothed (EMA) trend, goal weight and projected finish, on its own **Weight** page under Health with a table of weigh-ins (Garmin weigh-ins count as scale readings). Lines at every stone or 5 kg lost can be switched off.
 - Optional **AI food-photo estimate** and **screenshot import** (e.g. from another food app) with your own key.
@@ -693,7 +693,7 @@ Not everyone wants the food diary or the bike maintenance. **Settings → Featur
 |---|---|
 | **Health** | Nutrition, Steps, Weight and Recovery together, and the Health heading in the sidebar. It overrides the four below without changing them, so turning Health back on brings back the same choices. |
 | &nbsp;&nbsp;**Nutrition** | The food diary, water and the calorie goals, and the profile card in Settings that the goals are worked out from. |
-| &nbsp;&nbsp;**Steps** | The Steps page. With Steps off and Nutrition on, the calorie goals count your rides only, not your step goal. |
+| &nbsp;&nbsp;**Steps** | The Steps page. With Steps off and Nutrition on, the calorie goals count your exercise allowance only, not your step goal. |
 | &nbsp;&nbsp;**Weight** | The Weight page and its backfill page. Nutrition still takes weigh-ins for its goals while it's on. |
 | &nbsp;&nbsp;**Recovery** | The Recovery page, the dashboard's **Recovery Today** card, and the AI coach's recovery notes. |
 | **Gear** | Bikes, shoes and other kit, and picking them on an activity. Activities keep the bike they had. |

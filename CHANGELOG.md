@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Goals count any sports you pick.** On the **Goals** page a goal's sports are ticks, as on the AI Coach page: **Every sport**, **Cycling**, **On foot**, **Swimming**, or single sports such as Run, as many as you like, so "3 activities a week, rides or runs" is one goal. Cycling, On foot and Swimming are offered before you've done any, so you can set a goal for a sport you're starting. A distance goal needs sports whose distances add up: rides, or runs and walks, not both. Your goals keep the sport they had. Challenges with friends still count one kind of sport.
+
+### Changed
+- **You choose your goals: no ride goal unless you set one.** The Nutrition page's **Ride goal (rides / week)** has gone. If you'd set it, it's now a goal on the Goals page, that number of rides each week; if you hadn't, you have no goal rather than 2 rides a week. Home Assistant's weekly activity sensor counts the sports of your weekly goal of a number of activities, or every sport when you have none (its `ride_goal` is then empty), and its "looking stagnant" status follows the same sports: by distance when their distances add up, else by hours. The example dashboard's **Today's goals** and **Activity trend** cards follow it, and leave out the weekly row when there's no goal.
+- **The calorie goal's allowance is for exercise, not just rides.** **Typical rides (kcal / week)** is now **Typical exercise (kcal / week)**, with ticks for the sports it covers, and offers a figure from the last 8 weeks of those sports' calories (net of your resting burn once your profile is filled in). It's still a figure you set, so a big week of training doesn't move the goal. An existing install keeps Cycling ticked; a new one starts with every sport.
+
 ## [0.7.61-beta] - 2026-11-24
 
 ### Fixed

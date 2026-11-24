@@ -2,12 +2,12 @@
 
   BMR (Mifflin-St Jeor, from current weight/height/age/sex)
     x activity factor (derived from the daily step goal — 8k steps is ~1.35)
-    + a FIXED allowance for rides (typical weekly ride burn / 7 — a setting, not what you rode this week)
+    + a FIXED allowance for exercise (a typical week's burn of the sports picked / 7 — a setting, not what you did this week)
   = estimated daily burn (TDEE)
     - deficit for the chosen loss rate (1 lb/week = 500 kcal/day)
   = calorie goal, held at 1.1 x BMR at the lowest so you are never asked to eat at resting burn.
 
-A heavy or missed ride day never changes the goal; as weight falls, BMR falls and the goal steps down slowly.
+A heavy or missed training day never changes the goal; as weight falls, BMR falls and the goal steps down slowly.
 
 Macros follow: protein by body weight, fat as a share of calories, carbs take the remainder.
 """
@@ -18,9 +18,9 @@ from database import get_db, query_db
 
 log = logging.getLogger(__name__)
 
-DEFAULT_RIDE_KCAL_WEEK = 3500   # net calories from a typical week of riding (about 2 rides)
+DEFAULT_RIDE_KCAL_WEEK = 3500   # net calories from a typical week of exercise (Settings.rideKcalWeek, "Typical exercise"), until one is set
 FLOOR_X_BMR = 1.1
-RIDE_GOAL_WEEK = 2               # default minimum rides per Mon-Sun week (Settings.rideGoalWeek overrides) for the dashboard's Today's goals card
+SUGGEST_WEEKS = 8                # the weeks of the chosen sports' calories the typical week is offered from (suggest_exercise_kcal)
 
 
 def activity_from_steps(steps):
@@ -59,10 +59,12 @@ SEDENTARY = 1.2                  # the everyday-movement multiplier with no step
 
 def profile(rider_id=None):
     """The figures the calorie goals are worked out from. With rider_id, that rider's feature switches count: with Steps off
-    (services/features.py) the goals count rides only, so everyday movement is the sedentary multiplier, not one from the step goal, and
+    (services/features.py) the goals count the exercise allowance only, so everyday movement is the sedentary multiplier, not one from the step goal, and
     steps_counted is False."""
-    s = query_db('SELECT sex, birthDate, birthDateGuessed, birthYear, heightCm, lossLbPerWeek, stepGoal, goalAuto, rideKcalWeek, rideGoalWeek FROM Settings WHERE id=1', one=True)
+    s = query_db('SELECT sex, birthDate, birthDateGuessed, birthYear, heightCm, lossLbPerWeek, stepGoal, goalAuto, rideKcalWeek, exerciseSports '
+                 'FROM Settings WHERE id=1', one=True)
     s = dict(s) if s else {}
+    from services import favourites
     steps = True
     if rider_id is not None:
         from services import features
@@ -79,10 +81,28 @@ def profile(rider_id=None):
         'steps_counted': steps,
         'loss_lb_week': _or_default(s.get('lossLbPerWeek'), 1.5),
         'step_goal': s.get('stepGoal') or 8000,
-        'ride_kcal_week': _or_default(s.get('rideKcalWeek'), DEFAULT_RIDE_KCAL_WEEK),
+        'ride_kcal_week': _or_default(s.get('rideKcalWeek'), DEFAULT_RIDE_KCAL_WEEK),     # the typical week's exercise, whatever the sports
+        'exercise_sports': favourites.parse_set(s.get('exerciseSports')),                 # None: every sport
         'auto': bool(s.get('goalAuto')),
-        'ride_goal_week': s.get('rideGoalWeek') or RIDE_GOAL_WEEK,
     }
+
+
+def suggest_exercise_kcal(rider_id, keys, today=None):
+    """A typical week's exercise calories, offered for the allowance: the activities of these sports (services/favourites.parse_set, None for
+    every sport) over the SUGGEST_WEEKS weeks to yesterday, net of the resting burn during them when the BMR is known (as day_burn counts them),
+    a week's average to the nearest 50. None when none of them has calories."""
+    from services import favourites
+    today = today or _today()
+    first, last = today - timedelta(days=7 * SUGGEST_WEEKS), today - timedelta(days=1)
+    rows = query_db('SELECT sportType, calories, movingTime FROM Activity WHERE riderId=? AND date(startDateLocal) BETWEEN ? AND ? '
+                    'AND calories > 0', [rider_id, first.isoformat(), last.isoformat()])
+    rows = [r for r in rows if favourites.covers(keys, r['sportType'])]
+    if not rows:
+        return None
+    p, kg = profile(rider_id), current_weight_kg(rider_id)
+    bmr = bmr_mifflin(kg, p['height_cm'], p['age'], p['sex']) if (p['sex'] and p['age'] and p['height_cm'] and kg) else 0
+    net = sum(max(0.0, r['calories'] - bmr * (r['movingTime'] or 0) / 86400) for r in rows)
+    return int(round(net / SUGGEST_WEEKS / 50) * 50)
 
 
 def current_weight_kg(rider_id):
@@ -103,7 +123,7 @@ def _working(kg, p):
     """The calorie maths for one weight: (bmr, neat, ride/day, tdee, deficit, floor, goal)."""
     bmr = bmr_mifflin(kg, p['height_cm'], p['age'], p['sex'])
     neat = bmr * p['activity']
-    ride_per_day = p['ride_kcal_week'] / 7   # fixed allowance — riding more or less this week does not move the goal
+    ride_per_day = p['ride_kcal_week'] / 7   # fixed allowance — training more or less this week does not move the goal
     tdee = neat + ride_per_day
     deficit = p['loss_lb_week'] * KCAL_PER_LB_WEEK
     floor = bmr * FLOOR_X_BMR

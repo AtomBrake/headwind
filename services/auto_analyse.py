@@ -23,23 +23,14 @@ KIND = 'ai_auto_analyse'
 
 def chosen(raw):
     """Settings.aiAutoSports read: None for every sport, else the list of keys ('group:ride', 'sport:Run'), anything unreadable dropped."""
-    from services.favourites import _split
-    if raw is None or raw == '':
-        return None
-    try:
-        keys = json.loads(raw)
-    except ValueError:
-        return None
-    return [k for k in keys if isinstance(k, str) and _split(k)] if isinstance(keys, list) else None
+    from services.favourites import parse_set
+    return parse_set(raw)
 
 
 def covers(keys, sport):
-    """Whether keys (chosen) take in this sport. A group is a stat group (services/sports.stat_group); a sport is matched by its canonical name,
-    a row with no sport as a ride."""
-    if keys is None:
-        return True
-    sport = sports.canonical(sport or 'Ride')
-    return f'group:{sports.stat_group(sport)}' in keys or f'sport:{sport}' in keys
+    """Whether keys (chosen) take in this sport (services/favourites.covers)."""
+    from services.favourites import covers as _covers
+    return _covers(keys, sport)
 
 
 def save_choice(db, every, keys):

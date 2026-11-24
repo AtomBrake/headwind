@@ -25,14 +25,14 @@ def _rider_id():
 @bp.route('/goals')
 def index():
     from routes.dashboard import _riders
-    from services import periods, tz
+    from services import favourites, periods, tz
     _, active_rider, rid = _riders(request.args)
     db = get_db()
     today, p = tz.today(), periods.for_request()
     every = {k: goals.ROLLING_PERIOD_LABELS.get(k, f'every {k}') if p.mode == periods.ROLLING else f'every {k}' for k in goals.PERIODS}
     return render_template('goals.html', active_rider=active_rider, rid=rid, goals=goals.goals(db, rid, today, p), challenges=goals.challenges(db, rid),
                            error=request.args.get('error'), metrics=goals.METRIC_LABELS, periods=goals.PERIODS, every=every, groups=goals.GROUP_LABELS,
-                           group_icons=goals.GROUP_ICONS, units_of={m: goals.unit_label(m) for m in goals.METRICS},
+                           group_icons=goals.GROUP_ICONS, sport_choices=favourites.choices(db, rid, every_group=True) if rid else [], units_of={m: goals.unit_label(m) for m in goals.METRICS},
                            friends=query_db('SELECT COUNT(*) FROM Friend', one=True)[0], invitable=goals.invitable(db),
                            today=today.isoformat(), month_end=periods.current('month', p._replace(mode=periods.CALENDAR), today).last.isoformat())
 
@@ -40,8 +40,9 @@ def index():
 @bp.route('/goals/add', methods=['POST'])
 def add_goal():
     rid = _rider_id()
-    err = goals.add_goal(get_db(), rid, request.form.get('metric'), request.form.get('period'), request.form.get('sport') or 'all',
-                         request.form.get('target'))
+    every = request.form.get('every') or ('sports' not in request.form and request.form.get('sport') == 'all')
+    sport = None if every else request.form.getlist('sports') or request.form.get('sport') or []     # sport: one group, as the form had it
+    err = goals.add_goal(get_db(), rid, request.form.get('metric'), request.form.get('period'), sport, request.form.get('target'))
     return _back(rid, err)
 
 

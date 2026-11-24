@@ -711,7 +711,7 @@
     </div>
     <details id="smartGoals" style="margin:0.75rem 0; border:1px solid var(--border); border-radius:10px; padding:0.7rem 0.8rem;">
       <summary style="cursor:pointer; font-weight:700; min-height:32px; display:flex; align-items:center;">Smart goals — let my goal float with my weight</summary>
-      <p style="font-size:0.78rem; color:var(--text-muted); margin:0.5rem 0;">Everyday burn (BMR × activity from your step goal) plus a fixed allowance for a typical week of riding, minus the deficit for your loss rate. Only your weight moves it — a big or missed ride never changes the goal — and it never goes below 1.1 × BMR.</p>
+      <p style="font-size:0.78rem; color:var(--text-muted); margin:0.5rem 0;">Everyday burn (BMR × activity from your step goal) plus a fixed allowance for a typical week of exercise, minus the deficit for your loss rate. Only your weight moves it — a big or missed session never changes the goal — and it never goes below 1.1 × BMR.</p>
       <div class="form-grid">
         <div class="form-group"><label>Sex</label><select id="sgSex"><option value="">—</option><option value="male">Male</option><option value="female">Female</option></select></div>
         <div class="form-group"><label>Date of birth</label><input type="date" id="sgBorn"><small id="sgBornHint" style="color:var(--text-muted);"></small></div>
@@ -724,9 +724,14 @@
         <div class="form-group"><label id="sgLossLabel" for="sgLoss">Loss rate (lb/week)</label><input type="number" id="sgLoss" min="0" max="2.5" step="0.25" inputmode="decimal"></div>
       </div>
       <div class="form-grid">
-        <div class="form-group"><label>Typical rides (kcal / week)</label><input type="number" id="sgRides" min="0" step="100" inputmode="numeric"></div>
-        <div class="form-group"><label>Ride goal (rides / week)</label><input type="number" id="sgRideGoal" min="1" max="14" step="1" inputmode="numeric"></div>
+        <div class="form-group"><label for="sgRides">Typical exercise (kcal / week)</label><input type="number" id="sgRides" min="0" step="100" inputmode="numeric">
+          <small id="sgRidesHint" style="color:var(--text-muted);"></small> <button type="button" class="btn btn-secondary btn-sm" id="sgRidesUse" style="display:none;">Use this</button></div>
       </div>
+      <fieldset style="margin:0 0 0.75rem;">
+        <legend>Exercise it covers</legend>
+        <div class="checks" id="sgExChecks"></div>
+        <p class="hint" style="margin:0.3rem 0 0;">A fixed allowance, so a big week of training doesn't move the goal. The sports only change the figure offered. How many sessions a week you aim for is a goal on the <a href="{{ url_for('goals.index') }}">Goals</a> page.</p>
+      </fieldset>
       <div class="form-grid">
         <div class="form-group" style="display:flex; align-items:end;"><label class="check" style="align-items:center; min-height:46px; margin:0;"><input type="checkbox" id="sgAuto" style="width:22px; height:22px; margin:0;"> Update my goals automatically</label></div>
       </div>
