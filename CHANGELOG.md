@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.60-beta] - 2026-11-24
 
 ### Added
 - **The AI coach covers every sport, not just rides.** Runs, walks, hikes, swims, paddles, kitesurfs, ski days, strength, yoga and the rest get the coaching card on their page, in **Bulk Analysis** and in **Analyse New Activities**. Each is coached in its own terms: a run by pace and cadence in steps a minute, a swim by pace per 100 m, a ride by speed and power as before, and a strength, HIIT or yoga session by time and heart rate, with the coach told not to invent a distance or pace it hasn't got. Climbing is left out on the water and indoors. The personalities talk about the sport you did (Attenborough narrates a runner; Ted Lasso misunderstands swimming), and the default is now **Blunt Training Mate**.
