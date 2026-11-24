@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.59-beta] - 2026-11-24
 
 ### Added
 - **A map page on the Apple Watch while recording.** Swipe left past the figures while recording a ride, run, walk, hike or open water swim to see your track so far and where you are, turned the way you're going, with the distance and time (or the distance and pace on foot) over it. The Digital Crown zooms in and out, and the zoom stays as you left it. Timed sessions with no GPS, such as an indoor ride, a pool swim or strength, keep their two pages. With your wrist down or the screen in Always On, the map dims and stops following you until you raise your wrist, to save battery. Apps can't use the offline maps you download in Apple Maps, so away from your phone and any connection the map may be blank, but your track and position still show on it. The recording itself, what's saved and what's uploaded don't change.
