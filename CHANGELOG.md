@@ -7,6 +7,7 @@
 - **A FIT file from a watch paired with a gym's machine keeps its sport.** An indoor bike comes in as an indoor ride, a treadmill as an indoor run and a rowing machine as a row, rather than Other.
 - **Water skiing is no longer a ski day.** It came in as Ski, adding to your snow totals; it's now Other.
 - **The Target box on the Goals page is labelled on one line.** "Target (km)" was split over three lines when adding a goal or starting a challenge.
+- **Forms with several fields side by side use the card's full width.** Adding a goal put its four boxes in the left half of the card; the same happened on Settings, Activities, Gear and Nutrition wherever a form ended in a full-width row of buttons.
 
 ## [0.7.58-beta] - 2026-11-23
 

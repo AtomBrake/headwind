@@ -165,7 +165,7 @@ One layout: the label above the field, a `.hint` below it, and an error in a `.f
 </div>
 ```
 
-- `.form-grid` lays several fields side by side, as many as fit, and one to a row on a phone. Its fields are `.form-group`s, or a `<label>` wrapping its field (`<label>Brand<input name="brand"></label>`); `.wide` takes a whole row. Such a label is a flex column, so label words with markup inside go in one `<span>` (`<label><span>Target (<span data-unit-for="…">km</span>)</span><input …></label>`), or each piece stacks on its own line.
+- `.form-grid` lays several fields side by side, as many as fit, sharing out the whole width, and one to a row on a phone. Its fields are `.form-group`s, or a `<label>` wrapping its field (`<label>Brand<input name="brand"></label>`); `.wide` takes a whole row. Such a label is a flex column, so label words with markup inside go in one `<span>` (`<label><span>Target (<span data-unit-for="…">km</span>)</span><input …></label>`), or each piece stacks on its own line.
 - `.check` is a checkbox or radio with its words beside it: `<label class="check"><input type="checkbox"> Commute</label>`. Several in a row go in `.checks`; a group with a heading is a `<fieldset>` with a `<legend>`.
 - `.form-actions` is the row of buttons at the end: the one primary action first, then Cancel and a hint.
 - `details.gcard` is a card that opens, for a form that's needed now and then ("+ Add a part").
