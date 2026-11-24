@@ -45,7 +45,7 @@ def client(tmp_path, monkeypatch):
         db.execute("INSERT INTO SegmentEffort (segmentId, activityId, activityDate, elapsedSecs, avgSpeedMps, isPR) VALUES (1, 'r1', ?, 200, 6.0, 1)", [today.isoformat()])
         db.execute("INSERT INTO BestEffort (activityId, activityDate, distanceMi, elapsedSecs, avgSpeedMps) VALUES ('r1', ?, 5, 1200, 6.7)", [today.isoformat()])
         db.execute("INSERT INTO ActivityMemory (activityId, activityDate, activityName, distanceMi, movingTime, elevationFt, avgSpeedMph) VALUES ('r2', ?, 'Morning ride', 12.4, 2843, 984, 15.7)",
-                   [today.isoformat()])
+                   [(today - timedelta(days=9)).isoformat()])        # r2's own day: the coach only reads what came before the activity
         db.execute("INSERT INTO Activity (id, riderId, sportType, startDateLocal, distance, movingTime, totalElevationGain, source) VALUES ('wk_1', 1, 'Run', ?, 5000, 1500, 40, 'android')",
                    [today.isoformat() + 'T07:00:00'])
         db.commit()

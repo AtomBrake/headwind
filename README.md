@@ -54,7 +54,7 @@ Headwind is a single self-hosted web app that brings together the things most at
 - **Activity analytics** — import from Garmin Connect, FIT/GPX/TCX files or a Strava export; see maps, streams, weather, wind, splits, laps, best times and records for each sport, segments, comparisons with the other times you've done the same route, goals, saved routes, and a GPS heatmap of everywhere you've been.
 - **Gear and maintenance** — bikes, shoes and other kit with photos, a default for each kind of activity (changeable per activity), a calendar to say which bike rode which rides, and mileage on the parts that wear out (chains, cassettes, tyres, bar tape, sealant...) with service log and "due" alerts.
 - **Nutrition and body tracking** — a fast food diary with barcode scanning, per-meal "recent foods", saved meals, hydration, weight trend and calorie goals that account for your training.
-- **Coaching and automation** — optional AI analysis of your rides with your own key (or local Ollama), on demand or as each ride arrives; Home Assistant sensors over MQTT; push notifications.
+- **Coaching and automation** — optional AI analysis of your rides, runs, swims and every other sport with your own key (or local Ollama), on demand or as each one arrives; Home Assistant sensors over MQTT; push notifications.
 - **A social layer without a central server** — link your instance to a friend's directly to share activities, segment leaderboards, the heatmap and challenges.
 
 It runs on a Raspberry Pi, a NAS, a spare PC or a VPS. Your data lives in one SQLite file you can copy, back up and inspect. It only talks to services you explicitly configure (plus a few public data APIs listed [below](#privacy)).
@@ -371,9 +371,9 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 
 <img src="docs/screenshots/friends.jpg" alt="Friends: your feed token, add a friend by URL + token, and auto-sync." width="800">
 
-**AI Coach: your coaching goals, and bulk analysis of rides by date range.**
+**AI Coach: your coaching goals, and bulk analysis of activities by date range.**
 
-<img src="docs/screenshots/ai-coach.jpg" alt="AI Coach: your coaching goals, and bulk analysis of rides by date range." width="800">
+<img src="docs/screenshots/ai-coach.jpg" alt="AI Coach: your coaching goals, and bulk analysis of activities by date range." width="800">
 
 **Settings, in four sections: You (display, features, profile and goals, calorie burn), Connections (Garmin Connect, Home Assistant, AI provider, maps), Sharing (outside address, contacts for live links, email) and This server (login, backup and restore). The screenshot is from before the regroup.**
 
@@ -522,7 +522,7 @@ Headwind can also email each new link itself to people you choose beforehand: ad
 - Works over LAN, VPN or the public internet (use HTTPS).
 
 ### Automation and coaching
-- **AI coaching** (optional, for rides): GPT models, **Claude**, or a local **Ollama** model; the prompt includes the ride's stats, weather, same-route comparisons, similar past rides, segment comparisons, other training and recovery. Ten personalities (including a refreshingly rude one) and your own coaching goals. **Analyse New Rides** writes the notes for each new ride as it arrives.
+- **AI coaching** (optional, every sport): GPT models, **Claude**, or a local **Ollama** model. Each activity is coached in its own terms: a ride by speed and power, a run by pace and cadence, a swim by pace per 100 m, a strength or yoga session by time and heart rate. The prompt includes the activity's stats, weather, same-route comparisons, similar past activities of the same sport, segment comparisons, run and swim best times, your other training in the 30 days before it, and recovery. Ten personalities (including a refreshingly rude one) and your own coaching goals. **Analyse New Activities** writes the notes for each new activity of the sports you pick as it arrives.
 - **Home Assistant / MQTT**: ride, every-sport, recovery, nutrition, hydration and weight sensors with auto-discovery; notifications; dashboards.
 - **Notifications** — activity-synced alerts through Home Assistant's companion app (an ntfy hook exists in the code but has no settings screen yet).
 
@@ -687,12 +687,12 @@ Not everyone wants the food diary or the bike maintenance. **Settings → Featur
 | **Routes** | Saved routes, and **Save as route** on an activity. |
 | **Heatmap** | The heatmap. |
 | **Goals** | Goals and challenges, and their card on the dashboard. |
-| **AI coach** | The coaching notes on an activity, and the analysis of new rides as they arrive. |
+| **AI coach** | The coaching notes on an activity, and the analysis of new activities as they arrive. |
 | **Friends** | The Friends page and friends' activities, the automatic sync, and the feed your friends' Headwinds read from yours (they get an error until it's back on). |
 | **Live tracking** | Starting live tracking links from the phone, and the contacts they're emailed to. A link already running carries on until it ends. |
 | **Roughness**, **Route planner** | The road roughness map and the route planner (not in the sidebar yet, but at `/roughness` and `/planner`). |
 
-A feature you turn off leaves the sidebar and the dashboard, and its pages say it's turned off in Settings. Its work in the background stops too: the Garmin sync stops reading the daily health figures once Recovery, Steps and Nutrition are all off, and the weigh-ins once Weight and Nutrition are; the part alerts, the AI coach's analysis of new rides and the friends' sync stop; and its Home Assistant entities are removed. Nothing is deleted. Turn a feature back on and its data, pages and entities are back as they were.
+A feature you turn off leaves the sidebar and the dashboard, and its pages say it's turned off in Settings. Its work in the background stops too: the Garmin sync stops reading the daily health figures once Recovery, Steps and Nutrition are all off, and the weigh-ins once Weight and Nutrition are; the part alerts, the AI coach's analysis of new activities and the friends' sync stop; and its Home Assistant entities are removed. Nothing is deleted. Turn a feature back on and its data, pages and entities are back as they were.
 
 Each rider has their own switches. **Save, and start new riders with these** also makes them what a rider added later starts with. The phone apps can read what's off from `GET /api/v1/ping` (`features_off`), and the API endpoints of a feature that's off answer `403` with `feature_off` naming it.
 
@@ -744,7 +744,8 @@ Each rider has their own switches. **Save, and start new riders with these** als
 ### AI coaching
 - In **Settings → AI Provider** choose OpenAI or Claude (paste your key, pick a model) **or** a local **Ollama** (URL + model). Nothing is sent anywhere until you do.
 - Pick a coaching personality and add your own goals; the model is also given recent history and the other times you've done the same route, so it can say whether you're improving.
-- **Analyse New Rides** (on the AI Coach page, off by default) writes the notes for each new activity from Garmin, the phone or an import as it arrives. Only activities from the last 3 days are analysed, so importing your history doesn't run up a bill.
+- Every sport can be coached. A run is compared with your other runs, a swim with your swims, and so on; everything else you did in the 30 days before it is listed as other training, so a hard run the day before explains tired legs on a ride.
+- **Analyse New Activities** (on the AI Coach page, off by default) writes the notes for each new activity from Garmin, the phone or an import as it arrives, for the sports you tick there: **Every sport**, groups such as Cycling or On foot, or single sports, so daily walks needn't each cost an API call. Only activities from the last 3 days are analysed, so importing your history doesn't run up a bill. **Bulk Analysis** can be limited to one sport the same way.
 - Costs are whatever your provider charges; Headwind sends ride summaries, not raw GPS.
 - The same key powers the optional food-photo estimate and screenshot import in the nutrition tracker.
 
@@ -901,7 +902,7 @@ Where a direct client can still arrive from a private address (Docker Desktop on
 | Zwift's CDN (`cdn.zwift.com`) | A Zwift world's map, fetched by the server the first time it's drawn | A request for the map image |
 | Map tile hosts: Esri, OpenTopoMap, CyclOSM (OpenStreetMap France), Waymarked Trails, and Thunderforest or Ordnance Survey if you save a key | Map tiles in your browser, for the map type you pick; the heatmap's HD export fetches the screen's tiles through the server (Thunderforest's straight from your browser) | Normal tile requests (your browser's IP, or the server's for an export); your Thunderforest or OS key with theirs |
 | GitHub (`api.github.com`) | **Check for update** under Settings, only when you press it | A request for this project's release tags |
-| Your AI provider (if configured) | Coaching, photo estimates | Ride summaries / the image you submit |
+| Your AI provider (if configured) | Coaching, photo estimates | Activity summaries / the image you submit |
 | Your MQTT broker / Home Assistant (if configured) | Automation | Sensor values / notifications |
 | Linked friends (if configured) | P2P sync | Activities and segments you've chosen to share, and challenges you send |
 

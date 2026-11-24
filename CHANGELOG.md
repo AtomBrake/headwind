@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **The AI coach covers every sport, not just rides.** Runs, walks, hikes, swims, paddles, kitesurfs, ski days, strength, yoga and the rest get the coaching card on their page, in **Bulk Analysis** and in **Analyse New Activities**. Each is coached in its own terms: a run by pace and cadence in steps a minute, a swim by pace per 100 m, a ride by speed and power as before, and a strength, HIIT or yoga session by time and heart rate, with the coach told not to invent a distance or pace it hasn't got. Climbing is left out on the water and indoors. The personalities talk about the sport you did (Attenborough narrates a runner; Ted Lasso misunderstands swimming), and the default is now **Blunt Training Mate**.
+- **The coach compares like with like.** A run's history, its comparable sessions, its monthly progress and its "similar run" comparisons are your other runs (trail and treadmill included), a swim's your swims, and so on; a ride's are your rides, as before. A run or a swim that set a best time over a standard distance (5 km, 400 m, ...) is told so, with the best it beat. Everything else you did in the 30 days before it is listed as other training, so a ride's notes know about the run and the gym session the day before, and a run's about the rides. Strength and yoga sessions are now in that list too.
+- **Choose which sports are analysed as they arrive.** On the AI Coach page, **Analyse New Activities** has a list of sports to tick: **Every sport** (which takes in any you start later), groups such as Cycling and On foot, or single sports like Run, so a daily walk needn't cost an API call each time. If you had **Analyse new rides** on, it stays rides only (Cycling ticked) until you tick more. **Bulk Analysis** has a Sport menu to analyse one sport's history at a time.
+
+### Fixed
+- **The coach no longer compares an activity with ones after it.** Analysing an older activity, in Bulk Analysis say, read your latest rides as its "history" and its 30 days of other training as the 30 days before today. Both now end on the activity's own day.
+- **The coach's history is the rider's own.** The 30-day summary and the "similar ride" comparisons could include another rider's or a friend's rides on an instance with more than one.
+- **An activity with nothing recorded isn't analysed.** An Apple Health workout with no distance and no moving time is skipped by the analysis of new activities and by Bulk Analysis, which also no longer counts a friend's activities.
+
+### Changed
+- **The AI Coach page counts every sport.** "Activities analysed" and "Memories" replace the ride counts. In Working Memory a dot's size is the activity's time and its colour its sport, each month shows its activities, hours and distance, and the speed trend is the rides' alone.
+
 ## [0.7.59-beta] - 2026-11-24
 
 ### Added

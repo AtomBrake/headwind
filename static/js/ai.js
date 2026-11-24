@@ -15,10 +15,6 @@
   tip.style.cssText = 'position:fixed;background:var(--inset-bg);border:1px solid var(--border-strong);border-radius:6px;padding:0.4rem 0.65rem;font-size:0.75rem;color:var(--text);pointer-events:none;display:none;z-index:999;max-width:200px;line-height:1.4;';
   document.body.appendChild(tip);
 
-  // Speed colour: slow is muted, fast is the accent
-  function speedColor(pct) {
-    return 'color-mix(in srgb, var(--accent) ' + Math.round(pct) + '%, var(--text-muted))';
-  }
 
   // Baseline
   var base = H - 14;
@@ -43,7 +39,7 @@
     circle.setAttribute('cx', cx);
     circle.setAttribute('cy', cy);
     circle.setAttribute('r', d.size);
-    circle.style.fill = speedColor(d.spd_pct);
+    circle.style.fill = 'var(' + d.color + ')';        // the sport's colour, as the sport filter's
     circle.setAttribute('opacity', '0.85');
     circle.style.cursor = 'pointer';
 
@@ -51,8 +47,8 @@
       const strong = document.createElement('strong');
       strong.textContent = d.name;
       tip.replaceChildren(strong, document.createElement('br'),
-        document.createTextNode(d.date), document.createElement('br'),
-        document.createTextNode(d.dist + ' ' + UNITS.dist + ' · ' + d.speed + ' ' + UNITS.speed));
+        document.createTextNode(d.sport + ' · ' + d.date), document.createElement('br'),
+        document.createTextNode(d.figs));
       tip.style.display = 'block';
     });
     circle.addEventListener('mousemove', function(e) {
@@ -96,14 +92,19 @@ function setPreset(days) {
   updateCount();
 }
 
+function bulkSport() {
+  var el = document.getElementById('bulkSport');
+  return el ? el.value : '';
+}
+
 function updateCount() {
   var from  = document.getElementById('bulkFrom').value;
   var to    = document.getElementById('bulkTo').value;
   var force = document.getElementById('bulkForce').checked ? '1' : '0';
-  var url   = '/ai/count?force=' + force + (from ? '&from='+from : '') + (to ? '&to='+to : '');
+  var url   = '/ai/count?force=' + force + (from ? '&from='+from : '') + (to ? '&to='+to : '') + '&sport=' + encodeURIComponent(bulkSport());
   fetch(url).then(r => r.json()).then(d => {
     var label = document.getElementById('bulkCountLabel');
-    label.textContent = d.count + ' ride' + (d.count === 1 ? '' : 's') + ' to analyse';
+    label.textContent = d.count + ' ' + (d.count === 1 ? 'activity' : 'activities') + ' to analyse';
     label.style.color = d.count > 0 ? 'var(--text)' : 'var(--text-muted)';
   });
 }
@@ -111,7 +112,19 @@ function updateCount() {
 document.getElementById('bulkFrom').addEventListener('change', updateCount);
 document.getElementById('bulkTo').addEventListener('change',   updateCount);
 document.getElementById('bulkForce').addEventListener('change', updateCount);
+if (document.getElementById('bulkSport')) document.getElementById('bulkSport').addEventListener('change', updateCount);
 updateCount();
+
+// Analyse New Activities: ticking Every sport greys out the single sports, which it takes in
+(function () {
+  var every = document.getElementById('autoEvery');
+  if (!every) return;
+  function sync() {
+    document.querySelectorAll('input[name="sport"]').forEach(function (cb) { cb.disabled = every.checked; });
+  }
+  every.addEventListener('change', sync);
+  sync();
+})();
 
 function startBulk() {
   var from  = document.getElementById('bulkFrom').value;
@@ -133,6 +146,7 @@ function startBulk() {
   body.append('force', force);
   body.append('from', from);
   body.append('to', to);
+  body.append('sport', bulkSport());
   fetch('/ai/bulk-analyse', { method: 'POST', body: body }).then(function (r) { return r.json(); }).then(function (r) {
     if (!r.job) return lost('Could not start the analysis.');
     var finished = false;
@@ -164,7 +178,7 @@ function startBulk() {
         document.getElementById('bulkStatusText').textContent = 'Done';
         var doneEl = document.getElementById('bulkDone');
         doneEl.style.display = 'block';
-        doneEl.textContent   = '✓ ' + d.analysed + ' ride' + (d.analysed===1?'':'s') + ' analysed'
+        doneEl.textContent   = '✓ ' + d.analysed + ' ' + (d.analysed === 1 ? 'activity' : 'activities') + ' analysed'
           + (d.skipped > 0 ? ', ' + d.skipped + ' failed' : '') + '.';
         updateCount();
       }

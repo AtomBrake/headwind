@@ -136,10 +136,11 @@ def test_kudos_reads_the_whole_activity_only_to_analyse_it(app, client, monkeypa
         conn.set_trace_callback(seen.append)
         return conn
     monkeypatch.setattr(database.sqlite3, 'connect', traced)
-    assert client.post('/activities/run/kudos', json={}).status_code == 400
+    assert client.post('/activities/nothing/kudos', json={}).status_code == 404
     assert not [s for s in seen if s.startswith(f'SELECT *, {_streams.sql()} FROM Activity')]
     monkeypatch.setattr(routes.kudos, 'analyse_ride', lambda db, activity, **kw: f"{activity['id']} {bool(activity['streams'])}")
     assert client.post('/activities/ride/kudos', json={}).get_json() == {'kudos': 'ride True'}
+    assert client.post('/activities/run/kudos', json={}).get_json() == {'kudos': 'run True'}      # every sport is coached
 
 
 def test_deleting_a_friend_refreshes_only_the_segments_they_were_on(app, client, monkeypatch):

@@ -1550,6 +1550,17 @@ def _step_13(db):
         db.execute("UPDATE Settings SET periodMode='calendar', weekStart=0 WHERE id=1")
 
 
+def _step_14(db):
+    """Settings.aiAutoSports: which sports the AI coach analyses as they arrive (services/auto_analyse.py), a JSON list of keys as favourites have
+    them ('group:ride', 'sport:Run'); NULL is every sport. Until now it analysed rides only, so an install from before this keeps that: Cycling
+    ticked on the AI page. A new one starts with every sport."""
+    have = {r[1] for r in db.execute('PRAGMA table_info(Settings)').fetchall()}
+    if 'aiAutoSports' not in have:
+        db.execute('ALTER TABLE Settings ADD COLUMN aiAutoSports TEXT')
+    if db.execute('SELECT 1 FROM Rider LIMIT 1').fetchone():
+        db.execute('''UPDATE Settings SET aiAutoSports='["group:ride"]' WHERE id=1''')
+
+
 def _compact(db):
     """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
     a temporary file and once through the WAL. Logged either way. Commits."""
@@ -1605,6 +1616,7 @@ STEPS = (
     (_step_11, False),
     (_step_12, False),
     (_step_13, False),
+    (_step_14, False),
 )
 LATEST = len(STEPS)
 

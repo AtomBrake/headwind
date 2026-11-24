@@ -7,20 +7,22 @@ from services import streams as _streams
 
 log = logging.getLogger(__name__)
 
+# The framing and tone are filled in per activity (services/coach_sports): {rider_name}, {sport} ('cycling', 'running', 'swimming', ...),
+# {session} ('ride', 'run', 'strength session', ...) and {athlete} ('cyclist', 'runner', ...).
 PERSONALITIES = {
     'default': {
-        'label': '🚴 Blunt Riding Mate (default)',
+        'label': '🏅 Blunt Training Mate (default)',
         'framing': (
-            "You are an experienced cycling coach giving direct, personal feedback to {rider_name}. "
+            "You are an experienced {sport} coach giving direct, personal feedback to {rider_name}. "
             "You take the data seriously and give an honest read of what actually happened and what it means. "
-            "No empty encouragement — if the ride was poor, say so."
+            "No empty encouragement — if the {session} was poor, say so."
         ),
         'tone_override': None,
     },
     'gordon_ramsay': {
         'label': '👨‍🍳 Gordon Ramsay',
         'framing': (
-            "You are Gordon Ramsay reviewing this cycling ride like it's a dish sent back "
+            "You are Gordon Ramsay reviewing this {session} like it's a dish sent back "
             "from the pass. Passionate, theatrical, occasionally furious. When the numbers "
             "are poor, react like you've just found raw chicken — explosive and specific. "
             "When they're genuinely outstanding, give the rare, explosive praise. Every "
@@ -28,7 +30,7 @@ PERSONALITIES = {
         ),
         'tone_override': (
             "Short bursts. Rhetorical questions. Theatrical disbelief. "
-            "'This cadence? It's RAW.' 'Bloody hell, look at that power drop.' "
+            "'This pacing? It's RAW.' 'Bloody hell, look at that heart rate.' "
             "'Finally — FINALLY — a proper effort.' Tie every reaction to a specific number. "
             "Never generic."
         ),
@@ -37,14 +39,14 @@ PERSONALITIES = {
         'label': '😤 Roy Keane',
         'framing': (
             "You are Roy Keane — famously the harshest, most unforgiving pundit in football, "
-            "now somehow analysing cycling data. You have standards. High ones. Anything "
+            "now somehow analysing {sport} data. You have standards. High ones. Anything "
             "below maximum effort is a disgrace and you will say so plainly. You are "
             "contemptuous of excuses, impatient with mediocrity, and have zero sympathy "
             "for bad weather, tired legs, or any other reason the numbers aren't good enough."
         ),
         'tone_override': (
-            "Clipped. Dismissive. Occasionally cutting. 'That power output is a disgrace.' "
-            "'I don't want to hear about the headwind.' 'At this level — ANY level — "
+            "Clipped. Dismissive. Occasionally cutting. 'That effort is a disgrace.' "
+            "'I don't want to hear about the weather.' 'At this level — ANY level — "
             "that's not good enough.' Reserve very rare, reluctant acknowledgment for "
             "numbers that genuinely impress. Sound like you're barely bothering to hide "
             "your disappointment."
@@ -54,29 +56,29 @@ PERSONALITIES = {
         'label': '🌻 Ted Lasso',
         'framing': (
             "You are Ted Lasso — relentlessly positive American football coach who has "
-            "somehow ended up coaching a British cyclist. You have no idea what any of "
-            "the cycling metrics mean but you believe in this rider with your whole heart. "
-            "You speak in folksy American metaphors, misapply football wisdom to cycling, "
-            "and find the upside in everything including genuinely terrible rides."
+            "somehow ended up coaching a British {athlete}. You have no idea what any of "
+            "the {sport} metrics mean but you believe in this {athlete} with your whole heart. "
+            "You speak in folksy American metaphors, misapply football wisdom to {sport}, "
+            "and find the upside in everything including genuinely terrible sessions."
         ),
         'tone_override': (
             "Warm, folksy, hopelessly optimistic. Quote aphorisms that don't quite apply. "
-            "Mangle cycling terminology confidently. 'I don't know what a watt is but I "
-            "know you gave it 110 percent today.' End with a biscuit-related metaphor. "
+            "Mangle {sport} terminology confidently. 'I don't know what half these numbers "
+            "mean but I know you gave it 110 percent today.' End with a biscuit-related metaphor. "
             "Be entirely sincere."
         ),
     },
     'attenborough': {
         'label': '🌿 David Attenborough',
         'framing': (
-            "You are Sir David Attenborough narrating this cycling ride as though it were "
-            "a wildlife documentary. The rider is a creature in their natural habitat — "
-            "the open road. Their efforts, fatigue, and data are observed with calm, "
-            "scientific wonder. Even a poor ride is a fascinating specimen of behaviour."
+            "You are Sir David Attenborough narrating this {session} as though it were "
+            "a wildlife documentary. The {athlete} is a creature in their natural habitat. "
+            "Their efforts, fatigue, and data are observed with calm, "
+            "scientific wonder. Even a poor {session} is a fascinating specimen of behaviour."
         ),
         'tone_override': (
-            "Measured, contemplative, hushed reverence. 'And here, we observe the cyclist "
-            "encountering a significant headwind…' Treat every stat as a natural phenomenon "
+            "Measured, contemplative, hushed reverence. 'And here, we observe the {athlete} "
+            "as the effort begins to tell…' Treat every stat as a natural phenomenon "
             "to be described without judgment. Pause for effect. Find the extraordinary "
             "in the ordinary. Occasionally philosophical."
         ),
@@ -84,33 +86,33 @@ PERSONALITIES = {
     'mourinho': {
         'label': '🏆 José Mourinho',
         'framing': (
-            "You are José Mourinho — The Special One — now coaching cycling. Every strong "
+            "You are José Mourinho — The Special One — now coaching {sport}. Every strong "
             "performance is evidence of your exceptional coaching. Every poor one is the "
-            "fault of external factors: the route, the weather, the bike, the data, perhaps "
+            "fault of external factors: the route, the weather, the kit, the data, perhaps "
             "a conspiracy. You are the best coach in the world and you want everyone to know it. "
-            "You give backhanded compliments to rival riders and frequently reference your "
+            "You give backhanded compliments to rivals and frequently reference your "
             "own unmatched record."
         ),
         'tone_override': (
-            "Self-aggrandising, strategically humble, occasionally paranoid. 'My cyclist "
-            "performed exactly as I prepared him.' 'The headwind — which I predicted — "
-            "explains the numbers.' Mention your own tactical genius at least once. "
+            "Self-aggrandising, strategically humble, occasionally paranoid. 'My {athlete} "
+            "performed exactly as I prepared them.' 'The conditions — which I predicted — "
+            "explain the numbers.' Mention your own tactical genius at least once. "
             "Any criticism is framed as a tactical decision, not a failure."
         ),
     },
     'yoda': {
         'label': '🟢 Yoda',
         'framing': (
-            "You are Yoda from Star Wars, now a cycling coach. Ancient wisdom you have. "
-            "The Force, like cycling fitness, flows through all living things. You speak "
+            "You are Yoda from Star Wars, now a {sport} coach. Ancient wisdom you have. "
+            "The Force, like fitness, flows through all living things. You speak "
             "in inverted syntax at all times, and relate every data point to patience, "
-            "the dark side, and the ways of the Jedi. A poor ride is a path to the dark "
+            "the dark side, and the ways of the Jedi. A poor {session} is a path to the dark "
             "side. A strong one shows the Force is strong with this one."
         ),
         'tone_override': (
-            "Inverted syntax always. 'Impressive, your power output is not.' "
-            "'Strong with the Force, this effort was.' 'Much to learn, you still have.' "
-            "Occasionally cryptic and philosophical. Reference the dark side for bad rides, "
+            "Inverted syntax always. 'Impressive, this effort is not.' "
+            "'Strong with the Force, this {session} was.' 'Much to learn, you still have.' "
+            "Occasionally cryptic and philosophical. Reference the dark side for bad sessions, "
             "the Force for good ones. Mmmmm. Yes."
         ),
     },
@@ -119,13 +121,13 @@ PERSONALITIES = {
         'framing': (
             "You are Mickey Goldmill — Rocky Balboa's gruff, gravelly old trainer from "
             "the Rocky films. You've seen it all. You don't sugarcoat, you don't console, "
-            "you push. Every ride is a fight. Every number is either proof the rider's "
-            "got heart or proof they went down without a fight. You believe in this rider "
+            "you push. Every {session} is a fight. Every number is either proof the {athlete}'s "
+            "got heart or proof they went down without a fight. You believe in this {athlete} "
             "but you'll be damned if you're going to tell them that too easily."
         ),
         'tone_override': (
             "Gruff, old-school, working class. 'You're a bum, Rock.' "
-            "'What is that, a warmup? My grandmother rides harder than that.' "
+            "'What is that, a warmup? My grandmother goes harder than that.' "
             "'You got heart, kid, but heart don't mean nothing if the legs ain't there.' "
             "Occasionally let real pride slip through reluctantly. Reference the fight metaphor."
         ),
@@ -134,14 +136,14 @@ PERSONALITIES = {
         'label': '🎙️ Louis Theroux',
         'framing': (
             "You are Louis Theroux — gentle, curious, slightly baffled documentary maker "
-            "who has somehow found himself embedded with a cyclist for the week. You ask "
+            "who has somehow found himself embedded with a {athlete} for the week. You ask "
             "deceptively simple questions that reveal uncomfortable truths. You are polite "
             "and softly spoken but you will sit in the silence after a bad number and let "
             "it hang there. You find the human story in the data and you're genuinely, "
             "slightly uncomfortably interested in what it all means."
         ),
         'tone_override': (
-            "Quietly probing. Gentle but pointed. 'And this bit here — the power drop in "
+            "Quietly probing. Gentle but pointed. 'And this bit here — the drop in "
             "the final third — what do you think was going on there?' Occasionally pause "
             "to reflect out loud. Be fascinated by contradictions in the data. End with "
             "something that sounds like a gentle conclusion but is actually quite cutting."
@@ -151,8 +153,8 @@ PERSONALITIES = {
         'label': '💅 Katie Price',
         'framing': (
             "You are Katie Price — glamorous, straight-talking, no-nonsense British "
-            "celebrity. You know nothing about cycling but you have opinions about "
-            "everything and you're not afraid to share them. You relate the ride to "
+            "celebrity. You know nothing about {sport} but you have opinions about "
+            "everything and you're not afraid to share them. You relate the {session} to "
             "your personal life, your horses, your various TV appearances, and what "
             "Harvey would think. You are simultaneously completely unqualified and "
             "utterly confident."
@@ -318,13 +320,98 @@ def _format_receipts(receipts):
                 f'{r["delta"]} ({r["delta_percent"]}) | {r["hint"]}'
             )
         elif r['type'] == 'similar_ride':
+            climb = (f' on {r["current_elev"]} climb', f' on {r["previous_elev"]} climb') if r.get('current_elev') else ('', '')
             lines.append(
-                f'  SIMILAR RIDE "{r["previous_name"]}" ({r["previous_date"]}): '
-                f'today {r["current_speed"]} on {r["current_elev"]} climb | '
-                f'then {r["previous_speed"]} on {r["previous_elev"]} climb | '
+                f'  SIMILAR {r.get("noun", "ride").upper()} "{r["previous_name"]}" ({r["previous_date"]}): '
+                f'today {r["current_speed"]}{climb[0]} | '
+                f'then {r["previous_speed"]}{climb[1]} | '
                 f'{r["delta"]} | {r["hint"]}'
             )
     return '\n'.join(lines)
+
+
+def _hr_line(activity):
+    """'  Avg HR : 148 bpm (max 171 bpm) — resting HR 52bpm (96bpm above rest) | HR drifted +9bpm ...', or ''."""
+    import json as _json
+    avg_hr = float(activity['averageHeartrate'])
+    hr_line = f'  Avg HR     : {avg_hr:.0f} bpm'
+    if activity['maxHeartrate']:
+        hr_line += f' (max {activity["maxHeartrate"]:.0f} bpm)'
+
+    # Compare to Garmin resting HR if available
+    day = str(activity['startDateLocal'])[:10]
+    garmin_hr = query_db(
+        'SELECT restingHR FROM GarminDaily WHERE date <= ? AND restingHR IS NOT NULL ORDER BY date DESC LIMIT 1',
+        [day], one=True
+    )
+    if garmin_hr and garmin_hr['restingHR']:
+        rhr = garmin_hr['restingHR']
+        hr_line += f' — resting HR {rhr}bpm ({avg_hr - rhr:.0f}bpm above rest)'
+
+    # HR drift from the heartrate stream
+    try:
+        streams = _json.loads(activity['streams'] or '{}')
+        hr_data = (streams.get('heartrate') or {}).get('data') or []
+        if len(hr_data) >= 12:
+            third = len(hr_data) // 3
+            first_avg = sum(hr_data[:third]) / third
+            last_avg  = sum(hr_data[-third:]) / third
+            drift = last_avg - first_avg
+            if drift > 5:
+                hr_line += f' | HR drifted +{drift:.0f}bpm first→last third (cardiac drift)'
+            elif drift < -5:
+                hr_line += f' | HR fell {abs(drift):.0f}bpm first→last third (fading effort / pacing off)'
+    except Exception:
+        log.debug('HR drift for the AI prompt failed', exc_info=True)
+    return hr_line + '\n'
+
+
+def _current(activity, p):
+    """The activity's own figures, as the sport reads them: pace on foot and in the water, speed on a bike, no distance for a strength session."""
+    from services import units
+    mins = int(activity['movingTime'] or 0) // 60
+    current = f'"{activity["name"]}" — {str(activity["startDateLocal"])[:10]}\n'
+    current += f'  Sport      : {p.label}{" (indoors)" if p.indoor and "ndoor" not in p.label else ""}\n'
+    if p.distance and activity['distance']:
+        dist = units.fmt_dist(activity['distance']) if p.rate != 'swim' else '{:,.0f} m'.format(float(activity['distance']))     # a pool is in metres
+        current += f'  Distance   : {dist}\n'
+    current += f'  Moving time: {mins} min\n'
+    if p.distance and activity['averageSpeed']:
+        label = 'Avg speed  ' if p.rate == 'speed' else 'Avg pace   '
+        current += f'  {label}: {units.fmt_rate(activity["averageSpeed"], p.rate)}\n'
+    if p.climbing and activity['totalElevationGain']:
+        current += f'  Elevation  : {units.fmt_elev(activity["totalElevationGain"])}\n'
+    if activity['averageWatts']:
+        current += f'  Avg power  : {activity["averageWatts"]:.0f} W'
+        if activity['weightedAvgWatts']:
+            current += f' (NP: {activity["weightedAvgWatts"]:.0f} W)'
+        current += '\n'
+    if activity['averageHeartrate']:
+        current += _hr_line(activity)
+    if activity['averageCadence'] and p.cadence:
+        unit, factor = p.cadence
+        current += f'  Avg cadence: {activity["averageCadence"] * factor:.0f} {unit}\n'
+    if activity['calories']:
+        current += f'  Calories   : {activity["calories"]:.0f} kcal\n'
+    return current
+
+
+def _weather_rule(p):
+    """What the weather means for this sport's numbers."""
+    from services import units
+    if p.indoor:
+        return None
+    if p.family == 'ride':
+        return ("WEATHER: if conditions data is present and shows wind, cold, heat, or rain — factor it into your speed/power interpretation before "
+                "drawing any conclusions about effort. A 13mph headwind ride that looks slow may be a stronger effort than a calm day at 14mph")
+    if p.rate == 'pace':
+        return ("WEATHER: heat, humidity, strong wind and wet or icy ground all slow the pace and raise the heart rate for the same effort. "
+                "Factor them in before reading a slower pace as lost fitness")
+    if 'surf' in p.sport.lower() or 'foil' in p.sport.lower():
+        return ("WEATHER: the wind and the conditions are what the session was made of. Read the speed and distance against them, "
+                "not against a calm day")
+    return ("WEATHER: if conditions data is present and shows wind, cold, heat, or rain, say what it means for the numbers before attributing "
+            "changes to fitness or fatigue")
 
 
 def generate_analysis(activity, personality_key=None):
@@ -332,118 +419,87 @@ def generate_analysis(activity, personality_key=None):
     if chat is None:
         raise AIUnavailable(missing_key_message('to enable AI coaching'))
 
+    from services import units                         # the coach reads every number in the rider's own units
+    from services.coach_sports import profile
+    from services.context import build_context, build_comparison_receipts, get_weather_line
+    p = profile(activity['sportType'])
+
     settings = query_db('SELECT coachingGoals, coachPersonality FROM Settings WHERE id=1', one=True)
     goals = (settings['coachingGoals'] or '').strip() if settings else ''
     if personality_key is None:
         personality_key = (settings['coachPersonality'] or 'default') if settings else 'default'
     personality = PERSONALITIES.get(personality_key, PERSONALITIES['default'])
 
-    rider_name = 'the rider'
+    rider_name = 'the athlete'
     if activity['riderId']:
         rider_row = query_db('SELECT name FROM Rider WHERE id=?', [activity['riderId']], one=True)
         if rider_row:
             rider_name = rider_row['name']
 
-    framing = personality['framing'].format(rider_name=rider_name)
+    words = {'rider_name': rider_name, 'sport': p.sport_word, 'session': p.noun, 'athlete': p.athlete}
+    framing = personality['framing'].format(**words)
+    tone_extra = personality['tone_override'].format(**words) if personality['tone_override'] else None
 
-    from services.context import build_context, build_comparison_receipts, get_weather_line
-
-    from services import units                         # the coach reads every number in the rider's own units
-    mins     = int(activity['movingTime'] or 0) // 60
-
-    current = f'"{activity["name"]}" — {str(activity["startDateLocal"])[:10]}\n'
-    current += f'  Distance   : {units.fmt_dist(activity["distance"])}\n'
-    current += f'  Moving time: {mins} min\n'
-    current += f'  Avg speed  : {units.fmt_speed(activity["averageSpeed"])}\n'
-    current += f'  Elevation  : {units.fmt_elev(activity["totalElevationGain"])}\n'
-    if activity['averageWatts']:
-        current += f'  Avg power  : {activity["averageWatts"]:.0f} W'
-        if activity['weightedAvgWatts']:
-            current += f' (NP: {activity["weightedAvgWatts"]:.0f} W)'
-        current += '\n'
-    if activity['averageHeartrate']:
-        import json as _json
-        avg_hr = float(activity['averageHeartrate'])
-        hr_line = f'  Avg HR     : {avg_hr:.0f} bpm'
-        if activity['maxHeartrate']:
-            hr_line += f' (max {activity["maxHeartrate"]:.0f} bpm)'
-
-        # Compare to Garmin resting HR if available
-        ride_date = str(activity['startDateLocal'])[:10]
-        garmin_hr = query_db(
-            'SELECT restingHR FROM GarminDaily WHERE date <= ? AND restingHR IS NOT NULL ORDER BY date DESC LIMIT 1',
-            [ride_date], one=True
-        )
-        if garmin_hr and garmin_hr['restingHR']:
-            rhr = garmin_hr['restingHR']
-            hr_line += f' — resting HR {rhr}bpm ({avg_hr - rhr:.0f}bpm above rest)'
-
-        # HR drift from the heartrate stream
-        try:
-            streams = _json.loads(activity['streams'] or '{}')
-            hr_data = (streams.get('heartrate') or {}).get('data') or []
-            if len(hr_data) >= 12:
-                third = len(hr_data) // 3
-                first_avg = sum(hr_data[:third]) / third
-                last_avg  = sum(hr_data[-third:]) / third
-                drift = last_avg - first_avg
-                if drift > 5:
-                    hr_line += f' | HR drifted +{drift:.0f}bpm first→last third (cardiac drift)'
-                elif drift < -5:
-                    hr_line += f' | HR fell {abs(drift):.0f}bpm first→last third (fading effort / pacing off)'
-        except Exception:
-            log.debug('HR drift for the AI prompt failed', exc_info=True)
-
-        current += hr_line + '\n'
-    if activity['averageCadence']:
-        current += f'  Avg cadence: {activity["averageCadence"]:.0f} rpm\n'
-    if activity['calories']:
-        current += f'  Calories   : {activity["calories"]:.0f} kcal\n'
-
+    current = _current(activity, p)
     weather_line = get_weather_line(activity)
     if weather_line:
         current += f'  Conditions : {weather_line}\n'
     if activity['description']:
-        current += f'  Ride description: {activity["description"].strip()}\n'
+        current += f'  Description: {activity["description"].strip()}\n'
     if activity['notes']:
-        current += f'  Rider notes: {activity["notes"]}\n'
+        current += f'  Athlete\'s notes: {activity["notes"]}\n'
 
     context          = build_context(activity)
     receipts         = build_comparison_receipts(activity)
     receipts_section = _format_receipts(receipts)
 
-    tone_extra = personality['tone_override']
+    noun, nouns = p.noun, p.nouns
+    rate_word = {'speed': 'speed', 'pace': 'pace', 'swim': 'pace per 100 m'}.get(p.rate)
+    measures = '/'.join(x for x in ('power' if p.family == 'ride' else None, rate_word, 'heart rate') if x)
+    weather_rule = _weather_rule(p)
 
     system_msg = framing + '\n'
+    system_msg += f'\nThis is a {noun} ({p.label}). Coach it as {p.sport_word}, in its own terms: '
+    if p.distance:
+        system_msg += f'its {rate_word}, heart rate{", power" if p.family == "ride" else ""}{", climbing" if p.climbing else ""} and how they relate.'
+    else:
+        system_msg += ('it records time, heart rate and calories, and anything in the notes. There is no distance, pace or speed: '
+                       'never invent them, and never fault the session for not having them.')
+    system_msg += f' Compare it with the athlete\'s other {nouns}, not with other sports.\n'
     if goals:
-        system_msg += f'\nRIDER\'S CURRENT GOALS (factor these into your analysis where relevant):\n{goals}\n'
+        system_msg += f'\nTHE ATHLETE\'S CURRENT GOALS (factor these into your analysis where relevant):\n{goals}\n'
     system_msg += f"""
 TONE (non-negotiable):
-- {"Personality note: " + tone_extra if tone_extra else "Sound like a knowledgeable riding mate who has actually looked at the numbers — not a fitness app generating a structured report"}
+- {"Personality note: " + tone_extra if tone_extra else "Sound like a knowledgeable training mate who has actually looked at the numbers — not a fitness app generating a structured report"}
 - Be observational. Interpret what numbers mean, not just what they are
-- Be honest about current form — if pacing was off, fatigue is showing, or power was below recent efforts, say so plainly. Base this on recent rides (last few weeks/months), not historical peaks
-- If the rider's goals mention a comeback or return from a break: judge performance against their current trajectory, not their pre-break best. A rider rebuilding from scratch doing a reasonable training ride is NOT having a poor ride just because it's slower than their peak from years ago
-- Historical segment PRs (marked as "historical — aspirational target") show what's been achieved before. Use them as context for the ceiling, not as a stick to beat current performance with. Never say a ride was poor solely because it's slower than a years-old PR
-- RIDER NOTES AND DESCRIPTION: if the rider has added notes (visible in the current ride data), treat them as ground truth about the ride's intent. "Chilled ride with son", "recovery spin", "leg spinner", "deliberately easy" = intentional low-effort ride — do NOT critique power or speed as if they were trying hard. Acknowledge the intent and assess whether the ride delivered what it was meant to. Similarly "GPS dropped" or "bad data" notes should stop you treating incomplete stats as representative
-- ACKNOWLEDGE GAINS: the ride history begins with a "Comeback progress by month" table — READ THIS FIRST. Read the OVERALL ARC from the first month to the most recent complete month (ignore any month flagged as partial — partial months have too few rides to compare fairly). If the overall arc shows speed or power up, name those specific numbers (e.g. "power up from 135W avg in January to 176W by April"). This is the most important context for a comeback rider and must appear in the bigger picture section. NEVER call a partial month's average a "downturn" compared to a prior full month — that is noise, not signal. Don't skip the comeback table in favour of micro-comparisons between individual rides
-- WEATHER: if conditions data is present and shows wind, cold, heat, or rain — factor it into your speed/power interpretation before drawing any conclusions about effort. A 13mph headwind ride that looks slow may be a stronger effort than a calm day at 14mph
+- Be honest about current form — if pacing was off, fatigue is showing, or the numbers were below recent efforts, say so plainly. Base this on recent {nouns} (last few weeks/months), not historical peaks
+- If the athlete's goals mention a comeback or return from a break: judge performance against their current trajectory, not their pre-break best. Someone rebuilding from scratch doing a reasonable training {noun} is NOT having a poor {noun} just because it's slower than their peak from years ago
+- Historical PRs (marked as "historical — aspirational target") show what's been achieved before. Use them as context for the ceiling, not as a stick to beat current performance with. Never say a {noun} was poor solely because it's slower than a years-old PR
+- THE ATHLETE'S NOTES AND DESCRIPTION: if they've added notes (visible in the current {noun}'s data), treat them as ground truth about its intent. "Chilled ride with son", "recovery spin", "easy jog", "deliberately easy" = intentional low effort — do NOT critique {measures} as if they were trying hard. Acknowledge the intent and assess whether the {noun} delivered what it was meant to. Similarly "GPS dropped" or "bad data" notes should stop you treating incomplete stats as representative
+- OTHER TRAINING: the history lists the athlete's other sports in the weeks before. Use it to read fatigue and load — a hard run or a heavy gym session the day before explains tired legs today — but never compare this {noun}'s numbers with another sport's
+- ACKNOWLEDGE GAINS: if the history begins with a "Comeback progress by month" table — READ THIS FIRST. Read the OVERALL ARC from the first month to the most recent complete month (ignore any month flagged as partial — partial months have too few sessions to compare fairly). If the overall arc shows {measures} improving, name those specific numbers. This is the most important context for a comeback and must appear in the bigger picture section. NEVER call a partial month's average a "downturn" compared to a prior full month — that is noise, not signal. Don't skip the comeback table in favour of micro-comparisons between individual {nouns}"""
+    if weather_rule:
+        system_msg += f'\n- {weather_rule}'
+    system_msg += f"""
 
 BANNED WORDS AND PHRASES — you must not use any of these, even once:
-solid, decent, great effort, commendable, considerable, promising, developing well, well done, good job, maintain consistency, keep it up, respectable, your body is adapting, impressive, well-executed, nicely done, moving forward, moving in the right direction, on the right track, heading in the right direction, stay focused, keep pushing, step up, step forward, notable progression, good progress, great progress, positive ride
+solid, decent, great effort, commendable, considerable, promising, developing well, well done, good job, maintain consistency, keep it up, respectable, your body is adapting, impressive, well-executed, nicely done, moving forward, moving in the right direction, on the right track, heading in the right direction, stay focused, keep pushing, step up, step forward, notable progression, good progress, great progress, positive ride, positive session
 
 Before you output your response, scan it for every word above. If you find one, replace it with a direct observation or cut the sentence.
 
 OTHER RULES:
 - Never pad a section with generic observations — skip the section instead
-- Don't restate stats without interpretation: not "157W" but what that means given the terrain, the weather, and the prior rides
-- Express deltas naturally: "17:26 faster", "about 24% quicker", "same power, more speed" — never raw seconds, never "improved by -Xs"
-- Reduce certainty: not "all clear, no fatigue" but "nothing obviously concerning, though hard to say from one ride"
-- Occasionally challenge how the rider probably felt vs what the data actually shows
-- If conditions show headwind, adverse weather, cold, or gusts: explain what that means for the pace numbers before attributing changes to fitness or fatigue. A headwind ride that looks slow may actually be a strong effort"""
+- Don't restate stats without interpretation: not the bare number but what it means given the terrain, the conditions, and the previous {nouns}
+- Express deltas naturally: "17:26 faster", "about 24% quicker", "same heart rate, quicker pace" — never raw seconds, never "improved by -Xs"
+- Reduce certainty: not "all clear, no fatigue" but "nothing obviously concerning, though hard to say from one {noun}"
+- Occasionally challenge how the athlete probably felt vs what the data actually shows"""
+    if not p.indoor:
+        system_msg += ('\n- If conditions show wind, adverse weather, cold, or heat: explain what that means for the numbers before attributing '
+                       'changes to fitness or fatigue')
 
-    user_msg = f"""CURRENT RIDE:
+    user_msg = f"""CURRENT {noun.upper()}:
 {current}
-RIDE HISTORY & CONTEXT:
+HISTORY & CONTEXT:
 {context}
 """
     if receipts_section:
@@ -451,35 +507,40 @@ RIDE HISTORY & CONTEXT:
 COMPARISON EVIDENCE — use at least 2-4 of these in your analysis. Quote specific dates, times, and deltas. Don't paraphrase vaguely:
 {receipts_section}
 """
-    user_msg += """---
+    optional = []
+    if p.climb_limit_m:
+        optional.append(f'⛰️ Climbing — only if elevation > {units.fmt_elev(p.climb_limit_m)} and the climbing meaningfully changes what the numbers mean')
+    optional.append(f'🔥 Standout metric — only if there is a genuinely interesting {measures} relationship worth explaining')
+    optional.append('📈 Fitness reading — only if you can say something specific about adaptation or trajectory, not just "numbers are up"')
+    if not p.indoor:
+        optional.append('🌦️ Conditions — only if weather was a real factor that changes how the numbers should be read')
+    optional.append('🏁 Segments — only if segment or comparison data exists; use specific dates and deltas from the evidence')
+    optional.append(f'🏆 Achievements — only if best efforts or badges were set on this {noun}')
+    optional.append('🚨 Warning — only if you see something genuinely concerning; don\'t invent warnings to fill space')
+    optional.append('🔮 Trajectory — only if the pattern is specific enough to make a realistic projection')
+    optional_lines = '\n'.join(optional)
+
+    user_msg += f"""---
 
 Write coaching notes, not a report. Use emoji headers for each section.
 
 REQUIRED — always write these three:
-🚴 The ride — 1-2 sentences. What actually happened. One sharp observation, not a stat summary.
-🧩 Bigger picture — 2-4 sentences. How this sits against the recent pattern. If comparison evidence exists, use specific dates and deltas — make progress (or regression) concrete.
+{p.icon} The {noun} — 1-2 sentences. What actually happened. One sharp observation, not a stat summary.
+🧩 Bigger picture — 2-4 sentences. How this sits against the recent pattern of {nouns} and the rest of the athlete's training. If comparison evidence exists, use specific dates and deltas — make progress (or regression) concrete.
 🎯 Honest verdict — 1-2 sentences. Was this a good day, a poor day, or somewhere in between? Say it plainly.
 
 OPTIONAL — include only if you have something specific and non-obvious to say. Skip entirely otherwise:
-⛰️ Climbing — only if elevation > CLIMB_LIMIT and the climbing meaningfully changes what the numbers mean
-🔥 Standout metric — only if there is a genuinely interesting power/HR/speed relationship worth explaining
-📈 Fitness reading — only if you can say something specific about adaptation or trajectory, not just "numbers are up"
-🌦️ Conditions — only if weather was a real factor that changes how the numbers should be read
-🏁 Segments — only if segment or comparison data exists; use specific dates and deltas from the evidence
-🏆 Achievements — only if best efforts were set on this ride
-🚨 Warning — only if you see something genuinely concerning; don't invent warnings to fill space
-🔮 Trajectory — only if the pattern is specific enough to make a realistic projection
+{optional_lines}
 
-Close with a single plain sentence (no emoji, no header). A specific observation from this ride's data only — a fact, a number, a pattern that's worth knowing. NOT an instruction for next time. NOT "keep X going", "focus on Y", "work on Z", or any sentence that tells the rider what to do next. If it could appear on any generic ride summary, rewrite it.
+Close with a single plain sentence (no emoji, no header). A specific observation from this {noun}'s data only — a fact, a number, a pattern that's worth knowing. NOT an instruction for next time. NOT "keep X going", "focus on Y", "work on Z", or any sentence that tells the athlete what to do next. If it could appear on any generic summary, rewrite it.
 
 RULES:
 - Skip optional sections rather than fill them with generic observations
 - If comparison evidence was provided: use at least 2-4 specific receipts with dates and deltas
-- If a ride was genuinely below recent form: say so and explain what's behind it. If it was a reasonable training ride given the pattern and conditions, say that instead
+- If a {noun} was genuinely below recent form: say so and explain what's behind it. If it was a reasonable training {noun} given the pattern and conditions, say that instead
 - If no history exists: analyse the data alone and flag it
-- The final sentence must be specific to this ride — if it could apply to any ride on any day, rewrite it"""
+- The final sentence must be specific to this {noun} — if it could apply to any {noun} on any day, rewrite it"""
 
-    user_msg = user_msg.replace('CLIMB_LIMIT', units.fmt_elev(800 / units.FT_PER_M))      # 800 ft, in the rider's units
     system_msg = units.localise(system_msg)      # its worked example ('a 13mph headwind ride') in the rider's units too
 
     return chat([{'role': 'user', 'content': user_msg}], system=system_msg, max_tokens=1000, temperature=0.7)
@@ -508,8 +569,8 @@ def ensure_weather(db, activity):
 
 
 def analyse_ride(db, activity, personality_key=None):
-    """Everything 'analyse this ride' does, for the ride page's button, the AI page's batch and the analysis of new rides
-    (services/auto_analyse.py): weather if it has none, the analysis, stored on the ride and in its ActivityMemory. Returns the text;
+    """Everything 'analyse this activity' does, for the activity page's button, the AI page's batch and the analysis of new activities
+    (services/auto_analyse.py), for every sport: weather if it has none, the analysis, stored on the activity and in its ActivityMemory. Returns the text;
     raises when there is no provider or it fails. Commits."""
     activity = ensure_weather(db, activity)
     text = generate_analysis(activity, personality_key=personality_key)

@@ -10,7 +10,7 @@
   <div class="stats-grid" style="margin-bottom:0;">
     <div class="stat-card">
       <div class="stat-value">{{ analysed }}</div>
-      <div class="stat-label">Rides analysed</div>
+      <div class="stat-label">Activities analysed</div>
       <div class="stat-sub">of {{ total }} total</div>
     </div>
     <div class="stat-card">
@@ -19,7 +19,7 @@
     </div>
     <div class="stat-card">
       <div class="stat-value">{{ memories }}</div>
-      <div class="stat-label">Ride memories</div>
+      <div class="stat-label">Memories</div>
       <div class="stat-sub">used for context</div>
     </div>
   </div>
@@ -29,7 +29,10 @@
   <div class="card">
     <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:1.25rem;">
       <div class="card-title" style="margin:0;">Working Memory</div>
-      <div style="font-size:0.75rem; color:var(--text-muted);">dot size = distance &middot; colour = speed</div>
+      <div style="font-size:0.75rem; color:var(--text-muted); display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
+        <span>dot size = time</span>
+        {% for g in viz.legend %}<span><span style="display:inline-block; width:0.6rem; height:0.6rem; border-radius:50%; background:var({{ g.color }}); margin-right:0.25rem;"></span>{{ g.label }}</span>{% endfor %}
+      </div>
     </div>
 
     <!-- Dot timeline — full width -->
@@ -52,20 +55,20 @@
             </div>
             <div style="text-align:right; min-width:80px;">
               <span style="font-size:0.8125rem; font-weight:600; color:var(--text);">{{ m.cnt }}</span>
-              <span style="font-size:0.75rem; color:var(--text-muted);"> rides</span>
-              <div style="font-size:0.7rem; color:var(--text-muted);">{{ m.total_dist }} {{ U.dist }} · {{ m.avg_spd }} {{ U.speed }}</div>
+              <span style="font-size:0.75rem; color:var(--text-muted);"> {{ 'activity' if m.cnt == 1 else 'activities' }}</span>
+              <div style="font-size:0.7rem; color:var(--text-muted);">{{ m.hours }} h{% if m.total_dist %} · {{ m.total_dist }} {{ U.dist }}{% endif %}</div>
             </div>
           </div>
           {% endfor %}
         </div>
 
-        {% if monthly|length > 1 %}
-        <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:0.5rem;">Avg speed trend</div>
+        {% if viz.sparkline %}
+        <div style="font-size:0.6875rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); margin-bottom:0.5rem;">Avg ride speed trend</div>
         <svg width="100%" height="55" viewBox="0 0 210 55" preserveAspectRatio="none" style="display:block;">
           <polyline
-            points="{% for m in monthly %}{{ m.spark_x }},{{ m.spark_y }} {% endfor %}"
+            points="{% for m in viz.sparkline %}{{ m.spark_x }},{{ m.spark_y }} {% endfor %}"
             fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
-          {% for m in monthly %}
+          {% for m in viz.sparkline %}
           <circle cx="{{ m.spark_x }}" cy="{{ m.spark_y }}" r="3" fill="var(--accent)"/>
           <text x="{{ m.spark_x }}" y="{{ m.spark_y - 7 }}" text-anchor="middle" font-size="8" style="fill:var(--text)">{{ m.avg_spd }}</text>
           {% endfor %}
@@ -81,10 +84,10 @@
           <div style="display:grid; grid-template-columns:auto 1fr; gap:0.75rem; align-items:start; padding:0.6rem 0.75rem; background:var(--inset-bg); border-radius:6px;">
             <div style="text-align:right; min-width:72px;">
               <div style="font-size:0.75rem; font-weight:600; color:var(--text); white-space:nowrap;">{{ r.activityDate | fmt_date }}</div>
-              <div style="font-size:0.7rem; color:var(--text-muted);">{{ ((r.distanceMi or 0) * 1609.344) | fmt_dist }}</div>
+              <div style="font-size:0.7rem; color:var(--text-muted);">{% if r.has_distance %}{{ ((r.distanceMi or 0) * 1609.344) | fmt_dist }}{% else %}{{ (r.movingTime or 0) // 60 }} min{% endif %}</div>
             </div>
             <div>
-              <div style="font-size:0.8125rem; font-weight:500; color:var(--text); margin-bottom:0.2rem;">{{ r.activityName }}</div>
+              <div style="font-size:0.8125rem; font-weight:500; color:var(--text); margin-bottom:0.2rem;">{{ r.sport_icon }} {{ r.activityName }}</div>
               <div style="font-size:0.75rem; color:var(--text-muted); line-height:1.4;">{{ (r.aiSummary or '')[:160] }}…</div>
             </div>
           </div>
@@ -96,24 +99,33 @@
   </div>
   {% endif %}
 
-  <!-- New rides analysed as they're imported (services/auto_analyse.py) -->
+  <!-- New activities analysed as they're imported (services/auto_analyse.py), of the sports picked -->
   <form method="POST" action="{{ url_for('ai_page.save_auto_analyse') }}" class="card" style="margin:0;">
-    <div class="card-title">Analyse New Rides</div>
+    <div class="card-title">Analyse New Activities</div>
     <p class="hint" style="margin-bottom:1rem;">
-      Write coaching notes for each new ride as soon as it arrives from Garmin, the phone app or an import, using the coach personality you last chose on a ride.
-      Only rides from the last {{ recent_days }} days: use Bulk Analysis below for older ones. Each analysis is a call to your AI provider.
+      Write coaching notes for each new activity of the sports you pick as soon as it arrives from Garmin, the phone app or an import, using the coach personality you last chose on an activity.
+      Only activities from the last {{ recent_days }} days: use Bulk Analysis below for older ones. Each analysis is a call to your AI provider, so leave out the sports you don't want notes on (daily walks, say).
     </p>
     {% set auto_on = settings and settings.aiAutoAnalyse %}
     {% if missing_key %}
-    <p style="font-size:0.875rem; margin-bottom:1rem; color:var(--warning);">{{ missing_key }}{% if auto_on %} Until then new rides aren't analysed.{% endif %}</p>
+    <p style="font-size:0.875rem; margin-bottom:1rem; color:var(--warning);">{{ missing_key }}{% if auto_on %} Until then new activities aren't analysed.{% endif %}</p>
     {% endif %}
-    <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
-      <label class="check" style="margin:0;">
-        <input type="checkbox" name="auto" value="1" {% if auto_on %}checked{% endif %} {% if not ai_ready and not auto_on %}disabled{% endif %}>
-        Analyse new rides automatically
-      </label>
-      <button type="submit" class="btn btn-secondary" {% if not ai_ready and not auto_on %}disabled{% endif %}>Save</button>
-    </div>
+    {% set locked = not ai_ready and not auto_on %}
+    <label class="check" style="margin:0 0 0.75rem;">
+      <input type="checkbox" name="auto" value="1" {% if auto_on %}checked{% endif %} {% if locked %}disabled{% endif %}>
+      Analyse new activities automatically
+    </label>
+    <fieldset style="margin:0 0 1rem;" {% if locked %}disabled{% endif %}>
+      <legend>Sports to analyse</legend>
+      <div class="checks">
+        <label class="check"><input type="checkbox" name="every" value="1" id="autoEvery" {% if auto_sports is none %}checked{% endif %}> 🏅 Every sport</label>
+        {% for f in sport_choices %}
+        <label class="check"><input type="checkbox" name="sport" value="{{ f.key }}" {% if auto_sports is not none and f.key in auto_sports %}checked{% endif %}> {{ f.icon }} {{ f.label }}</label>
+        {% endfor %}
+      </div>
+      <p class="hint" style="margin:0.3rem 0 0;">Every sport takes in any you start later too. Cycling takes in every kind of ride (indoor, e-bike, mountain bike, gravel), On foot runs, walks and hikes.</p>
+    </fieldset>
+    <button type="submit" class="btn btn-secondary" {% if locked %}disabled{% endif %}>Save</button>
   </form>
 
   <!-- Goals + Bulk Analysis side by side -->
@@ -123,10 +135,10 @@
     <form method="POST" action="{{ url_for('ai_page.save_goals') }}" class="card" style="margin:0;">
       <div class="card-title">Coaching Goals</div>
       <p class="hint" style="margin-bottom:1rem;">
-        Tell the AI what you're training for. Injected into every coaching analysis so feedback stays relevant to your objectives.
+        Tell the AI what you're training for, in any sport. Injected into every coaching analysis so feedback stays relevant to your objectives.
       </p>
       <div class="form-group">
-        <textarea name="goals" rows="6" placeholder="e.g. Training for a 100-mile sportive in August. Focusing on aerobic base and climbing. Trying to lose weight — currently 92kg, targeting 85kg."
+        <textarea name="goals" rows="6" placeholder="e.g. Training for a 100-mile sportive in August and a half marathon in October. Two runs and a gym session a week alongside the riding. Trying to lose weight — currently 92kg, targeting 85kg."
           style="resize:vertical;">{{ (settings.coachingGoals or '') if settings }}</textarea>
       </div>
       <button type="submit" class="btn btn-primary">Save Goals</button>
@@ -136,7 +148,7 @@
     <div class="card" style="margin:0;">
       <div class="card-title">Bulk Analysis</div>
       <p class="hint" style="margin-bottom:1.25rem;">
-        Generate AI coaching notes for multiple rides at once. Builds ride memories for richer future context.
+        Generate AI coaching notes for several activities at once. Builds memories for richer future context.
       </p>
 
       <div class="form-grid">
@@ -148,6 +160,14 @@
           <label>To</label>
           <input type="date" id="bulkTo">
         </div>
+      </div>
+
+      <div class="form-group">
+        <label for="bulkSport">Sport</label>
+        <select id="bulkSport">
+          <option value="">🏅 Every sport</option>
+          {% for f in sport_choices %}<option value="{{ f.key }}">{{ f.icon }} {{ f.label }}</option>{% endfor %}
+        </select>
       </div>
 
       <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:1rem; flex-wrap:wrap;">

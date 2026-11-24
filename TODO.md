@@ -229,9 +229,6 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
   - [ ] Laps from TCX files (`parse_tcx` reads them only to add up time and distance) and from GPX `<extensions>`; and the laps of activities imported before this (only a new import of the file fills them in: the files aren't kept).
   - [ ] Nordic and backcountry skiing get the plain page; ski touring could show climbs and descents.
 
-- [ ] **AI coach for other sports.** `services/ai.py` and `services/context.py` coach rides only. Give runs and other sports their own context and history, and let ride analysis take the rest of the training week into account. It already sees "Other training (last 30 days)".
-  - [ ] Analyse new runs and other sports automatically too (`services/auto_analyse.py` takes rides only, `sports.is_ride`).
-
 ### Data and import
 
 - [ ] **Apple Health export import.** Apple has no web API for Health. Besides the iPhone app's Apple Health sync (`services/health.py`), the only way in is the `export.zip` from the Health app (profile picture, Export All Health Data): `apple_health_export/export.xml` plus `workout-routes/*.gpx`. Today `upload()` (`routes/import_rides.py`) doesn't recognise it and sends it to `_process_generic_zip`, which imports each route GPX on its own. Apple's route files name no sport, and a file with no sport is a ride, so every run and walk would come in as a ride, asked about only when its pace gives it away (`services/sport_guess.py`), though `export.xml` says what each one was.

@@ -127,11 +127,74 @@ def test_a_zip_analyses_only_its_recent_rides(app, chat):
     assert [bool(r['aiKudos']) for r in rides] == [False, False, True] and chat.calls == 1
 
 
-def test_runs_are_not_analysed(app, chat, tmp_path):
+def _sports(app, raw):
+    with app.app_context():
+        d = database.get_db()
+        d.execute('UPDATE Settings SET aiAutoSports=? WHERE id=1', [raw])
+        d.commit()
+
+
+def test_every_sport_is_analysed_by_default(app, chat, tmp_path):
+    """A new install (no rider before step 14) analyses every sport: a run as well as a ride."""
     _on(app)
     _import_file(app, gpx(NOW - timedelta(hours=2), kind='running'), tmp_path)
     jobs.run_queued(app)
-    assert _rides(app)[0]['aiKudos'] is None and chat.calls == 0
+    assert _rides(app)[0]['aiKudos'] and chat.calls == 1
+
+
+def _add_and_queue(app, act_id, sport):
+    with app.app_context():
+        d = database.get_db()
+        start = (NOW - timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%S')
+        d.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, distance, movingTime) VALUES (?, ?, ?, 1, ?, 5000, 1500)",
+                  [act_id, f'Morning {sport}', sport, start])
+        auto_analyse.queue_ride(d, act_id)
+        d.commit()
+    jobs.run_queued(app)
+    with app.app_context():
+        return database.get_db().execute('SELECT aiKudos FROM Activity WHERE id=?', [act_id]).fetchone()[0]
+
+
+def test_only_the_sports_picked_are_analysed(app, chat):
+    _on(app)
+    _sports(app, '["group:ride"]')                      # an install from before the choice: rides only, as it was
+    assert _add_and_queue(app, 'run1', 'Run') is None and chat.calls == 0
+    assert _add_and_queue(app, 'ride1', 'GravelRide') and chat.calls == 1
+    _sports(app, '["group:ride", "sport:Run"]')
+    assert _add_and_queue(app, 'run2', 'Run') and chat.calls == 2
+    assert _add_and_queue(app, 'walk1', 'Walk') is None and chat.calls == 2
+
+
+def test_covers_groups_and_single_sports():
+    assert auto_analyse.covers(None, 'Kitesurf')
+    assert auto_analyse.covers(['group:ride'], 'Virtual Ride') and auto_analyse.covers(['group:ride'], None)
+    assert auto_analyse.covers(['group:foot'], 'Hike') and not auto_analyse.covers(['group:foot'], 'Ride')
+    assert auto_analyse.covers(['sport:Run'], 'Run') and not auto_analyse.covers(['sport:Run'], 'Walk')
+    assert not auto_analyse.covers([], 'Ride')
+    assert auto_analyse.chosen(None) is None and auto_analyse.chosen('["group:ride", "nonsense", 3]') == ['group:ride']
+
+
+def test_an_empty_activity_is_not_analysed(app, chat):
+    """An Apple Health workout with nothing recorded: no distance, no moving time, nothing to coach."""
+    _on(app)
+    with app.app_context():
+        d = database.get_db()
+        start = (NOW - timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%S')
+        d.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal) VALUES ('e1', 'Walk', 'Walk', 1, ?)", [start])
+        auto_analyse.queue_ride(d, 'e1')
+        assert not auto_analyse.is_pending('e1')
+
+
+def test_the_ai_page_saves_the_sports(app, chat):
+    c = _client(app)
+    c.post('/ai/auto-analyse', data={'auto': '1', 'sport': ['group:ride', 'sport:Run', 'bogus']})
+    with app.app_context():
+        assert database.get_db().execute('SELECT aiAutoSports FROM Settings WHERE id=1').fetchone()[0] == '["group:ride", "sport:Run"]'
+    c.post('/ai/auto-analyse', data={'auto': '1', 'every': '1', 'sport': 'group:ride'})
+    with app.app_context():
+        assert database.get_db().execute('SELECT aiAutoSports FROM Settings WHERE id=1').fetchone()[0] is None
+    r = c.post('/ai/auto-analyse', data={'auto': '1'}, follow_redirects=True)      # on, with nothing picked: refused
+    assert 'Pick at least one sport' in r.get_data(as_text=True)
 
 
 def test_a_failing_provider_leaves_the_ride_and_records_a_failed_task(app, monkeypatch, tmp_path):
@@ -168,9 +231,9 @@ def test_the_setting_needs_a_provider(app, monkeypatch):
     c = _client(app)
     c.post('/ai/auto-analyse', data={'auto': '1'})
     assert _setting(app) == 0
-    assert 'API key in Settings to analyse new rides automatically' in c.get('/ai').get_data(as_text=True)
+    assert 'API key in Settings to analyse new activities automatically' in c.get('/ai').get_data(as_text=True)
     monkeypatch.setattr('services.ai.get_chat', lambda: FakeChat())
-    c.post('/ai/auto-analyse', data={'auto': '1'})
+    c.post('/ai/auto-analyse', data={'auto': '1', 'every': '1'})
     assert _setting(app) == 1
     c.post('/ai/auto-analyse', data={})
     assert _setting(app) == 0
@@ -195,7 +258,7 @@ def test_an_import_rolled_back_leaves_nothing_queued(app, chat):
     with app.app_context():
         d = database.get_db()
         start = (NOW - timedelta(hours=1)).strftime('%Y-%m-%dT%H:%M:%S')
-        d.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal) VALUES ('x1', 'Ride', 'Ride', 1, ?)", [start])
+        d.execute("INSERT INTO Activity (id, name, sportType, riderId, startDateLocal, movingTime) VALUES ('x1', 'Ride', 'Ride', 1, ?, 3600)", [start])
         auto_analyse.queue_ride(d, 'x1')
         assert auto_analyse.is_pending('x1')
         d.rollback()
