@@ -24,6 +24,11 @@
     <label>Bought on (optional)<input name="boughtOn" type="date" value="{{ item.boughtOn or '' if item else '' }}"></label>
     <label>{{ 'Already ridden' if is_bike else 'Already used' }} before Headwind ({{ unit }})<input name="start" type="number" min="0" step="1" value="{{ start_disp }}" placeholder="0"></label>
     {% if not is_bike and feature('maintenance') %}<label>Replace at ({{ unit }}, blank for never)<input name="replace" type="number" min="0" step="1" value="{{ replace_disp }}"></label>{% endif %}
+    {% if feature('maintenance') %}
+    <input type="hidden" name="warnings_shown" value="1">
+    <label class="check wide"><input type="checkbox" name="warnings" value="1" {{ '' if item and item.noWarnings else 'checked' }}>
+      <span>Maintenance warnings<span class="hint" style="display:block;">{% if is_bike %}Its parts are listed under Needs attention, on the dashboard and in notifications when they're due. Untick for a bike you don't keep up this way, such as one on a turbo; its parts still show their wear on its page.{% else %}It's listed under Needs attention, on the dashboard and in notifications when it's due for replacing. Untick to keep its wear without the reminders.{% endif %}</span></span></label>
+    {% endif %}
     {% if not retired %}
     <fieldset class="wide">
       <legend>Default for new {{ 'rides' if is_bike else 'activities' }}</legend>

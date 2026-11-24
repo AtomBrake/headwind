@@ -509,7 +509,7 @@ Headwind can also email each new link itself to people you choose beforehand: ad
 - **One page for every piece of gear** — odometer, activities, distance, time, climbing, speed or pace, a breakdown by sport, first and last used, longest activity, distance by year and the 10 most recent activities. **Retire** keeps its history, and retired gear can still be picked for an old activity.
 - **Replaceable parts** — chain, cassette, chainrings, tyres, tubeless sealant, brake pads/rotors/fluid, cables, bar tape, headset and wheel bearings, bottom bracket, cleats, suspension service or your own, each with editable *check* and *replace* intervals by distance and/or days.
 - **Service log** — replaced, serviced, inspected, cleaned...; replacing a part retires it (keeping its lifetime) and fits a fresh one.
-- **Alerts** — soon / due / overdue, once each, via ntfy and Home Assistant push; a dashboard card shows what needs attention.
+- **Alerts** — soon / due / overdue, once each, via ntfy and Home Assistant push; a dashboard card shows what needs attention. Untick **Maintenance warnings** on a bike or an item of kit (a turbo bike, beach shoes) to leave it out of the alerts and the due lists; its wear still shows on its page.
 - Mileage is always **computed from your rides**, so fixing a ride's bike fixes every part. Photos are included in backups. See [docs/GEAR.md](docs/GEAR.md).
 
 ### Social (peer-to-peer)

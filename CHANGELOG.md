@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- **Maintenance warnings can be turned off for one bike or one item of kit.** Untick **Maintenance warnings** when editing it, for a bike on a turbo trainer or shoes you'll wear out regardless. Its parts, or the item itself, then stay off the Gear page's Needs attention list and the dashboard, and send no notifications or Home Assistant alerts. Its card says "No warnings" instead of Due or Overdue, and its wear still shows on its own page. Before, the only way was to untick notifications on each of a bike's parts, which still left them on the due lists. Ticking it again sends any alert it missed.
+
 ### Fixed
 - **A strength, yoga or HIIT session uploaded as a FIT file keeps its sport.** Garmin watches write these as "training" with the kind of session beside it, and Headwind read only the first part, so they came in as Other. Garmin sync wasn't affected.
 - **A FIT file from a watch paired with a gym's machine keeps its sport.** An indoor bike comes in as an indoor ride, a treadmill as an indoor run and a rowing machine as a row, rather than Other.

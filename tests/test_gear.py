@@ -193,6 +193,18 @@ def test_muted_and_archived_parts_stay_quiet(db):
     assert gear.evaluate_alerts(db, send=False) == []
 
 
+def test_a_bike_with_its_warnings_off_is_off_the_due_list_and_stays_quiet(db):
+    a = gear.create_bike(db, 1, 'Turbo'); gear.add_part(db, a, 'chain', installed_on='2026-01-01', replace_m=100 * MI)
+    b = gear.create_bike(db, 1, 'Road'); gear.add_part(db, b, 'chain', installed_on='2026-01-01', replace_m=100 * MI)
+    gear.update_bike(db, a, noWarnings=True)
+    ride(db, 'r1', '2026-02-01', miles=500, bike=a); ride(db, 'r2', '2026-02-02', miles=500, bike=b)
+    assert [x['bikeId'] for x in gear.evaluate_alerts(db, send=False)] == [b]
+    assert [i['bike']['id'] for i in gear.due_items(db, 1)] == [b]
+    assert gear.bike_health(db, a)['level'] == 'overdue'                  # it still wears
+    gear.update_bike(db, a, noWarnings=False)                             # back on: told what it missed
+    assert [x['bikeId'] for x in gear.evaluate_alerts(db, send=False)] == [a]
+
+
 def test_due_items_and_bike_health(db):
     a = gear.create_bike(db, 1, 'A'); gear.add_part(db, a, 'chain', installed_on='2026-01-01', replace_m=100 * MI); gear.add_part(db, a, 'cassette', installed_on='2026-01-01', replace_m=100000 * MI)
     ride(db, 'r1', '2026-02-01', miles=500, bike=a)

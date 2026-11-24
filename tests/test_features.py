@@ -261,6 +261,27 @@ def test_kit_keeps_its_replace_at_when_saved_with_maintenance_off(app, client):
     assert row['name'] == 'Old trainers' and row['replaceAtM'] == 800000
 
 
+def test_the_edit_form_turns_an_items_warnings_off_and_keeps_them_with_maintenance_off(app, client):
+    from services import gear, kit
+    kid = run(app, lambda db: kit.create(db, 1, 'Beach shoes', 'shoes', None, None, None, 0, 100000, None))
+    bike = run(app, lambda db: gear.create_bike(db, 1, 'Turbo'))
+    assert 'name="warnings" value="1" checked' in client.get(f'/gear/kit/{kid}/edit').get_data(as_text=True)
+    client.post('/gear/kit/save', data={'id': kid, 'name': 'Beach shoes', 'kind': 'shoes', 'replace': '100', 'warnings_shown': '1'})
+    client.post('/gear/bike/save', data={'id': bike, 'name': 'Turbo', 'kind': 'road', 'warnings_shown': '1'})
+    r = client.post('/gear/bike/save', data={'name': 'Spare', 'kind': 'road', 'warnings_shown': '1'})     # a new one, unticked from the start
+    spare = int(r.headers['Location'].rstrip('/').split('/')[-1])
+    assert run(app, lambda db: [kit.get(db, kid)['noWarnings'], gear.get_bike(db, bike)['noWarnings'], gear.get_bike(db, spare)['noWarnings']]) == [1, 1, 1]
+    assert 'No warnings' in client.get(f'/gear/kit/{kid}').get_data(as_text=True)
+    assert 'name="warnings" value="1" >' in client.get(f'/gear/bike/{bike}/edit').get_data(as_text=True)
+    client.post('/gear/bike/save', data={'id': bike, 'name': 'Turbo', 'kind': 'road', 'warnings_shown': '1', 'warnings': '1'})
+    assert run(app, lambda db: gear.get_bike(db, bike)['noWarnings']) == 0
+    switch(client, 'maintenance')
+    assert 'name="warnings"' not in client.get(f'/gear/kit/{kid}/edit').get_data(as_text=True)
+    client.post('/gear/kit/save', data={'id': kid, 'name': 'Beach shoes', 'kind': 'shoes'})        # no box: what was set stays
+    assert run(app, lambda db: kit.get(db, kid)['noWarnings']) == 1
+    assert 'No warnings' not in client.get(f'/gear/kit/{kid}').get_data(as_text=True)
+
+
 # ── The phone's API ─────────────────────────────────────────────────────
 
 @pytest.fixture

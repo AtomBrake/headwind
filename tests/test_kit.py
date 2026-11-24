@@ -80,6 +80,16 @@ def test_distance_adds_up_and_alerts_fire_once_per_level(db, monkeypatch):
     assert kit.stats(db, k)['n'] == 4                           # retired, it keeps its history
 
 
+def test_an_item_with_its_warnings_off_is_off_the_due_list_and_stays_quiet(db, monkeypatch):
+    sent = []
+    monkeypatch.setattr(gear, '_notify', lambda alerts: sent.append(alerts))
+    k = kit.create(db, 1, 'Beach shoes', replace_m=100_000)
+    kit.update(db, k, noWarnings=True)
+    act(db, 'a', km=150, kit_id=k)
+    kit.evaluate_alerts_for(db, k)
+    assert sent == [] and kit.due_items(db, 1) == [] and kit.status(db, kit.get(db, k))['level'] == 'overdue'
+
+
 def test_shoes_get_700_km_and_other_kit_nothing_unless_asked(db):
     assert kit.get(db, kit.create(db, 1, 'Pair'))['replaceAtM'] == 700_000
     assert kit.get(db, kit.create(db, 1, 'Wetsuit', kind='wetsuit'))['replaceAtM'] is None

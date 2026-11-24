@@ -7,7 +7,8 @@ Design rules:
   default per kind of ride and one for commutes (BikeDefault, chosen like kit's per-sport defaults), with Rider.defaultBikeId for every other
   ride (pick_bike). A bike given that way is remembered (Activity.bikeAuto), so ticking Commute or changing the sport picks again (regear),
   while a bike chosen by hand stays.
-* Alerts are remembered per part/level/cycle, so each one fires once and resets when the part is checked or replaced.
+* Alerts are remembered per part/level/cycle, so each one fires once and resets when the part is checked or replaced. A bike with its warnings
+  off (Bike.noWarnings) keeps its parts' wear on its page but raises no alert and stays off the due lists; a part's own notify only stops alerts.
 * Everything is plain sqlite + Pillow (no new dependencies), and no strftime('%-d'): this module must run unchanged inside the Windows .exe.
 """
 import io
@@ -65,6 +66,8 @@ def ensure_schema(db):
     bike = {r[1] for r in db.execute('PRAGMA table_info(Bike)').fetchall()}
     if 'retiredOn' not in bike:                 # when it was retired (Bike.archived says whether), as kit keeps it
         db.execute('ALTER TABLE Bike ADD COLUMN retiredOn TEXT')
+    if 'noWarnings' not in bike:                # 1: its parts still wear, but are left off the due lists and raise no alerts (a turbo bike, a museum piece)
+        db.execute('ALTER TABLE Bike ADD COLUMN noWarnings INTEGER NOT NULL DEFAULT 0')
 
 
 # ---------- small helpers ----------
@@ -130,7 +133,8 @@ def _req_name(v):
 def update_bike(db, bike_id, **f):
     cols = {'name': _req_name, 'kind': lambda v: v if v in {k for k, _ in BIKE_KINDS} else 'other',
             'brand': _clean, 'model': _clean, 'year': lambda v: int(_num(v, 'year', 1900, 2100)) if v not in (None, '') else None,
-            'boughtOn': lambda v: (parse_date(v).isoformat() if v else None), 'startMeters': lambda v: _num(v, 'starting mileage') or 0, 'notes': lambda v: _clean(v, 1000)}
+            'boughtOn': lambda v: (parse_date(v).isoformat() if v else None), 'startMeters': lambda v: _num(v, 'starting mileage') or 0, 'notes': lambda v: _clean(v, 1000),
+            'noWarnings': lambda v: 1 if v else 0}
     sets, args = [], []
     for k, v in f.items():
         if k in cols:
@@ -779,7 +783,7 @@ def evaluate_alerts(db, rider_id=None, send=True):
     if rider_id and rider_id in quiet:
         return []
     q = '''SELECT p.*, b.name AS bikeName, b.riderId AS riderId FROM Part p JOIN Bike b ON b.id=p.bikeId
-           WHERE p.retiredOn IS NULL AND p.notify=1 AND b.archived=0'''
+           WHERE p.retiredOn IS NULL AND p.notify=1 AND b.archived=0 AND b.noWarnings=0'''
     args = []
     if rider_id:
         q += ' AND b.riderId=?'; args.append(rider_id)
@@ -826,9 +830,12 @@ def _notify(alerts):
 
 
 def due_items(db, rider_id, include_soon=True):
-    """Every active part of the rider's bikes that needs attention, worst first (for the Gear page and the dashboard card)."""
+    """Every active part of the rider's bikes that needs attention, worst first (for the Gear page and the dashboard card). A bike with its
+    warnings off (Bike.noWarnings) is left out."""
     out = []
     for b in list_bikes(db, rider_id):
+        if b['noWarnings']:
+            continue
         for p in part_rows(db, b['id']):
             st = part_status(db, p)
             if st['level'] == 'ok' or (st['level'] == 'soon' and not include_soon):

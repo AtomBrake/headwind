@@ -16,12 +16,14 @@
 <div class="bar {{ wear.level }}"{% if style %} style="{{ style }}"{% endif %}><i style="width:{{ [100, ((wear.ratio or 0) * 100) | round | int] | min }}%"></i></div>
 {%- endmacro %}
 
-{# The chips after its name: what it's the default for, retired, and how worn when it needs doing. long=true on its own page. #}
+{# The chips after its name: what it's the default for, retired, and how worn when it needs doing, or "No warnings" when its maintenance
+   warnings are off (item.quiet). long=true on its own page. #}
 {% macro gear_chips(item, long=false, limit=3) -%}
 {%- if long %}<span class="chip">{{ item.kind_label }}</span>{% endif %}
 {%- if item.defaults %}{% if long %}<span class="hint">Default for</span>{% endif %}{% for d in item.defaults[:(99 if long else limit)] %}<span class="chip default">{{ d }}</span>{% endfor %}{% if not long and item.defaults | length > limit %}<span class="chip default">+{{ item.defaults | length - limit }}</span>{% endif %}{% endif %}
 {%- if item.retired %}<span class="chip">Retired{% if long and item.retired_on %} {{ item.retired_on | fmt_date }}{% endif %}</span>{% endif %}
-{%- if item.wear and item.wear.level != 'ok' %}<span class="chip {{ item.wear.level }}">{{ 'Replace soon' if item.wear.level == 'soon' and item.what == 'kit' else 'Due soon' if item.wear.level == 'soon' else 'Overdue' if item.wear.level == 'overdue' else 'Due' }}</span>{% endif %}
+{%- if item.quiet and not item.retired %}<span class="chip" title="Maintenance warnings are off: it isn't listed when due and sends no alerts">No warnings</span>
+{%- elif item.wear and item.wear.level != 'ok' %}<span class="chip {{ item.wear.level }}">{{ 'Replace soon' if item.wear.level == 'soon' and item.what == 'kit' else 'Due soon' if item.wear.level == 'soon' else 'Overdue' if item.wear.level == 'overdue' else 'Due' }}</span>{% endif %}
 {%- endmacro %}
 
 {# One card on the Gear page, the same for a bike and for shoes. #}

@@ -68,7 +68,7 @@ Logging **Replaced** retires the old part (its lifetime stays in "Retired parts"
 ## 5. Alerts
 A part is **soon** at 90% of an interval, **due** at 100% and **overdue** at 125%. You see this as coloured bars on the bike page, a "Needs attention" list on the Gear page and a card on the dashboard.
 You are also notified (ntfy, and a Home Assistant push if MQTT is set up) once for each level, never repeatedly: the alert resets when you check or replace the part.
-Turn alerts off per part. Time-based parts are re-checked about hourly, so sealant becomes due even if you do not ride.
+Turn alerts off per part, or untick **Maintenance warnings** on a bike or an item of kit to leave all of it out: no alerts, nothing on the Gear page's Needs attention or the dashboard, and a "No warnings" chip on its card instead of Due. Its wear still shows on its own page, and ticking it again sends any alert it missed (`Bike.noWarnings`, `Kit.noWarnings`). Time-based parts are re-checked about hourly, so sealant becomes due even if you do not ride.
 
 ## 6. Shoes and other gear
 Below the bikes, **Shoes and other gear** keeps everything else an activity is done in or on: shoes, a wetsuit, skis, a board, a boat. **Gear > + Add shoes or gear**:

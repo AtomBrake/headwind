@@ -139,6 +139,7 @@ def _item(db, what, row, stats, full=False):
            'photo': url_for('gear.photo', name=row['photo']) if row['photo'] else None, 'sub': ' '.join(str(x) for x in sub if x),
            'bought': row['boughtOn'], 'strava': strava, 'odometer': odo, 'start': row['startMeters'], 'notes': row['notes'],
            'retired': retired, 'retired_on': retired_on, 'defaults': [default_label(k) for k in defaults], 'wear': wear,
+           'quiet': upkeep and bool(row['noWarnings']),      # its warnings off: wear still shown, but no Due chip, due list or alert
            'n': stats.get('n') or 0, 'moving': stats.get('moving') or 0, 'first': stats.get('first'), 'last': stats.get('last'), 'stats': stats,
            'noun': ('ride', 'rides') if is_bike else ('activity', 'activities'), 'gear_word': 'bike' if is_bike else 'gear', 'url': page}
     if full:
@@ -310,11 +311,15 @@ def bike_save():
     try:
         start = gear.to_meters(f['start'], units) if f.get('start') not in (None, '') else 0
         fields = dict(name=f.get('name'), kind=f.get('kind'), brand=f.get('brand'), model=f.get('model'), year=f.get('year'), boughtOn=f.get('boughtOn'), startMeters=start, notes=f.get('notes'))
+        if f.get('warnings_shown'):                     # the form had the box (Gear maintenance on); without it what was set stays
+            fields['noWarnings'] = not f.get('warnings')
         if bike_id:
             b = _bike_or_404(bike_id)
             gear.update_bike(db, bike_id, **fields)
         else:
             bike_id = gear.create_bike(db, _rider_id(), f.get('name'), f.get('kind') or 'road', f.get('brand'), f.get('model'), f.get('year'), f.get('boughtOn') or None, start, f.get('notes'))
+            if 'noWarnings' in fields:
+                gear.update_bike(db, bike_id, noWarnings=fields['noWarnings'])
         if f.get('defaults') and not gear.get_bike(db, bike_id)['archived']:          # the form had the "Default for" boxes
             gear.set_bike_defaults(db, bike_id, f.getlist('sport'))
         _photo_upload(db, 'bike', bike_id)
@@ -607,12 +612,16 @@ def kit_save():
             replace = (_kit_or_404(kit_id)['replaceAtM'] or 0) if kit_id else 0
         fields = dict(name=f.get('name'), kind=f.get('kind'), brand=f.get('brand'), model=f.get('model'), boughtOn=f.get('boughtOn'),
                       startMeters=start, replaceAtM=replace, notes=f.get('notes'))
+        if f.get('warnings_shown'):                     # as bike_save
+            fields['noWarnings'] = not f.get('warnings')
         if kit_id:
             _kit_or_404(kit_id)
             kit.update(db, kit_id, **fields)
         else:
             kit_id = kit.create(db, _rider_id(), f.get('name'), f.get('kind') or 'shoes', f.get('brand'), f.get('model'),
                                 f.get('boughtOn') or None, start, replace, f.get('notes'))
+            if 'noWarnings' in fields:
+                kit.update(db, kit_id, noWarnings=fields['noWarnings'])
         if not kit.get(db, kit_id)['retiredOn']:
             kit.set_defaults(db, kit_id, f.getlist('sport'))
         _photo_upload(db, 'kit', kit_id)

@@ -9,7 +9,8 @@ Design rules, as for bikes:
   sport's. Changing a default later never rewrites history. An item given that way is remembered (Activity.kitAuto), so ticking Commute or
   changing the sport picks again (regear); one chosen by hand stays. Bikes follow the same rules (gear.pick_bike).
 * An item can have a "replace at" distance (running shoes: about 500-800 km). Passing 90% of it, then 100% and 125%, raises an alert once
-  each (KitAlert), through the same notifications and Home Assistant push as bike parts (gear.evaluate_alerts).
+  each (KitAlert), through the same notifications and Home Assistant push as bike parts (gear.evaluate_alerts). An item with its warnings
+  off (Kit.noWarnings, as Bike.noWarnings) keeps its wear but raises no alert and stays off the due lists.
 * Retiring an item keeps its history and its activities; it stops being a default and stops alerting, and the pickers list it last, marked retired, for old activities.
 * Rides never get kit: they have a bike (Activity.bikeId). Kit is for everything else (services/sports.is_ride says which is which).
 """
@@ -49,6 +50,8 @@ def ensure_schema(db):
     kit = {r[1] for r in db.execute('PRAGMA table_info(Kit)').fetchall()}
     if 'photo' not in kit:
         db.execute('ALTER TABLE Kit ADD COLUMN photo TEXT')
+    if 'noWarnings' not in kit:                 # 1: it still wears against its replace-at, but is left off the due lists and raises no alerts
+        db.execute('ALTER TABLE Kit ADD COLUMN noWarnings INTEGER NOT NULL DEFAULT 0')
 
 
 def _clean(s, n=80):
@@ -112,7 +115,7 @@ def create(db, rider_id, name, kind='shoes', brand=None, model=None, bought_on=N
 def update(db, kit_id, **f):
     cols = {'name': _req_name, 'kind': lambda v: v if v in dict(KINDS) else 'other',
             'brand': _clean, 'model': _clean, 'boughtOn': _date, 'startMeters': lambda v: _num(v, 'starting distance') or 0,
-            'replaceAtM': lambda v: _num(v, 'replace at') or None, 'notes': lambda v: _clean(v, 1000)}
+            'replaceAtM': lambda v: _num(v, 'replace at') or None, 'notes': lambda v: _clean(v, 1000), 'noWarnings': lambda v: 1 if v else 0}
     sets, args = [], []
     for k, v in f.items():
         if k in cols:
@@ -364,10 +367,13 @@ def status(db, k, used_m=None):
 
 
 def due_items(db, rider_id, include_soon=True):
-    """The rider's kit that needs replacing (or soon will), worst first: [{'kit', 'status'}]."""
+    """The rider's kit that needs replacing (or soon will), worst first: [{'kit', 'status'}]. An item with its warnings off (Kit.noWarnings)
+    is left out."""
     used = all_stats(db, rider_id)
     out = []
     for k in list_kit(db, rider_id):
+        if k['noWarnings']:
+            continue
         st = status(db, k, used.get(k['id'], {}).get('distance', 0))
         if st['level'] == 'ok' or (st['level'] == 'soon' and not include_soon):
             continue
@@ -386,7 +392,7 @@ def evaluate_alerts(db, rider_id=None, skip=()):
     """Items that have newly passed a level, remembered so each fires once per item (KitAlert). Returns them in gear.evaluate_alerts' shape
     ({'kitId', 'riderId', 'what', 'level', 'text'}); gear.evaluate_alerts sends them with the bike parts'. skip: riders left out (Gear
     maintenance off, services/features.py). Does not commit."""
-    q, args = 'SELECT * FROM Kit WHERE retiredOn IS NULL AND replaceAtM > 0', []
+    q, args = 'SELECT * FROM Kit WHERE retiredOn IS NULL AND replaceAtM > 0 AND noWarnings=0', []
     if rider_id:
         q += ' AND riderId=?'; args.append(rider_id)
     if skip:
