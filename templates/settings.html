@@ -3,6 +3,15 @@
 {% block title %}Settings{% endblock %}
 {% block page_title %}Settings{% endblock %}
 
+{% block head %}
+  {% include '_maps.html' %}
+  <style>
+    .privacy-map { height: 300px; border-radius: 0.5rem; margin: 0 0 0.75rem; }
+    .privacy-row, .privacy-add { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin: 0 0 0.5rem; }
+    .privacy-add { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+  </style>
+{% endblock %}
+
 {% block content %}
 <nav class="page-toc" aria-label="Sections of this page">
   <a class="btn btn-secondary btn-sm" href="#you">You</a>
@@ -478,7 +487,8 @@
 
 <section class="page-section" id="sharing">
   <h2 class="section-head">Sharing</h2>
-  <p class="hint">The address your phone and your friends reach Headwind on, and who your live tracking links are emailed to.</p>
+  <p class="hint">The address your phone and your friends reach Headwind on, the places kept out of what you share, and who your live tracking
+    links are emailed to.</p>
 
   <!-- Outside address (services/external_url.py) -->
   <form method="POST" action="{{ url_for('settings.save_address') }}" class="card" id="address">
@@ -504,6 +514,48 @@
     </div>
   </form>
   <script src="{{ url_for('static', filename='js/address_check.js') }}"></script>
+
+  <!-- Privacy zones (services/privacy_zones.py): places cut from every track that leaves Headwind. static/js/privacy_zones.js -->
+  {% if privacy %}
+  <div class="card" id="privacy">
+    <div class="card-title">Privacy zones</div>
+    <p class="hint" style="margin:0 0 0.75rem;">Places such as home or work that are cut out of everything of yours that leaves Headwind: the
+      activities your friends' Headwinds sync, your live tracking links, the tracks sent to Home Assistant and the heatmap's HD image. Your
+      own pages still show the whole track. A zone hides at least the distance you choose all round the place, and more on one side, chosen
+      at random, so the cut ends of your tracks don't point to the door. The shaded circles are what's hidden.</p>
+    <div id="privacyMap" class="privacy-map"></div>
+    {% for z in privacy.zones %}
+    <form method="POST" action="{{ url_for('settings.save_privacy_zone', zone_id=z.id) }}" class="privacy-row">
+      <input type="text" name="name" value="{{ z.name }}" maxlength="40" required aria-label="Name" style="flex:1 1 9rem; width:auto;">
+      <select name="radius" aria-label="At least this far all round" style="width:auto;">
+        {% for r in privacy.radii %}<option value="{{ r.m }}" {{ 'selected' if r.m == z.radius }}>{{ r.label }}</option>{% endfor %}
+      </select>
+      <button type="button" class="btn btn-secondary btn-sm" data-click="showZone({{ z.id }})">Show</button>
+      <button class="btn btn-secondary btn-sm">Save</button>
+      <button class="btn btn-danger-quiet btn-sm" formaction="{{ url_for('settings.delete_privacy_zone', zone_id=z.id) }}" formnovalidate>Remove</button>
+    </form>
+    {% else %}
+    <p class="hint" style="margin:0 0 0.5rem;">No privacy zones yet: friends' Headwinds and your live links get your whole tracks.</p>
+    {% endfor %}
+    {% if privacy.zones|length < privacy.max %}
+    <form method="POST" action="{{ url_for('settings.add_privacy_zone') }}" class="privacy-add" data-busy>
+      <p class="hint" style="margin:0; flex-basis:100%;">Click the map where the new zone goes, or paste its latitude and longitude.
+        {% if privacy.suggest %}Or pick one of the places your activities most often start from, outside any zone:{% endif %}</p>
+      {% if privacy.suggest %}<div style="display:flex; gap:0.4rem; flex-wrap:wrap; flex-basis:100%;">
+        {% for p in privacy.suggest %}<button type="button" class="btn btn-secondary btn-sm" data-click="pickZonePlace({{ p.lat }}, {{ p.lng }})">Start place {{ loop.index }}: {{ '{:,}'.format(p.count) }} activities</button>{% endfor %}
+      </div>{% endif %}
+      <input type="text" name="name" value="{{ 'Home' if not privacy.zones else '' }}" maxlength="40" required placeholder="Name" aria-label="Name" style="flex:1 1 8rem; width:auto;">
+      <input type="text" name="place" id="zonePlace" required placeholder="51.5072, -0.1276" aria-label="Latitude, longitude" autocomplete="off"
+             data-input="placeTyped(this.value)" style="flex:2 1 12rem; width:auto;">
+      <select name="radius" id="zoneRadius" aria-label="At least this far all round" data-change="radiusChanged(this.value)" style="width:auto;">
+        {% for r in privacy.radii %}<option value="{{ r.m }}" {{ 'selected' if r.m == privacy.default }}>{{ r.label }}</option>{% endfor %}
+      </select>
+      <button class="btn btn-primary btn-sm">Add zone</button>
+    </form>
+    {% endif %}
+  </div>
+  <script type="application/json" id="privacyData">{{ {'zones': privacy.zones, 'suggest': privacy.suggest} | tojson }}</script>
+  {% endif %}
 
   <!-- Contacts (services/contacts.py): who each live tracking link is emailed to as it starts (Live tracking's, so it goes with it) -->
   {% if feature('live') %}
@@ -708,5 +760,6 @@
 {% endblock %}
 
 {% block scripts %}
+{% if privacy %}<script src="{{ url_for('static', filename='js/privacy_zones.js') }}"></script>{% endif %}
 <script src="{{ url_for('static', filename='js/settings.js') }}" data-server-zone="{{ server_zone or '' }}"{% if s and s.garminHistoryFrom and not s.garminHistoryDone %} data-garmin-history-running="1"{% endif %}></script>
 {% endblock %}

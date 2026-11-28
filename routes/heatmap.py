@@ -76,6 +76,25 @@ def zwift_map(slug):
     return Response(png, mimetype='image/png', headers={'Cache-Control': 'public, max-age=604800'})
 
 
+def _cut(rows):
+    """The HD export's rows with each rider's privacy zones cut out (services/privacy_zones.py): an image is made to be shown. A line that
+    goes into a zone is broken there, and each piece outside goes out as a row of its own, the same activity's. A line nowhere near a zone
+    isn't read."""
+    from services import privacy_zones
+    zones = privacy_zones.hiders(get_db())
+    if not zones:
+        return rows
+    out = []
+    for r in rows:
+        h = zones.get(r[0])
+        if not h or not h.near_box(*r[3:7]):
+            out.append(r)
+            continue
+        for piece in h.pieces(json.loads(r[1])):
+            out.append((r[0], json.dumps(piece, separators=(',', ':')), *r[2:]))
+    return out
+
+
 @bp.route('/heatmap/data')
 def data():
     from_date = request.args.get('from', '')
@@ -111,6 +130,8 @@ def data():
     _tracks.fill(get_db())                     # anything new since start-up
     rows = query_db(f"SELECT a.riderId, {col}, a.sportType, t.minLat, t.maxLat, t.minLng, t.maxLng, a.id, a.name, a.startDateLocal, a.distance "
                     f"FROM Activity a JOIN ActivityTrack t ON t.activityId = a.id {where}", params)
+    if hd:
+        rows = _cut(rows)
     worlds = []                                # the Zwift world each virtual activity is in, so the page can draw its map; null for the rest
     for r in rows:
         w = zwift.world_of(*r[3:7]) if sports.is_virtual(r[2]) else None

@@ -14,7 +14,7 @@ from database import get_db, query_db
 from services.segments import scan_activity_against_segments, scan_all_activities, _refresh_prs, seg_sport, siblings_of
 from services.limits import LimitExceeded, bounded_lines
 from services.peer_http import open_peer
-from services import feed_tokens, jobs, logs, qr, sanity, sports, vault
+from services import feed_tokens, jobs, logs, privacy_zones, qr, sanity, sports, vault
 from services.rider_mode import owner_rider_id
 from services import streams as _streams
 
@@ -96,6 +96,8 @@ def feed():
     ?ids=<id>,<id>,... for just the rides it is missing or that changed here (no segments). A friend on an older version sends neither and gets
     the rides that started after `since`, as before.
     An activity starting more than a day ahead (sanity.future_start) is in none of it until its date is fixed.
+    Nothing inside the rider's privacy zones goes out (services/privacy_zones.py): not a ride's positions or the samples taken there, its start
+    point, or a segment that starts or ends in one.
     """
     scope = dict(_feed_token())
 
@@ -113,6 +115,7 @@ def feed():
         else:       # the instance's owner: a friend's Headwind asking, not someone signed in here (release G gives each user their own codes)
             rider = db.execute('SELECT * FROM Rider WHERE id=?', [owner_rider_id()]).fetchone()
         shared = bool(rider) and feed_tokens.shares_rider(scope['id'], rider['id'])
+        zones = privacy_zones.hider(db, rider['id'] if rider else None)     # cut out of all of it (services/privacy_zones.py)
         # No name for one not shared: the friend keeps calling them what they did, and learns nothing new
         yield json.dumps({'type': 'meta', 'name': rider['name'] if shared else None if rider else 'Unknown'}) + '\n'
         share_rides = scope['shareActivities'] and shared
@@ -121,6 +124,8 @@ def feed():
             for s in db.execute('SELECT id, name, startLat, startLng, endLat, endLng, '
                                 "distanceM, elevationGainM, polyline, COALESCE(sport, 'ride') AS family FROM Segment WHERE friendId IS NULL"):
                 # `sport` is what a friend on a version before 0.7.3 reads: 'run' for anything on foot, else 'ride'. `family` is the whole answer.
+                if zones and (zones.inside(s['startLat'], s['startLng']) or zones.inside(s['endLat'], s['endLng'])):
+                    continue                    # one that starts or ends in a privacy zone would say where it is
                 yield json.dumps({'type': 'segment', **dict(s), 'sport': 'run' if s['family'] == 'foot' else 'ride'}) + '\n'
 
         owner_id = rider['id'] if rider else None
@@ -163,16 +168,38 @@ def feed():
                        averageCadence, calories, startLat, startLng, {_streams.sql()},
                        weatherTempC, weatherWindKph, weatherGustKph, weatherWindDir,
                        weatherHumidity, weatherRainMm, weatherCode, weatherSummary, weatherWindRel, steps,
-                       COALESCE(updatedAt, createdAt, '') AS updatedAt
+                       COALESCE(updatedAt, createdAt, '') AS updatedAt,
+                       (SELECT json_array(t.minLat, t.maxLat, t.minLng, t.maxLng, t.cells) FROM ActivityTrack t WHERE t.activityId = Activity.id) AS _box
                 FROM Activity WHERE {' AND '.join(where)} ORDER BY startDateLocal DESC
             ''', args)
             for row in cur:
                 d = dict(row)
                 d.pop('type', None)  # avoid collision with the NDJSON routing key
+                box = d.pop('_box', None)
+                if zones:
+                    _cut_for_friend(d, box, zones)
                 yield json.dumps({'type': 'ride', **d}) + '\n'
         yield json.dumps({'type': 'end'}) + '\n'
 
     return Response(stream_with_context(generate()), mimetype='application/x-ndjson')
+
+
+def _cut_for_friend(d, box, zones):
+    """A feed ride's streams and start point with what's inside the rider's privacy zones taken out (services/privacy_zones.py). box: its
+    ActivityTrack box and cells as JSON, so a track nowhere near a zone isn't read; None when it has no summary yet."""
+    from services import tracks
+    b = json.loads(box) if box else None
+    ll = []
+    if d.get('streams') and (b is None or (b[0] is not None and zones.may_cross(b[:4], b[4]))):
+        try:
+            whole = json.loads(d['streams'])
+        except (TypeError, ValueError):
+            whole = None
+        cut = zones.streams(whole)
+        if cut is not None:
+            d['streams'] = json.dumps(cut, separators=(',', ':'))
+        ll = tracks.latlng_of(cut if cut is not None else whole)
+    d['startLat'], d['startLng'] = zones.start(d.get('startLat'), d.get('startLng'), ll)
 
 
 @bp.route('/friends')

@@ -79,16 +79,20 @@ def payloads(rid, p=None):
         ll = (json.loads(latest['streams'] or '{}').get('latlng') or {}).get('data') or []
     except Exception:
         ll = []
+    from services import privacy_zones
+    zones = privacy_zones.hider(get_db(), rid)              # nothing inside the rider's privacy zones goes to Home Assistant
+    if zones:
+        ll = zones.points(ll)
     stats = {'runs': len(runs), 'units': units, 'week': tot(now['week']), 'month': tot(now['month']), 'year': tot(now['year']), 'all': tot(None),
              'periods': {k: v.as_json() for k, v in now.items()}, 'weeks': weeks, 'bests': bests,
              'recent': [card(r) for r in runs[:10]], 'longest': card(longest), 'fastest': card(fastest) if fastest else None}
-    efforts, segs = _segment_efforts(rid, latest)
+    efforts, segs = _segment_efforts(rid, latest, zones)
     route = {'id': latest['id'], 'name': latest['name'] or 'Run', 'date': (latest['d'] or '')[:10], 'm': round(latest['distance'] or 0), 'pts': _thin(ll, 140), 'segs': segs}
     seg_payload = {'id': latest['id'], 'name': latest['name'] or 'Run', 'date': (latest['d'] or '')[:10], 'sport': 'run', 'efforts': efforts}
     return {'nutrition_run_stats': stats, 'nutrition_run_route': route, 'nutrition_run_segments': seg_payload}
 
 
-def _segment_efforts(rid, run):
+def _segment_efforts(rid, run, zones=None):
     """The foot segments a run crossed, with time, rank and gap to the runner's best (walks and hikes on the same segment count: one leaderboard on
     foot), plus each segment's shape for the map overlay."""
     rows = query_db("""SELECT e.segmentId, e.elapsedSecs, e.isPR, s.name, s.distanceM, s.polyline
@@ -111,5 +115,5 @@ def _segment_efforts(rid, run):
         if seen:
             seen['pr'] = seen['pr'] or bool(e['isPR'])
         elif sp:
-            segs.append({'n': e['name'], 'pr': bool(e['isPR']), 'pts': _thin(sp, 22)})
+            segs.append({'n': e['name'], 'pr': bool(e['isPR']), 'pts': _thin(zones.points(sp) if zones else sp, 22)})
     return efforts, segs

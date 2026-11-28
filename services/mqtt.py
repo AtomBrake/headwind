@@ -537,6 +537,10 @@ def _ride_route_payloads(rid):
         ll = (json.loads(act['streams'] or '{}').get('latlng') or {}).get('data') or []
     except Exception:
         ll = []
+    from services import privacy_zones
+    zones = privacy_zones.hider(get_db(), rid)              # nothing inside the rider's privacy zones goes to Home Assistant
+    if zones:
+        ll = zones.points(ll)
     efforts = query_db("""SELECT e.segmentId, e.elapsedSecs, e.isPR, s.name, s.distanceM, s.polyline
                           FROM SegmentEffort e JOIN Segment s ON s.id=e.segmentId WHERE e.activityId=? ORDER BY s.name""", [act['id']])
     segs = []
@@ -558,7 +562,7 @@ def _ride_route_payloads(rid):
         if seen:
             seen['pr'] = seen['pr'] or bool(e['isPR'])
         elif sp:
-            segs.append({'n': e['name'], 'pr': bool(e['isPR']), 'pts': _thin(sp, 22)})
+            segs.append({'n': e['name'], 'pr': bool(e['isPR']), 'pts': _thin(zones.points(sp) if zones else sp, 22)})
     allsegs = query_db(f"""SELECT s.id, s.name, s.distanceM, MIN(x.secs) best, COUNT(x.secs) tries, MAX(x.d) last
                            FROM Segment s LEFT JOIN (SELECT e.segmentId sid, e.elapsedSecs secs, a2.startDateLocal d FROM SegmentEffort e
                                                      JOIN Ride a2 ON a2.id=e.activityId LEFT JOIN Bike b2 ON b2.id=a2.bikeId WHERE a2.riderId=? AND {keep}) x ON x.sid=s.id

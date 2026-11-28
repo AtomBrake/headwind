@@ -168,7 +168,7 @@ def index():
     from services import tz
     from services import backup, downloads, garmin, tasks
     last_backup = tasks.last(get_db(), f'download:{backup.KIND}')        # the size of the last one, said on the card
-    from services import contacts, favourites, features, mail, periods, whose
+    from services import contacts, favourites, features, mail, periods, privacy_zones, whose
     rid = whose.rider_id()
     default_off = features.instance_default()
     email_cfg = mail.config(get_db(), row=s)
@@ -182,6 +182,7 @@ def index():
                            favourites_on=favourites.parse(s['favouriteSports'] if s else None),
                            email=email_cfg, email_problem=mail.problem(email_cfg), email_ports=mail.PORTS,
                            contacts=contacts.listing(get_db(), rid) if rid else [], max_contacts=contacts.MAX_CONTACTS,
+                           privacy=privacy_zones.page(get_db(), rid) if rid else None,
                            feature_groups=features.groups(), features_set=features.stored(rid),
                            features_default=default_off, features_default_labels=[features.BY_KEY[n].label for n in features.NAMES if n in default_off],
                            period_prefs=periods.prefs(rid), week_days=periods.DAY_NAMES)
@@ -291,6 +292,44 @@ def test_email():
     if err:
         return jsonify({'error': err}), 400
     return jsonify({'ok': True, 'message': f'Sent to {to}: check it arrived (and not in spam), then press Save to keep these settings'})
+
+
+@bp.route('/privacy-zones', methods=['POST'])
+def add_privacy_zone():
+    """A place whose surroundings are cut from every track that leaves Headwind (services/privacy_zones.py). The place comes as lat and lng
+    (the map), or as `place`, typed or pasted."""
+    from services import privacy_zones, whose
+    lat, lng = request.form.get('lat'), request.form.get('lng')
+    if not lat or not lng:
+        lat, lng = privacy_zones.parse_place(request.form.get('place'))
+    try:
+        made = privacy_zones.add(get_db(), whose.rider_id(), request.form.get('name'), lat, lng, request.form.get('radius'))
+        flash(f"{made['name']} added: nothing within {privacy_zones.radius_label(made['radius'])} of it leaves Headwind.", 'success')
+    except ValueError as e:
+        flash(str(e), 'error')
+    return redirect('/settings#privacy')
+
+
+@bp.route('/privacy-zones/<int:zone_id>', methods=['POST'])
+def save_privacy_zone(zone_id):
+    from services import privacy_zones, whose
+    try:
+        made = privacy_zones.update(get_db(), whose.rider_id(), zone_id, name=request.form.get('name'), radius=request.form.get('radius'))
+        if made is None:
+            abort(404)
+        flash(f"{made['name']} saved.", 'success')
+    except ValueError as e:
+        flash(str(e), 'error')
+    return redirect('/settings#privacy')
+
+
+@bp.route('/privacy-zones/<int:zone_id>/delete', methods=['POST'])
+def delete_privacy_zone(zone_id):
+    from services import privacy_zones, whose
+    if not privacy_zones.remove(get_db(), whose.rider_id(), zone_id):
+        abort(404)
+    flash('Privacy zone removed.', 'success')
+    return redirect('/settings#privacy')
 
 
 @bp.route('/contacts', methods=['POST'])

@@ -13,7 +13,7 @@ link that has ended.
 
 What the page shows is only this share's: the sport, the figures, the track, and the rider's first name. Points within HIDE_START_M of
 where the share's track began are never shown, nor the position while it's there, so the link doesn't show where the ride started (home,
-usually) or where it came back to.
+usually) or where it came back to. Nor anything inside the rider's privacy zones (services/privacy_zones.py).
 
 The token is stored as a SHA-256 hash, for looking it up, and sealed (services/vault.py), for giving the link to the phone again when it
 asks for the share it already has.
@@ -333,8 +333,11 @@ def _send_link(job):
     contacts.deliver(db, about(sid), subject, text, sender_name=sender)
 
 
-def _hidden(share, lat, lng):
-    return share['startLat'] is not None and _metres(share['startLat'], share['startLng'], lat, lng) < HIDE_START_M
+def _hidden(share, lat, lng, zones=None):
+    """Whether a position isn't shown: near where the share's track began, or inside one of the rider's privacy zones (a Hider)."""
+    if share['startLat'] is not None and _metres(share['startLat'], share['startLng'], lat, lng) < HIDE_START_M:
+        return True
+    return bool(zones) and zones.inside(lat, lng)
 
 
 _LABELS = {'OpenWaterSwim': 'Open water swim', 'VirtualRun': 'Treadmill run'}     # the phone's sports services/sports.LABELS doesn't name
@@ -354,8 +357,9 @@ def _clock(secs):
 def view(db, share, since=None, now=None):
     """What the page shows for a share: only this share's figures, position and track. `since`: the time of the last point the page has
     (it asks for those after it). Units are the rider's setting (services/units.py)."""
-    from services import sports, units
+    from services import privacy_zones, sports, units
     now = time.time() if now is None else now
+    zones = privacy_zones.hider(db, share['riderId'])
     c = json.loads(share['reading']) if share['reading'] else {}
     sport = c.get('sport') or share['sport'] or ''
     style = sports.rate_style(sport)
@@ -365,7 +369,7 @@ def view(db, share, since=None, now=None):
     pos = None
     hidden = False
     if c.get('lat') is not None and c.get('lng') is not None:
-        if _hidden(share, c['lat'], c['lng']):
+        if _hidden(share, c['lat'], c['lng'], zones):
             hidden = True
         else:
             pos = [c['lat'], c['lng']]
@@ -375,7 +379,7 @@ def view(db, share, since=None, now=None):
         since = None
     rows = db.execute('SELECT ts, lat, lng FROM LivePoint WHERE shareId=? AND ts > ? ORDER BY ts',
                       [share['id'], since if since is not None else -1.0]).fetchall()
-    points = [[round(r['lat'], 6), round(r['lng'], 6)] for r in rows if not _hidden(share, r['lat'], r['lng'])]
+    points = [[round(r['lat'], 6), round(r['lng'], 6)] for r in rows if not _hidden(share, r['lat'], r['lng'], zones)]
     if share['endedAt']:
         status = 'finished'
     elif not share['readingAt']:

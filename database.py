@@ -909,9 +909,9 @@ def _ensure_service_tables(db):
     """The tables each service keeps for itself, made or brought up to date by its own ensure_schema (as the services also do before using them).
     Every start, after the steps: a service's new column goes in its ensure_schema, as before. Does not commit."""
     from services import (best_efforts, contacts, duplicates, feed_tokens, garmin_changes, garmin_failures, gear, goals, jobs, kit, live_share,
-                          photos, reimport, sport_fix, sport_guess, sport_records, strava_export, strava_gear, streams, tasks)
+                          photos, privacy_zones, reimport, sport_fix, sport_guess, sport_records, strava_export, strava_gear, streams, tasks)
     for mod in (streams, sport_records, best_efforts, duplicates, gear, kit, strava_gear, photos, feed_tokens, tasks, garmin_failures, reimport,
-                strava_export, sport_fix, sport_guess, garmin_changes, goals, jobs, live_share, contacts):
+                strava_export, sport_fix, sport_guess, garmin_changes, goals, jobs, live_share, contacts, privacy_zones):
         mod.ensure_schema(db)
 
 

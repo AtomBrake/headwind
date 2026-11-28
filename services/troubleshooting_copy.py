@@ -3,7 +3,7 @@
 
 Always taken out: every saved key, password and token (even encrypted), the Garmin email, addresses (Home Assistant, Ollama, ntfy, the
 MQTT broker and user, the mail server, friends' servers, failed sign-ins), a live ride's last reading, the contacts its link goes to and
-whom it was sent to, the install id, friends' names, their riders with
+whom it was sent to, the privacy zones (services/privacy_zones.py: where home is), the install id, friends' names, their riders with
 everything of theirs (activities, photos, best times, weigh-ins, food), their segments and foods, the names of feed tokens and paired
 phones, and the Garmin account's name in Garmin's listings. No photo or avatar file goes in the zip. On request: GPS (tracks, start points, segments, planned routes, and the coordinates in
 the other copies of an activity), or the streams altogether (heart rate, power and the rest, and GPS with them).
@@ -204,8 +204,8 @@ def strip(db, no_gps=False, no_streams=False):
     for t, label in (('FeedToken', 'Token'), ('DeviceToken', 'Phone')):      # hashes only, but a name says whose
         if t in tables:
             db.execute(f"UPDATE {t} SET name='{label} ' || id, tokenHash='removed-' || id")
-    # the addresses of failed sign-ins, where a rider was a moment ago, and the people their live links go to
-    for t in ('SignInFail', 'LiveReading', 'LivePoint', 'LiveShare', 'Contact', 'ContactSend'):
+    # the addresses of failed sign-ins, where a rider was a moment ago, the people their live links go to, and their privacy zones (home)
+    for t in ('SignInFail', 'LiveReading', 'LivePoint', 'LiveShare', 'Contact', 'ContactSend', 'PrivacyZone'):
         if t in tables:
             db.execute(f'DELETE FROM {t}')
     _without_friends(db, tables)
@@ -222,7 +222,7 @@ def strip(db, no_gps=False, no_streams=False):
 def readme(no_gps, no_streams):
     out = [f'A copy of a Headwind database for troubleshooting, made {datetime.now():%Y-%m-%d %H:%M}.', '',
            'Taken out: every saved key, password and token, the Garmin email, the addresses of Home Assistant, Ollama, ntfy, the MQTT '
-           'broker, the mail server and friends\' servers, the contacts live links go to, friends\' names, riders, activities, segments '
+           'broker, the mail server and friends\' servers, the contacts live links go to, your privacy zones, friends\' names, riders, activities, segments '
            'and foods, and every photo and avatar.']
     if no_gps or no_streams:
         out.append('Also taken out: GPS (tracks, start points, segments and planned routes).')

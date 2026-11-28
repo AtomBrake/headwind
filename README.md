@@ -483,7 +483,7 @@ All 68 screens below use the same synthetic demo data (a fictional rider on real
 - Routes can't be edited yet.
 
 ### A live tracking link (iPhone app)
-Switch on **Share live location** on the Record screen (or make it the default in Settings) and the phone makes a link when you start, or when you switch it on mid-recording, and opens the share sheet to send it by Messages, WhatsApp or mail. It opens in any browser with no account and shows where you are, your track so far, distance, time, speed or pace and the phone's battery, but nothing within 300 m of where you started. Anyone with the link can see where you are. It ends an hour after you finish, or at once with **Stop sharing**, and stays on the Record screen until then to send again or copy. Your server needs an https **Outside address**; without one, the app says why and records without the link. The Watch has the same switch on its start screen: it sends where you are every 30 s, through the phone or over Wi-Fi or cellular, and makes the link itself. As the Watch can't send it, your iPhone shows a notification saying the link is ready, and tapping it opens the share sheet; the link also waits on the Record screen.
+Switch on **Share live location** on the Record screen (or make it the default in Settings) and the phone makes a link when you start, or when you switch it on mid-recording, and opens the share sheet to send it by Messages, WhatsApp or mail. It opens in any browser with no account and shows where you are, your track so far, distance, time, speed or pace and the phone's battery, but nothing within 300 m of where you started or inside your [privacy zones](#privacy-zones). Anyone with the link can see where you are. It ends an hour after you finish, or at once with **Stop sharing**, and stays on the Record screen until then to send again or copy. Your server needs an https **Outside address**; without one, the app says why and records without the link. The Watch has the same switch on its start screen: it sends where you are every 30 s, through the phone or over Wi-Fi or cellular, and makes the link itself. As the Watch can't send it, your iPhone shows a notification saying the link is ready, and tapping it opens the share sheet; the link also waits on the Record screen.
 
 Headwind can also email each new link itself to people you choose beforehand: add them under **Contacts for live links** in Settings (or in the app's Settings) and give it a mail server under **Settings → Email**. They get it with nobody tapping anything, from the Watch on its own too, and the phone and the Watch say who it was sent to.
 
@@ -685,7 +685,7 @@ Windows-build only: `HEADWIND_HOST`, `HEADWIND_DATA`, `HEADWIND_NO_TRAY`.
 
 ### Settings inside the app
 
-The Garmin sign-in, the MQTT broker, Home Assistant URL/token and mappings, AI provider/key/model, the optional map keys, the **outside address** (what phones pair with, friends sync from and notification links open), coaching personality and goals, display units, home time zone, how this week and this month are counted, appearance (Auto, Light or Dark), which features are on ([Turning features off](#turning-features-off)), your login details, backups and the **calorie burn adjustment** (a percentage taken off every burn estimate as it is pulled in, kept reversible; see the changelog) are all configured under **Settings** — not in `.env`. The page is in four sections, with links to each at the top: **You** (display, features, profile and goals, calorie burn), **Connections** (Garmin Connect, Home Assistant, AI provider, maps), **Sharing** (outside address, contacts for live links, email) and **This server** (login, backup and restore, the version). Calorie and macro goals live under **Nutrition → Goals**, and friend-sync is under **Friends → Auto-Sync**.
+The Garmin sign-in, the MQTT broker, Home Assistant URL/token and mappings, AI provider/key/model, the optional map keys, the **outside address** (what phones pair with, friends sync from and notification links open), coaching personality and goals, display units, home time zone, how this week and this month are counted, appearance (Auto, Light or Dark), which features are on ([Turning features off](#turning-features-off)), your login details, backups and the **calorie burn adjustment** (a percentage taken off every burn estimate as it is pulled in, kept reversible; see the changelog) are all configured under **Settings** — not in `.env`. The page is in four sections, with links to each at the top: **You** (display, features, profile and goals, calorie burn), **Connections** (Garmin Connect, Home Assistant, AI provider, maps), **Sharing** (outside address, privacy zones, contacts for live links, email) and **This server** (login, backup and restore, the version). Calorie and macro goals live under **Nutrition → Goals**, and friend-sync is under **Friends → Auto-Sync**.
 
 ### Turning features off
 
@@ -772,7 +772,7 @@ Each rider has their own switches. **Save, and start new riders with these** als
 1. On each instance open **Friends**, enter the other person's name, choose what they see and press **Create Code** (or, in the iPhone app, Settings → **Share with a friend**). It shows a QR code and a code starting `hwfc_`, once. Send it privately: anyone with it can read what it shares.
 2. The other person scans the QR code with the Headwind iPhone app (Settings → **Add a friend**, or the Camera app), or pastes the code into **Friends → Add a Friend**, then picks the rider to follow.
    The code carries your address: **Settings → Outside address** when it's https, otherwise the address your browser used. If that's a home-network address the page warns you, since a friend's server can't reach it; set the outside address first.
-3. Their activities and segments sync into your database; segments you both have appear on shared leaderboards, and their activities can be shown on the heatmap.
+3. Their activities and segments sync into your database; segments you both have appear on shared leaderboards, and their activities can be shown on the heatmap. Nothing inside your [privacy zones](#privacy-zones) is sent.
 4. To race, start a **challenge** on the Goals page and invite them; it reaches them on the feed.
 
 Sync is pull-based, over HTTP(S). Peer URLs must be `http://` or `https://`; redirects to a different host are refused so a peer can't bounce your token elsewhere. Use HTTPS over the internet.
@@ -926,6 +926,17 @@ Where a direct client can still arrive from a private address (Docker Desktop on
 | Linked friends (if configured) | P2P sync | Activities and segments you've chosen to share, and challenges you send |
 
 **Nothing else.** Headwind sends no usage data, install pings or analytics anywhere, to its developers or anyone else.
+
+### Privacy zones
+
+**Settings → Sharing → Privacy zones** keeps places such as home or work out of what you share. Click the map where the zone goes, paste its latitude and longitude, or pick one of the places your activities most often start from, then choose its size, 200 m to 1.6 km. Inside a zone nothing is sent:
+
+- to friends' Headwinds: your activities' positions, and the heart rate, power and the rest recorded there, are taken out, the start point becomes the first one outside, and a segment that starts or ends in a zone isn't shared;
+- on a live tracking link;
+- to Home Assistant, in the latest ride's and run's tracks;
+- in the heatmap's HD image.
+
+Your own pages still show every track whole. A zone hides at least the size you chose all round the place, and more on one side, moved a random way when you make it, so the cut ends of many tracks don't draw a circle round your door. Adding, resizing or removing a zone sends the activities near it to friends again, cut the new way. The copy for troubleshooting (Tasks page) leaves your zones out.
 
 ---
 
