@@ -244,7 +244,7 @@ def overview(db):
                           f"{a['label']}: {a['error'] or a['result'] or 'in progress…'}" if a else 'Waiting for a new ride.',
                           (a or {}).get('finishedAt'), {'url': '/ai', 'label': 'AI Coach'}))
 
-    # Weather for activities that have none (services/weather.backfill_missing): each sync fills in a few, Fetch now the rest at once
+    # Weather for activities that have none, or only the summary line (services/weather.backfill_missing): each sync fills in a few, Fetch now the rest at once
     try:
         from services import weather
         wx = weather.backfill_state(db)
@@ -258,7 +258,7 @@ def overview(db):
                               wx['finishedAt']))
         else:
             jobs.append(_card('Weather for older activities', 'idle',
-                              f"{wx['remaining']:,} activit{'y has' if wx['remaining'] == 1 else 'ies have'} no weather yet. Each sync fills in a few; "
+                              f"{wx['remaining']:,} activit{'y has' if wx['remaining'] == 1 else 'ies have'} no weather yet, or only its summary line. Each sync fills in a few; "
                               'this fetches them all.', wx['finishedAt'], {'url': '/tasks/run/weather', 'label': 'Fetch now'}))
     except Exception:
         log.debug('Weather card on the Tasks page failed', exc_info=True)

@@ -57,6 +57,32 @@ def test_backfill_reaches_rides_with_only_a_track_and_fills_the_start_point(db, 
     assert r['weatherCode'] == 73 and 'snow' in r['weatherSummary'].lower() and r['startLat'] == 51.5
 
 
+
+def test_backfill_fills_in_the_numbers_behind_a_summary_line(db, monkeypatch):
+    """A phone walk until 2026-11-28, or an activity from the old Workout table, kept only the summary: its weather card was empty."""
+    monkeypatch.setattr(weather, 'fetch_weather', fake(3))
+    weather._FAILED.clear()
+    ride(db, 'w', lat=51.5, lng=-0.12, sport='Walk', summary='Overcast, 1°C, wind 10kph')
+    ride(db, 'done', lat=51.5, lng=-0.12, summary='Overcast, 9°C, wind 10kph', code=3)
+    db.execute("UPDATE Activity SET weatherTempC=9.0 WHERE id='done'")
+    db.commit()
+    assert weather.backfill_state(db)['remaining'] == 1
+    assert weather.backfill_missing(db, pause=0) == (1, 0)
+    r = db.execute("SELECT weatherTempC, weatherWindKph, weatherCode FROM Activity WHERE id='w'").fetchone()
+    assert r['weatherTempC'] == 1.0 and r['weatherWindKph'] == 10.0 and r['weatherCode'] == 3
+    assert weather.backfill_state(db)['remaining'] == 0
+
+
+def test_a_picked_condition_without_numbers_is_not_asked_about_again(db, monkeypatch):
+    asked = []
+    monkeypatch.setattr(weather, 'fetch_weather', lambda *a, **k: asked.append(a) or None)
+    weather._FAILED.clear()
+    for rid, source in (('m', 'manual'), ('s', 'storm')):
+        ride(db, rid, lat=51.5, lng=-0.12, summary='Snow', code=73)
+        db.execute('UPDATE Activity SET weatherSource=? WHERE id=?', [source, rid])
+    db.commit()
+    assert weather.backfill_missing(db, pause=0) == (0, 0) and asked == []
+
 def test_a_virtual_ride_gets_no_weather(db, monkeypatch):
     # Zwift's Watopia sits on open sea near the Solomon Islands: its weather is never the rider's
     assert weather.fetch_weather(-11.63, 166.97, '2026-10-17T17:00:19', sport='VirtualRide') is None

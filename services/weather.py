@@ -306,9 +306,12 @@ _FAILED = set()          # rides the weather service had nothing for this proces
 
 
 def _missing_sql():
-    """The activities backfill_missing fetches weather for: none yet, a date, a place to ask about, and not in a virtual world."""
+    """The activities backfill_missing fetches weather for: none yet, or only the summary line (walks and runs from the phone until 2026-11-28,
+    and the old Workout table's activities, kept no numbers: the activity page's weather card was empty), a date, a place to ask about, and not
+    in a virtual world. A condition the rider picked, or a named storm's, is never asked about again."""
     from services import sports
-    return f"""weatherSummary IS NULL AND startDateLocal IS NOT NULL AND (startLat IS NOT NULL OR {_streams.has_sql(key='latlng')})
+    return f"""(weatherSummary IS NULL OR (weatherTempC IS NULL AND COALESCE(weatherSource, '') NOT IN ('manual', 'storm')))
+               AND startDateLocal IS NOT NULL AND (startLat IS NOT NULL OR {_streams.has_sql(key='latlng')})
                AND NOT {sports.virtual_sql()}"""
 
 

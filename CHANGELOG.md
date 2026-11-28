@@ -13,7 +13,7 @@
 - **The demo's data is made up, tracks and all.** `demo/publish_demo.py` builds it in one command and hands it to the running demo: a routing engine draws every route between public places in four national parks, only numbers (how often, how far, how fast and how hard) are taken from a real database, every activity is imported as an upload so Headwind works out its weather, records and segments, and an audit refuses to publish if any name, id, setting, token or frequent place of the real database got through. It replaces `demo/build_demo_db.py`, which kept real tracks. In demo mode the background-task pills are gone from every page, as the Tasks page already was.
 
 ### Fixed
-- **Walks, runs, hikes and paddles recorded with a track show their weather.** Their weather card was empty: only the summary line was kept, not the temperature, wind and rain it shows. Activities stored before this keep only the line.
+- **Walks, runs, hikes and paddles recorded with a track show their weather.** Their weather card was empty: only the summary line was kept, not the temperature, wind and rain it shows. **Tasks → Fetch now**, and each sync a few at a time, now fills in the numbers for the ones stored before, and for activities from the old Workout table, which only ever had the line; a condition you picked or a named storm's is left alone.
 
 ## [0.7.63-beta] - 2026-11-28
 
