@@ -292,10 +292,11 @@ def counter_gif(n, scale=2):
 # ---------------------------------------------------------------- keeping the data fresh
 # (table, columns, kind): 'd' = YYYY-MM-DD, 'dt' = YYYY-MM-DDTHH:MM:SS. Moving everything by WHOLE WEEKS keeps weekdays, so "Sunday rides" stay Sundays.
 DATE_COLUMNS = [
-    ('Activity', ('startDate', 'startDateLocal'), 'dt'),          # every sport (workouts are Activity rows too)
+    ('Activity', ('startDate', 'startDateLocal', 'aiKudosAt'), 'dt'),   # every sport (workouts are Activity rows too); when the coach wrote its note
     ('BestEffort', ('activityDate',), 'd'), ('BestEffortKm', ('activityDate',), 'd'), ('SegmentEffort', ('activityDate',), 'd'),
     ('FoodLog', ('logDate',), 'd'), ('HydrationLog', ('logDate',), 'd'), ('WeightLog', ('logDate',), 'd'), ('BodyMetric', ('logDate',), 'd'),
     ('GarminDaily', ('date',), 'd'), ('Part', ('installedOn', 'retiredOn'), 'd'), ('ServiceLog', ('date',), 'd'), ('Bike', ('boughtOn',), 'd'),
+    ('SportEffort', ('activityDate',), 'd'), ('Kit', ('boughtOn',), 'd'), ('Challenge', ('startDate', 'endDate'), 'd'),
 ]
 
 
@@ -310,7 +311,8 @@ def rebase_dates(db_path, days):
         for table, cols, kind in DATE_COLUMNS:
             if table not in have:
                 continue
-            for col in cols:
+            present = {r[1] for r in c.execute(f'PRAGMA table_info({table})')}
+            for col in (x for x in cols if x in present):           # a clean copy from an older version may not have them all
                 if kind == 'd':
                     expr = lambda m, col=col: f"CASE WHEN {col} IS NULL OR {col}='' THEN {col} ELSE date({col}, '{m}') END"
                 else:

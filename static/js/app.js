@@ -234,7 +234,9 @@ function fmtMonth(ym) {
 // made to download, with a link to it when it's ready, and a long job such as a segment scan while it runs. The Import page shows its own
 // import, so not here.
 (function () {
-  var box = document.getElementById('taskPills'), onImport = box.hasAttribute('data-hide-import');
+  var box = document.getElementById('taskPills');
+  if (!box) return;                          // not in the demo: its background jobs are the server's
+  var onImport = box.hasAttribute('data-hide-import');
   function dismiss(id, pill) {
     pill.remove();
     fetch('/tasks/background/dismiss', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

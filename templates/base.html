@@ -160,7 +160,7 @@
       {# The way back is the page above this one, named before the title: Gear › Stumpjumper. A page sets it with {% block parent %}<a href="…">Gear</a>{% endblock %}. #}
       <h1>{% if self.parent() | trim %}<span class="crumb">{% block parent %}{% endblock %}</span><span class="crumb-sep" aria-hidden="true">›</span>{% endif %}{% block page_title %}{% endblock %}</h1>
       <div class="topbar-right">
-        <div class="task-pills" id="taskPills"{% if request.blueprint == 'import_rides' %} data-hide-import{% endif %}></div>
+        {% if not demo_mode %}{# the server's background jobs: shut in the demo, like the Tasks page #}<div class="task-pills" id="taskPills"{% if request.blueprint == 'import_rides' %} data-hide-import{% endif %}></div>{% endif %}
         <div class="topbar-actions">{% block topbar_actions %}{% endblock %}</div>
       </div>
     </div>

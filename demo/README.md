@@ -16,10 +16,50 @@ and the dates move forward a week at a time so the data always ends yesterday.
 - `/demo/health` (for the health check) and `/demo/counter.gif` (the visitor counter) are public.
 
 ## The data
-The clean copy is `demo/out/pristine.db` (and `demo/out/bikeimg/`), which is never committed. The plan (TODO.md, Demo) is a builder that
-**generates** every track on real roads and paths in an area far from home, and takes only coordinate-free patterns from a real database.
-Until that builder exists, don't publish a demo built with `build_demo_db.py`. That builder keeps real tracks (with the often-used start and finish
-places cleared), so a heatmap of all of them still shows where those places are.
+A made-up athlete, Alex, over the last two years: road, gravel, mountain-bike and e-bike rides, runs, walks and hikes, paddles on lakes, and
+indoor rides, pool swims and gym sessions, in four national parks (the Peak District, the Lake District, Snowdonia and the Yorkshire Dales), a few
+weeks in each at a time. A friend, Sam, rides and runs with Alex on some days. Around them: four bikes with parts and a service log, shoes and a
+board, a food diary, water, weigh-ins, steps, sleep and recovery, goals, two challenges, planned routes and the AI coach's notes.
+
+No real track is in it. Every route is drawn by a routing engine ([BRouter](https://github.com/abrensch/brouter), on OpenStreetMap) between
+public places in `demo_areas.py` (stations, visitor centres, village car parks, summits), or across a lake from OpenStreetMap's outline of it.
+Only coordinate-free patterns come from a real database (`extract_patterns.py`): how often each sport is done and when, how far, and how speed,
+heart rate, cadence and power go with the gradient. Every activity is then stored the way an upload is, so Headwind works out its weather
+(Open-Meteo's archive, for its place and day), best efforts, segment efforts and records itself. The segments are on the biggest climbs of the
+favourite routes.
+
+| File | What it does |
+|---|---|
+| `extract_patterns.py` | the real database (read-only) to `patterns.json`: numbers only, checked before it's saved |
+| `generate_demo_db.py` | `patterns.json` to `out/pristine.db` and `out/bikeimg/`, with `demo_areas.py` and `build_fiction.py` |
+| `audit_demo_db.py` | fails if any name, id, setting, token or place of the real database is in the demo (it prints how far, never where) |
+| `publish_demo.py` | all three, then the copy to the demo's machine and its reset: one command |
+| `brouter.sh` | the routing engine in Docker on 127.0.0.1, only while building |
+
+The audit keeps every generated point 3 km from the places the real activities often start or finish at, and from its privacy zones. A start
+that's too close comes out of `demo_areas.py`; for a public place you use yourself (a trail centre), `--allow-near <its name>` (in
+`DEMO_AUDIT_ALLOW_NEAR`, below) lets it through.
+
+`out/` is never committed. Routes, lake outlines and the build are kept in `~/headwind-demo-build` (`DEMO_BUILD_DIR`), outside the repo, so a
+second build asks the routing engine and OpenStreetMap nothing new.
+
+## Build it and publish it
+On the machine with the real data, never on the demo's (it gets only the audited output):
+
+1. `demo/brouter.sh start` (the first time it fetches BRouter and the one map tile all four areas are in, about 150 MB).
+2. Write `demo/publish.env` (ignored by git: it names your machines):
+
+       HEADWIND_SOURCE_DB=/path/to/your/bike.db
+       DEMO_PUSH_HOST=<ssh destination: the demo's machine, or a Proxmox host>
+       # DEMO_PUSH_VIA=pct and DEMO_PUSH_CT=<container id>, to go through the Proxmox host with pct push
+       # DEMO_PUSH_DIR=/opt/headwind-demo/out
+       # DEMO_AUDIT_ALLOW_NEAR=<a start's name in demo_areas.py>
+
+3. `python3 demo/publish_demo.py` (with the venv's Python, as it uses Headwind's own code): patterns, generation, the audit, then the copy and
+   `reset.flag`. `--no-push` stops before the copy, so you can look at `~/headwind-demo-build/out` first; `--push-only` then copies it.
+4. `demo/brouter.sh stop`.
+
+A build takes a few minutes. `pristine.db` goes over as one file (no WAL: the demo opens it read-only) and is swapped in whole.
 
 ## Run it (a machine on a home network, through a Cloudflare tunnel)
 1. In Cloudflare Zero Trust (Networks, Tunnels), create a tunnel and give it a public hostname whose service is `http://headwind-demo:5001`.
@@ -30,7 +70,7 @@ places cleared), so a heatmap of all of them still shows where those places are.
        DEMO_APP_URL=https://<the public hostname>
        # DEMO_IMAGE=ghcr.io/atombrake/headwind:<version>   (default :beta)
 
-3. Put the clean copy in `demo/out/`, then `docker compose -f demo/docker-compose.demo.yml --env-file demo/.env up -d`.
+3. Put the clean copy in `demo/out/` (**Build it and publish it**, below), then `docker compose -f demo/docker-compose.demo.yml --env-file demo/.env up -d`.
 
 The demo container is on a Docker network with no way out (`internal: true`). It can reach neither the internet nor the home network, and only
 `cloudflared` can reach it. No port is published on the host. Food search then uses the foods already cached in the demo's database. To check the
@@ -56,5 +96,6 @@ No tunnel is needed for this. Put a stand-in for `cloudflared` in an override fi
 
 ## Update
 - **New Headwind version:** `docker compose -f demo/docker-compose.demo.yml --env-file demo/.env pull && ... up -d`. The database is migrated at start.
-- **New data:** replace `demo/out/pristine.db`, then `touch` `reset.flag` in the data volume (the worker resets within 30 s), or remove the
-  `demo-data` volume and start again. The visitor counter lives in that volume, so removing it starts the count again.
+- **New data:** `python3 demo/publish_demo.py` (above). By hand: replace `out/pristine.db`, then `touch` `reset.flag` in the data volume (the
+  worker resets within 30 s), or remove the `demo-data` volume and start again. The visitor counter lives in that volume, so removing it starts
+  the count again.

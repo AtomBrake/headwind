@@ -64,8 +64,10 @@ docs/ha/ha_auth.json
 docs/ha/shots/
 docs/pi/*.orig
 
-# demo build output (anonymised copy of real data): never commit
+# demo build output (generated, audited data): never commit
 demo/out/
+# the demo's publish settings: they name your machines
+demo/publish.env
 
 # iOS signing team (ios/Config/Signing.xcconfig includes it)
 ios/Config/Signing.local.xcconfig
