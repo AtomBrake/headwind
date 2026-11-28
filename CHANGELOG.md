@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.64-beta] - 2026-11-28
 
 ### Added
 - **A live tracking link can follow your saved route.** `POST /api/v1/live/share` takes a `route` id: the link keeps its own copy of the route (so editing or deleting it doesn't change a running link) and shows how far you've come along it, how far is left, and when you should finish, at your recent moving speed or pace so stops don't count. Off the route, it says so and keeps the last figures. With `show_route` the page draws the line too, cut around both ends (each a circle moved a random way, as privacy zones are) and inside your privacy zones, and your position isn't shown near the route's finish either. Without it, the distance to go and the finish time still show, as they say how far the end is but not where. The apps can send a route once they can follow one.
