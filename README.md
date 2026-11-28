@@ -6,6 +6,10 @@
 
 Self-hosted training analytics for cycling, running, swimming and every other sport, plus nutrition and body tracking — no cloud, no subscription, no one else touching your data.
 
+## 👉 [**Try the live demo**](https://headwind-demo.atombrake.info)
+
+Press **Enter the demo**: no sign-up, no password. A made-up athlete's two years of rides, walks, runs, hikes, swims and paddles in four national parks, on generated tracks, with a friend, bikes, food and sleep. Play with anything; it resets every night.
+
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Status: beta](https://img.shields.io/badge/status-beta-orange.svg)](CHANGELOG.md)
 [![Docker](https://img.shields.io/badge/docker-amd64%20%7C%20arm64-2496ED.svg?logo=docker&logoColor=white)](https://github.com/AtomBrake/headwind/pkgs/container/headwind)
@@ -1085,4 +1089,4 @@ Headwind began as [lordmaa's original Headwind](https://github.com/lordmaa/headw
 Released under the [MIT licence](LICENSE), which keeps the original's copyright notice alongside this project's.
 
 ## Public demo
-Demo mode (`HEADWIND_DEMO=1`) runs a Headwind anyone can try: every page and action is shut unless it's been checked as safe to show, it connects to nothing on the network around it, visitors press **Enter the demo** to sign in, and the data resets every night. Its data is a made-up athlete's two years in four national parks, on tracks drawn by a routing engine, so no real track is in it; only coordinate-free patterns (how often, how far, how fast and how hard) come from a real database, and an audit refuses to publish anything else of it. [demo/README.md](demo/README.md) says how to build it and run it behind a Cloudflare tunnel.
+**[Try it at headwind-demo.atombrake.info](https://headwind-demo.atombrake.info).** Demo mode (`HEADWIND_DEMO=1`) runs a Headwind anyone can try: every page and action is shut unless it's been checked as safe to show, it connects to nothing on the network around it, visitors press **Enter the demo** to sign in, and the data resets every night. Its data is a made-up athlete's two years in four national parks, on tracks drawn by a routing engine, so no real track is in it; only coordinate-free patterns (how often, how far, how fast and how hard) come from a real database, and an audit refuses to publish anything else of it. [demo/README.md](demo/README.md) says how to build it and run it behind a Cloudflare tunnel.
