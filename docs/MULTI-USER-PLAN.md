@@ -1,6 +1,6 @@
 # Multi-user support: plan
 
-**Status:** made 2026-11-23 at 0.7.52-beta, decisions agreed the same day. A1 and A2 are built (`services/whose.py`); the rest is plan. It turns **Proper multi-user support, with roles** (TODO.md, P3 → Users) into releases that can each ship on their own. It also adds two things the TODO doesn't have: bringing another Headwind in as a rider, and an import folder for each user. Line numbers drift; function names are the stable reference.
+**Status:** parked 2026-11-28: for several people, run one Headwind each. Made 2026-11-23 at 0.7.52-beta, decisions agreed the same day. A1 and A2 are built (`services/whose.py`); the rest is plan. It turns **Proper multi-user support, with roles** (TODO.md, Someday) into releases that can each ship on their own. It also adds two things the TODO doesn't have: bringing another Headwind in as a rider, and an import folder for each user. Line numbers drift; function names are the stable reference.
 
 ## Where things are today
 

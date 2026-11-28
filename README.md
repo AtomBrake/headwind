@@ -83,7 +83,7 @@ This repository began as a fork of it in October 2026, from the original's 0.5.3
 Headwind is a real, working application used daily by its maintainer. The first public release (0.1.0-beta) went through a security and reliability review (restore safety, login hardening, injection fixes, Garmin sync reliability, resource limits), and every release since is listed in the [CHANGELOG](CHANGELOG.md), with any migration it runs at the first start. It is still a beta:
 
 - **Expect rough edges.** Report them — [open an issue](../../issues).
-- **Shared admin login.** There is one login for the whole instance. It is not a multi-user system. Don't give the login to people you don't trust with your data.
+- **Shared admin login.** There is one login for the whole instance. It is not a multi-user system: for several people, run a Headwind each (one container per person) and link them as friends. Don't give the login to people you don't trust with your data.
 - **Back up before you upgrade** and before you import years of history.
 - **The iPhone and Apple Watch app isn't on the App Store** — build it yourself with Xcode (see [ios/README.md](ios/README.md)). It hasn't yet been tried on every device it supports.
 - **The arm64 (Raspberry Pi) image and the Windows build are new** and have had little real-world testing.
@@ -1017,7 +1017,7 @@ docs/               Home Assistant builders, screenshots, notes
 ## Known limitations and roadmap
 
 **Known limitations**
-- One shared admin login.
+- One shared admin login. For several people, run a Headwind each.
 - Phone-API tokens aren't scoped per rider (only matters in the advanced multi-rider mode).
 - The arm64 image and Windows build are new and lightly tested; the Windows build is unsigned.
 - Strava's live API is closed to new apps, so Strava is import-only (export zip).
@@ -1026,7 +1026,6 @@ docs/               Home Assistant builders, screenshots, notes
 
 **Roadmap (no promises)**
 - Per-device scopes.
-- Password hashing and optional multi-user.
 - Signed Windows build and an installer.
 - A proper job queue for imports and bulk AI.
 - More analytics and a deeper recovery view.
