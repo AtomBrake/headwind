@@ -157,7 +157,7 @@ Daily weigh-ins with a smoothed trend line, rate of change, and progress against
 <img src="docs/screenshots/weight-trend.jpg" alt="Weight trend" width="900">
 
 ### Goals and challenges
-Set a distance, climbing, time or activity-count goal per week, month or year, for every sport or the ones you tick ("3 activities a week, rides or runs"), and see whether you're ahead of an even pace on the Goals page and the dashboard. You have only the goals you set. Challenge linked friends to a race over set dates; each instance works out the standings from the activities it syncs.
+Set a distance, climbing, time or activity-count goal per week, month or year, for every sport or the ones you tick ("3 activities a week, rides or runs"), and see whether you're ahead of an even pace on the Goals page and the dashboard. You have only the goals you set. On the **Challenges** page, race linked friends over set dates; each instance works out the standings from the activities it syncs.
 
 ### Gear: bikes, shoes, parts and service
 Add your bikes, shoes and other kit (with photos) and give each kind of activity a default — road, mountain bike, gravel, e-bike, indoor, commutes, runs — so every new activity lands on the right one. The calendar assigns older activities by date or range, and each bike tracks the mileage on its replaceable parts with a service log and alerts. Full guide: [docs/GEAR.md](docs/GEAR.md).
@@ -527,7 +527,7 @@ Headwind can also email each new link itself to people you choose beforehand: ad
 - **One code per friend**, made on the Friends page or in the iPhone app, each choosing what it shares (activities, segments, foods), whose activities when the instance has more than one rider (a new code shares only the main rider's unless you tick others, and a rider added later isn't shared until you tick them on a code), and the date range (all, past 6 months, past month, from today, or your own dates), so you can cut one person off without touching the others. A code holds your address and that friend's feed token; a Headwind that doesn't read codes can still be given the address and token separately.
 - A friend's activities are shown, never changed, on your instance. The rider buttons on the dashboard and the Activities page show one friend's activities, or with **Friends** every friend's together, newest first with each one's avatar. The heatmap shows yours, one friend's or everyone's together.
 - **What your friends have been doing:** the Friends page lists each friend with their latest activity, and their name opens their activity list. After a sync that brought new activities it says what came in ("Sam: 1 new ride, Hill reps, 20 Oct"), adding up over several syncs until you dismiss it. A friend's first sync brings their history, so it says nothing.
-- **Challenges** — a race over set dates, sent to the friends you invite.
+- **Challenges** — a race over set dates, on a page of its own, sent to the friends you invite: the most distance, climbing, time or activities, or the first to a target. Each instance works out the standings from the activities it can see, and the dashboard shows where you stand in the ones under way.
 - Auto-sync every 15 minutes by default (off / 15 / 30 / 60 / 120). Only new or changed activities are fetched, and edits and deletions reach your friends at their next sync. **Sync** on the Friends page runs in the background (a first sync can take minutes): you can leave the page, and the result shows on the Tasks page.
 - Works over LAN, VPN or the public internet (use HTTPS).
 
@@ -711,7 +711,8 @@ Not everyone wants the food diary or the bike maintenance. **Settings → Featur
 | **Segments** | Segments and leaderboards, an activity's efforts, and segments in the AI coach's notes. |
 | **Routes** | Saved routes, and **Save as route** on an activity. |
 | **Heatmap** | The heatmap. |
-| **Goals** | Goals and challenges, and their card on the dashboard. |
+| **Goals** | Your weekly, monthly and yearly goals, and their card on the dashboard. |
+| **Challenges** | The Challenges page and the races on the dashboard's Goals card. Your friends' races still keep you in them while it's off, so they're up to date when you turn it back on. Turned off for you if you'd turned Goals off before it had a switch of its own. |
 | **AI coach** | The coaching notes on an activity, and the analysis of new activities as they arrive. |
 | **Friends** | The Friends page and friends' activities, the automatic sync, and the feed your friends' Headwinds read from yours (they get an error until it's back on). |
 | **Live tracking** | Starting live tracking links from the phone, and the contacts they're emailed to. A link already running carries on until it ends. |
@@ -781,7 +782,7 @@ Each rider has their own switches. **Save, and start new riders with these** als
 2. The other person scans the QR code with the Headwind iPhone app (Settings → **Add a friend**, or the Camera app), or pastes the code into **Friends → Add a Friend**, then picks the rider to follow.
    The code carries your address: **Settings → Outside address** when it's https, otherwise the address your browser used. If that's a home-network address the page warns you, since a friend's server can't reach it; set the outside address first.
 3. Their activities and segments sync into your database; segments you both have appear on shared leaderboards, and their activities can be shown on the heatmap. Nothing inside your [privacy zones](#privacy-zones) is sent.
-4. To race, start a **challenge** on the Goals page and invite them; it reaches them on the feed.
+4. To race, start a **challenge** on the **Challenges** page and invite them; it reaches them on the feed.
 
 Sync is pull-based, over HTTP(S). Peer URLs must be `http://` or `https://`; redirects to a different host are refused so a peer can't bounce your token elsewhere. Use HTTPS over the internet.
 

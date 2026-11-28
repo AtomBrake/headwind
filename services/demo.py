@@ -52,7 +52,7 @@ ALLOWED_WRITES = {
     'activities.save_notes', 'activities.set_commute', 'activities.scan_segments', 'activities.change_sport', 'activities.resolve_duplicate',
     'dashboard.activities_new',
     'route_builder.save_route', 'route_builder.delete_route', 'route_builder.from_activity',
-    # goals (challenges stay off: they go out on the friends feed)
+    # goals (starting, joining and leaving challenges stay off: they go out on the friends feed)
     'goals.add_goal', 'goals.delete_goal',
 }
 # refused even for GET: third-party proxies, whole-database download, public peer/token endpoints, bulk or outbound work
@@ -72,6 +72,7 @@ SAFE_READS = {
     'ai_page.count', 'ai_page.index',
     'api_v1.activity_detail', 'api_v1.activity_list', 'api_v1.health_summary', 'api_v1.live', 'api_v1.overview', 'api_v1.perform',
     'api_v1.photo_file', 'api_v1.ping', 'api_v1.today', 'api_v1.zwift_map',
+    'challenges.index',
     'dashboard.activities_page', 'dashboard.dashboard', 'dashboard.history', 'dashboard.index', 'dashboard.workouts_page',
     'data.index',
     'friends.index', 'friends.sync_status',

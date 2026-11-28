@@ -697,6 +697,8 @@ def create_app():
     app.register_blueprint(tasks_bp)
     from routes.goals import bp as goals_bp
     app.register_blueprint(goals_bp)
+    from routes.challenges import bp as challenges_bp
+    app.register_blueprint(challenges_bp)
     from routes.matched import bp as matched_bp
     app.register_blueprint(matched_bp)
     from routes.live_share import bp as live_share_bp

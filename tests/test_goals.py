@@ -1,8 +1,6 @@
-"""Goals and friend challenges (services/goals.py). Goals: progress from the activities as they are, by kind of sport, against an even pace.
-Challenges: started on one instance, carried to a friend's on the feed as an invitation, joined there, and the friend shows up in the race back on
-the first; leaving or deleting reaches the other side on its next complete sync. Throwaway DBs."""
+"""Goals (services/goals.py): progress from the activities as they are, by kind of sport, against an even pace. Throwaway DBs. The two linked
+instances here (pair) are tests/test_challenges.py's too."""
 import io
-import json
 from datetime import date
 
 import pytest
@@ -212,107 +210,6 @@ def test_goals_that_cant_be_measured_are_refused(pair):
     assert on(tom, lambda d: d.execute('SELECT COUNT(*) FROM Goal').fetchone()[0]) == 0
 
 
-# ── Challenges over the feed ────────────────────────────────────
-
-def start(app, tokens=None, **form):
-    """Start a challenge on `app`, sent to these feed token ids (default: every one that can be invited)."""
-    from werkzeug.datastructures import MultiDict
-    fields = {'metric': 'climb', 'sport': 'ride', 'startDate': '2026-10-01', 'endDate': '2026-10-31', 'name': 'October climbing', **form}
-
-    def go(d):
-        ids = [t['id'] for t in goals.invitable(d)] if tokens is None else tokens
-        return goals.start_challenge(d, 1, MultiDict(list(fields.items()) + [('tokens', str(i)) for i in ids]))
-    return on(app, go)
-
-
-def board(app):
-    return on(app, lambda d: [(c['name'], c['invitation'], [(s['name'], round(s['value'])) for s in c['standings']])
-                              for c in goals.challenges(d, 1, today=date(2026, 10, 20))])
-
-
-def test_a_challenge_travels_both_ways(pair):
-    tom, alex = pair
-    on(tom, lambda d: ride(d, 't1', '2026-10-05', climb=300))
-    on(tom, lambda d: ride(d, 't0', '2026-09-30', climb=999))           # before it started
-    on(alex, lambda d: ride(d, 'm1', '2026-10-06', climb=450))
-    assert start(tom) is None
-
-    sync(alex)                                                         # Alex's instance reads Tom's feed: an invitation, Tom in it
-    assert board(alex) == [('October climbing', True, [('Tom', 300)])]
-
-    cid = on(alex, lambda d: d.execute('SELECT id FROM Challenge').fetchone()[0])
-    on(alex, lambda d: goals.set_joined(d, cid, True))
-    assert board(alex) == [('October climbing', False, [('Alex', 450), ('Tom', 300)])]
-
-    sync(tom)                                                            # Tom's reads Alex's: Alex has joined
-    assert board(tom) == [('October climbing', False, [('Alex', 450), ('Tom', 300)])]
-
-    on(alex, lambda d: goals.set_joined(d, cid, False))                # Alex leaves
-    sync(tom)
-    assert board(tom) == [('October climbing', False, [('Tom', 300)])]
-
-
-def test_a_deleted_challenge_takes_its_invitation_with_it(pair):
-    tom, alex = pair
-    start(tom)
-    sync(alex)
-    assert len(board(alex)) == 1
-    on(tom, lambda d: goals.delete_challenge(d, d.execute('SELECT id FROM Challenge').fetchone()[0]))
-    sync(alex)
-    assert board(alex) == []
-
-
-def test_a_challenge_isnt_offered_to_a_token_that_doesnt_share_rides(pair):
-    tom, alex = pair
-    on(tom, lambda d: d.execute('UPDATE FeedToken SET shareActivities=0'))
-    start(tom)
-    sync(alex)
-    assert board(alex) == []
-
-
-def test_a_challenge_goes_only_to_the_friends_invited(pair):
-    tom, alex = pair
-    sam = on(tom, lambda d: d.execute("INSERT INTO FeedToken (name, tokenHash) VALUES ('Sam', ?)", [feed_tokens._hash('for-sam')]).lastrowid)
-    on(tom, lambda d: d.execute('INSERT INTO FeedTokenRider (tokenId, riderId) VALUES (?, 1)', [sam]))
-    assert start(tom, tokens=[]) == 'Pick at least one friend to invite.'
-    assert start(tom, tokens=[sam]) is None                              # Sam only
-    sync(alex)
-    assert board(alex) == []
-    lines = [json.loads(x) for x in tom.test_client().get('/api/feed?manifest=1', headers={'X-Feed-Token': 'for-sam'}).get_data(as_text=True).splitlines()]
-    assert [x['name'] for x in lines if x['type'] == 'challenge'] == ['October climbing']
-    assert on(tom, lambda d: goals.challenges(d, 1)[0]['invited']) == ['Sam']
-
-
-def test_joining_a_friends_challenge_invites_nobody_else(pair):
-    tom, alex = pair
-    start(tom)
-    sync(alex)
-    on(alex, lambda d: goals.set_joined(d, d.execute('SELECT id FROM Challenge').fetchone()[0], True))
-    on(alex, lambda d: d.execute('INSERT INTO FeedTokenRider (tokenId, riderId) VALUES (?, 1)',
-                                 [d.execute("INSERT INTO FeedToken (name, tokenHash) VALUES ('Sam', ?)", [feed_tokens._hash('for-sam')]).lastrowid]))
-    lines = [json.loads(x) for x in alex.test_client().get('/api/feed?manifest=1', headers={'X-Feed-Token': 'for-sam'}).get_data(as_text=True).splitlines()]
-    line = next(x for x in lines if x['type'] == 'challenge')
-    assert line['own'] is False and line['creator'] == 'Tom'           # Sam's instance sees Alex is in it...
-    assert on(tom, lambda d: goals.store_from_friend(d, 1, dict(line, uid='0123456789abcdef'), 1)) is None    # ...but a challenge it hasn't got is no invitation
-
-
-def test_a_friends_bad_challenge_line_is_ignored(pair):
-    _, alex = pair
-    bad = [{'uid': 'x'}, {'uid': 'abcdef0123', 'metric': 'distance', 'sport': 'all', 'startDate': '2026-10-01', 'endDate': '2026-10-31'},
-           {'uid': 'abcdef0123', 'metric': 'climb', 'sport': 'ride', 'startDate': 'soon', 'endDate': '2026-10-31'},
-           {'uid': 'abcdef0123', 'metric': 'climb', 'sport': 'ride', 'startDate': '2026-10-01', 'endDate': '2026-10-31', 'target': 'lots'}]
-    assert on(alex, lambda d: [goals.store_from_friend(d, 1, dict(o, own=True), 1) for o in bad]) == [None] * 4
-    assert on(alex, lambda d: d.execute('SELECT COUNT(*) FROM Challenge').fetchone()[0]) == 0
-
-
-def test_removing_a_friend_removes_their_invitations(pair):
-    tom, alex = pair
-    start(tom)
-    sync(alex)
-    on(alex, lambda d: goals.forget_friend(d, 1))
-    assert board(alex) == []
-
-
 # ── The pages ───────────────────────────────────────────────────
 
 @pytest.fixture
@@ -355,15 +252,6 @@ def test_goals_page_adds_shows_and_deletes_a_goal(client):
     assert 'error=' in r.headers['Location']
     client.post('/goals/1/delete', data={'rider': '1'})
     assert 'No goals yet' in client.get('/goals').get_data(as_text=True)
-
-
-def test_starting_a_challenge_from_the_page(client):
-    r = client.post('/goals/challenges', data={'metric': 'time', 'sport': 'all', 'startDate': date.today().isoformat(),
-                                               'endDate': date.today().isoformat(), 'target': ''})
-    assert r.status_code == 302 and r.headers['Location'].endswith('#challenges')
-    html = client.get('/goals').get_data(as_text=True)
-    assert 'The most time' in html and 'Tom' in html and 'Nobody reads your feed yet' in html
-    assert 'The most time' in client.get('/dashboard').get_data(as_text=True)
 
 
 def test_the_goal_form_takes_any_set_of_sports(client):

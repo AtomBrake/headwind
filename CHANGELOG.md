@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- **Challenges have a page of their own.** Races with friends move from the bottom of the Goals page to a new **Challenges** page in the sidebar, which is where segment races will go; Goals keeps your own weekly, monthly and yearly goals. The dashboard's Goals card still shows where you stand in the races under way, and its invitations link to the new page. **Settings → Features** has a **Challenges** switch of its own, off for anyone who had Goals off, and the friends feed carries your races either way, so friends' races keep you in them and they're up to date when you switch it back on. A Goals page left open from before still sends its challenge forms to the right place.
+
 ## [0.7.64-beta] - 2026-11-28
 
 ### Added

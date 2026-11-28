@@ -376,3 +376,28 @@ def test_step_17_gives_no_goal_to_an_install_that_never_set_one(tmp_path, fresh)
         assert conn.execute('SELECT exerciseSports FROM Settings WHERE id=1').fetchone() in (None, (None,))     # a new install: every sport
     finally:
         conn.close()
+
+
+def test_step_18_turns_challenges_off_wherever_goals_were(tmp_path, fresh):
+    old = tmp_path / 'switches.db'
+    _from_sql(old, 'schema_step_1.sql', 1)
+    _migrate(old)                                       # the steps before 18 make RiderSettings and Settings.featuresOff
+    conn = sqlite3.connect(old)
+    conn.execute('PRAGMA user_version = 17')
+    conn.execute("INSERT OR REPLACE INTO Settings (id, units, featuresOff) VALUES (1, 'metric', '[\"goals\", \"heatmap\"]')")
+    for rid, name in ((1, 'Sam'), (2, 'Tom'), (3, 'Alex'), (4, 'Jo')):
+        conn.execute('INSERT INTO Rider (id, name, isDefault) VALUES (?, ?, ?)', [rid, name, int(rid == 2)])
+    conn.executemany('INSERT INTO RiderSettings (riderId, featuresOff) VALUES (?, ?)',
+                     [(1, '["goals"]'), (2, '["coach"]'), (3, 'not json'), (4, None)])
+    conn.commit()
+    conn.close()
+    _migrate(old)
+    conn = sqlite3.connect(old)
+    try:
+        assert conn.execute('SELECT featuresOff FROM Settings WHERE id=1').fetchone()[0] == '["challenges", "goals", "heatmap"]'
+        assert dict(conn.execute('SELECT riderId, featuresOff FROM RiderSettings')) == {
+            1: '["challenges", "goals"]', 2: '["coach"]', 3: 'not json', 4: None}    # junk and NULL (the instance default) left alone
+        assert conn.execute('PRAGMA user_version').fetchone()[0] == database.LATEST
+    finally:
+        conn.close()
+    assert not _missing(old, fresh)

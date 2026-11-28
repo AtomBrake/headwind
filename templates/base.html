@@ -56,6 +56,12 @@
         {% include 'icons/_target.svg' %} Goals
       </a>
       {% endif %}
+      {% if feature('challenges') %}
+      <a href="{{ url_for('challenges.index') }}"
+         class="nav-item {% if request.blueprint == 'challenges' %}active{% endif %}">
+        {% include 'icons/_trophy.svg' %} Challenges
+      </a>
+      {% endif %}
       {% if feature('segments') %}
       <a href="{{ url_for('segments.index') }}"
          class="nav-item {% if request.blueprint == 'segments' %}active{% endif %}">

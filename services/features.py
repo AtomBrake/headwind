@@ -26,6 +26,9 @@ What depends on what (each written where it's decided):
     replace-at or alerts, and the dashboard's due list goes; bikes, kit and their distances stay.
   - Friends off: the Friends page, the dashboard's Friends button and its friends' view, the automatic sync, and the feed a friend's Headwind
     reads from here (they get a JSON error until it's back on).
+  - Challenges off: the Challenges page and the dashboard's challenge rows. The friends feed still carries them both ways, so friends' races
+    keep us in and switching back on finds them up to date (services/challenges.py). Its own switch since database step 18; Goals
+    covered both before.
 """
 import json
 import logging
@@ -49,7 +52,8 @@ FEATURES = (
     Feature('segments',    'Segments',         "Segments and their leaderboards, and an activity's efforts.", None),
     Feature('routes',      'Routes',           'Saved routes.', None),
     Feature('heatmap',     'Heatmap',          'The map of every track.', None),
-    Feature('goals',       'Goals',            'Goals and challenges, and their card on the dashboard.', None),
+    Feature('goals',       'Goals',            'Your weekly, monthly and yearly goals, and their card on the dashboard.', None),
+    Feature('challenges',  'Challenges',       "Races with friends over set dates, and their place on the dashboard's Goals card.", None),
     Feature('coach',       'AI coach',         'The coaching notes on an activity, written as it arrives or when asked.', None),
     Feature('friends',     'Friends',          "Friends' activities, the feed they read from here, and the automatic sync.", None),
     Feature('live',        'Live tracking',    'Live tracking links to send while recording, and the contacts they go to.', None),
@@ -223,6 +227,7 @@ BLUEPRINTS = {
     'saved_routes':  'routes',
     'heatmap':       'heatmap',
     'goals':         'goals',
+    'challenges':    'challenges',
     'ai_page':       'coach',
     'kudos':         'coach',
     'friends':       'friends',

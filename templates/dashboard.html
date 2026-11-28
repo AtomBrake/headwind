@@ -182,19 +182,20 @@
 </div>
 {% endif %}
 
-<!-- Goals and challenges (services/goals): where each stands today -->
+<!-- Goals and challenges (services/goals, services/challenges): where each stands today. Titled Challenges when only they are on -->
 {% if rider_goals or live_challenges or invitations %}
+{% set card_page = 'goals' if feature('goals') else 'challenges' %}
 <div class="card chart-card">
   <div class="recovery-panel-head">
-    <div class="card-title">Goals</div>
-    <a href="{{ url_for('goals.index', rider=None if active_rider.isDefault else active_rider.id) }}">Goals &rarr;</a>
+    <div class="card-title">{{ card_page | capitalize }}</div>
+    <a href="{{ url_for(card_page ~ '.index', rider=None if active_rider.isDefault else active_rider.id) }}">{{ card_page | capitalize }} &rarr;</a>
   </div>
   {% for g in rider_goals[:4] %}{{ goal_progress(g, compact=true) }}{% endfor %}
   {% for c in live_challenges[:3] %}
   {% set me = c.standings | selectattr('me') | first %}
   <div class="goal">
     <div class="goal-head">
-      <span class="goal-title">🏆 {{ c.name }}</span>
+      <span class="goal-title"><a class="dash-link" href="{{ url_for('challenges.index', rider=None if active_rider.isDefault else active_rider.id) }}">🏆 {{ c.name }}</a></span>
       <span class="hint">{{ c.days_left }} day{{ 's' if c.days_left != 1 }} left</span>
     </div>
     <div class="hint">
@@ -203,7 +204,7 @@
     </div>
   </div>
   {% endfor %}
-  {% if invitations %}<p class="hint" style="margin-top:0.6rem;"><a href="{{ url_for('goals.index') }}#challenges">{{ invitations }} challenge invitation{{ 's' if invitations != 1 }}</a> from friends.</p>{% endif %}
+  {% if invitations %}<p class="hint" style="margin-top:0.6rem;"><a href="{{ url_for('challenges.index') }}">{{ invitations }} challenge invitation{{ 's' if invitations != 1 }}</a> from friends.</p>{% endif %}
 </div>
 {% endif %}
 
