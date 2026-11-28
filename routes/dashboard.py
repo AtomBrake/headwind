@@ -527,9 +527,9 @@ def dashboard():
         except Exception:
             flagged, flag_groups = [], []
 
-    from services import goals
+    from services import challenges, goals
     rider_goals = goals.goals(get_db(), rid) if features.on('goals') else []
-    rider_challenges = goals.challenges(get_db(), rid) if features.on('goals') else []
+    rider_challenges = challenges.challenges(get_db(), rid) if features.on('challenges') else []
     live_challenges = [c for c in rider_challenges if c['status'] == 'on' and c['joined']]
     invitations = sum(1 for c in rider_challenges if c['invitation'] and c['status'] != 'finished')
 

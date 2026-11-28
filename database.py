@@ -908,10 +908,10 @@ def _step_1(db):
 def _ensure_service_tables(db):
     """The tables each service keeps for itself, made or brought up to date by its own ensure_schema (as the services also do before using them).
     Every start, after the steps: a service's new column goes in its ensure_schema, as before. Does not commit."""
-    from services import (best_efforts, contacts, duplicates, feed_tokens, garmin_changes, garmin_failures, gear, goals, jobs, kit, live_share,
-                          photos, privacy_zones, reimport, sport_fix, sport_guess, sport_records, strava_export, strava_gear, streams, tasks)
+    from services import (best_efforts, challenges, contacts, duplicates, feed_tokens, garmin_changes, garmin_failures, gear, goals, jobs, kit,
+                          live_share, photos, privacy_zones, reimport, sport_fix, sport_guess, sport_records, strava_export, strava_gear, streams, tasks)
     for mod in (streams, sport_records, best_efforts, duplicates, gear, kit, strava_gear, photos, feed_tokens, tasks, garmin_failures, reimport,
-                strava_export, sport_fix, sport_guess, garmin_changes, goals, jobs, live_share, contacts, privacy_zones):
+                strava_export, sport_fix, sport_guess, garmin_changes, goals, challenges, jobs, live_share, contacts, privacy_zones):
         mod.ensure_schema(db)
 
 
@@ -1618,6 +1618,23 @@ def _step_17(db):
                    [rider[0], int(s[0])])
 
 
+def _step_18(db):
+    """Challenges have their own feature switch, 'challenges' (services/features.py), and their own page; the Goals switch covered both until
+    now. A rider, or the instance default (Settings), with Goals off gets Challenges off too, so a page they had hidden doesn't appear. An older
+    Headwind reading the list leaves out the name it doesn't know."""
+    import json
+    for table, key in (('RiderSettings', 'riderId'), ('Settings', 'id')):
+        if 'featuresOff' not in {r[1] for r in db.execute(f'PRAGMA table_info({table})').fetchall()}:
+            continue
+        for row_id, text in db.execute(f'SELECT {key}, featuresOff FROM {table} WHERE featuresOff IS NOT NULL').fetchall():
+            try:
+                names = json.loads(text)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(names, list) and 'goals' in names and 'challenges' not in names:
+                db.execute(f'UPDATE {table} SET featuresOff=? WHERE {key}=?', [json.dumps(sorted(names + ['challenges'])), row_id])
+
+
 def _compact(db):
     """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
     a temporary file and once through the WAL. Logged either way. Commits."""
@@ -1677,6 +1694,7 @@ STEPS = (
     (_step_15, False),
     (_step_16, False),
     (_step_17, False),
+    (_step_18, False),
 )
 LATEST = len(STEPS)
 

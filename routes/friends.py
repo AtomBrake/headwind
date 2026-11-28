@@ -86,7 +86,7 @@ def feed():
     """Token-authenticated NDJSON stream — no session required.
     Each line is a JSON object with a 'type' field: meta | segment | challenge | ride | manifest | end ('end' only once everything was sent).
     A 'ride' is any of the rider's activities, of any sport (rides only before 0.7.6; the line keeps its name for older friends).
-    A 'challenge' (0.7.20 on) is one the rider started and invited this token's friend to, or joined from a friend (services/goals.feed_lines);
+    A 'challenge' (0.7.20 on) is one the rider started and invited this token's friend to, or joined from a friend (services/challenges.feed_lines);
     older friends ignore the line.
     shareActivities on the token: share the activities, and the challenges (a race needs the activities).
     Accepts ?since=YYYY-MM-DD and ?rider=<name> to filter. The token decides whether segments and rides are sent at all, and
@@ -130,8 +130,8 @@ def feed():
 
         owner_id = rider['id'] if rider else None
         if share_rides and ids is None:
-            from services import goals
-            for line in goals.feed_lines(db, rider, scope['id']):
+            from services import challenges
+            for line in challenges.feed_lines(db, rider, scope['id']):
                 yield json.dumps(line) + '\n'
 
         where, args = ['riderId=?'], [owner_id]
@@ -523,8 +523,8 @@ def delete(fid):
         db.execute('DELETE FROM Activity WHERE riderId=?', [friend['riderId']])
         db.execute('DELETE FROM RiderSettings WHERE riderId=?', [friend['riderId']])    # none is made for one, but a rider's row goes with it
         db.execute('DELETE FROM Rider WHERE id=?', [friend['riderId']])
-    from services import goals
-    goals.forget_friend(db, fid)
+    from services import challenges
+    challenges.forget_friend(db, fid)
     # Segments imported from this friend cascade-delete their efforts via ON DELETE CASCADE
     db.execute('DELETE FROM Segment WHERE friendId=?', [fid])
     db.execute('DELETE FROM Friend WHERE id=?', [fid])
@@ -650,8 +650,8 @@ def _read_feed(db, pull, resp):
                     pull.segments += 1
 
             elif t == 'challenge':
-                from services import goals
-                uid = goals.store_from_friend(db, friend_id, obj, pull.owner)
+                from services import challenges
+                uid = challenges.store_from_friend(db, friend_id, obj, pull.owner)
                 if uid:
                     pull.challenges.add(uid)
 
@@ -781,8 +781,8 @@ def _do_ride_sync(friend_id):
     gone_segs = set()
 
     if pull.manifest is not None and pull.complete and pull.rider_id:
-        from services import goals
-        goals.forget_missing(db, friend_id, pull.challenges)       # the whole feed arrived: a challenge it didn't list, they're no longer in
+        from services import challenges
+        challenges.forget_missing(db, friend_id, pull.challenges)       # the whole feed arrived: a challenge it didn't list, they're no longer in
         db.commit()
         prefix = f'f{friend_id}_'
         remote = {prefix + k: u for k, u in pull.manifest.items()}
