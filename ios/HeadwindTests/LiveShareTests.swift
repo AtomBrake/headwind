@@ -208,6 +208,14 @@ struct LiveLinkMessageTests {
         #expect(got.url == nil)
     }
 
+    @Test func soDoesItsStopFromTheWatch() throws {
+        let id = UUID()
+        let got = try #require(LiveLinkMessage(dictionary: LiveLinkMessage.stopped(recording: id).dictionary))
+        #expect(got.stopped)
+        #expect(got.ended)                                  // what a phone app from before reads: finished
+        #expect(LiveLinkMessage(dictionary: LiveLinkMessage.ended(recording: id).dictionary)?.stopped == false)
+    }
+
     @Test func whoTheServerEmailedItToTravelsWithIt() throws {
         let recipients = [LiveShareRecipient(name: "Sam", state: "sent"), LiveShareRecipient(name: "Jo", state: "failed", error: "No.")]
         let sent = LiveLinkMessage.started(recording: UUID(), reply: reply, sport: .ride, recipients: recipients)
@@ -252,6 +260,15 @@ struct WatchLinkOnThePhoneTests {
         let link = try #require(live.current())
         #expect(link.ended)
         #expect(link.expiresAt <= Date().addingTimeInterval(LiveShareController.afterEnd))
+    }
+
+    @Test func isDroppedWhenStoppedOnTheWatch() throws {
+        let live = LiveShareController(defaults: tempDefaults())
+        live.adopt(fromWatch: message("W6"))
+        live.adopt(fromWatch: LiveLinkMessage(recording: "W7", ended: true, stopped: true))
+        #expect(live.current()?.recording == "W6")          // another recording's stop changes nothing
+        live.adopt(fromWatch: LiveLinkMessage(recording: "W6", ended: true, stopped: true))
+        #expect(live.current() == nil)
     }
 
     @Test func learnsWhoItWentToWhenTheWatchSaysAgain() throws {

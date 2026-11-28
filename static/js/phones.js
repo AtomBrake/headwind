@@ -12,3 +12,7 @@ async function revokeStale(n) {
   if (!confirm('Revoke ' + (n === 1 ? 'the token' : 'the ' + n + ' tokens') + ' not used for over ' + STALE_DAYS + ' days? The app on those phones, and their Apple Watches, will stop working until paired again.')) return;
   await fetch('/phones/revoke-stale', {method:'POST'}); location.reload();
 }
+async function stopLive(id) {
+  if (!confirm('Stop this live tracking link? Anyone who has it will see that it has ended.')) return;
+  await fetch('/phones/live/' + id + '/stop', {method:'POST'}); location.reload();
+}

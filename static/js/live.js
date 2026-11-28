@@ -1,6 +1,8 @@
 // The live tracking link's page (templates/live.html, routes/live_share.py): draws the track so far and where the rider is, then asks
 // /live/<token>/data every few seconds for what's new (the points after the last one it has) and the latest figures. The server sends the
-// figures already in the rider's units. When the link ends (turned off or expired) the page says so.
+// figures already in the rider's units. When the link ends (turned off or expired) the page says so. A route being followed comes once, with the
+// page, as the pieces of its line left after the ends and the private places are cut out (none when the rider chose not to show it), and is
+// drawn under the track; each poll brings the distance done and to go along it and the finish time.
 (function () {
   var PAGE = JSON.parse(document.getElementById('liveData').textContent);
   var v = PAGE.view;
@@ -19,6 +21,8 @@
     maxZoom: 19,
     attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, FAO, NOAA, USGS, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
   }).addTo(map);
+  var route = v.route && v.route.length ? L.polyline(v.route, { color: cssVar('--c-blue'), weight: 5, opacity: 0.45, dashArray: '8 8',
+                                                                 interactive: false }).addTo(map) : null;
   var line = L.polyline(v.points || [], { color: cssVar('--accent'), weight: 4, opacity: 0.9 }).addTo(map);
   var marker = null;
   map.on('dragstart', function () { followed = false; });
@@ -72,10 +76,19 @@
     el('liveRateAvg').textContent = v.rateNow && v.rateAvg ? 'Average ' + v.rateAvg : '';
     el('liveBattery').textContent = v.battery != null ? Math.round(v.battery) + '%' : '—';
     el('liveHidden').hidden = !v.hidden;
+    el('liveRoute').hidden = !v.hasRoute;
+    if (v.hasRoute) {
+      el('liveRouteDone').textContent = v.routeDone || '—';
+      el('liveRouteLeft').textContent = v.routeLeft || '—';
+      el('liveEta').textContent = v.eta ? clockTime(v.eta) : '—';
+    }
+    el('liveOffRoute').hidden = !(v.hasRoute && v.offRoute && v.status !== 'finished');
     place(v.position);
     var pts = line.getLatLngs();
     if (!framed) {
-      if (pts.length > 1) map.fitBounds(line.getBounds(), { padding: [30, 30], maxZoom: 16 });
+      var bounds = pts.length > 1 ? line.getBounds() : null;
+      if (route) bounds = bounds ? bounds.extend(route.getBounds()) : route.getBounds();
+      if (bounds) map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
       else if (v.position || pts.length) map.setView(v.position || pts[0], 15);
       else { map.setView([20, 0], 2); return; }       // nothing to show yet
       framed = true;

@@ -512,3 +512,250 @@ def test_the_troubleshooting_copy_leaves_out_the_contacts(phone, monkeypatch):
     assert copy.execute('SELECT COUNT(*) FROM Contact').fetchone()[0] == 0
     assert copy.execute('SELECT COUNT(*) FROM ContactSend').fetchone()[0] == 0
     assert copy.execute('SELECT smtpHost, smtpFrom, smtpPassword FROM Settings').fetchone() == (None, None, None)
+
+
+# The route being followed (live_share.route_copy, _follow, _route_view)
+
+M_LAT = 111_320.0                                   # metres in a degree of latitude, near enough for these
+
+
+def _route(phone, points, rider=1, name='Route'):
+    """A saved route for the rider through these [lat, lng] points: its id."""
+    from services import planned_routes
+    with phone.app_.app_context():
+        db = database.get_db()
+        rid, _ = planned_routes.save(db, rider, name, track=planned_routes.clean(points), source='gpx')
+        db.commit()
+    return rid
+
+
+def _along(points, step_m=100):
+    """Positions every step_m along a [lat, lng] line, as a rider going round it would send them."""
+    out = []
+    for a, b in zip(points, points[1:]):
+        d = live_share._metres(a[0], a[1], b[0], b[1])
+        n = max(1, int(d // step_m))
+        out += [[a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n] for k in range(n)]
+    return out + [points[-1]]
+
+
+def _ride(db, share, positions, t0, every_s=15, gone=0.0, recording='rec-1'):
+    """Readings at these positions, every_s apart from t0: (the time of the last, metres gone)."""
+    t = t0
+    for i, (lat, lng) in enumerate(positions):
+        if i:
+            gone += live_share._metres(positions[i - 1][0], positions[i - 1][1], lat, lng)
+            t += every_s
+        live_share.record(db, 1, {'state': 'riding', 'recording': recording, 'lat': lat, 'lng': lng, 'distance_m': gone,
+                                  'elapsed_s': t - t0 + 1, 'speed_mps': 6.0, 'sport': 'Ride'}, now=t)
+    db.commit()
+    return t, gone
+
+
+def _view(db, token, now):
+    return live_share.view(db, live_share.lookup(db, token, now=now), now=now)
+
+
+def test_progress_along_an_out_and_back_doesnt_jump_ahead_or_back(phone):
+    tip = [HOME[0] + 0.03, HOME[1]]                       # 3.3 km north, then back the same road
+    rid = _route(phone, [list(HOME), tip, list(HOME)])
+    out = _along([list(HOME), tip])
+    with phone.app_.app_context():
+        db = database.get_db()
+        t0 = time.time() - 3600
+        _, token, _ = live_share.start(db, 1, 'rec-1', sport='Ride', route=rid, now=t0)
+        t, _ = _ride(db, None, out[:16], t0)                                   # 1.5 km out
+        v = _view(db, token, t)
+        total = 2 * 0.03 * M_LAT
+        assert v['hasRoute'] and v['route_done_m'] == pytest.approx(1500, abs=60)
+        assert v['route_left_m'] == pytest.approx(total - 1500, abs=60) and not v['offRoute']
+        t, gone = _ride(db, None, out[16:] + out[::-1][1:16], t + 15, gone=1500)   # to the tip and 1.5 km back
+        v = _view(db, token, t)
+        assert v['route_done_m'] == pytest.approx(total / 2 + 1500, abs=80)    # on the way back, not the way out
+        assert v['route_left_m'] == pytest.approx(total / 2 - 1500, abs=80)
+
+
+def test_progress_round_a_loop_that_crosses_itself(phone):
+    # North 3.3 km, east, south half way, west across the way out (at 1.67 km along), south, then east home: a figure of eight
+    lat0, lng0 = HOME
+    loop = [[lat0, lng0], [lat0 + 0.03, lng0], [lat0 + 0.03, lng0 + 0.01], [lat0 + 0.015, lng0 + 0.01], [lat0 + 0.015, lng0 - 0.01],
+            [lat0, lng0 - 0.01], [lat0, lng0]]
+    rid = _route(phone, loop)
+    path = _along(loop)
+    crossing = min(range(len(path)), key=lambda i: abs(path[i][0] - (lat0 + 0.015)) + abs(path[i][1] - lng0))
+    with phone.app_.app_context():
+        db = database.get_db()
+        t0 = time.time() - 3600
+        _, token, _ = live_share.start(db, 1, 'rec-1', route=rid, now=t0)
+        t, _ = _ride(db, None, path[:crossing + 1], t0)
+        first = _view(db, token, t)['route_done_m']
+        assert first == pytest.approx(0.015 * M_LAT, abs=80)                   # the first time over the crossing
+        second = min(range(crossing + 20, len(path)), key=lambda i: live_share._metres(path[i][0], path[i][1], lat0 + 0.015, lng0))
+        t, _ = _ride(db, None, path[crossing + 1:second + 1], t + 15)
+        v = _view(db, token, t)
+        assert v['route_done_m'] > first + 3000                                # the second time, further on
+        t, _ = _ride(db, None, path[second + 1:], t + 15)
+        v = _view(db, token, t)
+        assert v['route_left_m'] < 60
+
+
+def test_off_the_route_it_says_so_and_keeps_the_last_figures(phone):
+    rid = _route(phone, [list(HOME), [HOME[0] + 0.03, HOME[1]]])
+    with phone.app_.app_context():
+        db = database.get_db()
+        t0 = time.time() - 3600
+        _, token, _ = live_share.start(db, 1, 'rec-1', route=rid, now=t0)
+        t, _ = _ride(db, None, _along([list(HOME), [HOME[0] + 0.01, HOME[1]]]), t0)
+        done = _view(db, token, t)['route_done_m']
+        t, _ = _ride(db, None, [[HOME[0] + 0.01, HOME[1] + 0.003 * k] for k in range(1, 4)], t + 15)   # 200 m east and on
+        v = _view(db, token, t)
+        assert v['offRoute'] is True and v['route_done_m'] == done
+        t, _ = _ride(db, None, [[HOME[0] + 0.012, HOME[1]]], t + 15)                                 # back on it
+        v = _view(db, token, t)
+        assert v['offRoute'] is False and v['route_done_m'] == pytest.approx(done + 222, abs=30)
+
+
+def test_the_finish_time_is_at_the_recent_moving_speed(phone):
+    rid = _route(phone, [list(HOME), [HOME[0] + 0.05, HOME[1]]])             # 5.6 km
+    path = _along([list(HOME), [HOME[0] + 0.02, HOME[1]]], step_m=60)         # 60 m every 10 s: 6 m/s
+    with phone.app_.app_context():
+        db = database.get_db()
+        t0 = time.time() - 3600
+        _, token, _ = live_share.start(db, 1, 'rec-1', route=rid, now=t0)
+        t, gone = _ride(db, None, path[:20], t0, every_s=10)
+        t, gone = _ride(db, None, [path[19]] * 20, t + 15, every_s=15, gone=gone)     # five minutes at a café
+        t, gone = _ride(db, None, path[19:30], t + 10, every_s=10, gone=gone)
+        v = _view(db, token, t)
+        assert v['eta'] == pytest.approx(t + v['route_left_m'] / 6.0, abs=60)
+        live_share.record(db, 1, {'state': 'idle', 'recording': 'rec-1', 'lat': path[30][0], 'lng': path[30][1]}, now=t + 10)
+        db.commit()
+        assert _view(db, token, t + 20)['eta'] is None                         # finished
+
+
+def _shown(v):
+    return [p for piece in (v['route'] or []) for p in piece]
+
+
+def test_the_route_is_cut_round_both_ends_and_the_privacy_zones(phone):
+    import random
+    from services import privacy_zones
+    finish = [HOME[0] + 0.03, HOME[1] + 0.02]
+    mid = [HOME[0] + 0.03, HOME[1] + 0.005]
+    rid = _route(phone, [list(HOME), [HOME[0] + 0.03, HOME[1]], finish])
+    with phone.app_.app_context():
+        db = database.get_db()
+        privacy_zones.add(db, 1, 'Work', mid[0], mid[1], 200, rng=random.Random(3))
+        t0 = time.time() - 600
+        _, token, _ = live_share.start(db, 1, 'rec-1', route=rid, show_route=True, now=t0)
+        v = _view(db, token, t0)
+        pts = _shown(v)
+        assert v['routeShown'] and len(v['route']) == 2 and len(pts) > 20       # in two pieces either side of the zone
+        for end in (HOME, finish):
+            assert min(live_share._metres(end[0], end[1], p[0], p[1]) for p in pts) >= live_share.HIDE_START_M
+        assert min(live_share._metres(mid[0], mid[1], p[0], p[1]) for p in pts) >= 200
+        # and so is the rider: at the finish, which isn't where the recording began, the position isn't shown
+        _ride(db, None, [list(HOME), [HOME[0] + 0.01, HOME[1]], finish], t0, every_s=200)
+        v = _view(db, token, t0 + 400)
+        assert v['position'] is None and v['hidden'] is True
+
+
+def test_a_route_not_shown_still_gives_the_distance_to_go_and_finish(phone):
+    rid = _route(phone, [list(HOME), [HOME[0] + 0.05, HOME[1]]])
+    share = start(phone, route=rid).get_json()
+    assert share['route'] == {'id': rid, 'shown': False}
+    for i in range(6):
+        post(phone, reading(i))
+    anyone = phone.app_.test_client()
+    html = anyone.get('/live/' + token_of(share['url'])).get_data(as_text=True)
+    assert 'Done along the route' in html and 'the route they' not in html
+    d = anyone.get('/live/' + token_of(share['url']) + '/data').get_json()
+    assert d['hasRoute'] and d['route'] is None and d['routeShown'] is False
+    assert d['routeDone'] and d['routeLeft'] and d['eta']
+    # turned on later: the page draws it
+    again = start(phone, route=rid, show_route=True).get_json()
+    assert again['created'] is False and again['route'] == {'id': rid, 'shown': True}
+    d = anyone.get('/live/' + token_of(share['url']) + '/data').get_json()
+    assert d['routeShown'] and d['route']
+    assert anyone.get('/live/' + token_of(share['url']) + '/data?since=' + str(d['last'])).get_json()['route'] is None    # sent once
+
+
+def test_a_deleted_route_stays_on_the_running_link_and_goes_with_it(phone):
+    rid = _route(phone, [list(HOME), [HOME[0] + 0.05, HOME[1]]])
+    share = start(phone, route=rid, show_route=True).get_json()
+    with phone.app_.app_context():
+        db = database.get_db()
+        db.execute('DELETE FROM PlannedRoute')
+        db.commit()
+    post(phone, reading(5))
+    d = phone.app_.test_client().get('/live/' + token_of(share['url']) + '/data').get_json()
+    assert d['hasRoute'] and d['route'] and d['route_done_m'] == pytest.approx(555, abs=30)
+    phone.delete('/api/v1/live/share', json={'recording': 'rec-1'}, headers=phone.H)
+    with phone.app_.app_context():
+        db = database.get_db()
+        assert db.execute('SELECT routeLine, routeHide FROM LiveShare').fetchone()[:] == (None, None)
+        # one that expired instead: sweep takes it
+        live_share.start(db, 1, 'rec-2', route=_route(phone, [list(HOME), [HOME[0] + 0.05, HOME[1]]]))
+        live_share.sweep(db, now=time.time() + live_share.SILENT_S + 1)
+        assert db.execute('SELECT COUNT(*) FROM LiveShare WHERE routeLine IS NOT NULL').fetchone()[0] == 0
+
+
+def test_a_route_that_isnt_the_riders_or_is_gone_is_left_out(phone):
+    theirs = _route(phone, [list(HOME), [HOME[0] + 0.05, HOME[1]]], rider=2)
+    for route in (theirs, 99999, 'nonsense'):
+        share = start(phone, recording=f'rec-{route}', route=route).get_json()
+        assert share['created'] and share['route'] is None
+        assert phone.app_.test_client().get('/live/' + token_of(share['url']) + '/data').get_json()['hasRoute'] is False
+
+
+def test_a_share_started_mid_route_takes_up_where_the_track_is(phone):
+    rid = _route(phone, [list(HOME), [HOME[0] + 0.05, HOME[1]]])
+    t0 = time.time() - 600
+    track = [[HOME[0] + i * 0.001, HOME[1], t0 + i * 15] for i in range(20)]
+    share = start(phone, route=rid, track=track).get_json()
+    d = phone.app_.test_client().get('/live/' + token_of(share['url']) + '/data').get_json()
+    assert d['route_done_m'] == pytest.approx(19 * 0.001 * M_LAT, abs=30)
+
+
+def test_a_long_route_is_simplified_for_the_link(phone):
+    import math
+    wiggly = [[HOME[0] + i * 0.0002, HOME[1] + 0.0003 * math.sin(i / 3)] for i in range(20_000)]      # 445 km of bends
+    rid = _route(phone, wiggly)
+    with phone.app_.app_context():
+        line, hide = live_share.route_copy(database.get_db(), 1, rid)
+    assert len(line) <= live_share.MAX_ROUTE_POINTS and line[-1][2] > 400_000 and len(hide) == 2
+
+
+def _web(phone):
+    from services import credentials
+    with phone.app_.app_context():
+        av = credentials.auth_version()
+    web = phone.app_.test_client()
+    with web.session_transaction() as s:
+        s['logged_in'] = True
+        s['av'] = av
+    return web
+
+
+def test_the_phones_page_lists_the_links_and_stops_one(phone):
+    running = start(phone).get_json()
+    done = start(phone, 'rec-2').get_json()
+    post(phone, reading(3, recording='rec-2', state='idle'))
+    web = _web(phone)
+    html = web.get('/phones/').get_data(as_text=True)
+    assert 'Live tracking links' in html and html.count('data-click="stopLive(') == 2       # both still work
+    assert 'running' in html and 'finished' in html and running['url'] in html
+    assert web.post(f"/phones/live/{running['id']}/stop").get_json() == {'ok': True, 'stopped': 1}
+    assert phone.app_.test_client().get('/live/' + token_of(running['url'])).status_code == 404
+    html = web.get('/phones/').get_data(as_text=True)
+    assert html.count('data-click="stopLive(') == 1 and 'stopped' in html and running['url'] not in html
+    assert web.post('/phones/live/999/stop').status_code == 404
+    assert phone.app_.test_client().post(f"/phones/live/{done['id']}/stop").status_code in (302, 401)    # signed in only
+
+
+def test_the_watch_stops_its_own_link_with_its_own_token(phone):
+    """The Watch has a token of its own (POST /api/v1/devices/watch) and stops the link it started with it."""
+    watch = phone.post('/api/v1/devices/watch', headers=phone.H).get_json()['token']
+    W = {'Authorization': 'Bearer ' + watch}
+    share = phone.post('/api/v1/live/share', json={'recording': 'watch-1', 'sport': 'Run'}, headers=W).get_json()
+    assert phone.delete('/api/v1/live/share', json={'recording': 'watch-1'}, headers=W).get_json() == {'stopped': 1}
+    assert phone.app_.test_client().get('/live/' + token_of(share['url'])).status_code == 404

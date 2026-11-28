@@ -1,9 +1,12 @@
-"""Pair a phone with this instance: create a device token, show it once as a QR code (and text), list / revoke paired phones."""
+"""Pair a phone with this instance: create a device token, show it once as a QR code (and text), list / revoke paired phones. Also the
+live tracking links the phones and Watches have started (services/live_share.py), running and recent, each running one with Stop: for a
+link sent by mistake when the phone isn't to hand."""
 
 from flask import Blueprint, jsonify, render_template, request
 from urllib.parse import quote
 
-from services import device_auth, external_url, qr
+from database import get_db
+from services import device_auth, external_url, live_share, qr
 
 bp = Blueprint('phones', __name__, url_prefix='/phones')
 
@@ -13,7 +16,8 @@ def index():
     # Only an https address is any use: the apps refuse plain http, even on the home network
     address = external_url.describe()
     return render_template('phones.html', devices=device_auth.devices(), server_url=address['https'], other_url=address['url'],
-                           stale_days=device_auth.STALE_DAYS)
+                           stale_days=device_auth.STALE_DAYS, shares=live_share.listing(get_db()),
+                           after_end_min=live_share.AFTER_END_S // 60)
 
 
 @bp.route('/create', methods=['POST'])
@@ -38,3 +42,13 @@ def revoke(device_id):
 def revoke_stale():
     """Every token not used for device_auth.STALE_DAYS, flagged on the page."""
     return jsonify({'ok': True, 'revoked': device_auth.revoke_stale()})
+
+
+@bp.route('/live/<int:share_id>/stop', methods=['POST'])
+def stop_live(share_id):
+    """Stop a live tracking link: it ends at once, as when the phone stops it."""
+    db = get_db()
+    row = db.execute('SELECT riderId FROM LiveShare WHERE id=?', [share_id]).fetchone()
+    if not row:
+        return jsonify({'error': 'No such link.'}), 404
+    return jsonify({'ok': True, 'stopped': live_share.stop(db, row['riderId'], share_id=share_id)})

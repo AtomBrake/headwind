@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		4E1000000000000000000080 /* HeadwindWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 4E100000000000000000000B /* HeadwindWatch.app */; settings = {ATTRIBUTES = (RemoveHeaderOnCopy, ); }; };
+		4E10000000000000000000A7 /* HeadwindWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 4E10000000000000000000A4 /* HeadwindWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeaderOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -39,6 +40,13 @@
 			remoteGlobalIDString = 4E1000000000000000000010;
 			remoteInfo = Headwind;
 		};
+		4E10000000000000000000A9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4E1000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4E10000000000000000000A0;
+			remoteInfo = HeadwindWidgets;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -53,6 +61,17 @@
 			name = "Embed Watch Content";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4E10000000000000000000A8 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				4E10000000000000000000A7 /* HeadwindWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -61,6 +80,7 @@
 		4E1000000000000000000009 /* HeadwindUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HeadwindUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4E1000000000000000000003 /* Headwind.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Headwind.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4E1000000000000000000004 /* HeadwindTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HeadwindTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4E10000000000000000000A4 /* HeadwindWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = HeadwindWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -71,6 +91,8 @@
 		4E1000000000000000000005 /* Headwind */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Headwind; sourceTree = "<group>"; };
 		4E1000000000000000000006 /* HeadwindTests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = HeadwindTests; sourceTree = "<group>"; };
 		4E1000000000000000000007 /* Config */ = {isa = PBXFileSystemSynchronizedRootGroup; path = Config; sourceTree = "<group>"; };
+		4E10000000000000000000A5 /* HeadwindWidgets */ = {isa = PBXFileSystemSynchronizedRootGroup; path = HeadwindWidgets; sourceTree = "<group>"; };
+		4E10000000000000000000A6 /* LiveActivity */ = {isa = PBXFileSystemSynchronizedRootGroup; path = LiveActivity; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -109,6 +131,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4E10000000000000000000A2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -118,6 +147,8 @@
 				4E1000000000000000000005 /* Headwind */,
 				4E100000000000000000000D /* HeadwindWatch */,
 				4E100000000000000000000C /* Shared */,
+				4E10000000000000000000A6 /* LiveActivity */,
+				4E10000000000000000000A5 /* HeadwindWidgets */,
 				4E1000000000000000000006 /* HeadwindTests */,
 				4E100000000000000000000A /* HeadwindUITests */,
 				4E100000000000000000000F /* HeadwindWatchUITests */,
@@ -131,6 +162,7 @@
 			children = (
 				4E1000000000000000000003 /* Headwind.app */,
 				4E100000000000000000000B /* HeadwindWatch.app */,
+				4E10000000000000000000A4 /* HeadwindWidgets.appex */,
 				4E1000000000000000000004 /* HeadwindTests.xctest */,
 				4E1000000000000000000009 /* HeadwindUITests.xctest */,
 				4E100000000000000000000E /* HeadwindWatchUITests.xctest */,
@@ -195,15 +227,18 @@
 				4E1000000000000000000012 /* Frameworks */,
 				4E1000000000000000000013 /* Resources */,
 				4E1000000000000000000081 /* Embed Watch Content */,
+				4E10000000000000000000A8 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				4E1000000000000000000035 /* PBXTargetDependency */,
+				4E10000000000000000000AA /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				4E1000000000000000000005 /* Headwind */,
 				4E100000000000000000000C /* Shared */,
+				4E10000000000000000000A6 /* LiveActivity */,
 			);
 			name = Headwind;
 			packageProductDependencies = (
@@ -258,6 +293,29 @@
 			productReference = 4E1000000000000000000009 /* HeadwindUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		4E10000000000000000000A0 /* HeadwindWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4E10000000000000000000AB /* Build configuration list for PBXNativeTarget "HeadwindWidgets" */;
+			buildPhases = (
+				4E10000000000000000000A1 /* Sources */,
+				4E10000000000000000000A2 /* Frameworks */,
+				4E10000000000000000000A3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				4E10000000000000000000A5 /* HeadwindWidgets */,
+				4E10000000000000000000A6 /* LiveActivity */,
+			);
+			name = HeadwindWidgets;
+			packageProductDependencies = (
+			);
+			productName = HeadwindWidgets;
+			productReference = 4E10000000000000000000A4 /* HeadwindWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -286,6 +344,9 @@
 						CreatedOnToolsVersion = 16.0;
 						TestTargetID = 4E1000000000000000000070;
 					};
+					4E10000000000000000000A0 = {
+						CreatedOnToolsVersion = 16.0;
+					};
 				};
 			};
 			buildConfigurationList = 4E1000000000000000000041 /* Build configuration list for PBXProject "Headwind" */;
@@ -307,6 +368,7 @@
 				4E1000000000000000000060 /* HeadwindUITests */,
 				4E1000000000000000000070 /* HeadwindWatch */,
 				4E1000000000000000000090 /* HeadwindWatchUITests */,
+				4E10000000000000000000A0 /* HeadwindWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -341,6 +403,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		4E1000000000000000000023 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4E10000000000000000000A3 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -385,6 +454,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4E10000000000000000000A1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -407,6 +483,11 @@
 			isa = PBXTargetDependency;
 			target = 4E1000000000000000000010 /* Headwind */;
 			targetProxy = 4E1000000000000000000030 /* PBXContainerItemProxy */;
+		};
+		4E10000000000000000000AA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4E10000000000000000000A0 /* HeadwindWidgets */;
+			targetProxy = 4E10000000000000000000A9 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -605,6 +686,7 @@
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Headwind connects to your heart rate strap, power meter, speed and cadence sensor or smart trainer to record their readings with your rides, including with the screen locked.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Headwind reads the Apple Health data you switch on in its Settings (steps, sleep, heart rate, weight, calories, workouts) and sends it to your own Headwind server.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Headwind records your route with GPS while you ride, run or walk, including with the screen locked.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -636,6 +718,7 @@
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Headwind connects to your heart rate strap, power meter, speed and cadence sensor or smart trainer to record their readings with your rides, including with the screen locked.";
 				INFOPLIST_KEY_NSHealthShareUsageDescription = "Headwind reads the Apple Health data you switch on in its Settings (steps, sleep, heart rate, weight, calories, workouts) and sends it to your own Headwind server.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Headwind records your route with GPS while you ride, run or walk, including with the screen locked.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -679,6 +762,50 @@
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Headwind.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Headwind";
+			};
+			name = Release;
+		};
+		4E10000000000000000000AC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/Widgets-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Headwind;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.atombrake.headwind.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		4E10000000000000000000AD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/Widgets-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Headwind;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.atombrake.headwind.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -735,6 +862,15 @@
 			buildConfigurations = (
 				4E1000000000000000000054 /* Debug */,
 				4E1000000000000000000055 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4E10000000000000000000AB /* Build configuration list for PBXNativeTarget "HeadwindWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4E10000000000000000000AC /* Debug */,
+				4E10000000000000000000AD /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

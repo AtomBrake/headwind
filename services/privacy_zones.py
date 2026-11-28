@@ -9,13 +9,14 @@ made, and kept, so a new radius doesn't give a second circle to compare with the
 Where it's applied, each with the rider whose activity or link it is:
   - a friend's feed (routes/friends.feed): the streams (every stream's samples at the positions inside, so they stay in step), the start
     point, and segments that start or end inside;
-  - a live tracking link (services/live_share.view), besides the start of its own track;
+  - a live tracking link (services/live_share.view), besides the start of its own track and the ends of the route it follows: its track,
+    position and route (Hider.pieces);
   - the tracks sent to Home Assistant (services/mqtt._ride_route_payloads, services/run_stats.payloads);
-  - the heatmap's HD export (routes/heatmap.data with hd=1), whose lines are cut at a zone's edge into pieces (Hider.pieces).
+  - the heatmap's HD export (routes/heatmap.data with hd=1), whose lines are cut at a zone's edge into pieces (Hider.pieces);
+  - the troubleshooting copy with GPS left in (services/troubleshooting_copy.py): every rider's zones cut out of every track it keeps.
+    The zones themselves say where home is, so the copy leaves them out.
 Never on the rider's own pages: they're the rider's. A zone made, changed or removed moves on the updatedAt of the rider's activities that
-go near it (touch_near), so a friend's Headwind fetches them again, cut the new way.
-
-The zones themselves say where home is: the troubleshooting copy (services/troubleshooting_copy.py) leaves them out."""
+go near it (touch_near), so a friend's Headwind fetches them again, cut the new way."""
 import math
 import random
 import time
@@ -187,13 +188,14 @@ class Hider:
         return [p for p, k in zip(latlng, self.keep(latlng)) if k]
 
     def streams(self, streams):
-        """An activity's streams ({name: {data: [...]}}) with every sample taken at a position inside a zone taken out of each stream as
-        long as latlng, so they stay in step. A stream of another length (a recording out of step) keeps its samples. None when nothing
-        was inside, so the caller can send the streams as they were."""
+        """An activity's streams ({name: {data: [...]}}, or {name: [...]} as some older copies keep them) with every sample taken at a
+        position inside a zone taken out of each stream as long as latlng, so they stay in step. A stream of another length (a recording
+        out of step) keeps its samples. None when nothing was inside, so the caller can send the streams as they were."""
         if not isinstance(streams, dict):
             return None
-        ll = (streams.get('latlng') or {}).get('data') if isinstance(streams.get('latlng'), dict) else None
-        if not ll:
+        ll = streams.get('latlng')
+        ll = ll.get('data') if isinstance(ll, dict) else ll
+        if not ll or not isinstance(ll, list):
             return None
         keep = self.keep(ll)
         if all(keep):
@@ -201,9 +203,10 @@ class Hider:
         n = len(ll)
         out = {}
         for name, s in streams.items():
-            data = s.get('data') if isinstance(s, dict) else None
+            data = s.get('data') if isinstance(s, dict) else s
             if isinstance(data, list) and len(data) == n:
-                out[name] = {**s, 'data': [v for v, k in zip(data, keep) if k]}
+                cut = [v for v, k in zip(data, keep) if k]
+                out[name] = {**s, 'data': cut} if isinstance(s, dict) else cut
             else:
                 out[name] = s
         return out
@@ -218,11 +221,10 @@ class Hider:
         return None, None
 
 
-def hider(db, rider_id):
-    """The rider's zones as a Hider (empty, and falsy, when they have none)."""
-    if rider_id is None:
-        return Hider([])
-    return Hider(_rows(db, rider_id))
+def hider(db, rider_id, also=()):
+    """The rider's zones as a Hider (empty, and falsy, when they have none). also: more circles to hide, shaped as zones ({lat, lng,
+    radiusM, bearing, shift}: a live link's route ends, services/live_share.route_copy)."""
+    return Hider(([] if rider_id is None else list(_rows(db, rider_id))) + list(also or ()))
 
 
 def hiders(db):

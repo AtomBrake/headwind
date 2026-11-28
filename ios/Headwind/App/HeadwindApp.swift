@@ -13,6 +13,7 @@ struct HeadwindApp: App {
     @State private var health: HealthSync
     /// The recording's live tracking link, if it's shared.
     @State private var liveShare: LiveShareController
+    @State private var lockScreen: RecordingActivityController
     @State private var recordRouter = Router()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -38,6 +39,8 @@ struct HeadwindApp: App {
             _ = try? await APIClient(pairing: pairing).post("live", json: update, as: Ignored.self)
         }
         recorder.onRecordingEnded = { liveShare.recordingEnded($0) }
+        let lockScreen = RecordingActivityController()
+        lockScreen.read = { (recorder, session.units, liveShare.isSharing(recorder.recordingID)) }
         _session = State(initialValue: session)
         _store = State(initialValue: store)
         _recorder = State(initialValue: recorder)
@@ -45,6 +48,7 @@ struct HeadwindApp: App {
         _watch = State(initialValue: watch)
         _health = State(initialValue: health)
         _liveShare = State(initialValue: liveShare)
+        _lockScreen = State(initialValue: lockScreen)
     }
 
     var body: some Scene {
@@ -62,6 +66,9 @@ struct HeadwindApp: App {
                 .onChange(of: session.info, initial: true) { syncWatch() }
                 .onChange(of: session.pairing) { syncWatch() }
                 .onChange(of: liveShare.shareByDefault) { syncWatch() }
+                // The recording on the Lock Screen and in the Dynamic Island (RecordingActivityController)
+                .onChange(of: recorder.state, initial: true) { lockScreen.follow() }
+                .onChange(of: liveShare.isSharing(recorder.recordingID)) { lockScreen.follow() }
         }
         .onChange(of: scenePhase) { _, phase in
             // Retry anything that failed to upload while offline, and send what Apple Health has new.

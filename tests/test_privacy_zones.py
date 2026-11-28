@@ -314,3 +314,26 @@ def test_the_troubleshooting_copy_leaves_the_zones_out(web):
         troubleshooting_copy.strip(db)
         assert db.execute('SELECT COUNT(*) FROM PrivacyZone').fetchone()[0] == 0
         db.rollback()
+
+
+def test_streams_kept_as_bare_lists_are_cut_too():
+    """Some older copies of an activity keep each stream as a list rather than {data: [...]}; both are cut, each in step."""
+    h = privacy_zones.Hider([zone(radius=200, shift=0.2)])
+    ll = north(10)
+    cut = h.streams({'latlng': ll, 'time': list(range(10)), 'note': 'kept'})
+    assert cut['latlng'] == ll[len(ll) - len(cut['latlng']):] and len(cut['time']) == len(cut['latlng']) < 10 and cut['note'] == 'kept'
+    assert h.streams({'latlng': north(5, lat0=HOME[0] + 0.05)}) is None          # nothing inside: None, as before
+
+
+def test_more_circles_can_be_hidden_beside_the_zones(tmp_path):
+    """privacy_zones.hider(also=...): a live link's route ends, shaped as zones, hidden as well as the rider's own."""
+    pre = Flask('pre')
+    pre.config['DATABASE'] = str(tmp_path / 't.db')
+    with pre.app_context():
+        database.migrate_db()
+        db = database.get_db()
+        far = (HOME[0] + 0.1, HOME[1])
+        assert not privacy_zones.hider(db, 1)
+        h = privacy_zones.hider(db, 1, also=[zone(radius=300, shift=0.0, lat=far[0], lng=far[1])])
+        assert h and h.inside(*far) and not h.inside(*HOME)
+        assert privacy_zones.hider(db, None, also=[zone()]).inside(*HOME)

@@ -63,8 +63,9 @@ extension LiveShareStart {
 }
 
 /// Watch → iPhone user info (`WatchLink.liveLinkKey`): a link the Watch started for its recording, for the phone to offer in a
-/// notification and the share sheet, or word that the recording has ended, so the phone shows the link as finished. The link comes again,
-/// once, with `recipients` settled, when the server has finished emailing it to the rider's contacts.
+/// notification and the share sheet, or word that the recording has ended, so the phone shows the link as finished, or that the link was
+/// stopped on the Watch, so the phone drops it. The link comes again, once, with `recipients` settled, when the server has finished
+/// emailing it to the rider's contacts.
 struct LiveLinkMessage: Equatable, Sendable {
     var recording: String
     var url: URL?
@@ -73,6 +74,8 @@ struct LiveLinkMessage: Equatable, Sendable {
     /// The Sport rawValue.
     var sport: String?
     var ended = false
+    /// Stopped on the Watch: the link has ended for everyone (`ended` is set too, which a phone app from before reads as finished).
+    var stopped = false
     /// Who the server is emailing the link to, and how it's gone; nil from a Watch app from before.
     var recipients: [LiveShareRecipient]?
 
@@ -85,8 +88,13 @@ struct LiveLinkMessage: Equatable, Sendable {
         LiveLinkMessage(recording: recording.uuidString, ended: true)
     }
 
+    static func stopped(recording: UUID) -> LiveLinkMessage {
+        LiveLinkMessage(recording: recording.uuidString, ended: true, stopped: true)
+    }
+
     var dictionary: [String: Any] {
         var d: [String: Any] = ["recording": recording, "ended": ended]
+        if stopped { d["stopped"] = true }
         if let url { d["url"] = url.absoluteString }
         if let expiresAt { d["expires"] = expiresAt }
         if let sport { d["sport"] = sport }
@@ -102,16 +110,17 @@ struct LiveLinkMessage: Equatable, Sendable {
         guard ended || url != nil else { return nil }
         let recipients = (d["recipients"] as? [[String: Any]]).map { $0.compactMap(LiveShareRecipient.init(dictionary:)) }
         self.init(recording: recording, url: url, expiresAt: d["expires"] as? Double, sport: d["sport"] as? String, ended: ended,
-                  recipients: recipients)
+                  stopped: d["stopped"] as? Bool ?? false, recipients: recipients)
     }
 
-    init(recording: String, url: URL? = nil, expiresAt: Double? = nil, sport: String? = nil, ended: Bool = false,
+    init(recording: String, url: URL? = nil, expiresAt: Double? = nil, sport: String? = nil, ended: Bool = false, stopped: Bool = false,
          recipients: [LiveShareRecipient]? = nil) {
         self.recording = recording
         self.url = url
         self.expiresAt = expiresAt
         self.sport = sport
         self.ended = ended
+        self.stopped = stopped
         self.recipients = recipients
     }
 }

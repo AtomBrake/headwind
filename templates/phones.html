@@ -10,6 +10,7 @@
   .ph-row { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; padding:0.6rem 0; border-top:1px solid var(--border); font-size:0.9rem; }
   .ph-row small { color:var(--text-muted); display:block; }
   .ph-stale { color:var(--warning); }
+  .ph-live { color:var(--success-text); font-size:0.8rem; margin-left:0.3rem; }
   .ph-note { display:flex; align-items:center; justify-content:space-between; gap:0.5rem; flex-wrap:wrap; font-size:0.85rem; margin:0 0 0.6rem; }
   #phResult { display:none; text-align:center; }
   #phResult img { width:220px; height:220px; background:var(--white); padding:6px; border-radius:10px; }
@@ -47,6 +48,20 @@
   <div class="ph-row"><div>{{ d.name }}{% if d.revokedAt %} <span style="color:var(--danger)">(revoked)</span>{% endif %}
     <small>added {{ d.createdAt | fmt_date }} · {{ ('last used ' ~ (d.lastUsedAt | fmt_when)) if d.lastUsedAt else 'never used' }}{% if d.stale %} · <span class="ph-stale">unused for over {{ stale_days }} days</span>{% endif %}</small></div>
     {% if not d.revokedAt %}<button class="btn btn-danger-quiet btn-sm" data-click="revoke({{ d.id }})">Revoke</button>{% endif %}</div>
+  {% endfor %}
+</div>
+<div class="ph-card" id="liveLinks">
+  <div style="font-weight:600;margin-bottom:0.3rem">Live tracking links</div>
+  {% if not shares %}<p style="color:var(--text-muted);font-size:0.9rem">None lately. A link is started from the phone or the Watch while recording.</p>
+  {% else %}<p style="color:var(--text-muted);font-size:0.85rem;margin:0 0 0.4rem">Running and recent links. A link works until it's stopped, or until {{ 'an hour' if after_end_min == 60 else after_end_min ~ ' minutes' }} after the activity ends; stop one here if it went to the wrong person.</p>{% endif %}
+  {% for s in shares %}
+  <div class="ph-row"><div>{{ s.icon }} {{ s.sport }}{% if s.rider %} · {{ s.rider }}{% endif %}{% if s.route %} · following a route{% endif %}
+    {% if s.state == 'running' %}<span class="ph-live">running</span>{% endif %}
+    <small>started {{ s.started | fmt_when }}{% if s.device %} from {{ s.device }}{% endif %}
+      {% if s.state == 'finished' %}· finished {{ s.ended | fmt_when }}, works until {{ s.until | fmt_when }}{% elif s.state == 'stopped' %}· stopped {{ s.ended | fmt_when }}{% elif s.state == 'expired' %}· ended{% endif %}
+      {% if s.sent %}· emailed to {{ s.sent | join(', ') }}{% endif %}
+      {% if s.url %}· <a href="{{ s.url }}" target="_blank" rel="noopener">open</a>{% endif %}</small></div>
+    {% if s.working %}<button class="btn btn-danger-quiet btn-sm" data-click="stopLive({{ s.id }})">Stop</button>{% endif %}</div>
   {% endfor %}
 </div>
 {% endblock %}

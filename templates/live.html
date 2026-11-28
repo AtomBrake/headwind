@@ -25,6 +25,8 @@
     #liveMap { height:60vh; min-height:300px; border-radius:12px; margin:0.75rem 0; }
     .live-note { font-size:0.8rem; color:var(--text-muted); }
     .live-ended { max-width:420px; margin:15vh auto; padding:2rem; text-align:center; }
+    .live-route { margin-top:0.75rem; }
+    .live-route[hidden] { display:none; }
   </style>
 </head>
 <body>
@@ -57,9 +59,17 @@
       <div class="stat-card"><div class="stat-label">Phone battery</div><div class="stat-value" id="liveBattery">—</div></div>
     </div>
 
+    <div class="stats-grid live-route" id="liveRoute" {% if not v.hasRoute %}hidden{% endif %}>
+      <div class="stat-card"><div class="stat-label">Done along the route</div><div class="stat-value" id="liveRouteDone">—</div></div>
+      <div class="stat-card"><div class="stat-label">To go</div><div class="stat-value" id="liveRouteLeft">—</div></div>
+      <div class="stat-card"><div class="stat-label">Finish about</div><div class="stat-value" id="liveEta">—</div>
+        <div class="stat-sub">at the recent moving {{ v.rateLabel | lower }}</div></div>
+    </div>
+    <p class="live-note" id="liveOffRoute" hidden>Off the route just now: these are the figures from where {{ v.name or 'the rider' }} last was on it.</p>
+
     <div id="liveMap"></div>
-    <p class="live-note" id="liveHidden" hidden>The position isn't shown here: it's near where the activity started, or in a place kept private.</p>
-    <p class="live-note">Anyone with this link can see this page: where {{ v.name or 'the rider' }} is, the way they've come and these figures, until
+    <p class="live-note" id="liveHidden" hidden>The position isn't shown here: it's near where the activity or the route starts or ends, or in a place kept private.</p>
+    <p class="live-note">Anyone with this link can see this page: where {{ v.name or 'the rider' }} is, the way they've come{% if v.routeShown %}, the route they're following{% endif %} and these figures, until
       {{ 'an hour' if after_end_min == 60 else after_end_min ~ ' minutes' }} after the activity ends. Nothing else is shared.</p>
   </div>
   <script type="application/json" id="liveData">{{ {'view': v, 'pollS': poll_s} | tojson }}</script>

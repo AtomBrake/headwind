@@ -62,7 +62,15 @@ minute to be kept.
   the end it tells the phone, which shows the link as finished. The phone posts nothing itself for a recording the Watch
   makes. The server emails the link to the contacts itself, so it gets out with the phone left at home: the Watch's controls
   page says who it went to, asking until the server has finished, then hands the phone the link once more with how it went
-  (`LiveLinkMessage.recipients`). `HeadwindWatch/WorkoutManager.swift`, `Headwind/Record/LiveLinkNotifier.swift`.
+  (`LiveLinkMessage.recipients`). **Stop sharing** on the controls page ends the Watch's link with its own token (`DELETE
+  /api/v1/live/share`, `WorkoutManager.stopLink`) and tells the phone (`LiveLinkMessage.stopped`), which drops it; no link is
+  started again that recording. `HeadwindWatch/WorkoutManager.swift`, `Headwind/Record/LiveLinkNotifier.swift`.
+- **Live Activity (iPhone):** while recording, the Lock Screen and the Dynamic Island show the sport, the time (counting by
+  itself, `Text(timerInterval:)`, still while paused), distance, speed or pace, heart rate, and whether the live link is
+  shared. The app starts it at Start, sends new figures every 10 s and at once on a pause, a resume or the link changing,
+  and ends it at Finish or Discard (`Headwind/Record/RecordingActivityController.swift`). It's drawn by the
+  **HeadwindWidgets** extension (`HeadwindWidgets/RecordingLiveActivity.swift`) from `LiveActivity/`'s attributes, compiled
+  into both. Nothing shows when Live Activities are off for Headwind in the iPhone's Settings.
 - **Watch:** runs as a HealthKit workout of the chosen sport, which keeps the app running with the wrist down and supplies heart
   rate. The finished ride is saved to Apple Health with its route, and sent to the iPhone as GPX with heart rate
   on every point. The phone uploads it with its own pairing, so the Watch never needs pairing. Riding without the
@@ -190,8 +198,9 @@ What's planned for the apps (food logging, widgets, smart-trainer control, follo
    If Xcode complains about the bundle identifier, change it to something unique to you. Plug the phone in and turn on
    Developer Mode when iOS asks. Builds signed with a free Apple ID expire after 7 days; a paid developer account
    lasts a year and allows TestFlight.
-4. **Apple Watch:** the same team signs the **HeadwindWatch** target. The Watch app is embedded in the iPhone
-   app, so installing on the phone offers it on the paired Watch (Watch app → *Available Apps*), or run the
+4. **Apple Watch and the Live Activity:** the same team signs the **HeadwindWatch** target, and the **HeadwindWidgets**
+   extension (`io.github.atombrake.headwind.widgets`) embedded in the iPhone app, which needs nothing more. The Watch
+   app is embedded in the iPhone app too, so installing on the phone offers it on the paired Watch (Watch app → *Available Apps*), or run the
    **HeadwindWatch** scheme with the Watch selected. It needs the HealthKit capability, which Xcode adds from
    `Config/HeadwindWatch.entitlements`. The iPhone target needs it too, with background delivery, for Apple Health
    (`Config/Headwind.entitlements`).
@@ -300,6 +309,8 @@ ios/
     Sensors/               Bluetooth sensors: CoreBluetooth manager and the Sensors screen
   HeadwindWatch/           Watch app: HealthKit workout + GPS recorder, iPhone link and direct upload, Action button intents, screens
                            (the recording's map page in MapPage.swift)
+  HeadwindWidgets/         the iPhone's widget extension: the recording's Live Activity (Lock Screen, Dynamic Island)
+  LiveActivity/            compiled into the iPhone app and HeadwindWidgets: the Live Activity's attributes
   HeadwindTests/           Swift Testing unit tests
   HeadwindUITests/         end-to-end iPhone tests against a live server
   HeadwindWatchUITests/    end-to-end Watch recording test

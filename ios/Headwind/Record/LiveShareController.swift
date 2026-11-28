@@ -13,8 +13,8 @@ import Observation
 /// without the link.
 ///
 /// A Watch recording's link is started by the Watch, which has no share sheet, and handed over (WatchBridge, `LiveLinkMessage`): it's kept
-/// here like the phone's own, announced in a notification (LiveLinkNotifier) whose tap opens the share sheet, and shown as finished when
-/// the Watch says its recording has ended.
+/// here like the phone's own, announced in a notification (LiveLinkNotifier) whose tap opens the share sheet, shown as finished when
+/// the Watch says its recording has ended, and dropped when it was stopped on the Watch.
 ///
 /// The server emails each new link to the rider's contacts chosen beforehand (Settings → Contacts), in the background: the link keeps who
 /// they are and how it went (`recipients`), asked for again until the server has finished, and the Record screen says "Sent to Sam and
@@ -204,6 +204,14 @@ final class LiveShareController {
     /// sheet opens when the notification is tapped (`offer`). One sent again (the Watch's message delivered twice, or again once the server
     /// has emailed the contacts) isn't announced again, but brings who it was sent to.
     func adopt(fromWatch message: LiveLinkMessage) {
+        if message.stopped {                    // stopped on the Watch: gone for everyone, so from here too
+            if link?.recording == message.recording {
+                following?.cancel()
+                link = nil
+            }
+            notifier?.withdraw(recording: message.recording)
+            return
+        }
         if message.ended {
             ended(message.recording)
             notifier?.withdraw(recording: message.recording)

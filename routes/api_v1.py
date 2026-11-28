@@ -22,7 +22,8 @@
                             POST /api/v1/friends/probe {code} who a friend's code connects to, POST /api/v1/friends {code, rider, name} adds them;
                             GET /api/v1/friends lists them, for GET /api/v1/activities?rider=<their rider id>|all (a friend's activities, read-only)
   POST /api/v1/live        the phone's live reading while it records (services/live.py), with `recording`, the recording's id;
-                            POST /api/v1/live/share {recording, sport, track} starts a live tracking link for it (or gives the running one),
+                            POST /api/v1/live/share {recording, sport, track, route, show_route} starts a live tracking link for it (or
+                            gives the running one), following a saved route when given one,
                             DELETE /api/v1/live/share {recording} stops it (services/live_share.py). A new link is emailed to the
                             rider's contacts: GET /api/v1/live/share?recording= says to whom and how it went
   GET  /api/v1/contacts    the people live links are emailed to (services/contacts.py); POST adds one, PATCH/DELETE /api/v1/contacts/<id>
@@ -454,13 +455,17 @@ def live():
 def _share_json(db, row, url):
     from services import live_share as share_svc
     return {'id': row['id'], 'url': url, 'recording': row['recording'], 'expires_at': row['expiresAt'], 'ended': bool(row['endedAt']),
-            'send_every_s': 5, 'contacts': share_svc.recipients(db, row['id'])}
+            'send_every_s': 5, 'contacts': share_svc.recipients(db, row['id']),
+            'route': {'id': row['routeId'], 'shown': bool(row['showRoute'])} if row['routeLine'] else None}
 
 
 @bp.route('/live/share', methods=['GET', 'POST', 'DELETE'])
 def live_share():
-    """POST {recording, sport, track: [[lat, lng, epoch s], ...]}: a live tracking link for the recording in progress, or the one it already
-    has: {id, url, expires_at, created, contacts}. `track` is what was recorded before sharing began, so the page has the track so far. 409
+    """POST {recording, sport, track: [[lat, lng, epoch s], ...], route, show_route}: a live tracking link for the recording in progress, or
+    the one it already has: {id, url, expires_at, created, contacts, route}. `track` is what was recorded before sharing began, so the page
+    has the track so far. `route`: the id of the rider's saved route being followed (GET /planner/routes), whose copy the share keeps, with
+    progress along it and a finish time; `show_route` true draws it on the page too. `route` in the answer is {id, shown}, or null when none
+    was given or it isn't the rider's. 409
     with {error, settings_url} when there's no outside address anyone could open it on. A new link is emailed to the rider's contacts ticked
     for live links, by the worker: `contacts` is [{name, state: sending|sent|failed, error}], and GET ?recording= gives the share again, for
     the phone to ask until nobody is left at "sending". DELETE {recording} (or ?recording=): stop sharing it, the link ending at once. The
@@ -486,12 +491,13 @@ def live_share():
     base, why = share_svc.link_base()
     if not base:
         return jsonify({'error': why, 'settings_url': share_svc.SETTINGS_PATH}), 409
+    route, show = body.get('route'), body.get('show_route')
     row, token, created = share_svc.start(db, rider['id'], recording, sport=body.get('sport'), device_id=getattr(g, 'device_id', None),
-                                          track=body.get('track'))
+                                          track=body.get('track'), route=route, show_route=None if show is None else show is True)
     if token is None:               # one already running whose token this server can't open: end it and start again
         share_svc.stop(db, rider['id'], share_id=row['id'])
         row, token, created = share_svc.start(db, rider['id'], recording, sport=body.get('sport'), device_id=getattr(g, 'device_id', None),
-                                              track=body.get('track'))
+                                              track=body.get('track'), route=route, show_route=show is True)
     if created:                     # once per share: the running one given again is not sent again
         share_svc.send_to_contacts(db, row)
     return jsonify(dict(_share_json(db, row, share_svc.link(base, token)), created=created)), 201 if created else 200

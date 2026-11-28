@@ -64,10 +64,12 @@ final class WorkoutManager: NSObject {
     /// Whether this recording posts its live readings (the switch was on at Start).
     private(set) var postingLive = false
     /// Where the recording's live tracking link has got to.
-    enum LiveLink: Equatable { case none, starting, sent, refused, failed }
+    enum LiveLink: Equatable { case none, starting, sent, refused, failed, stopping, stopped }
     private(set) var liveLink = LiveLink.none
     /// The contacts the server is emailing the link to, and how it's gone.
     private(set) var liveRecipients: [LiveShareRecipient] = []
+    /// Why the last Stop sharing didn't work (no signal), fit to show; nil once it has.
+    private(set) var liveStopProblem: String?
     @ObservationIgnored private var lastLinkTry = Date.distantPast
     @ObservationIgnored private var lastLivePost = Date.distantPast
     @ObservationIgnored private var lastLocation: CLLocation?
@@ -173,6 +175,7 @@ final class WorkoutManager: NSObject {
             postingLive = sharesLive && sport.usesGPS && phone.pairing != nil
             liveLink = .none
             liveRecipients = []
+            liveStopProblem = nil
             lastLinkTry = .distantPast
             lastLivePost = .distantPast
             lastLocation = nil
@@ -399,6 +402,29 @@ final class WorkoutManager: NSObject {
                     }
                 }
             }
+        }
+    }
+
+    /// Stop sharing, from the controls page: DELETE /api/v1/live/share with the Watch's own token, so the link ends at once for everyone who
+    /// has it, and the phone drops it too. The readings still go on (Home Assistant has them), but no link is started again this recording.
+    func stopLink() {
+        guard liveLink == .sent, let pairing = phone.pairing, let id = recordingID else { return }
+        liveLink = .stopping
+        liveStopProblem = nil
+        let client = APIClient(pairing: pairing)
+        Task {
+            do throws(AppError) {
+                try await client.stopLiveShare(recording: id.uuidString)
+            } catch {
+                guard recordingID == id else { return }
+                liveLink = .sent
+                liveStopProblem = "Couldn't stop it: \(error.localizedDescription)"
+                return
+            }
+            guard recordingID == id else { return }
+            liveLink = .stopped
+            liveRecipients = []
+            phone.send(liveLink: .stopped(recording: id))
         }
     }
 

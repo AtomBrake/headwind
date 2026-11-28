@@ -204,16 +204,35 @@ private struct MetricsPage: View {
 
 private struct ControlsPage: View {
     @Environment(WorkoutManager.self) private var workout
+    @State private var confirmStop = false
 
     var body: some View {
-        VStack(spacing: 8) {
-            buttons
-            if workout.postingLive {
-                liveLink
-                    .font(.footnote)
-                    .multilineTextAlignment(.center)
-                    .accessibilityIdentifier("watch-live-link")
+        ScrollView {
+            VStack(spacing: 8) {
+                buttons
+                if workout.postingLive {
+                    liveLink
+                        .font(.footnote)
+                        .multilineTextAlignment(.center)
+                        .accessibilityIdentifier("watch-live-link")
+                    if workout.liveLink == .sent || workout.liveLink == .stopping {
+                        Button(role: .destructive) { confirmStop = true } label: {
+                            Label(workout.liveLink == .stopping ? "Stopping…" : "Stop sharing", systemImage: "location.slash")
+                        }
+                        .disabled(workout.liveLink == .stopping)
+                        .accessibilityIdentifier("watch-stop-sharing")
+                        if let problem = workout.liveStopProblem {
+                            Text(problem).font(.footnote).foregroundStyle(.orange).multilineTextAlignment(.center)
+                        }
+                    }
+                }
             }
+        }
+        .confirmationDialog("Stop the live link?", isPresented: $confirmStop) {
+            Button("Stop sharing", role: .destructive) { workout.stopLink() }
+            Button("Keep sharing", role: .cancel) {}
+        } message: {
+            Text("Anyone who has it will see that it has ended. The recording goes on.")
         }
     }
 
@@ -236,6 +255,10 @@ private struct ControlsPage: View {
             Text("No live link: Headwind needs an https outside address").foregroundStyle(.orange)
         case .failed:
             Text("No signal for the live link yet: trying again").foregroundStyle(.secondary)
+        case .stopping:
+            Text("Stopping the live link…").foregroundStyle(.secondary)
+        case .stopped:
+            Text("Live link stopped").foregroundStyle(.secondary)
         }
     }
 

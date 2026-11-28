@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- **A live tracking link can follow your saved route.** `POST /api/v1/live/share` takes a `route` id: the link keeps its own copy of the route (so editing or deleting it doesn't change a running link) and shows how far you've come along it, how far is left, and when you should finish, at your recent moving speed or pace so stops don't count. Off the route, it says so and keeps the last figures. With `show_route` the page draws the line too, cut around both ends (each a circle moved a random way, as privacy zones are) and inside your privacy zones, and your position isn't shown near the route's finish either. Without it, the distance to go and the finish time still show, as they say how far the end is but not where. The apps can send a route once they can follow one.
+- **Stop a live link from the Watch or the web.** The Watch's controls page has **Stop sharing** for a link it started (with its own token), and the iPhone drops the link when it hears. The server's **Phones** page lists the running and recent links, each running one with **Stop**, for a link sent by mistake when the phone isn't to hand.
+- **The recording on the iPhone's Lock Screen and in the Dynamic Island.** A Live Activity shows the time, distance, speed or pace and heart rate, and whether the live link is being shared.
+- **The copy for troubleshooting cuts your privacy zones out.** With GPS left in, every zone is cut from everything the copy keeps: the streams (with the readings taken inside), start points, the positions in laps and rawData, summary polylines, planned routes, segments that go inside, and the copies in parked duplicates, imports waiting on the Import page and Garmin's listings. It used to keep whole tracks.
+
 ### Changed
 - **Demo mode is safe to run on a home network.** With `HEADWIND_DEMO=1`, pages and APIs are shut unless they've been checked as safe to show anyone, as writes already were, so a page added later stays closed in the demo until someone has looked at what it shows. The server's logs and diagnostics, the update check, contacts, live tracking links and Garmin's course list never open. The app refuses every connection to a private address, `demo/docker-compose.demo.yml` puts the demo on a network with no way out that only its Cloudflare tunnel reaches, the nightly reset brings the clean copy up to the running version before swapping it in, and the sign-in page has **Enter the demo**. [demo/README.md](demo/README.md) says how to run it.
 

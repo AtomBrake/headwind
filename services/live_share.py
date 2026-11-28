@@ -21,11 +21,21 @@ asks for the share it already has.
 When a share starts, the link goes by email to each of the rider's contacts ticked for live links (services/contacts.py), from here rather
 than the phone: a Watch on its own has no way to send it, and nobody need tap anything. Once per share, never again when the phone is given
 the running one. It's sent by the worker (SEND_JOB), so a slow mail server doesn't hold up the phone's request; the phone reads how it went
-from the share (recipients), asking again until nobody is left at "sending"."""
+from the share (recipients), asking again until nobody is left at "sending".
+
+A share can follow one of the rider's saved routes (PlannedRoute, services/planned_routes.py), named when it starts. The share keeps its own
+copy of the route's line, simplified (route_copy), so renaming, editing or deleting the route doesn't change a running link, and the copy
+goes with the points. Each reading is matched to the line near the last match, at the place nearest where the rider should be by now
+(_follow), so a loop or an out-and-back that passes the same road twice doesn't jump ahead or back; that gives the distance done and to go, and the finish time at the recent
+moving speed (_moving_speed: stops don't count). Off the line, the page says so and keeps the last figures. The line is drawn only when
+the rider chose to show it (showRoute): the figures are shown either way, as they say how far away the end is but not where. A route
+usually starts and ends at home, so the line is cut around both ends (each a HIDE_START_M circle moved a random way off it, as a privacy
+zone is) and inside the rider's privacy zones, and the rider's own position and track aren't shown inside those circles either."""
 import hashlib
 import ipaddress
 import json
 import math
+import random
 import re
 import secrets
 import time
@@ -43,6 +53,13 @@ MIN_MOVE_M = 5              # and not while standing still
 HIDE_START_M = 300          # nothing shown this close to where the track began
 MAX_POINTS = 20_000         # a day at THIN_S
 MAX_SENT_TRACK = 5_000      # points the phone may send with a share started mid-recording
+MAX_ROUTE_POINTS = 5_000    # a followed route's line, simplified until it has at most this many
+ON_ROUTE_M = 50             # a reading this close to the route's line is on it
+OFF_AFTER = 2               # and this many readings in a row further off are off it
+AHEAD_M = 2_000             # a reading is matched first within this far ahead of the last match ...
+BEHIND_M = 100              # ... and this far behind it (GPS wanders; the rider turns round)
+RECENT_S = 600              # the finish time is at the moving speed of the last ten minutes
+MOVING_MPS = 0.5            # slower than this between two points is stopped
 
 
 SETTINGS_PATH = '/settings#address'
@@ -105,6 +122,16 @@ def ensure_schema(db):
             expiresAt   REAL NOT NULL,
             revokedAt   REAL
         )''')
+    have = {r[1] for r in db.execute('PRAGMA table_info(LiveShare)').fetchall()}
+    for col, defn in (('routeId', 'INTEGER'),               # the saved route it follows, as it was named (PlannedRoute.id)
+                      ('showRoute', 'INTEGER NOT NULL DEFAULT 0'),  # whether the page draws the route
+                      ('routeLine', 'TEXT'),                # JSON [[lat, lng, metres along], ...]: the share's own copy of the line
+                      ('routeHide', 'TEXT'),                # JSON: the circles cut round its ends, as privacy zones ({lat, lng, radiusM, bearing, shift})
+                      ('routeAt', 'REAL'),                  # metres along the line of the last reading on it
+                      ('routeSeg', 'INTEGER'),              # and the part of the line it was on
+                      ('routeMiss', 'INTEGER NOT NULL DEFAULT 0')):  # readings in a row off the line
+        if col not in have:
+            db.execute(f'ALTER TABLE LiveShare ADD COLUMN {col} {defn}')
     db.execute('CREATE INDEX IF NOT EXISTS idx_liveshare_rider ON LiveShare(riderId, recording)')
     db.execute('''
         CREATE TABLE IF NOT EXISTS LivePoint (
@@ -145,22 +172,36 @@ def token_of(row):
     return vault.unseal(row['sealedToken']) if row and row['sealedToken'] else None
 
 
-def start(db, rider_id, recording, sport=None, device_id=None, track=None, now=None):
+def start(db, rider_id, recording, sport=None, device_id=None, track=None, now=None, route=None, show_route=None, rng=random):
     """Start sharing this recording, or find the share of it that is already running. Returns (row, token, created); token is None for one
     already running whose token can't be opened. `track`: the points recorded before the share began, [[lat, lng, epoch s], ...], kept
-    thinned as the start of its track. Commits."""
+    thinned as the start of its track. `route`: the id of the rider's saved route being followed, copied onto the share (route_copy); one
+    that isn't theirs, or is gone, is left out. A running share given a route when it has none takes it, and `show_route` (whether the page
+    draws it) when it's given. Commits."""
     now = time.time() if now is None else now
     recording = recording_id(recording)
     row = open_share(db, rider_id, recording, now)
     if row:
+        changed = False
+        if route is not None and not row['routeLine']:
+            changed = _attach_route(db, row['id'], rider_id, route, rng)
+        if show_route is not None and bool(show_route) != bool(row['showRoute']):
+            db.execute('UPDATE LiveShare SET showRoute=? WHERE id=?', [1 if show_route else 0, row['id']])
+            changed = True
+        if changed:
+            db.commit()
+            row = db.execute('SELECT * FROM LiveShare WHERE id=?', [row['id']]).fetchone()
         return row, token_of(row), False
     token = PREFIX + secrets.token_urlsafe(24)
-    cur = db.execute('INSERT INTO LiveShare (riderId, tokenHash, sealedToken, recording, sport, deviceId, createdAt, expiresAt) '
-                     'VALUES (?,?,?,?,?,?,?,?)', [rider_id, _hash(token), vault.seal(token), recording, (sport or '')[:20] or None,
-                                                  device_id, now, now + SILENT_S])
+    cur = db.execute('INSERT INTO LiveShare (riderId, tokenHash, sealedToken, recording, sport, deviceId, createdAt, expiresAt, showRoute) '
+                     'VALUES (?,?,?,?,?,?,?,?,?)', [rider_id, _hash(token), vault.seal(token), recording, (sport or '')[:20] or None,
+                                                    device_id, now, now + SILENT_S, 1 if show_route else 0])
     share_id = cur.lastrowid
-    for p in _clean_track(track)[-MAX_SENT_TRACK:]:
+    sent = _clean_track(track)[-MAX_SENT_TRACK:]
+    for p in sent:
         _add_point(db, share_id, p[0], p[1], p[2])
+    if route is not None:
+        _attach_route(db, share_id, rider_id, route, rng, sent)
     # The reading that came before the share, if it's this recording's: the page has something to show at once
     last = db.execute('SELECT reading, ts FROM LiveReading WHERE riderId=?', [rider_id]).fetchone()
     if last:
@@ -169,6 +210,128 @@ def start(db, rider_id, recording, sport=None, device_id=None, track=None, now=N
             _take(db, db.execute('SELECT * FROM LiveShare WHERE id=?', [share_id]).fetchone(), c, last['ts'])
     db.commit()
     return db.execute('SELECT * FROM LiveShare WHERE id=?', [share_id]).fetchone(), token, True
+
+
+def route_copy(db, rider_id, route_id, rng=random):
+    """The share's copy of one of the rider's saved routes: (line, hide), line [[lat, lng, metres along], ...] simplified to at most
+    MAX_ROUTE_POINTS (planned_routes.simplify), hide the circles cut round its start and finish, as privacy zones (privacy_zones.circle):
+    HIDE_START_M moved a random way off each end, made larger by as much, so the cut doesn't draw a circle round the door. None when the
+    route isn't the rider's, is gone, or has fewer than two points."""
+    from services import planned_routes, privacy_zones
+    try:
+        route_id = int(route_id)
+    except (TypeError, ValueError):
+        return None
+    r = db.execute('SELECT track, waypoints FROM PlannedRoute WHERE id=? AND riderId IS ?', [route_id, rider_id]).fetchone()
+    if not r:
+        return None
+    try:
+        raw = json.loads(r['track']) if r['track'] else [[w['lat'], w['lng']] for w in json.loads(r['waypoints'] or '[]')]
+    except (TypeError, ValueError, KeyError):
+        return None
+    pts = [[p[0], p[1]] for p in planned_routes.clean(raw)]
+    if len(pts) < 2:
+        return None
+    tol = planned_routes.SIMPLIFY_M
+    keep = planned_routes.simplify(pts, tol)
+    while len(keep) > MAX_ROUTE_POINTS:
+        tol *= 2
+        keep = planned_routes.simplify(pts, tol)
+    line, along = [], 0.0
+    for i in keep:
+        lat, lng = pts[i]
+        if line:
+            along += _metres(line[-1][0], line[-1][1], lat, lng)
+        line.append([lat, lng, round(along, 1)])
+    hide = [{'lat': p[0], 'lng': p[1], 'radiusM': HIDE_START_M, 'bearing': rng.uniform(0, 360), 'shift': rng.uniform(*privacy_zones.SHIFT)}
+            for p in (pts[0], pts[-1])]
+    return line, hide
+
+
+def _attach_route(db, share_id, rider_id, route_id, rng=random, track=()):
+    """Copy the route onto the share, and match the track it has so far to it, in order. Returns whether there was a route. Does not commit."""
+    got = route_copy(db, rider_id, route_id, rng)
+    if not got:
+        return False
+    line, hide = got
+    db.execute('UPDATE LiveShare SET routeId=?, routeLine=?, routeHide=?, routeAt=NULL, routeSeg=NULL, routeMiss=0 WHERE id=?',
+               [int(route_id), json.dumps(line, separators=(',', ':')), json.dumps(hide), share_id])
+    if track:
+        share = db.execute('SELECT * FROM LiveShare WHERE id=?', [share_id]).fetchone()
+        state = _route_state(share)
+        for p in track:
+            state = _follow(line, state, p[0], p[1])
+        _save_route_state(db, share_id, state)
+    return True
+
+
+def _route_state(share):
+    return {'at': share['routeAt'], 'seg': share['routeSeg'], 'miss': share['routeMiss'] or 0}
+
+
+def _save_route_state(db, share_id, state):
+    db.execute('UPDATE LiveShare SET routeAt=?, routeSeg=?, routeMiss=? WHERE id=?', [state['at'], state['seg'], state['miss'], share_id])
+
+
+def _near(line, i, lat, lng):
+    """(metres from the position to part i of the line, metres along the line of the nearest point of it)."""
+    a, b = line[i], line[i + 1]
+    kx = 111_320.0 * math.cos(math.radians(lat))
+    ax, ay = (a[1] - lng) * kx, (a[0] - lat) * 111_320.0
+    bx, by = (b[1] - lng) * kx, (b[0] - lat) * 111_320.0
+    dx, dy = bx - ax, by - ay
+    ll = dx * dx + dy * dy
+    t = 0.0 if not ll else max(0.0, min(1.0, -(ax * dx + ay * dy) / ll))
+    return math.hypot(ax + t * dx, ay + t * dy), a[2] + t * (b[2] - a[2])
+
+
+def _point_at(line, seg, at):
+    """The position at metres `at` along part `seg` of the line."""
+    a, b = line[seg], line[seg + 1]
+    t = 0.0 if b[2] == a[2] else max(0.0, min(1.0, (at - a[2]) / (b[2] - a[2])))
+    return a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])
+
+
+def _match(line, lat, lng, first, last, expect=None):
+    """The place on parts first..last of the line within ON_ROUTE_M of the position that is nearest `expect` metres along (where the rider
+    should be by now), or, with no expect, the first along. Where the line passes the same road twice (an out-and-back, a loop crossing
+    itself) that takes the passing the rider is on. (part, metres along) or None."""
+    best = None
+    for i in range(first, last + 1):
+        d, along = _near(line, i, lat, lng)
+        if d > ON_ROUTE_M:
+            continue
+        key = (along if expect is None else abs(along - expect), d)
+        if best is None or key < best[0]:
+            best = (key, i, along)
+    return (best[1], best[2]) if best else None
+
+
+def _follow(line, state, lat, lng):
+    """The route state ({at, seg, miss}) after a reading at this position. Searched from BEHIND_M behind the last match to AHEAD_M ahead of
+    it first, then the rest of the route ahead (rejoining it after a short cut), taking the place nearest the last match plus how far the
+    rider has gone since; the first reading takes the first place along. Off the line, at and seg stay and miss counts."""
+    n = len(line) - 1                        # parts of the line
+    if n < 1:
+        return state
+    if state['at'] is None:
+        got = _match(line, lat, lng, 0, n - 1)
+    else:
+        at, seg = state['at'], min(state['seg'] or 0, n - 1)
+        was = _point_at(line, seg, at)
+        expect = at + _metres(was[0], was[1], lat, lng)
+        first = seg
+        while first > 0 and line[first][2] > at - BEHIND_M:
+            first -= 1
+        last = seg
+        while last < n - 1 and line[last + 1][2] < at + AHEAD_M:
+            last += 1
+        got = _match(line, lat, lng, first, last, expect)
+        if got is None and last < n - 1:
+            got = _match(line, lat, lng, last + 1, n - 1, expect)
+    if got is None:
+        return {**state, 'miss': state['miss'] + 1}
+    return {'at': round(got[1], 1), 'seg': got[0], 'miss': 0}
 
 
 def _clean_track(track):
@@ -205,6 +368,8 @@ def _take(db, share, c, ts):
     """One reading for a share: kept as its last, its position added to the track. An idle one ends the share."""
     if c.get('lat') is not None and c.get('lng') is not None:
         _add_point(db, share['id'], c['lat'], c['lng'], ts)
+        if share['routeLine']:
+            _save_route_state(db, share['id'], _follow(json.loads(share['routeLine']), _route_state(share), c['lat'], c['lng']))
     if c.get('state') == 'idle':
         db.execute('UPDATE LiveShare SET reading=?, readingAt=?, endedAt=?, expiresAt=? WHERE id=?',
                    [json.dumps(c), ts, ts, ts + AFTER_END_S, share['id']])
@@ -234,7 +399,7 @@ def stop(db, rider_id, recording=None, share_id=None, now=None):
         rows = db.execute(f'SELECT id FROM LiveShare WHERE riderId=? AND recording=? AND {_live_sql(now)}',
                           [rider_id, recording_id(recording)]).fetchall()
     for r in rows:
-        db.execute('UPDATE LiveShare SET revokedAt=? WHERE id=?', [now, r['id']])
+        db.execute('UPDATE LiveShare SET revokedAt=?, routeLine=NULL, routeHide=NULL WHERE id=?', [now, r['id']])
         db.execute('DELETE FROM LivePoint WHERE shareId=?', [r['id']])
     db.commit()
     return len(rows)
@@ -249,18 +414,20 @@ def lookup(db, token, now=None):
 
 
 def sweep(db, now=None):
-    """The points, last reading and sealed token of shares that have expired or been stopped: gone; and the shares themselves a day past
+    """The points, last reading, route and sealed token of shares that have expired or been stopped: gone; and the shares themselves a day past
     their end, with the record of whom their link was emailed to. The worker runs this with live.go_idle. Returns how many points went. Commits when it changed anything."""
     now = time.time() if now is None else now
     ended = [r[0] for r in db.execute('SELECT id FROM LiveShare WHERE (revokedAt IS NOT NULL OR expiresAt <= ?) AND (reading IS NOT NULL OR '
-                                      'sealedToken IS NOT NULL OR id IN (SELECT shareId FROM LivePoint))', [now]).fetchall()]
+                                      'sealedToken IS NOT NULL OR routeLine IS NOT NULL OR id IN (SELECT shareId FROM LivePoint))',
+                                      [now]).fetchall()]
     old = [r[0] for r in db.execute('SELECT id FROM LiveShare WHERE COALESCE(revokedAt, expiresAt) <= ?', [now - 86400]).fetchall()]
     if not ended and not old:
         return 0                        # read only, so the worker takes no write lock every time it looks
     n = 0
     for sid in ended:
         n += db.execute('DELETE FROM LivePoint WHERE shareId=?', [sid]).rowcount
-        db.execute('UPDATE LiveShare SET reading=NULL, sealedToken=NULL, startLat=NULL, startLng=NULL WHERE id=?', [sid])
+        db.execute('UPDATE LiveShare SET reading=NULL, sealedToken=NULL, startLat=NULL, startLng=NULL, routeLine=NULL, routeHide=NULL, '
+                   'routeAt=NULL, routeSeg=NULL WHERE id=?', [sid])
     for sid in old:
         db.execute('DELETE FROM LivePoint WHERE shareId=?', [sid])
         db.execute('DELETE FROM LiveShare WHERE id=?', [sid])
@@ -355,11 +522,12 @@ def _clock(secs):
 
 
 def view(db, share, since=None, now=None):
-    """What the page shows for a share: only this share's figures, position and track. `since`: the time of the last point the page has
-    (it asks for those after it). Units are the rider's setting (services/units.py)."""
+    """What the page shows for a share: only this share's figures, position and track, and the route it follows (_route_view). `since`: the
+    time of the last point the page has (it asks for those after it; the route's line comes only with the first, which has none). Units are
+    the rider's setting (services/units.py)."""
     from services import privacy_zones, sports, units
     now = time.time() if now is None else now
-    zones = privacy_zones.hider(db, share['riderId'])
+    zones = privacy_zones.hider(db, share['riderId'], also=json.loads(share['routeHide']) if share['routeHide'] else ())
     c = json.loads(share['reading']) if share['reading'] else {}
     sport = c.get('sport') or share['sport'] or ''
     style = sports.rate_style(sport)
@@ -388,7 +556,9 @@ def view(db, share, since=None, now=None):
         status = 'nosignal'
     else:
         status = 'live'
+    route = _route_view(db, share, c, zones, since is None, now, status)
     return {
+        **route,
         'name': first_name(db, share['riderId']),
         'sport': _LABELS.get(sport) or (sports.label(sport) if sport else 'Activity'),
         'icon': sports.icon(sport) if sport else '',
@@ -408,3 +578,85 @@ def view(db, share, since=None, now=None):
         'points': points,
         'last': rows[-1]['ts'] if rows else since,
     }
+
+
+def _moving_speed(db, share, c, until):
+    """Metres a second over the last RECENT_S of the share's track, counting only the stretches between points moving at MOVING_MPS or
+    more, so a stop at a café doesn't slow the finish time. With under a minute of that, the reading's own average. None for neither."""
+    rows = db.execute('SELECT ts, lat, lng FROM LivePoint WHERE shareId=? AND ts >= ? AND ts <= ? ORDER BY ts',
+                      [share['id'], until - RECENT_S, until]).fetchall()
+    dist = secs = 0.0
+    for a, b in zip(rows, rows[1:]):
+        dt = b['ts'] - a['ts']
+        d = _metres(a['lat'], a['lng'], b['lat'], b['lng'])
+        if dt > 0 and d / dt >= MOVING_MPS:
+            dist += d
+            secs += dt
+    if secs >= 60:
+        return dist / secs
+    d, t = c.get('distance_m'), c.get('elapsed_s')
+    return d / t if d and t and d / t >= MOVING_MPS else None
+
+
+def _route_view(db, share, c, zones, with_line, now, status):
+    """The route part of view(): hasRoute; routeShown; route, the line's pieces outside the hidden circles (its ends, the privacy zones),
+    only when shown and with_line; route_done_m and route_left_m along it, with routeDone and routeLeft in the rider's units; offRoute; and
+    eta, the epoch time it should end at the recent moving speed, while it's going. Distance and finish time show when the line doesn't."""
+    from services import units
+    if not share['routeLine']:
+        return {'hasRoute': False}
+    line = json.loads(share['routeLine'])
+    total = line[-1][2]
+    at = share['routeAt']
+    out = {'hasRoute': True, 'routeShown': bool(share['showRoute']), 'route': None, 'offRoute': (share['routeMiss'] or 0) >= OFF_AFTER,
+           'route_done_m': None, 'route_left_m': None, 'routeDone': None, 'routeLeft': units.fmt_dist(total), 'eta': None}
+    if with_line and share['showRoute']:
+        out['route'] = [[[round(p[0], 5), round(p[1], 5)] for p in piece] for piece in zones.pieces([[p[0], p[1]] for p in line])]
+    if at is not None:
+        left = max(0.0, total - at)
+        out.update(route_done_m=round(at), route_left_m=round(left), routeDone=units.fmt_dist(at), routeLeft=units.fmt_dist(left))
+        if status in ('live', 'nosignal') and left > 0:
+            speed = _moving_speed(db, share, c, share['readingAt'] or now)
+            if speed:
+                out['eta'] = round((share['readingAt'] or now) + left / speed)
+    return out
+
+
+RECENT_LIST = 20            # the Phones page lists this many of the latest links
+
+
+def _utc(epoch):
+    """An epoch time as SQLite's datetime('now') writes one, for the fmt_when filter."""
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp(epoch, timezone.utc).strftime('%Y-%m-%d %H:%M:%S') if epoch else None
+
+
+def listing(db, now=None):
+    """The latest links, running first, for the Phones page: [{id, rider, sport, device, started, ended, state: running|finished|stopped|
+    expired, working, url, route, sent}]. A link works (and can be stopped) until it's stopped or expires, an hour after a finished one;
+    sweep deletes them a day after. url is None when the outside address has changed since, or the token can't be opened."""
+    from services import sports
+    now = time.time() if now is None else now
+    base, _ = link_base()
+    rows = db.execute(f'''SELECT s.*, d.name AS deviceName, r.name AS riderName, (s.revokedAt IS NULL AND s.expiresAt > {float(now)!r}) AS working
+                          FROM LiveShare s
+                          LEFT JOIN DeviceToken d ON d.id = s.deviceId LEFT JOIN Rider r ON r.id = s.riderId
+                          ORDER BY working DESC, s.createdAt DESC LIMIT ?''', [RECENT_LIST]).fetchall()
+    out = []
+    for r in rows:
+        if r['revokedAt']:
+            state = 'stopped'
+        elif not r['working']:
+            state = 'expired'
+        elif r['endedAt']:
+            state = 'finished'
+        else:
+            state = 'running'
+        token = token_of(r) if r['working'] else None
+        sport = r['sport'] or ''
+        out.append({'id': r['id'], 'rider': ((r['riderName'] or '').split() or [''])[0], 'device': r['deviceName'],
+                    'sport': _LABELS.get(sport) or (sports.label(sport) if sport else 'Activity'), 'icon': sports.icon(sport) if sport else '',
+                    'started': _utc(r['createdAt']), 'ended': _utc(r['revokedAt'] or r['endedAt']), 'until': _utc(r['expiresAt']),
+                    'state': state, 'working': bool(r['working']), 'url': link(base, token) if base and token else None,
+                    'route': bool(r['routeId']), 'sent': [c['name'] for c in recipients(db, r['id']) if c['state'] == 'sent']})
+    return out
