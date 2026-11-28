@@ -127,14 +127,14 @@ def push(conf, out):
             run(['scp', '-q', tarball, f'{host}:/tmp/headwind-demo-bikeimg.tar.gz'])
             inner = (f'pct push {q(ct)} /tmp/headwind-demo-pristine.db {q(dest + "/pristine.db.new")} --perms 644'
                      f' && pct push {q(ct)} /tmp/headwind-demo-bikeimg.tar.gz /tmp/headwind-demo-bikeimg.tar.gz'
-                     f' && pct exec {q(ct)} -- sh -c {q(f"cd {q(dest)} && rm -rf bikeimg.new && mkdir bikeimg.new && tar -xzf /tmp/headwind-demo-bikeimg.tar.gz -C bikeimg.new --strip-components=1; rm -f /tmp/headwind-demo-bikeimg.tar.gz; rm -rf bikeimg.old; [ -d bikeimg ] && mv bikeimg bikeimg.old; mv bikeimg.new bikeimg && rm -rf bikeimg.old && mv pristine.db.new pristine.db")}'
+                     f' && pct exec {q(ct)} -- sh -c {q(f"cd {q(dest)} && rm -rf bikeimg.new && mkdir bikeimg.new && tar -xzf /tmp/headwind-demo-bikeimg.tar.gz -C bikeimg.new --strip-components=1 --no-same-owner; rm -f /tmp/headwind-demo-bikeimg.tar.gz; rm -rf bikeimg.old; [ -d bikeimg ] && mv bikeimg bikeimg.old; mv bikeimg.new bikeimg && rm -rf bikeimg.old && mv pristine.db.new pristine.db")}'
                      f'; rm -f /tmp/headwind-demo-pristine.db /tmp/headwind-demo-bikeimg.tar.gz')
             run(['ssh', host, inner])
             reset = f'pct exec {q(ct)} -- docker exec -u headwind {q(box)} touch /data/reset.flag'
         else:
             run(['scp', '-q', db, f'{host}:{dest}/pristine.db.new'])
             run(['scp', '-q', tarball, f'{host}:/tmp/headwind-demo-bikeimg.tar.gz'])
-            inner = (f'cd {q(dest)} && chmod 644 pristine.db.new && rm -rf bikeimg.new && mkdir bikeimg.new && tar -xzf /tmp/headwind-demo-bikeimg.tar.gz -C bikeimg.new --strip-components=1'
+            inner = (f'cd {q(dest)} && chmod 644 pristine.db.new && rm -rf bikeimg.new && mkdir bikeimg.new && tar -xzf /tmp/headwind-demo-bikeimg.tar.gz -C bikeimg.new --strip-components=1 --no-same-owner'
                      f' && rm -f /tmp/headwind-demo-bikeimg.tar.gz && rm -rf bikeimg.old && {{ [ ! -d bikeimg ] || mv bikeimg bikeimg.old; }} && mv bikeimg.new bikeimg'
                      f' && rm -rf bikeimg.old && mv pristine.db.new pristine.db')
             run(['ssh', host, inner])
