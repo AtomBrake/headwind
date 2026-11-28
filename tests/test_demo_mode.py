@@ -100,6 +100,82 @@ def test_reset_brings_an_older_clean_copy_up_to_this_version_and_leaves_nothing_
     c.close()
 
 
+def _with_tracks(tmp_path, stale=False):
+    """_demo_db with a second activity that has a GPS track, and no map summaries (as the builder made them before 0.7.65), or with stale ones
+    of an older tracks.VERSION."""
+    from services import streams, tracks
+    path = _demo_db(tmp_path)
+    c = sqlite3.connect(path)
+    streams.register(c)
+    c.execute("INSERT INTO Activity (id,name,type,sportType,startDate,startDateLocal,distance,movingTime,elapsedTime,riderId,createdAt,updatedAt)"
+              " VALUES ('a2','Run','Run','Run','2026-03-02T08:00:00','2026-03-02T08:00:00',3000,900,900,1,'n','n')")
+    streams.save(c, 'a2', {'latlng': {'data': [[53.36 + i * 0.0002, -1.81 + i * 0.0001] for i in range(200)]}, 'time': {'data': list(range(200))}})
+    c.execute('DELETE FROM ActivityTrack')
+    if stale:
+        c.executemany("INSERT INTO ActivityTrack (activityId, line, version) VALUES (?, '[[0,0],[1,1]]', ?)", [('a1', tracks.VERSION - 1), ('a2', tracks.VERSION - 1)])
+    c.commit()
+    c.close()
+    return path
+
+
+def _tracks(path):
+    c = sqlite3.connect(path)
+    try:
+        return {r[0]: r[1:] for r in c.execute('SELECT activityId, version, line FROM ActivityTrack')}
+    finally:
+        c.close()
+
+
+@pytest.mark.parametrize('stale', [False, True])
+def test_reset_leaves_every_activity_with_its_map_summary(tmp_path, stale):
+    """The heatmap's first visitor after a reset mustn't wait while every line is made: the reset makes them before the swap, whether the clean
+    copy had none or had them from another tracks.VERSION."""
+    from services import tracks
+    pristine = _with_tracks(tmp_path, stale=stale)
+    live = str(tmp_path / 'live.db')
+    sqlite3.connect(live).close()
+    assert demo.reset_now(live, pristine) is True
+    got = _tracks(live)
+    assert set(got) == {'a1', 'a2'}
+    assert all(v == tracks.VERSION for v, _ in got.values())
+    assert got['a1'][1] is None and got['a2'][1].startswith('[[53.36')         # no GPS: a row with no line, so it isn't read again
+    assert set(_tracks(pristine)) == (({'a1', 'a2'}) if stale else set())       # the clean copy itself is never changed
+
+
+def test_a_failed_map_summary_fill_does_not_stop_the_reset(tmp_path, monkeypatch, caplog):
+    from services import tracks
+    pristine = _with_tracks(tmp_path)
+    live = str(tmp_path / 'live.db')
+    sqlite3.connect(live).close()
+
+    def broken(db, on_batch=None):
+        raise RuntimeError('no streams today')
+    monkeypatch.setattr(tracks, 'fill', broken)
+    assert demo.reset_now(live, pristine) is True
+    c = sqlite3.connect(live)
+    assert sorted(r[0] for r in c.execute('SELECT id FROM Activity')) == ['a1', 'a2']      # swapped in all the same
+    c.close()
+    assert 'map summaries not made' in caplog.text
+
+
+def test_first_start_makes_the_live_databases_map_summaries_before_waiting(tmp_path, monkeypatch):
+    """The first start (the live database is a plain copy of the clean one) makes them straight away too, not 20 s on or in a visitor's request."""
+    from services import tracks
+
+    class Stop(BaseException):
+        pass
+
+    def sleep(s):
+        raise Stop
+    live = _with_tracks(tmp_path)
+    monkeypatch.setattr(demo.time, 'sleep', sleep)
+    monkeypatch.setenv('DEMO_PRISTINE_DB', str(tmp_path / 'missing.db'))
+    with pytest.raises(Stop):
+        demo.reset_loop(type('App', (), {'config': {'DATABASE': live}})())
+    got = _tracks(live)
+    assert set(got) == {'a1', 'a2'} and all(v == tracks.VERSION for v, _ in got.values())
+
+
 def test_demo_is_off_unless_asked_for(monkeypatch):
     monkeypatch.delenv('HEADWIND_DEMO', raising=False)
     assert demo.enabled() is False

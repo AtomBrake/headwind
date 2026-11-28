@@ -12,7 +12,10 @@ and the dates move forward a week at a time so the data always ends yesterday.
 - **Nothing on the network around it.** In demo mode the app refuses every outgoing connection to a private address (home network, link-local, CGNAT),
   whatever a setting says, and starts no background work that talks to the network: only the nightly reset.
 - Each visitor is rate-limited (`DEMO_RATE_PER_MIN`, default 300 a minute; a write counts 4). Their address comes from Cloudflare's `CF-Connecting-IP`.
-- The reset migrates the clean copy to the running version before swapping it in, so a clean copy built by an older Headwind still works.
+- The reset migrates the clean copy to the running version before swapping it in, so a clean copy built by an older Headwind still works. It
+  also makes any map summaries (the lines the heatmap and segments read, `services/tracks.py`) the copy lacks, so the first visitor after a reset
+  doesn't wait for them. The builder saves them in `pristine.db` already; a new version that makes them another way has the reset make them again
+  (a few seconds of the worker's time). The demo's first start does the same for the copy it starts on. The log says how long each reset took.
 - `/demo/health` (for the health check) and `/demo/counter.gif` (the visitor counter) are public.
 
 ## The data

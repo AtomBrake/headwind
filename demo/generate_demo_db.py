@@ -766,9 +766,7 @@ def main():
         make_extras(db, rider, lib, yesterday, rng, out_db, friend_id)
         from services import gear as gear_svc
         gear_svc.evaluate_alerts(db, send=False)
-        db.execute('CREATE TABLE IF NOT EXISTS DemoMeta (key TEXT PRIMARY KEY, value TEXT)')
-        db.execute("INSERT OR REPLACE INTO DemoMeta (key, value) VALUES ('built_on', ?)", [datetime.now(LONDON).date().isoformat()])
-        db.commit()
+        finish(db)
         db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
         database.close_db()
     c = sqlite3.connect(out_db)                       # one file, no WAL: the demo opens it read-only from a read-only folder
@@ -776,6 +774,19 @@ def main():
     c.execute('VACUUM')
     c.close()
     print(f'wrote {out_db} ({os.path.getsize(out_db) / 1e6:.1f} MB)')
+
+
+def finish(db, built_on=None):
+    """Last, once nothing changes an activity's streams: every activity's map summary (services/tracks.py), so the heatmap's first visitor after
+    a reset doesn't wait while they are all made (a Headwind whose reset makes them itself finds none missing), and the day it was built, which
+    the reset moves the dates on from. Commits."""
+    from services import tracks
+    t0 = time.time()
+    n = tracks.fill(db)
+    print(f'map summaries: {n} ({time.time() - t0:.0f} s)')
+    db.execute('CREATE TABLE IF NOT EXISTS DemoMeta (key TEXT PRIMARY KEY, value TEXT)')
+    db.execute("INSERT OR REPLACE INTO DemoMeta (key, value) VALUES ('built_on', ?)", [(built_on or datetime.now(LONDON).date()).isoformat()])
+    db.commit()
 
 
 def make_friend(db, uploads, done, models, rng, share=0.22):

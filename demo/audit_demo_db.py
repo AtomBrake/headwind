@@ -7,8 +7,8 @@ It fails when the demo has anything of the real database's in it:
   * a name: a rider's (a word of it, whole), an activity's, a segment's, a bike's, a kit item's, a planned route's, a friend's, a saved meal's;
   * an id: an activity's;
   * a setting, secret or token: any text value of Settings, RiderSettings, Friend, FeedToken, DeviceToken, Contact or LiveShare;
-  * a place: a generated point (an activity's start, a sample of each track, a segment, a planned route) within --radius of a place the real
-    activities often start or finish at, or of a privacy zone. Only how far, never where, is printed.
+  * a place: a generated point (an activity's start, a sample of each track and of its map summary, a segment, a planned route) within --radius
+    of a place the real activities often start or finish at, or of a privacy zone. Only how far, never where, is printed.
 It also fails when the demo has a secret of its own, a friend with an address that isn't example.org's, or a device or feed token.
 Both databases are opened read-only.
 """
@@ -101,8 +101,27 @@ def places(src, min_count=5, cell=0.004):
     return out
 
 
+def track_points(demo):
+    """The points of the demo's map summaries (ActivityTrack, services/tracks.py), which the heatmap and segments read instead of the streams:
+    every 5th point of each line and every 10th of each HD line (they are already thinned), and the middle of every cell (about 550 by 350 m) a
+    track passes through. (A box's corners are no track's points; the line keeps its edges to within 10 m.)"""
+    if 'ActivityTrack' not in tables(demo):
+        return
+    from services.tracks import CELL
+    for r in demo.execute('SELECT line, lineHd, cells FROM ActivityTrack'):
+        for col, every in (('line', 5), ('lineHd', 10)):
+            try:
+                pts = json.loads(r[col] or '[]')
+            except ValueError:
+                pts = []
+            yield from (tuple(p[:2]) for p in pts[::every] if p)
+        for cell in (r['cells'] or '').split():
+            i, j = (int(x) for x in cell.split(':'))
+            yield ((i + 0.5) * CELL, (j + 0.5) * CELL)
+
+
 def demo_points(demo, every=25):
-    """The demo's generated points: activity starts, every `every`th track point, segments, planned routes."""
+    """The demo's generated points: activity starts, every `every`th track point, the map summaries' (track_points), segments, planned routes."""
     for r in demo.execute(f'SELECT startLat, startLng, {_streams.sql()} FROM Activity'):
         if r['startLat'] is not None:
             yield (r['startLat'], r['startLng'])
@@ -111,6 +130,7 @@ def demo_points(demo, every=25):
         except ValueError:
             ll = []
         yield from (tuple(p) for p in ll[::every] if p)
+    yield from track_points(demo)
     for r in demo.execute('SELECT polyline FROM Segment'):
         yield from (tuple(p[:2]) for p in json.loads(r[0] or '[]')[::5])
     if 'PlannedRoute' in tables(demo):

@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **The demo's heatmap is ready straight after the nightly reset.** The first visitor after each reset waited about 9 s while every activity's map line was made from its streams. The reset now makes them in the background worker before it swaps the clean copy in (or again, when a new version makes them another way), and so does the demo's first start. `demo/generate_demo_db.py` saves them in `pristine.db` as well, and `demo/audit_demo_db.py` checks their points against the real places too, as it does the tracks'.
+
 ## [0.7.64-beta] - 2026-11-28
 
 ### Added

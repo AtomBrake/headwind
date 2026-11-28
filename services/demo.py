@@ -386,13 +386,41 @@ def migrate(db_path):
             database.close_db()                                     # now, not whenever it's collected: Windows can't delete a file still open
 
 
+def fill_tracks(db_path):
+    """Make the map summaries (services/tracks.py) the database's activities lack, so the first visitor to the heatmap, segments or privacy zones
+    doesn't wait while every activity's streams are read (about 9 s for the demo's on a small server). A clean copy without them, or with rows of
+    another tracks.VERSION (which ensure_schema drops), gets them all. Returns how many it made, or None when it failed: never raises, as a reset
+    must go on without them (the heatmap then makes them itself)."""
+    from flask import Flask
+    import database
+    from services import tracks
+    t0 = time.monotonic()
+    try:
+        app = Flask(__name__)
+        app.config['DATABASE'] = db_path
+        with app.app_context():
+            try:
+                db = database.get_db()                              # registers streams_json, which tracks.fill reads the streams with
+                tracks.ensure_schema(db)                            # migrate() made it already; this keeps fill_tracks safe on its own
+                n = tracks.fill(db)
+            finally:
+                database.close_db()
+    except Exception as e:
+        log.warning('Demo: map summaries not made (the heatmap will make them when first opened): %s', e)
+        return None
+    log.info('Demo: %d map summaries made in %.1f s', n, time.monotonic() - t0)
+    return n
+
+
 def reset_now(live_db, pristine, bike_src=None, bike_dst=None):
-    """Replace the live database with the pristine copy and restore bike pictures. The copy is migrated to this version and its dates moved on in a
-    folder of its own first (a clean copy built by an older Headwind would otherwise leave the demo on an old schema until the next restart), then
-    swapped in with SQLite's backup API: atomic, WAL-aware, other connections just see the new data."""
+    """Replace the live database with the pristine copy and restore bike pictures. The copy is migrated to this version, its dates moved on and its
+    map summaries made in a folder of its own first (a clean copy built by an older Headwind would otherwise leave the demo on an old schema until
+    the next restart, and the first visitor to the heatmap waiting for every activity's line), then swapped in with SQLite's backup API: atomic,
+    WAL-aware, other connections just see the new data."""
     if not pristine or not os.path.isfile(pristine):
         log.warning('Demo reset skipped: no pristine database at %s', pristine)
         return False
+    t0 = time.monotonic()
     work = tempfile.mkdtemp(prefix='demo-reset-', dir=os.path.dirname(os.path.abspath(live_db)))
     try:
         fresh = os.path.join(work, 'bike.db')
@@ -405,6 +433,7 @@ def reset_now(live_db, pristine, bike_src=None, bike_dst=None):
             out.close()
         migrate(fresh)                                              # leaves its .pre-<version> copy in `work`, which goes below
         rebase_if_needed(fresh)
+        fill_tracks(fresh)                                          # here, not in the first visitor's request
         src = sqlite3.connect(fresh, timeout=60)
         dst = sqlite3.connect(live_db, timeout=60)
         try:
@@ -424,7 +453,7 @@ def reset_now(live_db, pristine, bike_src=None, bike_dst=None):
                 pass
         for f in os.listdir(bike_src):
             shutil.copy2(os.path.join(bike_src, f), os.path.join(bike_dst, f))
-    log.warning('Demo data reset from %s', pristine)
+    log.warning('Demo data reset from %s in %.1f s', pristine, time.monotonic() - t0)
     return True
 
 
@@ -440,6 +469,7 @@ def reset_loop(app, hour=4):
         rebase_if_needed(live)                                       # first start (or a restart after a long gap): bring the data up to date
     except Exception as e:                                          # pragma: no cover
         log.warning('Demo rebase failed: %s', e)
+    fill_tracks(live)                                               # its map summaries now, not 20 s on (app._track_summaries) or in a request
     while True:
         time.sleep(30)
         try:

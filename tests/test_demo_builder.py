@@ -191,3 +191,57 @@ def test_the_audit_lets_a_named_public_place_through(tmp_path, real):
     _add(demo, 'imp_a1', 'Morning Ride', lat, lng)
     assert _audit(src, demo).returncode == 2
     assert _audit(src, demo, '--allow-near', name).returncode == 0
+
+
+# ---------------------------------------------------------------- the map summaries
+def test_the_builder_saves_every_activitys_map_summary(tmp_path):
+    """pristine.db carries them, so even a Headwind whose reset doesn't make them (0.7.64) has the heatmap ready after a reset."""
+    from datetime import date
+    from flask import Flask
+    import database
+    from services import tracks
+    path = _db(tmp_path / 'demo.db')
+    _add(path, 'imp_a1', 'Morning Ride', 53.3647, -1.8167)
+    _add(path, 'imp_a2', 'Evening Run', 53.3700, -1.8000, sport='Run')
+    app = Flask('t')
+    app.config['DATABASE'] = path
+    with app.app_context():
+        try:
+            gen.finish(database.get_db(), built_on=date(2026, 11, 1))
+        finally:
+            database.close_db()
+    c = sqlite3.connect(path)
+    rows = c.execute('SELECT activityId, version, line, lineHd, cells FROM ActivityTrack ORDER BY activityId').fetchall()
+    assert [r[0] for r in rows] == ['imp_a1', 'imp_a2']
+    assert all(r[1] == tracks.VERSION and r[2] and r[3] and r[4] for r in rows)
+    assert c.execute("SELECT value FROM DemoMeta WHERE key='built_on'").fetchone()[0] == '2026-11-01'
+    c.close()
+
+
+@pytest.mark.parametrize('where', ['line', 'lineHd', 'cells'])
+def test_the_audit_checks_the_map_summaries_too(tmp_path, real, where):
+    """The heatmap draws ActivityTrack, not the streams: a summary near a real place fails the audit even when the streams are clean."""
+    demo = _db(tmp_path / 'demo.db')
+    _add(demo, 'imp_a1', 'Morning Ride', 53.3647, -1.8167)
+    c = sqlite3.connect(demo)
+    c.execute("INSERT OR REPLACE INTO ActivityTrack (activityId, line, lineHd, cells, version) VALUES ('imp_a1', ?, ?, ?, 2)", [
+        '[[52.5005,-1.0005],[52.501,-1.001]]' if where == 'line' else '[[53.3647,-1.8167],[53.37,-1.81]]',
+        '[[52.5005,-1.0005],[52.501,-1.001]]' if where == 'lineHd' else '[[53.3647,-1.8167],[53.37,-1.81]]',
+        '10500:-201' if where == 'cells' else '10672:-364'])
+    c.commit()
+    c.close()
+    r = _audit(real, demo)
+    assert r.returncode == 2, r.stdout
+    assert 'AUDIT FAILED' in r.stdout and '52.5' not in r.stdout
+
+
+def test_the_audit_passes_a_clean_demos_map_summaries(tmp_path, real):
+    from services import streams, tracks
+    demo = _db(tmp_path / 'demo.db')
+    _add(demo, 'imp_a1', 'Morning Ride', 53.3647, -1.8167)
+    c = sqlite3.connect(demo)
+    streams.register(c)
+    assert tracks.fill(c) == 1
+    c.close()
+    r = _audit(real, demo)
+    assert r.returncode == 0, r.stdout + r.stderr
