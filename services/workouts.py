@@ -88,7 +88,7 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
         kcal_raw, kcal = None, round(calories)         # the Watch measured it: not adjusted, as a figure typed in isn't
     else:
         kcal_raw, kcal = _kcal_pair(estimate_calories(sport, dist, secs, gain, kg) or estimate_met_calories(sport, secs, kg))     # global burn adjustment, applied as the figure is made
-    weather = None
+    weather = w = None
     if act.get('startLat') is not None:
         try:
             from services.weather import fetch_weather
@@ -105,6 +105,9 @@ def save_from_gpx(rider_id, data, sport=None, name=None, client_id=None, steps=N
                 act.get('averageSpeed'), act.get('averageHeartrate'), kcal, steps, act.get('startLat'), act.get('startLng'),
                 weather, source, kcal_raw, client_id])
     _streams.save(db, wid, act.get('streams'))
+    if w and w.get('weatherTempC') is not None:          # the numbers too, for the activity page's weather card, not only the summary line
+        from services.weather import save_weather
+        save_weather(db, wid, w)
     refresh_derived(db, wid)
     from services import duplicates
     dup = duplicates.resolve(db, wid)                  # the same session from Garmin, Strava or a file: keep the better recording

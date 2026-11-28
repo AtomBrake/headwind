@@ -133,6 +133,21 @@ def test_a_phone_walk_that_was_set_aside_is_not_saved_again(app, monkeypatch):
     assert db.execute('SELECT COUNT(*) FROM Activity').fetchone()[0] == 1
 
 
+
+def test_a_walk_with_a_track_keeps_its_weather_numbers(app, monkeypatch):
+    """Not only the summary line: the temperature, wind and rain the activity page's weather card shows."""
+    db = database.get_db()
+    gpx = ('<?xml version="1.0"?><gpx version="1.1" creator="t" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>'
+           + ''.join(f'<trkpt lat="{54.6 + i * 1e-4}" lon="-3.14"><time>2026-07-26T09:{10 + i // 60:02d}:{i % 60:02d}Z</time></trkpt>' for i in range(0, 1800, 10))
+           + '</trkseg></trk></gpx>').encode()
+    w = {'weatherTempC': 14.0, 'weatherWindKph': 12.0, 'weatherGustKph': 20.0, 'weatherWindDir': 225, 'weatherHumidity': 70, 'weatherRainMm': 0.0,
+         'weatherCode': 2, 'weatherSummary': 'Partly cloudy, 14°C', 'weatherWindRel': None}
+    monkeypatch.setattr('services.weather.fetch_weather', lambda *a, **k: dict(w))
+    got, created = workouts.save_from_gpx(1, gpx, sport='Walk', client_id='c-2')
+    row = db.execute('SELECT weatherTempC, weatherWindKph, weatherCode, weatherSummary FROM Activity WHERE id=?', [got['id']]).fetchone()
+    assert created and row['weatherTempC'] == 14.0 and row['weatherWindKph'] == 12.0 and row['weatherCode'] == 2
+    assert row['weatherSummary'].startswith('Partly cloudy')
+
 class _NoThread:
     def __init__(self, *a, **kw): pass
     def start(self): pass
