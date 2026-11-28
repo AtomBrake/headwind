@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.66-beta] - 2026-11-28
+
+### Fixed
+- **Making a code for a friend works again.** **Create Code** on the Friends page failed with "Could not create the token" once the page had been open for 4 seconds, and no code was shown. Every box styled as a message was taken off the page 4 seconds after it opened, including the hidden warning a new code fills in when your address only works at home. Now only the messages that come with a page (such as "Saved") fade like that. The boxes a page fills in later stay: the error when adding a friend, an import's result on the Routes and route pages, a friend's news with its own ×, and the errors on Setup and Activities.
+
 ## [0.7.65-beta] - 2026-11-28
 
 ### Added

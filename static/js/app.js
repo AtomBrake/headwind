@@ -1,5 +1,7 @@
+// The messages a request flashed (base.html marks them .flash-auto) fade after 4 s. Other .flash boxes stay:
+// placeholders a script fills later (Friends' new-code warning) and messages with their own dismiss button.
 document.addEventListener('DOMContentLoaded', function () {
-  document.querySelectorAll('.flash').forEach(function (el) {
+  document.querySelectorAll('.flash-auto').forEach(function (el) {
     setTimeout(function () {
       el.style.transition = 'opacity 0.4s';
       el.style.opacity = '0';

@@ -172,12 +172,12 @@
     </div>
     <div class="content">
       {% if startup_unseen and not demo_mode %}
-      <div class="flash flash-success" style="margin-bottom:1rem;">Headwind ran {{ startup_unseen }} start-up repair{{ 's' if startup_unseen != 1 }} on your data after the update.
+      <div class="flash flash-success flash-auto" style="margin-bottom:1rem;">Headwind ran {{ startup_unseen }} start-up repair{{ 's' if startup_unseen != 1 }} on your data after the update.
         <a href="{{ url_for('tasks.index') }}" style="color:var(--accent);">See what changed</a></div>
       {% endif %}
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% for category, message in messages %}
-          <div class="flash flash-{{ category }}">{{ message }}</div>
+          <div class="flash flash-{{ category }} flash-auto">{{ message }}</div>
         {% endfor %}
       {% endwith %}
       {% block content %}{% endblock %}
