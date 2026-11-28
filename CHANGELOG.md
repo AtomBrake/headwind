@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.63-beta] - 2026-11-28
+
+### Added
+- **Privacy zones keep home and work out of what you share.** Under **Settings → Sharing → Privacy zones**, click the map where a zone goes, paste its latitude and longitude, or pick one of the places your activities most often start from, and choose its size, 200 m to 1.6 km. Inside a zone nothing goes to friends' Headwinds (your activities' positions and the heart rate, power and the rest recorded there are taken out, the start point becomes the first one outside, and a segment that starts or ends in a zone isn't shared), to a live tracking link, to Home Assistant's ride and run tracks, or into the heatmap's HD image. Your own pages still show every track whole. A zone hides at least the size you chose all round the place, and more on one side, moved a random way when you make it, so the cut ends of many tracks don't draw a circle round your door. Adding, resizing or removing a zone sends the activities near it to friends again, cut the new way, and the copy for troubleshooting leaves your zones out.
+
+### Fixed
+- **The Settings page's buttons work again.** A stray apostrophe in 0.7.62 stopped the page's script, so signing in to Garmin and syncing, choosing an AI provider, testing MQTT and Home Assistant, the calorie burn adjustment, the update check and the profile card did nothing.
+
+### Changed
+- **One Headwind per person.** Multi-user support with logins and roles is no longer planned: for several people, run a Headwind each (one container per person) and link them as friends. The README says so.
+
 ## [0.7.62-beta] - 2026-11-24
 
 ### Added
