@@ -14,5 +14,5 @@ NODE = shutil.which('node')
 @pytest.mark.skipif(not NODE, reason='no node to parse the scripts with')
 @pytest.mark.parametrize('path', sorted(glob.glob(os.path.join(ROOT, 'static', 'js', '*.js'))), ids=os.path.basename)
 def test_a_page_script_parses(path):
-    r = subprocess.run([NODE, '--check', path], capture_output=True, text=True, timeout=30)
+    r = subprocess.run([NODE, '--check', path], capture_output=True, text=True, encoding='utf-8', timeout=30)
     assert r.returncode == 0, r.stderr
