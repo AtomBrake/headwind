@@ -161,7 +161,7 @@ When an entry is done, check CHANGELOG.md says so, then delete it here: git hist
     - [ ] A few photos free to reuse on some activities (the activity page's photo strip is empty in the demo).
     - [ ] Semer Water, the Dales' only lake, often gives no paddle route (`lake_route` fails on a lake that small): a looser route for small lakes, or another lake.
   - [ ] **Put it online:** the container on the owner's home network, a Cloudflare tunnel to its own hostname, a real `DEMO_SECRET_KEY`, and the health check (`/demo/health`) watched. Then the link at the top of the README. Keep the address out of the repo until it's meant to be public.
-  - [ ] **Keep it current:** `demo/publish_demo.py` is the one command (patterns, generation, audit, the copy, `reset.flag`), written 2026-11-28 but not yet run against the demo's machine. The image follows releases on its own (watchtower on the demo's machine).
+  - [ ] **Keep it current:** `demo/publish_demo.py` is the one command (patterns, generation, audit, the copy, `reset.flag`), first run against the demo's machine on 2026-11-28 (`--push-only` after an audit that passed); the reset took the new data at once. The image follows releases on its own (watchtower on the demo's machine).
 
 ### Housekeeping
 
