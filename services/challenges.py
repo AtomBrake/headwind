@@ -12,11 +12,16 @@ deleted the one they started) loses them on their next complete sync.
 
 The feed and the sync carry challenges whether or not the switch is on: it hides the page and the dashboard's rows, and switching it back on finds
 every race as up to date as the activities are.
+
+Two kinds, by metric: a total (distance, climbing, time or activities, services/goals), or a segment race ('segments', services/segment_race.py),
+the fastest on one to five segments, which has a page of its own (/challenges/<id>). Each kind is checked, measured and sent by its own code
+(_check, _measure, the line's own fields), so another kind adds its own beside these.
 """
 import re
 import secrets
 from datetime import date
 
+from services import segment_race
 from services.goals import GROUP_ICONS, check, describe, fmt, to_stored, total, unit_label
 
 _UID = re.compile(r'^[0-9a-f]{8,40}$')
@@ -38,7 +43,8 @@ def ensure_schema(db):
         dismissed    INTEGER NOT NULL DEFAULT 0,   -- an invitation the rider turned down
         creatorName  TEXT,                         -- who started it, as their feed named them
         viaFriendId  INTEGER REFERENCES Friend(id),-- whose feed brought it (NULL: started here)
-        createdAt    TEXT DEFAULT (datetime('now'))
+        createdAt    TEXT DEFAULT (datetime('now')),
+        segClass     TEXT                          -- a segment race's class (services/segment_race): 'bike', 'ebike' or 'foot'; else NULL
     )''')
     db.execute('''CREATE TABLE IF NOT EXISTS ChallengeMember (
         challengeId INTEGER NOT NULL REFERENCES Challenge(id) ON DELETE CASCADE,
@@ -50,6 +56,26 @@ def ensure_schema(db):
         tokenId     INTEGER NOT NULL REFERENCES FeedToken(id) ON DELETE CASCADE,
         PRIMARY KEY (challengeId, tokenId)
     )''')
+    segment_race.ensure_schema(db)
+
+
+SEGMENTS = 'segments'                              # Challenge.metric of a segment race
+KIND_LABELS = {'total': 'A total', SEGMENTS: 'A segment race'}
+
+
+def _check(metric, sport, seg_class=None):
+    """An error text for a challenge that can't be measured, else None: a total as a goal's (services/goals.check), a segment race's class with the
+    group (Challenge.sport) its segments are in."""
+    if metric == SEGMENTS:
+        return segment_race.check(seg_class) or (None if segment_race.CLASS_FAMILY[seg_class] == sport else 'Pick a bike, an e-bike or on foot.')
+    return check(metric, sport)
+
+
+def _title(c):
+    if c['metric'] == SEGMENTS:
+        n = c['segments']
+        return f"Fastest on {n} segment{'s' if n != 1 else ''} ({segment_race.sports.CLASS_LABELS[c['segClass']].lower()})" if n else 'Segment race'
+    return describe(c['metric'], c['sport']) if c['target'] is None else f"First to {describe(c['metric'], c['sport'], c['target'])}"
 
 
 def _date(text):
@@ -68,7 +94,14 @@ def start_challenge(db, rider_id, form):
     """A challenge started here, from the Challenges page's form (name, metric, sport, startDate, endDate, target in the rider's units or blank,
     and `tokens`: the ids of the friends' feed tokens it goes to). Returns an error text, or None. Commits."""
     metric, sport = form.get('metric'), form.get('sport') or 'all'
-    err = check(metric, sport)
+    seg_class, shapes = None, None
+    if metric == SEGMENTS:
+        seg_class = form.get('segClass')
+        sport = segment_race.CLASS_FAMILY.get(seg_class)
+        shapes = segment_race.picked(db, rider_id, [int(i) for i in form.getlist('segments') if str(i).isdigit()], seg_class)
+        if isinstance(shapes, str):
+            return shapes
+    err = _check(metric, sport, seg_class)
     if err:
         return err
     can = {t['id'] for t in invitable(db)}
@@ -81,15 +114,18 @@ def start_challenge(db, rider_id, form):
     if last < first:
         first, last = last, first
     target = None
-    if (form.get('target') or '').strip():
+    if metric != SEGMENTS and (form.get('target') or '').strip():
         try:
             target = to_stored(metric, form.get('target'))
         except ValueError:
             return f'Type the target as a number of {unit_label(metric)}, or leave it blank for "the most wins".'
-    name = (form.get('name') or '').strip()[:80] or describe(metric, sport, target)
-    cur = db.execute('''INSERT INTO Challenge (uid, riderId, name, metric, sport, startDate, endDate, target, mine, joined)
-                        VALUES (?,?,?,?,?,?,?,?,1,1)''', [secrets.token_hex(8), rider_id, name, metric, sport, first, last, target])
+    name = (form.get('name') or '').strip()[:80] or (f"Race: {shapes[0]['name']}"[:80] if shapes else describe(metric, sport, target))
+    cur = db.execute('''INSERT INTO Challenge (uid, riderId, name, metric, sport, startDate, endDate, target, mine, joined, segClass)
+                        VALUES (?,?,?,?,?,?,?,?,1,1,?)''', [secrets.token_hex(8), rider_id, name, metric, sport, first, last, target, seg_class])
     db.executemany('INSERT INTO ChallengeInvite (challengeId, tokenId) VALUES (?,?)', [(cur.lastrowid, t) for t in sorted(tokens)])
+    if shapes:
+        segment_race.set_segments(db, cur.lastrowid, shapes)
+        segment_race.notify_leaders(db, send=False, challenge_id=cur.lastrowid)     # the leaders it starts with are no news
     db.commit()
     return None
 
@@ -100,6 +136,10 @@ def set_joined(db, challenge_id, joined):
     if not c or c['mine']:
         return
     db.execute('UPDATE Challenge SET joined=?, dismissed=? WHERE id=?', [1 if joined else 0, 0 if joined else 1, challenge_id])
+    if joined:
+        segment_race.resolve(db, challenge_id)            # its segments went while it was turned down (segment_race.drop_orphans)
+        segment_race.notify_leaders(db, send=False, challenge_id=challenge_id)
+    _tidy(db)
     db.commit()
 
 
@@ -108,7 +148,15 @@ def delete_challenge(db, challenge_id):
     for table in ('ChallengeMember', 'ChallengeInvite'):
         db.execute(f'DELETE FROM {table} WHERE challengeId IN (SELECT id FROM Challenge WHERE id=? AND mine=1)', [challenge_id])
     db.execute('DELETE FROM Challenge WHERE id=? AND mine=1', [challenge_id])
+    _tidy(db)
     db.commit()
+
+
+def _tidy(db):
+    """The race parts of challenges that have gone, and the segments here only for races no race refers to now. Does not commit."""
+    for table in ('ChallengeSegment', 'ChallengeSeen'):
+        db.execute(f'DELETE FROM {table} WHERE challengeId NOT IN (SELECT id FROM Challenge)')
+    segment_race.drop_orphans(db)
 
 
 def _status(c, today):
@@ -125,27 +173,13 @@ def challenges(db, rider_id, today=None):
     today = today or date.today()
     out = []
     for c in db.execute('SELECT * FROM Challenge WHERE riderId IS ? AND dismissed=0 ORDER BY endDate DESC, id DESC', [rider_id]).fetchall():
-        first, last = date.fromisoformat(c['startDate']), date.fromisoformat(c['endDate'])
-        people = []
-        if c['joined']:
-            me = db.execute('SELECT id, name, avatarPath FROM Rider WHERE id=?', [rider_id]).fetchone()
-            if me:
-                people.append((me['id'], me['name'], me['avatarPath'], True))
-        for f in db.execute('''SELECT f.riderId, COALESCE(r.name, f.name) AS name, r.avatarPath FROM ChallengeMember m JOIN Friend f ON f.id = m.friendId
-                               LEFT JOIN Rider r ON r.id = f.riderId WHERE m.challengeId=?''', [c['id']]).fetchall():
-            people.append((f['riderId'], f['name'], f['avatarPath'], False))
-        standings = []
-        for rid, name, avatar, is_me in people:
-            v = total(db, rid, c['metric'], c['sport'], first, min(last, today)) if rid and first <= today else 0
-            standings.append({'name': name, 'avatar': avatar, 'value': v, 'fmt': fmt(c['metric'], v), 'me': is_me,
-                              'done': c['target'] is not None and v >= c['target']})
-        standings.sort(key=lambda s: -s['value'])
-        scale = max([c['target'] or 0] + [s['value'] for s in standings]) or 1
-        for s in standings:
-            s['pct'] = min(100, round(100 * s['value'] / scale))
+        last = date.fromisoformat(c['endDate'])
+        people_in = people(db, c)
+        standings, race = _measure(db, c, people_in, today)
         out.append({
-            'id': c['id'], 'uid': c['uid'], 'name': c['name'], 'metric': c['metric'], 'sport': c['sport'], 'icon': GROUP_ICONS[c['sport']],
-            'title': describe(c['metric'], c['sport']) if c['target'] is None else f"First to {describe(c['metric'], c['sport'], c['target'])}",
+            'id': c['id'], 'uid': c['uid'], 'name': c['name'], 'metric': c['metric'], 'sport': c['sport'],
+            'icon': segment_race.sports.CLASS_ICONS[c['segClass']] if c['segClass'] else GROUP_ICONS[c['sport']],
+            'title': _title({**dict(c), 'segments': len(race['segments']) if race else 0}), 'race': race, 'segClass': c['segClass'],
             'status': _status(c, today), 'mine': bool(c['mine']), 'joined': bool(c['joined']),
             'invitation': not c['mine'] and not c['joined'], 'creator': c['creatorName'],
             'start': c['startDate'], 'end': c['endDate'], 'days_left': (last - today).days + 1,
@@ -153,23 +187,66 @@ def challenges(db, rider_id, today=None):
             'invited': [r[0] for r in db.execute('SELECT t.name FROM ChallengeInvite i JOIN FeedToken t ON t.id = i.tokenId '
                                                  'WHERE i.challengeId=? ORDER BY t.name', [c['id']])] if c['mine'] else [],
             'leader': standings[0]['name'] if standings and standings[0]['value'] > 0 else None,
-            'friends_missing': [p[1] for p in people if not p[0]],
+            'friends_missing': [p[1] for p in people_in if not p[0]],
         })
     return out
 
 
+def people(db, c):
+    """Who is in a challenge, as seen here: [(riderId, name, avatar, me)], the rider here first when they've joined, then the friends in it
+    (riderId None for one whose first sync hasn't finished)."""
+    out = []
+    if c['joined']:
+        me = db.execute('SELECT id, name, avatarPath FROM Rider WHERE id=?', [c['riderId']]).fetchone()
+        if me:
+            out.append((me['id'], me['name'], me['avatarPath'], True))
+    for f in db.execute('''SELECT f.riderId, COALESCE(r.name, f.name) AS name, r.avatarPath FROM ChallengeMember m JOIN Friend f ON f.id = m.friendId
+                           LEFT JOIN Rider r ON r.id = f.riderId WHERE m.challengeId=?''', [c['id']]).fetchall():
+        out.append((f['riderId'], f['name'], f['avatarPath'], False))
+    return out
+
+
+def _measure(db, c, people_in, today):
+    """The standings for a challenge's card, best first [{name, avatar, value, fmt, pct, me, done}], and a segment race's boards
+    (segment_race.boards; None for a total). A race's card shows its top three on points."""
+    first, last = date.fromisoformat(c['startDate']), date.fromisoformat(c['endDate'])
+    if c['metric'] == SEGMENTS:
+        race = segment_race.boards(db, c, people_in, today)
+        most = len(race['segments']) * segment_race.POINTS[0] or 1
+        return [{'name': o['name'], 'avatar': o['avatar'], 'value': o['points'], 'me': o['me'], 'done': False,
+                 'fmt': f"{o['points']} pt{'s' if o['points'] != 1 else ''}" + (f" · {o['wins']} won" if o['wins'] else ''),
+                 'pct': min(100, round(100 * o['points'] / most))} for o in race['overall'][:3]], race
+    standings = []
+    for rid, name, avatar, is_me in people_in:
+        v = total(db, rid, c['metric'], c['sport'], first, min(last, today)) if rid and first <= today else 0
+        standings.append({'name': name, 'avatar': avatar, 'value': v, 'fmt': fmt(c['metric'], v), 'me': is_me,
+                          'done': c['target'] is not None and v >= c['target']})
+    standings.sort(key=lambda s: -s['value'])
+    scale = max([c['target'] or 0] + [s['value'] for s in standings]) or 1
+    for s in standings:
+        s['pct'] = min(100, round(100 * s['value'] / scale))
+    return standings, None
+
+
 # ── On the friends feed ──
 
-def feed_lines(db, rider, token_id):
+def feed_lines(db, rider, token_id, zones=None):
     """The 'challenge' lines for a rider's feed, as read with one friend's token: the challenges this rider started and invited that friend to,
-    and the ones they joined from a friend. `own` says whether this rider started it."""
+    and the ones they joined from a friend. `own` says whether this rider started it. A segment race's line has its class and its segments'
+    shapes (segment_race.line_segments, leaving out any in the rider's privacy zones, `zones`); a race left with none isn't sent."""
     out = []
     for c in db.execute('''SELECT * FROM Challenge c WHERE riderId=? AND joined=1
                            AND (mine=0 OR EXISTS (SELECT 1 FROM ChallengeInvite i WHERE i.challengeId = c.id AND i.tokenId=?))''',
                         [rider['id'], token_id]).fetchall():
-        out.append({'type': 'challenge', 'uid': c['uid'], 'name': c['name'], 'metric': c['metric'], 'sport': c['sport'], 'startDate': c['startDate'],
-                    'endDate': c['endDate'], 'target': c['target'], 'own': bool(c['mine']),
-                    'creator': rider['name'] if c['mine'] else c['creatorName']})
+        line = {'type': 'challenge', 'uid': c['uid'], 'name': c['name'], 'metric': c['metric'], 'sport': c['sport'], 'startDate': c['startDate'],
+                'endDate': c['endDate'], 'target': c['target'], 'own': bool(c['mine']),
+                'creator': rider['name'] if c['mine'] else c['creatorName']}
+        if c['metric'] == SEGMENTS:
+            line['segClass'] = c['segClass']
+            line['segments'] = segment_race.line_segments(db, c['id'], zones)
+            if not line['segments']:
+                continue
+        out.append(line)
     return out
 
 
@@ -180,28 +257,53 @@ def store_from_friend(db, friend_id, obj, rider_id):
     uid = str(obj.get('uid') or '')
     metric, sport = obj.get('metric'), obj.get('sport') or 'all'
     first, last = _date(obj.get('startDate')), _date(obj.get('endDate'))
-    if not _UID.match(uid) or check(metric, sport) or not first or not last or last < first:
+    seg_class = obj.get('segClass') if metric == SEGMENTS else None
+    if not _UID.match(uid) or _check(metric, sport, seg_class) or not first or not last or last < first:
         return None
+    shapes = None
+    if metric == SEGMENTS:
+        sent = obj.get('segments')
+        shapes = [segment_race.clean(s) for s in sent] if isinstance(sent, list) and 0 < len(sent) <= segment_race.MAX_SEGMENTS else []
+        sent = sorted(zip(sent, shapes), key=lambda p: p[0].get('position') if isinstance(p[0], dict) and isinstance(p[0].get('position'), int) else 0) \
+            if shapes else []
+        shapes = [s for _, s in sent]
+        if not shapes or None in shapes or any(s['family'] != sport for s in shapes):
+            return None
     try:
         target = float(obj['target']) if obj.get('target') is not None else None
     except (TypeError, ValueError):
         return None
     if target is not None and not 0 < target < 1e12:
         return None
-    name = str(obj.get('name') or '').strip()[:80] or describe(metric, sport, target)
+    if metric == SEGMENTS:
+        target = None
+    name = str(obj.get('name') or '').strip()[:80] or (f"Race: {shapes[0]['name']}"[:80] if shapes else describe(metric, sport, target))
     creator = str(obj.get('creator') or '').strip()[:60] or None
     row = db.execute('SELECT id, mine FROM Challenge WHERE uid=?', [uid]).fetchone()
     if row is None and not obj.get('own'):
         return None
     if row is None:
-        cur = db.execute('''INSERT INTO Challenge (uid, riderId, name, metric, sport, startDate, endDate, target, creatorName, viaFriendId)
-                            VALUES (?,?,?,?,?,?,?,?,?,?)''', [uid, rider_id, name, metric, sport, first, last, target, creator, friend_id])
+        cur = db.execute('''INSERT INTO Challenge (uid, riderId, name, metric, sport, startDate, endDate, target, creatorName, viaFriendId, segClass)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?)''', [uid, rider_id, name, metric, sport, first, last, target, creator, friend_id, seg_class])
         cid = cur.lastrowid
+        if shapes:
+            segment_race.set_segments(db, cid, shapes, friend_id)
     else:
         cid = row['id']
         if obj.get('own') and not row['mine']:          # the one who started it changed it
-            db.execute('UPDATE Challenge SET name=?, metric=?, sport=?, startDate=?, endDate=?, target=?, creatorName=? WHERE id=?',
-                       [name, metric, sport, first, last, target, creator, cid])
+            db.execute('UPDATE Challenge SET name=?, metric=?, sport=?, startDate=?, endDate=?, target=?, creatorName=?, segClass=? WHERE id=?',
+                       [name, metric, sport, first, last, target, creator, seg_class, cid])
+            if shapes:
+                segment_race.set_segments(db, cid, shapes, friend_id)
+        elif shapes and not row['mine']:
+            # Anyone else in it: the segments when we have none (the line that brought it left one out), else only the ones that have gone here
+            # (their friend removed), found again or added as this friend's
+            if not db.execute('SELECT 1 FROM ChallengeSegment WHERE challengeId=?', [cid]).fetchone():
+                segment_race.set_segments(db, cid, shapes, friend_id)
+            else:
+                segment_race.resolve(db, cid, friend_id)
+        elif shapes:
+            segment_race.resolve(db, cid)               # ours: our own segments, found again if one went
     db.execute('INSERT OR IGNORE INTO ChallengeMember (challengeId, friendId) VALUES (?,?)', [cid, friend_id])
     return uid
 
@@ -215,6 +317,7 @@ def forget_missing(db, friend_id, seen):
                [friend_id, *seen])
     db.execute(f'''DELETE FROM Challenge WHERE mine=0 AND joined=0 AND viaFriendId=? AND uid NOT IN ({marks})
                    AND NOT EXISTS (SELECT 1 FROM ChallengeMember m WHERE m.challengeId = Challenge.id)''', [friend_id, *seen])
+    _tidy(db)
 
 
 def forget_friend(db, friend_id):
@@ -222,6 +325,10 @@ def forget_friend(db, friend_id):
     db.execute('DELETE FROM ChallengeMember WHERE friendId=?', [friend_id])
     db.execute('DELETE FROM Challenge WHERE mine=0 AND joined=0 AND viaFriendId=?', [friend_id])
     db.execute('UPDATE Challenge SET viaFriendId=NULL WHERE viaFriendId=?', [friend_id])
+    db.execute('UPDATE ChallengeSegment SET sourceFriendId=NULL, sourceSegId=NULL WHERE sourceFriendId=?', [friend_id])
+    _tidy(db)
+    for (cid,) in db.execute('SELECT id FROM Challenge WHERE metric=? AND dismissed=0', [SEGMENTS]).fetchall():
+        segment_race.resolve(db, cid)                   # a race on one of their segments (gone with them) finds it again, or keeps the shape
 
 
 def forget_rider(db, rider_id):
@@ -229,3 +336,4 @@ def forget_rider(db, rider_id):
     for table in ('ChallengeMember', 'ChallengeInvite'):
         db.execute(f'DELETE FROM {table} WHERE challengeId IN (SELECT id FROM Challenge WHERE riderId=?)', [rider_id])
     db.execute('DELETE FROM Challenge WHERE riderId=?', [rider_id])
+    _tidy(db)

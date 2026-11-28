@@ -1635,6 +1635,19 @@ def _step_18(db):
                 db.execute(f'UPDATE {table} SET featuresOff=? WHERE {key}=?', [json.dumps(sorted(names + ['challenges'])), row_id])
 
 
+def _step_19(db):
+    """Segment races (services/segment_race.py): Challenge.segClass, a race's class ('bike', 'ebike' or 'foot'); its segments as they were sent
+    (ChallengeSegment) and the boards as each rider last saw them (ChallengeSeen); and Segment.challengeOnly, a segment here only because a
+    race has it, which the Segments page leaves out and the feed never sends. An older Headwind sees a race as a challenge it can't measure
+    and leaves it out, and a challengeOnly segment as a friend's."""
+    from services import challenges
+    challenges.ensure_schema(db)
+    if 'segClass' not in {r[1] for r in db.execute('PRAGMA table_info(Challenge)').fetchall()}:
+        db.execute('ALTER TABLE Challenge ADD COLUMN segClass TEXT')
+    if 'challengeOnly' not in {r[1] for r in db.execute('PRAGMA table_info(Segment)').fetchall()}:
+        db.execute('ALTER TABLE Segment ADD COLUMN challengeOnly INTEGER DEFAULT 0')
+
+
 def _compact(db):
     """VACUUM, giving the space freed inside the file back to the disk, when the disk has room for it: it writes the compacted database once to
     a temporary file and once through the WAL. Logged either way. Commits."""
@@ -1695,6 +1708,7 @@ STEPS = (
     (_step_16, False),
     (_step_17, False),
     (_step_18, False),
+    (_step_19, False),
 )
 LATEST = len(STEPS)
 

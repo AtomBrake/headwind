@@ -1161,3 +1161,18 @@ body.bulk-mode { padding-bottom: 6rem; }
 .more-filters > summary { cursor: pointer; color: var(--text-muted); padding: 0.15rem 0; }
 .more-filters-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.5rem 0.75rem; margin-top: 0.4rem; }
 .pager { display: flex; align-items: center; justify-content: center; gap: 0.75rem; margin-top: 0.8rem; font-size: 0.8125rem; color: var(--text-muted); }
+
+/* The Challenges page's form: a segment race's fields, or a total's (static/js/challenges.js) */
+#challengeForm .race-only { display: none; }
+#challengeForm.race-form .race-only { display: block; }
+#challengeForm.race-form .total-only { display: none; }
+.race-picks .check[hidden] { display: none; }
+.race-picks { max-height: 14rem; overflow-y: auto; padding: 0.3rem; border: 1px solid var(--border); border-radius: 0.4rem; }
+.race-segs { margin: 0.5rem 0 0; padding-left: 1.2rem; }
+.race-segs li + li { margin-top: 0.1rem; }
+/* A segment race's page (templates/challenge_race.html) */
+#raceMap { height: 320px; border-radius: 0.5rem; }
+.race-num { display: inline-flex; align-items: center; justify-content: center; width: 1.4rem; height: 1.4rem; border-radius: 50%;
+            background: var(--accent); color: var(--on-accent); font-size: 0.75rem; font-weight: 600; }
+.race-boards { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1rem; }
+.race-boards > .card { margin: 0; }

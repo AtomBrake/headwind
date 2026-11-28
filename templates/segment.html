@@ -5,7 +5,9 @@
 
 {% block parent %}<a href="{{ url_for('segments.index', sport=family, only=only) }}">Segments</a>{% endblock %}
 {% block topbar_actions %}
-  {% if not seg.friend_name %}
+  {% if can_race %}<a class="btn btn-primary" href="{{ url_for('challenges.index', segment=seg.id) }}#startChallenge"
+     title="Start a segment race with friends on this segment (and up to four more)">Race this segment</a>{% endif %}
+  {% if not seg.friend_name and not seg.challengeOnly %}
   <form method="POST" action="{{ url_for('segments.set_sport', sid=seg.id) }}" style="display:inline;"
         data-confirm="Change this segment's sport? Its efforts are matched again, from the activities of the new sport.">
     <input type="hidden" name="sport" value="{{ 'ride' if family == 'foot' else 'foot' }}">
@@ -13,10 +15,12 @@
       Make it {{ 'a ride' if family == 'foot' else 'an on-foot' }} segment</button>
   </form>
   {% endif %}
+  {% if not seg.challengeOnly %}
   <form method="POST" action="{{ url_for('segments.delete', sid=seg.id) }}" style="display:inline;"
         data-confirm="Delete this segment and all its efforts? The activities stay. This cannot be undone.">
     <button class="btn btn-danger">Delete</button>
   </form>
+  {% endif %}
 {% endblock %}
 
 {% block head %}
@@ -25,6 +29,12 @@
 {% endblock %}
 
 {% block content %}
+
+{% if races %}
+<div class="card" style="margin-bottom:1rem;">
+  {% if seg.challengeOnly %}Here only for {% else %}In {% endif %}{% for r in races %}{% if not loop.first %}{{ ', ' if not loop.last else ' and ' }}{% endif %}the race <a href="{{ url_for('challenges.race', cid=r.id) }}">{{ r.name }}</a>{% endfor %}{% if seg.challengeOnly %}: a friend’s segment that came with it, not on your Segments page. It goes when the race does{% endif %}.
+</div>
+{% endif %}
 
 {% if matching %}
 <!-- Being matched against the activities in the background (routes/segments._scan_job): static/js/segment.js reloads the page when it's done -->

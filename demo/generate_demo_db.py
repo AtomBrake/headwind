@@ -789,15 +789,19 @@ def finish(db, built_on=None):
     db.commit()
 
 
-def make_friend(db, uploads, done, models, rng, share=0.22):
+def make_friend(db, uploads, done, models, rng, share=0.22, recent_share=0.75, recent_days=28):
     """A friend whose activities are stored here as a friend sync would have (services/friend_rides): Sam rides and runs with Alex on some days,
-    the same route at the same time, a little faster on the climbs. No sync: the Friend row's address is example.org's."""
+    the same route at the same time, a little faster on the climbs; on most of Alex's rides in the last four weeks, so the segment race
+    (build_fiction.make_race) has segments they've both ridden. No sync: the Friend row's address is example.org's."""
     fr = db.execute("INSERT INTO Rider (name, avatarPath, isDefault) VALUES ('Sam', 'custard_cream.svg', 0)").lastrowid
     fid = db.execute("INSERT INTO Friend (name, url, token, riderId, lastSynced) VALUES ('Sam', 'https://sam.example.org', NULL, ?, datetime('now'))", [fr]).lastrowid
     sam = dict(kg=70.0, rest=48, max=191, form=1.04)
     n = 0
+    recent = max((d[2] for d in done), default=None)
+    recent = recent - timedelta(days=recent_days) if recent else None
     for kind, route, start_utc in done:
-        if kind not in ('road', 'gravel', 'mtb', 'run', 'hike') or rng.random() > share:
+        often = recent_share if recent and start_utc >= recent and kind in ('road', 'gravel', 'mtb') else share
+        if kind not in ('road', 'gravel', 'mtb', 'run', 'hike') or rng.random() > often:
             continue
         pts = synth(route['coords'], kind, models[kind], start_utc + timedelta(seconds=rng.randint(-40, 40)), rng, sam)
         try:

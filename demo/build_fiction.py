@@ -214,6 +214,33 @@ def make_challenge(db, rider, friend_id, end_day):
         db.execute('INSERT INTO ChallengeMember (challengeId, friendId) VALUES (?,?)', [cid, friend_id])
 
 
+def make_race(db, rider, friend_id, end_day, n=3):
+    """A segment race against the friend (services/segment_race.py): the ride segments both have pedalled most often over the past four weeks,
+    up to n of them, from then to the end of this month, so the race page has full boards. Returns how many segments, 0 when they share
+    none."""
+    from services import segment_race, sports
+    first = min(end_day.replace(day=1), end_day - timedelta(days=27))
+    last = (end_day.replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    friend = db.execute('SELECT riderId FROM Friend WHERE id=?', [friend_id]).fetchone()[0]
+    picks = [r[0] for r in db.execute(f'''
+        SELECT e.segmentId FROM SegmentEffort e JOIN SegActivity a ON a.id = e.activityId LEFT JOIN Bike b ON b.id = a.bikeId
+        JOIN Segment s ON s.id = e.segmentId
+        WHERE COALESCE(s.sport, 'ride') = 'ride' AND COALESCE(e.approx, 0) = 0 AND {sports.class_sql('bike')}
+          AND a.riderId IN (?, ?) AND date(a.startDateLocal) BETWEEN ? AND ?
+        GROUP BY e.segmentId HAVING COUNT(DISTINCT a.riderId) = 2 ORDER BY COUNT(*) DESC, e.segmentId LIMIT ?''',
+        [rider, friend, first.isoformat(), end_day.isoformat(), n])]
+    shapes = segment_race.picked(db, rider, picks, 'bike') if picks else []
+    if not shapes or isinstance(shapes, str):
+        return 0
+    cid = db.execute('''INSERT INTO Challenge (uid, riderId, name, metric, sport, startDate, endDate, target, mine, joined, segClass)
+                        VALUES (?,?,'Hill race','segments','ride',?,?,NULL,1,1,'bike')''',
+                     [secrets.token_hex(8), rider, first.isoformat(), last.isoformat()]).lastrowid
+    db.execute('INSERT INTO ChallengeMember (challengeId, friendId) VALUES (?,?)', [cid, friend_id])
+    segment_race.set_segments(db, cid, shapes)
+    segment_race.notify_leaders(db, send=False, today=end_day, challenge_id=cid)
+    return len(shapes)
+
+
 def make_planned_routes(db, rider, lib, rng):
     """A few routes from the library saved as planned ones, as if drawn in the planner, and a few never ridden yet."""
     from services import planned_routes
@@ -259,9 +286,12 @@ def make_coach_notes(db, rider, rng, share=0.35):
 
 def make_extras(db, rider, lib, end_day, rng, out_db, friend_id=None):
     make_goals(db, rider)
+    n_race = 0
     if friend_id:
         make_challenge(db, rider, friend_id, end_day)
+        n_race = make_race(db, rider, friend_id, end_day)
     n_routes = make_planned_routes(db, rider, lib, rng)
     n_notes = make_coach_notes(db, rider, rng)
     db.commit()
-    print(f'extras: 4 goals, {n_routes} planned routes, {n_notes} coach notes' + (', 2 challenges' if friend_id else ''))
+    print(f'extras: 4 goals, {n_routes} planned routes, {n_notes} coach notes' + (', 2 challenges' if friend_id else '')
+          + (f', a segment race on {n_race} segments' if n_race else ''))

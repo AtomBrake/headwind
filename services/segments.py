@@ -1166,7 +1166,7 @@ def _segment_here(db, start, end, fam=None, tol_m=TOLERANCE_M):
     start and end in the same places)."""
     sw, ew = _window(start[0], start[1], tol_m), _window(end[0], end[1], tol_m)
     for r in db.execute("SELECT startLat, startLng, endLat, endLng FROM Segment WHERE startLat BETWEEN ? AND ? AND startLng BETWEEN ? AND ? "
-                        "AND (? IS NULL OR COALESCE(sport, 'ride') = ?)",
+                        "AND (? IS NULL OR COALESCE(sport, 'ride') = ?) AND COALESCE(challengeOnly, 0) = 0",
                         [sw[0] - sw[2], sw[0] + sw[2], sw[1] - sw[3], sw[1] + sw[3], fam, fam]):
         if _near(sw, r[0], r[1], tol_m) is not None and _near(ew, r[2], r[3], tol_m) is not None:
             return True
