@@ -784,6 +784,8 @@ Each rider has their own switches. **Save, and start new riders with these** als
 3. Their activities and segments sync into your database; segments you both have appear on shared leaderboards, and their activities can be shown on the heatmap. Nothing inside your [privacy zones](#privacy-zones) is sent.
 4. To race, start a **challenge** on the **Challenges** page and invite them; it reaches them on the feed.
 
+If a friend moves their Headwind to a new address or sends you a new token, press **Edit** by their name on **Friends**, then paste the new code they made you, or change the address or token. The new connection is tried before it's saved, and their activities, segments and challenges stay.
+
 Sync is pull-based, over HTTP(S). Peer URLs must be `http://` or `https://`; redirects to a different host are refused so a peer can't bounce your token elsewhere. Use HTTPS over the internet.
 
 ### Notifications

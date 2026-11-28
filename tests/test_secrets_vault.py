@@ -107,14 +107,15 @@ def test_the_key_is_private_beside_the_database_and_a_second_start_changes_nothi
     assert sqlite3.connect(path).execute('SELECT openaiKey FROM Settings').fetchone() == before
 
 
-def test_each_secret_saved_is_stored_encrypted(setup):
+def test_each_secret_saved_is_stored_encrypted(setup, monkeypatch):
     path, app = setup
     c = _client(app)
     new = {'openaiKey': 'sk-openai-typed-new', 'claudeKey': 'sk-ant-typed-new', 'mqttPassword': 'mqtt-typed-new'}
     assert c.post('/settings/', data={**new, 'mqttHost': 'broker.lan', 'mqttUser': 'u'}).status_code == 302
     assert c.post('/settings/home-assistant/save', json={'url': 'http://ha.lan:8123', 'token': 'ha-typed-new'}).get_json() == {'ok': True}
     c.post('/friends/add', data={'name': 'Kim', 'url': 'https://kim.example', 'token': 'kim-typed-token'})
-    c.post('/friends/1/token', data={'token': 'sam-typed-new-token'})
+    monkeypatch.setattr('routes.friends.probe_riders', lambda url, token: ([], None))
+    c.post('/friends/1/connection', data={'token': 'sam-typed-new-token'})
     from routes.garmin import _signed_in_as
     with app.test_request_context():
         _signed_in_as('new-garmin@example.com')

@@ -6,7 +6,7 @@ import urllib.parse
 import urllib.request
 import urllib.error
 
-from flask import Blueprint, Response, abort, jsonify, redirect, render_template, request, stream_with_context, url_for
+from flask import Blueprint, Response, abort, flash, jsonify, redirect, render_template, request, stream_with_context, url_for
 
 log = logging.getLogger(__name__)
 
@@ -495,15 +495,42 @@ def sync_status(fid):
     return jsonify({'running': False, 'ok': False, 'error': 'No sync of this friend has run lately.'})
 
 
-@bp.route('/friends/<int:fid>/token', methods=['POST'])
-def set_friend_token(fid):
-    """Swap in a new token a friend gave us (e.g. their own per-friend token in place of the old shared one), keeping their rides."""
-    token = (request.form.get('token') or '').strip()
-    if token:
-        db = get_db()
-        db.execute('UPDATE Friend SET token=? WHERE id=?', [vault.seal(token), fid])
-        db.commit()
-    return redirect(url_for('friends.index'))
+@bp.route('/friends/<int:fid>/connection', methods=['POST'])
+def set_connection(fid):
+    """A friend's new address, new token, or a new code holding both (they moved their server, or made a token just for us), keeping
+    their activities. A blank address or token keeps the one we have. Saved only once the new address answers with the token."""
+    friend = query_db('SELECT * FROM Friend WHERE id=?', [fid], one=True)
+    if not friend:
+        abort(404)
+    back = redirect(url_for('friends.index'))
+    code = (request.form.get('code') or '').strip()
+    if code:
+        shared = feed_tokens.parse_share_code(code)
+        if not shared:
+            flash("That isn't a friend code from Headwind. It starts hwfc_ (or headwind://friend).", 'error')
+            return back
+        url, token = shared
+    else:
+        url = (request.form.get('url') or '').strip().rstrip('/') or friend['url']
+        token = (request.form.get('token') or '').strip() or friend['token'] or ''     # read opened (vault.row_factory)
+    if url == friend['url'] and token == (friend['token'] or ''):
+        flash(f"That's the address and token {friend['name']} already has: nothing changed.", 'warning')
+        return back
+    riders, error = probe_riders(url, token)
+    if error:
+        flash(f"Nothing changed for {friend['name']}, as the new connection didn't work: {error}", 'error')
+        return back
+    names = {r.get('name') for r in (riders if isinstance(riders, list) else []) if isinstance(r, dict) and r.get('id') is not None}
+    if friend['riderName'] and names and friend['riderName'] not in names:
+        flash(f"Nothing changed for {friend['name']}: the Headwind at {url} has no rider called {friend['riderName']}.", 'error')
+        return back
+    db = get_db()
+    db.execute('UPDATE Friend SET url=?, token=? WHERE id=?', [url, vault.seal(token), fid])
+    db.commit()
+    log.info('Friends: connection for "%s" changed%s', friend['name'], f' to {url}' if url != friend['url'] else ' (new token)')
+    start_sync(fid, friend['name'])
+    flash(f"{friend['name']} now connects to {url}. Syncing from there now.", 'success')
+    return back
 
 
 @bp.route('/friends/<int:fid>/delete', methods=['POST'])

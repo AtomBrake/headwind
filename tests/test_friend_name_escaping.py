@@ -47,8 +47,9 @@ def handlers(page):
 def test_a_friends_name_is_in_no_inline_handler(client):
     page = client.get('/friends').get_data(as_text=True)
     assert [h for h in handlers(page) if 'phones/create' in h] == []
-    prompts = [html.unescape(m) for m in re.findall(r'data-prompt="([^"]*)"', page)]
-    assert prompts == [f'New feed token from {EVIL}:']
+    titles = [html.unescape(m) for m in re.findall(r'title="([^"]*)"', page)]
+    assert f'A new address or token for {EVIL}; their activities stay' in titles     # the Edit button's: an attribute, escaped
+    assert f'Has {EVIL} moved their Headwind' in html.unescape(page) and f'Has {EVIL}' not in page   # the edit row's text, escaped
 
 
 def test_nutrition_eschtml_escapes_quotes(client):

@@ -168,16 +168,75 @@ def test_friends_page_after_upgrade(tmp_path, monkeypatch):
     assert c.get('/api/riders', headers={'X-Feed-Token': 'old-shared-token'}).status_code == 200
 
 
-def test_a_friends_new_token_can_be_swapped_in(app):
+def _friend_answers(monkeypatch, riders=({'id': 1, 'name': 'Sam', 'isDefault': 1},), error=None):
+    """The friend's Headwind, as probe_riders sees it: the (address, token) pairs it was asked with."""
+    seen = []
+    monkeypatch.setattr('routes.friends.probe_riders', lambda url, token: (seen.append((url, token)), (None, error) if error else (list(riders), None))[1])
+    return seen
+
+
+def _sam(app, rider_name=None):
     with app.app_context():
         d = database.get_db()
-        d.execute("INSERT INTO Friend (id, name, url, token) VALUES (7, 'Sam', 'https://sam.example', 'old')")
+        d.execute("INSERT INTO Friend (id, name, url, token, riderName) VALUES (7, 'Sam', 'https://sam.example', 'hwf_old', ?)", [rider_name])
         d.commit()
-    c = app.test_client()
-    c.post('/friends/7/token', data={'token': ''})                  # cancelled prompt: nothing changes
-    c.post('/friends/7/token', data={'token': '  hwf_new  '})
+
+
+def _connection(app):
     with app.app_context():
-        assert database.query_db('SELECT token FROM Friend WHERE id=7', one=True)[0] == 'hwf_new'
+        return tuple(database.query_db('SELECT url, token FROM Friend WHERE id=7', one=True))
+
+
+def _queued_syncs(app):
+    with app.app_context():
+        return database.query_db("SELECT COUNT(*) FROM Job WHERE kind='friend_sync'", one=True)[0]
+
+
+def test_a_friends_new_token_can_be_swapped_in(app, monkeypatch):
+    _sam(app)
+    seen = _friend_answers(monkeypatch)
+    c = app.test_client()
+    c.post('/friends/7/connection', data={'url': 'https://sam.example', 'token': ''})     # the same as now: nothing to check or save
+    assert seen == [] and _queued_syncs(app) == 0
+    c.post('/friends/7/connection', data={'url': 'https://sam.example', 'token': '  hwf_new  '})
+    assert seen == [('https://sam.example', 'hwf_new')]
+    assert _connection(app) == ('https://sam.example', 'hwf_new') and _queued_syncs(app) == 1
+
+
+def test_a_friend_who_moved_their_server_gets_the_new_address_and_keeps_the_token(app, monkeypatch):
+    _sam(app, 'Sam')
+    seen = _friend_answers(monkeypatch)
+    resp = app.test_client().post('/friends/7/connection', data={'url': ' https://new.sam.example/ ', 'token': ''})
+    assert resp.status_code == 302
+    assert seen == [('https://new.sam.example', 'hwf_old')]
+    assert _connection(app) == ('https://new.sam.example', 'hwf_old') and _queued_syncs(app) == 1
+
+
+def test_a_new_code_sets_the_address_and_the_token_at_once(app, monkeypatch):
+    _sam(app)
+    seen = _friend_answers(monkeypatch)
+    c = app.test_client()
+    c.post('/friends/7/connection', data={'code': 'hwf_notacode'})
+    assert seen == [] and _connection(app) == ('https://sam.example', 'hwf_old')
+    c.post('/friends/7/connection', data={'code': feed_tokens.share_code('https://moved.example/', 'hwf_fresh')})
+    assert _connection(app) == ('https://moved.example', 'hwf_fresh')
+
+
+@pytest.mark.parametrize('answer', [
+    {'error': 'Could not connect to that address'},                          # nothing there, or the token is refused
+    {'riders': [{'id': 3, 'name': 'Someone else', 'isDefault': 1}]},         # a Headwind, but not one with the rider we follow
+])
+def test_a_new_address_that_doesnt_work_changes_nothing(app, monkeypatch, answer):
+    _sam(app, 'Sam')
+    _friend_answers(monkeypatch, **answer)
+    resp = app.test_client().post('/friends/7/connection', data={'url': 'https://typo.example', 'token': ''})
+    assert resp.status_code == 302
+    assert _connection(app) == ('https://sam.example', 'hwf_old') and _queued_syncs(app) == 0
+
+
+def test_changing_a_friend_who_isnt_there_is_a_404(app, monkeypatch):
+    _friend_answers(monkeypatch)
+    assert app.test_client().post('/friends/99/connection', data={'url': 'https://x.example'}).status_code == 404
 
 
 # ── share codes: the address and the token in one string, and as a headwind://friend link in a QR code ──

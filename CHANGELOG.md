@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- **Change a friend's address without removing them.** When a friend moves their Headwind to a new address, **Edit** by their name on the Friends page takes the new code they made you, or a new address, a new token or both. The new connection is tried first: if nothing answers there, the token is refused, or that Headwind has no rider of the name you follow, nothing is changed and the page says why. Once it's saved, their activities, segments and challenges stay and a sync starts from the new address. Until now the only way was to remove the friend, losing everything synced from them, and add them again. **Edit** replaces the **Token** button, which could only change the token.
+
 ### Changed
 - **Challenges have a page of their own.** Races with friends move from the bottom of the Goals page to a new **Challenges** page in the sidebar, which is where segment races will go; Goals keeps your own weekly, monthly and yearly goals. The dashboard's Goals card still shows where you stand in the races under way, and its invitations link to the new page. **Settings → Features** has a **Challenges** switch of its own, off for anyone who had Goals off, and the friends feed carries your races either way, so friends' races keep you in them and they're up to date when you switch it back on. A Goals page left open from before still sends its challenge forms to the right place.
 
