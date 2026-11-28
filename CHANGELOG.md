@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.7.65-beta] - 2026-11-28
 
 ### Added
 - **Segment races with friends.** On the **Challenges** page, **Fastest on segments (a race)** races friends on one to five segments of yours or theirs, over the dates you pick, or start one with **Race this segment** on a segment's page. Choose who races: bike, e-bike or on foot, so an e-bike ride never counts in a pedal race, and runs, walks and hikes race on foot segments. Each rider's fastest time on each segment between the first and last day counts (the faster of two laps; a close match, ≈, doesn't), and places on each segment score 10, 8, 6, 5, 4, 3, 2 and 1 points, a tie on points going to more segments won, then less time. A race has its own page with a map of the segments, the overall table and a board for each, the times new since you last looked marked; its card on the Challenges page shows the top three. The segments travel with the race, so a friend without one gets it: their Headwind finds its own copy of each, telling apart two lines between the same ends, or keeps the race's own, which isn't on their Segments page, is never sent on and goes with the race. A segment that starts or ends in your privacy zones can't be picked. With ntfy set up, you're told when someone takes a segment's top spot. A friend on a Headwind from before this doesn't see the invitation. The demo has one, between Alex and Sam.
