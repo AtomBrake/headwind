@@ -177,9 +177,3 @@ function syncDone(btn, d) {
 // A sync that was already running when the page loaded
 document.querySelectorAll('button[data-syncing]').forEach(b => waitForSync(b.dataset.syncing, b));
 function copyFrom(id, btn) { copyToken(document.getElementById(id).textContent, btn); }
-// A friend's new feed token, asked for when the form is sent: it isn't sent without one
-function askToken(form) {
-  var t = prompt(form.dataset.prompt);
-  if (!t) return false;
-  form.token.value = t;
-}

@@ -128,14 +128,33 @@
         <td class="muted" data-label="Last synced" data-sort="{{ f.lastSynced or '' }}">{% if f.lastSynced %}{{ f.lastSynced | fmt_when }}{% else %}Never{% endif %}</td>
         <td class="act">
           <button type="button" data-click="syncFriend({{ f.id }}, this)" class="btn btn-secondary btn-sm"{% if f.id in syncing %} data-syncing="{{ f.id }}"{% endif %}>Sync</button>
-          <form method="POST" action="{{ url_for('friends.set_friend_token', fid=f.id) }}"
-                data-prompt="New feed token from {{ f.name }}:" data-submit="askToken(this)">
-            <input type="hidden" name="token">
-            <button type="submit" class="btn btn-secondary btn-sm" title="Paste a new token this friend gave you; their activities stay">Token</button>
-          </form>
+          <button type="button" class="btn btn-secondary btn-sm" aria-expanded="false" data-click="toggleEdit(this, 'friend-{{ f.id }}')"
+                  title="A new address or token for {{ f.name }}; their activities stay">Edit</button>
           <form method="POST" action="{{ url_for('friends.delete', fid=f.id) }}"
                 data-confirm="Remove {{ f.name }}? Their activities and segments here are deleted; nothing changes on their own Headwind.">
             <button type="submit" class="fr-x" title="Remove {{ f.name }}" aria-label="Remove {{ f.name }}">×</button>
+          </form>
+        </td>
+      </tr>
+      <tr class="fr-edit-row" id="friend-{{ f.id }}" data-follows hidden>
+        <td colspan="4">
+          <p class="hint fr-note" style="margin:0 0 0.6rem;">Has {{ f.name }} moved their Headwind or sent you a new token? Paste the new code they made you,
+            or change the address or token. It's checked before it's saved, and their activities here stay.</p>
+          <form method="POST" action="{{ url_for('friends.set_connection', fid=f.id) }}" class="fr-grid fr-code">
+            <label class="fr-field">Their new code
+              <input name="code" type="text" placeholder="hwfc_…" autocomplete="off" required>
+            </label>
+            <button type="submit" class="btn btn-primary" style="white-space:nowrap;">Save</button>
+          </form>
+          <p class="fr-or">Or their address and feed token:</p>
+          <form method="POST" action="{{ url_for('friends.set_connection', fid=f.id) }}" class="fr-grid fr-connect">
+            <label class="fr-field">Their Headwind address
+              <input name="url" type="url" value="{{ f.url }}" required>
+            </label>
+            <label class="fr-field"><span>Feed token <span class="hint">(blank keeps this one)</span></span>
+              <input name="token" type="text" placeholder="hwf_…" autocomplete="off">
+            </label>
+            <button type="submit" class="btn btn-primary" style="white-space:nowrap;">Save</button>
           </form>
         </td>
       </tr>
