@@ -360,9 +360,12 @@ def rebase_if_needed(db_path, today=None):
         app = Flask(__name__)
         app.config['DATABASE'] = db_path
         with app.app_context():
-            db = database.get_db()
-            gear.evaluate_alerts(db, send=False)
-            db.commit()
+            try:
+                db = database.get_db()
+                gear.evaluate_alerts(db, send=False)
+                db.commit()
+            finally:
+                database.close_db()
     except Exception as e:                                          # pragma: no cover
         log.warning('post-rebase gear refresh failed: %s', e)
     log.warning('Demo data moved forward %d days', k)
@@ -377,7 +380,10 @@ def migrate(db_path):
     app = Flask(__name__)
     app.config['DATABASE'] = db_path
     with app.app_context():
-        database.migrate_db()
+        try:
+            database.migrate_db()
+        finally:
+            database.close_db()                                     # now, not whenever it's collected: Windows can't delete a file still open
 
 
 def reset_now(live_db, pristine, bike_src=None, bike_dst=None):

@@ -95,7 +95,9 @@ def test_reset_brings_an_older_clean_copy_up_to_this_version_and_leaves_nothing_
     assert c.execute("SELECT 1 FROM sqlite_master WHERE name='Activity'").fetchone()
     c.close()
     assert sorted(f for f in os.listdir(tmp_path) if not f.startswith('live.db')) == ['pristine.db']
-    assert sqlite3.connect(pristine).execute('PRAGMA user_version').fetchone()[0] == 0      # the clean copy itself is never changed
+    c = sqlite3.connect(pristine)
+    assert c.execute('PRAGMA user_version').fetchone()[0] == 0      # the clean copy itself is never changed
+    c.close()
 
 
 def test_demo_is_off_unless_asked_for(monkeypatch):
