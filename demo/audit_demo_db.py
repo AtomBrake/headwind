@@ -133,6 +133,11 @@ def demo_points(demo, every=25):
     yield from track_points(demo)
     for r in demo.execute('SELECT polyline FROM Segment'):
         yield from (tuple(p[:2]) for p in json.loads(r[0] or '[]')[::5])
+    if 'ChallengeSegment' in tables(demo):                        # a segment race's copies of its segments' shapes
+        for r in demo.execute('SELECT startLat, startLng, endLat, endLng, polyline FROM ChallengeSegment'):
+            yield (r[0], r[1])
+            yield (r[2], r[3])
+            yield from (tuple(p[:2]) for p in json.loads(r[4] or '[]')[::5])
     if 'PlannedRoute' in tables(demo):
         for r in demo.execute('SELECT track FROM PlannedRoute WHERE track IS NOT NULL'):
             yield from (tuple(p[:2]) for p in json.loads(r[0] or '[]')[::10])

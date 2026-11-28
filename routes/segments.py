@@ -4,7 +4,7 @@ import logging
 from flask import Blueprint, abort, jsonify, redirect, render_template, request, url_for
 
 from database import get_db, query_db
-from services import jobs, whose
+from services import features, jobs, segment_race, whose
 from services.segments import (scan_all_activities, scan_activity_against_segments, _refresh_prs,
                                clean_polyline, lap_numbers, recover_polyline, seg_sport, valid_coord, MIN_SEGMENT_M)
 from services.sports import CLASS_ICONS, CLASS_LABELS, FAMILIES, FAMILY_ICONS, FAMILY_LABELS, class_sql, ebike_sql, family_of
@@ -174,7 +174,7 @@ def index():
         LEFT JOIN Bike b ON b.id = a.bikeId
         LEFT JOIN Rider r ON r.id = a.riderId
         LEFT JOIN Friend f ON f.id = s.friendId
-        WHERE (e.id IS NULL OR r.id = ?) AND COALESCE(s.sport, 'ride') = ?
+        WHERE (e.id IS NULL OR r.id = ?) AND COALESCE(s.sport, 'ride') = ? AND COALESCE(s.challengeOnly, 0) = 0
         GROUP BY s.id
         ORDER BY s.createdAt DESC
     ''', [whose.rider_id(), sport])
@@ -198,7 +198,7 @@ def index():
             ''', [seg['id'], best['t']])
             if koms:
                 kom_map[seg['id']] = koms
-    counts = {r[0]: r[1] for r in db.execute("SELECT COALESCE(sport, 'ride'), COUNT(*) FROM Segment GROUP BY 1")}
+    counts = {r[0]: r[1] for r in db.execute("SELECT COALESCE(sport, 'ride'), COUNT(*) FROM Segment WHERE COALESCE(challengeOnly, 0) = 0 GROUP BY 1")}
     tabs = [{'family': f, 'label': FAMILY_LABELS[f], 'icon': FAMILY_ICONS[f], 'n': counts.get(f, 0)} for f in FAMILIES]
     only_links = _only_links('segments.index', only, sport='ride') if sport == 'ride' else []
     return render_template('segments.html', segments=segs, kom_map=kom_map, sport=sport, tabs=tabs, only=only, only_links=only_links)
@@ -344,14 +344,19 @@ def detail(sid):
         window = secs_list[max(0, i - 2):i + 1]
         trend_rolling.append(round(sum(window) / len(window)))
 
-    all_segs = query_db("SELECT * FROM Segment WHERE COALESCE(sport, 'ride') = ?", [family])
+    all_segs = query_db("SELECT * FROM Segment WHERE COALESCE(sport, 'ride') = ? AND COALESCE(challengeOnly, 0) = 0", [family])
+    # The segment races it's in (services/segment_race): one here only for a race says so, and can't be deleted while that race has it
+    races = [dict(r) for r in db.execute('''SELECT DISTINCT c.id, c.name FROM ChallengeSegment cs JOIN Challenge c ON c.id = cs.challengeId
+                                            WHERE cs.segmentId=? AND c.dismissed=0 ORDER BY c.endDate DESC''', [sid])]
     diff_label, diff_colour, sub_segs = _difficulty(seg, all_segs)
 
     return render_template('segment.html', seg=seg, efforts=efforts, map_data=map_data,
                            trend=trend, trend_rolling=trend_rolling, family=family, family_label=FAMILY_LABELS[family],
                            stats=stats, diff_label=diff_label, on_foot=(family == 'foot'), laps=lap_numbers(efforts),
                            only=only, only_links=_only_links('segments.detail', only, class_counts, sid=sid) if family == 'ride' else [],
-                           diff_colour=diff_colour, sub_segs=sub_segs, matching=scanning(db, sid))
+                           diff_colour=diff_colour, sub_segs=sub_segs, matching=scanning(db, sid), races=races,
+                           can_race=features.on('challenges') and not seg['challengeOnly'] and any(
+                               p['id'] == sid for p in segment_race.pickable(db, whose.rider_id())))
 
 
 @bp.route('/segments/<int:sid>/delete', methods=['POST'])

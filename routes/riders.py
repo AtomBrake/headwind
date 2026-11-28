@@ -329,7 +329,8 @@ def _count_badges(rid, totals):
         args = [fam, rid]
         efforts = query_db(f'SELECT COUNT(*) AS n {on}', args, one=True)['n'] or 0
         prs = query_db(f'SELECT COUNT(*) AS n {on} AND e.isPR = 1', args, one=True)['n'] or 0
-        defined = query_db("SELECT COUNT(*) AS n FROM Segment WHERE COALESCE(sport, 'ride') = ?", [fam], one=True)['n'] or 0
+        defined = query_db("SELECT COUNT(*) AS n FROM Segment WHERE COALESCE(sport, 'ride') = ? AND COALESCE(challengeOnly, 0) = 0", [fam],
+                           one=True)['n'] or 0
         repeats = query_db(f'SELECT MAX(cnt) AS m FROM (SELECT COUNT(*) AS cnt {on} GROUP BY e.segmentId)', args, one=True)['m'] or 0
         fastest = query_db(f'SELECT MAX(e.avgSpeedMps) AS v {on}', args, one=True)['v'] or 0
 

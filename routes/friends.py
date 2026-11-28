@@ -122,7 +122,8 @@ def feed():
 
         if scope['shareSegments'] and ids is None:
             for s in db.execute('SELECT id, name, startLat, startLng, endLat, endLng, '
-                                "distanceM, elevationGainM, polyline, COALESCE(sport, 'ride') AS family FROM Segment WHERE friendId IS NULL"):
+                                "distanceM, elevationGainM, polyline, COALESCE(sport, 'ride') AS family FROM Segment "
+                                "WHERE friendId IS NULL AND COALESCE(challengeOnly, 0) = 0"):
                 # `sport` is what a friend on a version before 0.7.3 reads: 'run' for anything on foot, else 'ride'. `family` is the whole answer.
                 if zones and (zones.inside(s['startLat'], s['startLng']) or zones.inside(s['endLat'], s['endLng'])):
                     continue                    # one that starts or ends in a privacy zone would say where it is
@@ -131,7 +132,7 @@ def feed():
         owner_id = rider['id'] if rider else None
         if share_rides and ids is None:
             from services import challenges
-            for line in challenges.feed_lines(db, rider, scope['id']):
+            for line in challenges.feed_lines(db, rider, scope['id'], zones):
                 yield json.dumps(line) + '\n'
 
         where, args = ['riderId=?'], [owner_id]
@@ -550,10 +551,11 @@ def delete(fid):
         db.execute('DELETE FROM Activity WHERE riderId=?', [friend['riderId']])
         db.execute('DELETE FROM RiderSettings WHERE riderId=?', [friend['riderId']])    # none is made for one, but a rider's row goes with it
         db.execute('DELETE FROM Rider WHERE id=?', [friend['riderId']])
-    from services import challenges
-    challenges.forget_friend(db, fid)
-    # Segments imported from this friend cascade-delete their efforts via ON DELETE CASCADE
+    # Segments imported from this friend, and every effort on them: nothing turns SQLite's foreign keys on, so ON DELETE CASCADE never runs
+    db.execute('DELETE FROM SegmentEffort WHERE segmentId IN (SELECT id FROM Segment WHERE friendId=?)', [fid])
     db.execute('DELETE FROM Segment WHERE friendId=?', [fid])
+    from services import challenges
+    challenges.forget_friend(db, fid)                  # after their segments: a race on one of them finds or adds it again
     db.execute('DELETE FROM Friend WHERE id=?', [fid])
     db.commit()
 
@@ -724,14 +726,22 @@ def _store_segment(db, friend_id, obj):
     _fam = seg_sport({'sport': obj.get('family') or obj.get('sport')})     # 0.7.3 sent 'eride' for e-bike segments, older versions 'run' for foot
     _shape = clean_polyline(obj.get('polyline'))
     _poly = json.dumps(_shape) if _shape else None
-    existing = db.execute(
-        "SELECT id, startLat, startLng, endLat, endLng, distanceM, polyline, COALESCE(sport, 'ride') "
-        'FROM Segment WHERE friendId=? AND sourceSegId=?',
-        [friend_id, obj['id']]
-    ).fetchone()
+    def _row():
+        return db.execute(
+            "SELECT id, startLat, startLng, endLat, endLng, distanceM, polyline, COALESCE(sport, 'ride') "
+            'FROM Segment WHERE friendId=? AND sourceSegId=?',
+            [friend_id, obj['id']]
+        ).fetchone()
+    existing = _row()
+    if not existing:
+        # One we added for a race from someone's challenge line (services/segment_race): this is it, so it becomes theirs, not a second copy
+        from services import segment_race
+        sent = segment_race.clean({**obj, 'family': _fam, 'polyline': _poly})
+        if sent and segment_race.take_over(db, friend_id, sent, obj['id']):
+            existing = _row()
     if existing:
         changed = tuple(existing[1:]) != (_sc[0], _sc[1], _ec[0], _ec[1], obj.get('distanceM'), _poly, _fam)
-        db.execute('''UPDATE Segment SET name=?, startLat=?, startLng=?, endLat=?, endLng=?,
+        db.execute('''UPDATE Segment SET name=?, startLat=?, startLng=?, endLat=?, endLng=?, challengeOnly=0,
                           distanceM=?, elevationGainM=?, polyline=?, sport=?, matchPending=MAX(COALESCE(matchPending, 0), ?) WHERE id=?''', [
             obj.get('name'), _sc[0], _sc[1], _ec[0], _ec[1],
             obj.get('distanceM'), obj.get('elevationGainM'), _poly, _fam, int(changed),
@@ -892,6 +902,9 @@ def _do_ride_sync(friend_id):
     for sid in affected:
         _refresh_prs(db, sid)
         db.commit()
+
+    from services import segment_race
+    segment_race.notify_leaders(db)                 # a segment race's top spot taken by a ride that just came, or by one of ours on a new segment
 
     old_friend = pull.manifest is None and not pull.complete      # a version before 0.7.6 sends no 'end': all it can tell us is no error
     # Friend.name is the label you typed when adding them: the feed's own name never replaces it,

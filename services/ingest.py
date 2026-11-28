@@ -14,7 +14,8 @@ def after_ride_added(db, act_id):
     except Exception:
         log.warning('Sanity check of a new activity failed', exc_info=True)
     scan_new_ride(db, act_id)
-    from services import auto_analyse
+    from services import auto_analyse, segment_race
+    segment_race.notify_leaders(db)             # a segment race's top spot taken by this one
     auto_analyse.queue_ride(db, act_id)         # analysed in the background once the import has committed it
 
 

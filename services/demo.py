@@ -72,7 +72,7 @@ SAFE_READS = {
     'ai_page.count', 'ai_page.index',
     'api_v1.activity_detail', 'api_v1.activity_list', 'api_v1.health_summary', 'api_v1.live', 'api_v1.overview', 'api_v1.perform',
     'api_v1.photo_file', 'api_v1.ping', 'api_v1.today', 'api_v1.zwift_map',
-    'challenges.index',
+    'challenges.index', 'challenges.race',
     'dashboard.activities_page', 'dashboard.dashboard', 'dashboard.history', 'dashboard.index', 'dashboard.workouts_page',
     'data.index',
     'friends.index', 'friends.sync_status',
@@ -297,7 +297,7 @@ DATE_COLUMNS = [
     ('BestEffort', ('activityDate',), 'd'), ('BestEffortKm', ('activityDate',), 'd'), ('SegmentEffort', ('activityDate',), 'd'),
     ('FoodLog', ('logDate',), 'd'), ('HydrationLog', ('logDate',), 'd'), ('WeightLog', ('logDate',), 'd'), ('BodyMetric', ('logDate',), 'd'),
     ('GarminDaily', ('date',), 'd'), ('Part', ('installedOn', 'retiredOn'), 'd'), ('ServiceLog', ('date',), 'd'), ('Bike', ('boughtOn',), 'd'),
-    ('SportEffort', ('activityDate',), 'd'), ('Kit', ('boughtOn',), 'd'), ('Challenge', ('startDate', 'endDate'), 'd'),
+    ('SportEffort', ('activityDate',), 'd'), ('Kit', ('boughtOn',), 'd'), ('Challenge', ('startDate', 'endDate'), 'd'), ('ChallengeSeen', ('seenAt',), 'dt'),
 ]
 
 

@@ -7,9 +7,13 @@
 
 {% macro rider_field() %}<input type="hidden" name="rider" value="{{ rid }}">{% endmacro %}
 {% macro metric_select(id) %}
-<select name="metric" id="{{ id }}" data-units='{{ units_of | tojson }}' data-change="goalUnit(this)">
+<select name="metric" id="{{ id }}" data-units='{{ units_of | tojson }}' data-change="challengeKind(this)">
   {% for k, label in metrics.items() %}<option value="{{ k }}">{{ label }}</option>{% endfor %}
+  <option value="segments"{{ ' selected' if pick }}>Fastest on segments (a race)</option>
 </select>
+{% endmacro %}
+{% macro race_segments(c) %}
+<ol class="race-segs hint">{% for s in c.race.segments %}<li>{{ s.name }}{% if s.leader %} · {{ s.leader.name }}, {{ s.leader.secs | fmt_duration }}{% endif %}</li>{% endfor %}</ol>
 {% endmacro %}
 {% macro sport_select(default='ride') %}
 <select name="sport">{% for k, label in groups.items() %}<option value="{{ k }}"{{ ' selected' if k == default }}>{{ group_icons[k] }} {{ label }}</option>{% endfor %}</select>
@@ -32,7 +36,9 @@
       {%- if c.invited %} · sent to {{ c.invited | join(', ') }}{% endif %}
     </div>
     {{ standings(c) }}
+    {% if c.race %}{{ race_segments(c) }}{% endif %}
     <div class="form-actions" style="margin-top:0.6rem;">
+      {% if c.race %}<a class="btn btn-secondary btn-sm" href="{{ url_for('challenges.race', cid=c.id, **({'rider': rid} if active_rider and not active_rider.isDefault else {})) }}">Open the race</a>{% endif %}
       {% if c.invitation %}
       <form method="POST" action="{{ url_for('challenges.act', cid=c.id, action='join') }}">{{ rider_field() }}<button class="btn btn-primary btn-sm" type="submit">Join</button></form>
       <form method="POST" action="{{ url_for('challenges.act', cid=c.id, action='leave') }}">{{ rider_field() }}<button class="btn btn-secondary btn-sm" type="submit">Not this time</button></form>
@@ -53,20 +59,38 @@
 <div class="card empty-state">
   <div class="empty-icon">🏆</div>
   <h3>No challenges yet</h3>
-  <p>Race friends on distance, climbing, time or activities over the dates you pick. Each of you needs the other's feed on the <a href="{{ url_for('friends.index') }}">Friends</a> page.</p>
+  <p>Race friends on distance, climbing, time or activities over the dates you pick, or for the fastest times on up to {{ max_segments }} segments. Each of you needs the other's feed on the <a href="{{ url_for('friends.index') }}">Friends</a> page.</p>
 </div>
 {% endif %}
 
-<details class="gcard"{% if not challenges and friends %} open{% endif %}>
+{% if pick_missing %}<div class="flash flash-error">That segment can’t be raced: it starts or ends in one of your privacy zones, or it’s gone.</div>{% endif %}
+<details class="gcard" id="startChallenge"{% if (not challenges and friends) or pick %} open{% endif %}>
   <summary>+ Start a challenge</summary>
-  <form method="POST" action="{{ url_for('challenges.start') }}" class="form-grid">
+  <form method="POST" action="{{ url_for('challenges.start') }}" class="form-grid{{ ' race-form' if pick }}" id="challengeForm">
     {{ rider_field() }}
     <label class="wide">Name (optional)<input type="text" name="name" maxlength="80" placeholder="November climbing"></label>
     <label>What{{ metric_select('chMetric') }}</label>
-    <label>Sport{{ sport_select() }}</label>
+    <label class="total-only">Sport{{ sport_select() }}</label>
+    <label class="race-only">Who races
+      <select name="segClass" id="chClass" data-change="raceClass(this)">
+        {% for k, label in seg_classes.items() %}<option value="{{ k }}" data-family="{{ class_family[k] }}"{{ ' selected' if pick and class_family[k] == pick.family and (k != 'ebike') }}>{{ class_icons[k] }} {{ label }}</option>{% endfor %}
+      </select>
+      <span class="hint">Only efforts of this kind count: an e-bike ride isn’t in a bike race.</span>
+    </label>
     <label>First day<input type="date" name="startDate" value="{{ today }}" required></label>
     <label>Last day<input type="date" name="endDate" value="{{ month_end }}" required></label>
-    <label><span>Target (<span data-unit-for="chMetric">{{ units_of.distance }}</span>, optional)</span><input type="number" name="target" min="0" step="any"><span class="hint">Blank: the most wins. Otherwise the race is to the target.</span></label>
+    <label class="total-only"><span>Target (<span data-unit-for="chMetric">{{ units_of.distance }}</span>, optional)</span><input type="number" name="target" min="0" step="any"><span class="hint">Blank: the most wins. Otherwise the race is to the target.</span></label>
+    <fieldset class="wide race-only">
+      <legend>Segments (up to {{ max_segments }})</legend>
+      {% if pickable %}
+      <div class="checks race-picks" id="racePicks" data-max="{{ max_segments }}">
+        {% for s in pickable %}<label class="check" data-family="{{ s.family }}"><input type="checkbox" name="segments" value="{{ s.id }}" data-change="racePick(this)"{{ ' checked' if pick and pick.id == s.id }}> {{ s.name }} <span class="hint">{{ s.distanceM | fmt_dist }}{% if s.elevationGainM %} · {{ s.elevationGainM | fmt_elev }}{% endif %}{% if s.friend %} · {{ s.friend }}’s{% endif %}</span></label>{% endfor %}
+      </div>
+      <p class="hint">Your segments and your friends’. Each rider’s fastest time on each counts; the places on each segment score 10, 8, 6, 5, 4, 3, 2 and 1 points. Segments that start or end in your privacy zones aren’t offered. A friend on a Headwind from before segment races doesn’t see the invitation.</p>
+      {% else %}
+      <p class="hint">No segments yet: make one on an activity’s page, or from a friend’s.</p>
+      {% endif %}
+    </fieldset>
     {% if invitable %}
     <fieldset class="wide">
       <legend>Invite</legend>
@@ -92,6 +116,7 @@
       <span class="hint">{{ c.start | fmt_date }} to {{ c.end | fmt_date }}{% if c.leader %} · won by {{ c.leader }}{% endif %}</span>
     </div>
     {{ standings(c) }}
+    {% if c.race %}{{ race_segments(c) }}<p><a href="{{ url_for('challenges.race', cid=c.id) }}">See the boards</a></p>{% endif %}
     {% if c.mine %}
     <form method="POST" action="{{ url_for('challenges.act', cid=c.id, action='delete') }}" data-confirm="Delete the challenge {{ c.name }}? This cannot be undone.">
       {{ rider_field() }}<button class="btn btn-danger-quiet btn-sm" type="submit">Delete</button></form>
@@ -102,4 +127,5 @@
 {% endif %}
 
 <script src="{{ url_for('static', filename='js/goals.js') }}"></script>
+<script src="{{ url_for('static', filename='js/challenges.js') }}"></script>
 {% endblock %}

@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+{# A segment race (routes/challenges.race, services/segment_race.boards): the map, the overall table, a board per segment. #}
+{% block title %}{{ c.name }}{% endblock %}
+{% block page_title %}{{ c.icon }} {{ c.name }}{% endblock %}
+{% block parent %}<a href="{{ url_for('challenges.index', **({'rider': rid} if active_rider and not active_rider.isDefault else {})) }}">Challenges</a>{% endblock %}
+{% block head %}{% include '_maps.html' %}{% endblock %}
+
+{% macro rider(r) %}
+{% if r.avatar %}<img src="{{ url_for('static', filename='avatars/' + r.avatar) }}" class="rider-avatar" alt="" style="width:26px;height:26px;">{% else %}<span class="rider-initial" style="width:26px;height:26px;font-size:0.75rem;">{{ (r.name or '?')[0] | upper }}</span>{% endif %}
+<span{% if r.me %} style="font-weight:600;"{% endif %}>{{ r.name }}{% if r.me %} <span class="hint">(you)</span>{% endif %}</span>
+{% endmacro %}
+
+{% block content %}
+{% set race = c.race %}
+<div class="hint" style="margin-bottom:0.8rem;">
+  {{ c.title }} · {{ c.start | fmt_date }} to {{ c.end | fmt_date }}{% if c.creator and not c.mine %} · started by {{ c.creator }}{% endif %}
+  {%- if c.invited %} · sent to {{ c.invited | join(', ') }}{% endif %}
+  · {% if c.invitation %}<span class="chip accent">Invitation</span>{% elif c.status == 'upcoming' %}<span class="chip">Starts {{ c.start | fmt_date }}</span>{% elif c.status == 'on' %}<span class="chip ok">{{ c.days_left }} day{{ 's' if c.days_left != 1 }} left</span>{% else %}<span class="chip">Finished</span>{% endif %}
+  {%- if new %} · <span class="chip accent">{{ new }} new since you last looked</span>{% endif %}
+</div>
+
+<div class="card" style="margin-bottom:1rem;">
+  <div id="raceMap"></div>
+  <p class="hint" id="raceMapNote" style="display:none;"></p>
+</div>
+
+<div class="card" style="margin-bottom:1rem;">
+  <div class="card-title">Overall</div>
+  {% if race.overall %}
+  <table class="table flush">
+    <thead><tr><th>#</th><th>Rider</th><th class="num">Points</th><th class="num wide-only">Won</th><th class="num wide-only">Segments</th><th class="num">Total time</th></tr></thead>
+    <tbody>
+      {% for o in race.overall %}
+      <tr{% if o.me %} style="background:var(--accent-soft);"{% endif %}>
+        <td style="color:var(--text-muted);">{{ o.place }}</td>
+        <td>{{ rider(o) }}</td>
+        <td class="num" style="font-weight:600;">{{ o.points }}</td>
+        <td class="num wide-only">{{ o.wins }}</td>
+        <td class="num wide-only">{{ o.done }} of {{ race.segments | length }}</td>
+        <td class="num">{% if o.done %}{{ o.secs | fmt_duration }}{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="hint">Points by place on each segment: 10, 8, 6, 5, 4, 3, 2, 1. A tie goes to more segments won, then less time. Only {{ {'bike': 'bike', 'ebike': 'e-bike', 'foot': 'on-foot'}[c.segClass] }} efforts between the first and last day count, the fastest of each rider's; a close match (≈) doesn't.</p>
+  {% else %}
+  <p class="hint">Nobody is in it yet.</p>
+  {% endif %}
+  {% if c.friends_missing %}<p class="hint">{{ c.friends_missing | join(', ') }} joined, but {{ 'their' if c.friends_missing | length > 1 else 'the' }} first sync hasn’t finished.</p>{% endif %}
+</div>
+
+<div class="race-boards">
+  {% for s in race.segments %}
+  <div class="card">
+    <div class="goal-head">
+      <span class="goal-title"><span class="race-num">{{ s.position }}</span> {% if s.id %}<a href="{{ url_for('segments.detail', sid=s.id) }}">{{ s.name }}</a>{% else %}{{ s.name }}{% endif %}</span>
+      <span class="hint">{{ s.distanceM | fmt_dist }}{% if s.elevationGainM %} · {{ s.elevationGainM | fmt_elev }}{% endif %}</span>
+    </div>
+    {% if s.board %}
+    <table class="table flush">
+      <thead><tr><th>#</th><th>Rider</th><th class="num">Time</th><th>Date</th><th>Activity</th></tr></thead>
+      <tbody>
+        {% for r in s.board %}
+        <tr{% if r.me %} style="background:var(--accent-soft);"{% endif %}>
+          <td style="color:var(--text-muted);">{{ ['🥇', '🥈', '🥉'][r.place - 1] if r.place <= 3 else r.place }}</td>
+          <td>{{ rider(r) }}{% if r.new %} <span class="chip accent">New</span>{% endif %}</td>
+          <td class="num" style="font-weight:600;">{{ r.secs | fmt_duration }}</td>
+          <td style="color:var(--text-muted);">{{ r.date | fmt_date }}</td>
+          <td><a href="{{ url_for('activities.detail', rid=r.activity_id) }}">{{ r.activity_name or 'Activity' }}</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% elif not s.id %}
+    <p class="hint">Not found here yet: it's matched against the activities with the next sync.</p>
+    {% else %}
+    <p class="hint">No times yet{% if c.status == 'upcoming' %}: the race hasn't started{% endif %}.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<div class="form-actions" style="margin-top:1rem;">
+  {% if c.invitation %}
+  <form method="POST" action="{{ url_for('challenges.act', cid=c.id, action='join') }}"><input type="hidden" name="rider" value="{{ rid }}"><button class="btn btn-primary" type="submit">Join</button></form>
+  <form method="POST" action="{{ url_for('challenges.act', cid=c.id, action='leave') }}"><input type="hidden" name="rider" value="{{ rid }}"><button class="btn btn-secondary" type="submit">Not this time</button></form>
+  {% elif c.mine %}
+  <form method="POST" action="{{ url_for('challenges.act', cid=c.id, action='delete') }}"
+        data-confirm="Delete the race {{ c.name }}? Friends who joined keep it without you; the rest stop seeing it on their next sync. This cannot be undone.">
+    <input type="hidden" name="rider" value="{{ rid }}"><button class="btn btn-danger-quiet" type="submit">Delete</button></form>
+  {% else %}
+  <form method="POST" action="{{ url_for('challenges.act', cid=c.id, action='leave') }}" data-confirm="Leave {{ c.name }}? Your friends stop seeing you in it on their next sync.">
+    <input type="hidden" name="rider" value="{{ rid }}"><button class="btn btn-danger-quiet" type="submit">Leave</button></form>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script type="application/json" id="raceData">{{ map_data | tojson }}</script>
+<script src="{{ url_for('static', filename='js/challenge_race.js') }}"></script>
+{% endblock %}

@@ -245,3 +245,37 @@ def test_the_audit_passes_a_clean_demos_map_summaries(tmp_path, real):
     c.close()
     r = _audit(real, demo)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_the_demo_has_a_segment_race_on_the_segments_both_rode(tmp_path):
+    """make_race: the ride segments Alex and the friend both pedalled in the past four weeks, the most ridden first; one only Alex rode, or
+    only on an e-bike, isn't in it."""
+    from datetime import date
+    from flask import Flask
+    import database
+    from build_fiction import make_race
+    from services import challenges
+    from tests.test_segment_race import add_ride, add_segment, up
+    app = Flask('t')
+    app.config['DATABASE'] = str(tmp_path / 'race.db')
+    with app.app_context():
+        database.migrate_db()
+        db = database.get_db()
+        db.execute('INSERT OR IGNORE INTO Settings (id) VALUES (1)')
+        db.execute("INSERT INTO Rider (id, name, isDefault) VALUES (1, 'Alex', 1), (2, 'Sam', 0)")
+        fid = db.execute("INSERT INTO Friend (name, url, riderId) VALUES ('Sam', 'https://sam.example.org', 2)").lastrowid
+        hills = [add_segment(db, f'Hill {i}', x=i * 3000) for i in range(5)]
+        today = date(2026, 11, 20)
+        for i, x in enumerate((0, 3000, 6000)):                                       # both of them, three times each
+            for r, day in ((1, '2026-11-10'), (2, '2026-11-11'), (1 if i == 0 else 2, '2026-11-13')):
+                add_ride(db, f'r{i}-{r}-{day}', day, up(6 + r, x=x), rider=r)
+        add_ride(db, 'solo', '2026-11-10', up(6, x=9000), rider=1)                      # Alex alone
+        add_ride(db, 'zoom', '2026-11-10', up(9, x=12000), sport='EBikeRide', rider=2)   # an e-bike: not in a bike race
+        add_ride(db, 'zoom2', '2026-11-11', up(6, x=12000), rider=1)
+        assert make_race(db, 1, fid, today) == 3
+        c = next(c for c in challenges.challenges(db, 1, today=today) if c['metric'] == 'segments')
+        assert c['start'] == '2026-10-24' and c['end'] == '2026-11-30' and c['name'] == 'Hill race'
+        assert [s['id'] for s in c['race']['segments']] == hills[:3]
+        assert all(len(s['board']) == 2 for s in c['race']['segments'])
+        assert db.execute('SELECT COUNT(*) FROM ChallengeSegment WHERE leaderRiderId IS NOT NULL').fetchone()[0] == 3
+        database.close_db()
