@@ -397,7 +397,7 @@ function pfRender(d) {
   apply.disabled = !!d.plan_error;
   if (d.plan_error) { box.textContent = d.plan_error + ' — fill those in above and save.'; return; }
   var pl = d.plan, f = function(n) { return Number(n).toLocaleString('en-GB'); };
-  box.innerHTML = '<b>' + f(pl.goal) + ' kcal</b> a day &nbsp;·&nbsp; protein ' + pl.protein + ' g · carbs ' + pl.carbs + ' g · fat ' + pl.fat + ' g<br><span style="color:var(--text-muted)">From a resting burn of ' + f(pl.bmr) + ' kcal, your step goal and a typical week's exercise, minus the deficit for losing ' + pfLossText(p.loss_lb_week, d.weight_unit) + ' a week.</span>';
+  box.innerHTML = '<b>' + f(pl.goal) + ' kcal</b> a day &nbsp;·&nbsp; protein ' + pl.protein + ' g · carbs ' + pl.carbs + ' g · fat ' + pl.fat + ' g<br><span style="color:var(--text-muted)">From a resting burn of ' + f(pl.bmr) + ' kcal, your step goal and a typical week\'s exercise, minus the deficit for losing ' + pfLossText(p.loss_lb_week, d.weight_unit) + ' a week.</span>';
 }
 async function pfSave() {
   var msg = document.getElementById('pfMsg'); msg.textContent = 'Saving…';
